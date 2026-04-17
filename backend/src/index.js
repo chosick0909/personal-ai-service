@@ -58,6 +58,11 @@ const app = express()
 const port = Number(process.env.PORT || 3001)
 const host = process.env.HOST || '0.0.0.0'
 const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173'
+const defaultAllowedOrigins = [
+  'http://localhost:5173',
+  'https://www.hookai.kr',
+  'https://hookai.kr',
+]
 
 function normalizeOrigin(value = '') {
   const raw = String(value || '').trim().replace(/^['"]|['"]$/g, '')
@@ -72,7 +77,7 @@ function normalizeOrigin(value = '') {
   }
 }
 
-const configuredOrigins = [process.env.CLIENT_ORIGINS, clientOrigin]
+const configuredOrigins = [process.env.CLIENT_ORIGINS, clientOrigin, ...defaultAllowedOrigins]
   .filter(Boolean)
   .flatMap((value) => String(value).split(','))
   .map((value) => normalizeOrigin(value))
