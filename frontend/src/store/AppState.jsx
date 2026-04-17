@@ -1294,8 +1294,7 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
     setPendingSuggestion(null)
-    setCurrentStep('result')
-    setViewTransition('idle')
+    setViewTransition('to-editor')
     setIsEditorEntering(false)
 
     try {
@@ -1317,6 +1316,12 @@ export function AppStateProvider({ children }) {
         editorContent: serializeEditorSections(nextScript.sections),
         versions: initialVersions,
       })
+      setCurrentStep('editor')
+      setViewTransition('idle')
+      setIsEditorEntering(true)
+      setTimeout(() => {
+        setIsEditorEntering(false)
+      }, 420)
     } catch (error) {
       setChatMessages((current) => [
         ...current,
@@ -1326,6 +1331,7 @@ export function AppStateProvider({ children }) {
           content: error.message || '에디터용 스크립트 생성에 실패했습니다.',
         },
       ])
+      setCurrentStep('result')
       setViewTransition('idle')
     }
   }

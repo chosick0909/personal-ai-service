@@ -65,13 +65,6 @@ export default function ResultCards({ transitioning = false, entering = false })
     generatedScripts,
     referenceData,
     selectedScript,
-    editorSections,
-    updateEditorSection,
-    saveVersion,
-    requestFeedback,
-    isFeedbackLoading,
-    feedback,
-    exportCurrentScriptPdf,
     selectScript,
     goBackToResults,
   } = useAppState()
@@ -242,85 +235,6 @@ export default function ResultCards({ transitioning = false, entering = false })
           </div>
         </section>
 
-        {selectedScript ? (
-          <section className="mt-12 rounded-[32px] border border-[#2F3543] bg-[#0F131B] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <SmallBadge>Editor</SmallBadge>
-                <h2 className="mt-4 text-[30px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6]">
-                  {selectedScript.label} 편집 진행중
-                </h2>
-                <p className="mt-2 text-sm text-[#8E97A6]">선택한 초안을 바로 아래에서 계속 수정할 수 있습니다.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={requestFeedback}
-                  disabled={isFeedbackLoading}
-                  className="rounded-full border border-[#3A414F] bg-[#1B202A] px-4 py-2 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isFeedbackLoading ? '피드백 생성 중...' : '피드백 받기'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => saveVersion('USER')}
-                  className="rounded-full border border-[#3A414F] bg-[#1B202A] px-4 py-2 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
-                >
-                  버전 저장
-                </button>
-                <button
-                  type="button"
-                  onClick={exportCurrentScriptPdf}
-                  className="btn-solid-contrast rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white"
-                >
-                  내보내기
-                </button>
-              </div>
-            </div>
-
-            {feedback ? (
-              <div className="mt-4 rounded-2xl border border-[#2F3543] bg-[#131720] px-4 py-3 text-sm text-[#CBD5E1]">
-                최근 피드백 <span className="font-semibold text-[#F3F4F6]">{feedback.score}점</span> · {feedback.summary}
-              </div>
-            ) : null}
-
-            <div className="mt-5 grid gap-4">
-              <label className="grid gap-3 rounded-[24px] border border-[#4A3338] bg-[#181316] px-4 py-4 text-[#FCA5A5]">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Hook</span>
-                  <span className="text-xs opacity-80">{editorSections.hook.length} 글자</span>
-                </div>
-                <textarea
-                  value={editorSections.hook}
-                  onChange={(event) => updateEditorSection('hook', event.target.value)}
-                  className="min-h-[110px] w-full resize-none rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none transition focus:border-[#8E97A6]"
-                />
-              </label>
-              <label className="grid gap-3 rounded-[24px] border border-[#31435A] bg-[#141A23] px-4 py-4 text-[#93C5FD]">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Body</span>
-                  <span className="text-xs opacity-80">{editorSections.body.length} 글자</span>
-                </div>
-                <textarea
-                  value={editorSections.body}
-                  onChange={(event) => updateEditorSection('body', event.target.value)}
-                  className="min-h-[160px] w-full resize-none rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none transition focus:border-[#8E97A6]"
-                />
-              </label>
-              <label className="grid gap-3 rounded-[24px] border border-[#314A3D] bg-[#131A16] px-4 py-4 text-[#86EFAC]">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">CTA</span>
-                  <span className="text-xs opacity-80">{editorSections.cta.length} 글자</span>
-                </div>
-                <textarea
-                  value={editorSections.cta}
-                  onChange={(event) => updateEditorSection('cta', event.target.value)}
-                  className="min-h-[110px] w-full resize-none rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none transition focus:border-[#8E97A6]"
-                />
-              </label>
-            </div>
-          </section>
-        ) : null}
       </div>
     </div>
   )
