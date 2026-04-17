@@ -221,6 +221,20 @@ app.use(
 app.use(express.json({ limit: '1mb' }))
 app.use(attachSentryRequestContext)
 
+app.get('/', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    message: 'Backend is running',
+  })
+})
+
+app.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    message: 'healthy',
+  })
+})
+
 app.get('/api/health', (_req, res) => {
   const { chatModel, embeddingModel } = getOpenAIModels()
 
