@@ -47,6 +47,7 @@ Fill these values in `.env`.
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 VITE_API_BASE_URL=
+VITE_AUTH_REDIRECT_URL=
 NODE_ENV=development
 APP_RELEASE=local-dev
 VITE_SENTRY_DSN=
@@ -76,6 +77,7 @@ PORT=3001
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_API_BASE_URL` (백엔드 도메인, 예: `https://api.yourdomain.com`)
+- `VITE_AUTH_REDIRECT_URL` (예: `https://www.hookai.kr/analyze`)
 
 4. Backend 환경변수
 - `SUPABASE_URL`

@@ -1286,7 +1286,8 @@ function AuthScreen({
             try {
               setIsOAuthSubmitting(true)
               setError('')
-              const redirectTo = `${window.location.origin}/analyze`
+              const configuredRedirect = (import.meta.env.VITE_AUTH_REDIRECT_URL || '').trim()
+              const redirectTo = configuredRedirect || `${window.location.origin}/analyze`
               const { error: oauthError } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
