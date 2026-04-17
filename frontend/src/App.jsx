@@ -7,7 +7,7 @@ import SettingsPage from './components/SettingsPage'
 import Sidebar from './components/Sidebar'
 import UploadSection from './components/UploadSection'
 import VersionModal from './components/VersionModal'
-import { supabase } from './lib/supabase'
+import { getAuthPersistMode, setAuthPersistMode, supabase } from './lib/supabase'
 import { AppStateProvider, useAppState } from './store/AppState'
 
 function LandingScreen() {
@@ -1214,6 +1214,7 @@ function AuthScreen({
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isOAuthSubmitting, setIsOAuthSubmitting] = useState(false)
+  const [rememberMe, setRememberMe] = useState(() => getAuthPersistMode())
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#0b0d12_0%,#111827_100%)] px-6 py-10">
@@ -1252,6 +1253,17 @@ function AuthScreen({
               className="h-12 rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1]"
             />
           </label>
+          {mode === 'login' ? (
+            <label className="mt-1 inline-flex items-center gap-2 text-sm text-[#CBD5E1]">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                className="h-4 w-4 rounded border border-[#4B5563] bg-[#171B24] accent-[#D1D5DB]"
+              />
+              자동 로그인
+            </label>
+          ) : null}
         </div>
 
         {error ? <div className="mt-4 text-sm text-[#dc2626]">{error}</div> : null}
@@ -1262,6 +1274,7 @@ function AuthScreen({
           onClick={async () => {
             try {
               setIsSubmitting(true)
+              setAuthPersistMode(mode === 'login' ? rememberMe : true)
               await onSubmit({
                 loginId: email,
                 password,
@@ -1286,6 +1299,7 @@ function AuthScreen({
             try {
               setIsOAuthSubmitting(true)
               setError('')
+              setAuthPersistMode(mode === 'login' ? rememberMe : true)
               const configuredRedirect = (import.meta.env.VITE_AUTH_REDIRECT_URL || '').trim()
               const redirectTo = configuredRedirect || `${window.location.origin}/analyze`
               const { error: oauthError } = await supabase.auth.signInWithOAuth({
@@ -1323,12 +1337,7 @@ function AuthScreen({
 }
 
 function LoginScreen() {
-  const { login, isLoggedIn, isAuthReady } = useAppState()
-
-  if (isAuthReady && isLoggedIn) {
-    window.location.assign('/analyze')
-    return null
-  }
+  const { login } = useAppState()
 
   return (
     <AuthScreen
@@ -1344,12 +1353,7 @@ function LoginScreen() {
 }
 
 function SignupScreen() {
-  const { signup, isLoggedIn, isAuthReady } = useAppState()
-
-  if (isAuthReady && isLoggedIn) {
-    window.location.assign('/analyze')
-    return null
-  }
+  const { signup } = useAppState()
 
   return (
     <AuthScreen
