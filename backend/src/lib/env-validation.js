@@ -14,6 +14,12 @@ function isPlaceholder(value) {
   return PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(text))
 }
 
+function looksLikeJwt(value) {
+  const text = String(value || '').trim()
+  const parts = text.split('.')
+  return parts.length === 3 && parts.every((part) => part.length > 0)
+}
+
 export function assertBackendEnv() {
   const required = [
     'SUPABASE_URL',
@@ -28,7 +34,7 @@ export function assertBackendEnv() {
     invalid.push('SUPABASE_URL(format)')
   }
 
-  if (serviceRoleKey && !/^sb_secret_/i.test(serviceRoleKey)) {
+  if (serviceRoleKey && !/^sb_secret_/i.test(serviceRoleKey) && !looksLikeJwt(serviceRoleKey)) {
     invalid.push('SUPABASE_SERVICE_ROLE_KEY(format)')
   }
 
