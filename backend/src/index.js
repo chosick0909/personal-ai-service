@@ -58,10 +58,27 @@ const app = express()
 const port = Number(process.env.PORT || 3001)
 const host = process.env.HOST || '0.0.0.0'
 const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173'
-const clientOrigins = (process.env.CLIENT_ORIGINS || clientOrigin)
-  .split(',')
-  .map((origin) => origin.trim())
+
+function normalizeOrigin(value = '') {
+  const raw = String(value || '').trim().replace(/^['"]|['"]$/g, '')
+  if (!raw) {
+    return ''
+  }
+
+  try {
+    return new URL(raw).origin
+  } catch {
+    return raw.replace(/\/+$/, '')
+  }
+}
+
+const configuredOrigins = [process.env.CLIENT_ORIGINS, clientOrigin]
   .filter(Boolean)
+  .flatMap((value) => String(value).split(','))
+  .map((value) => normalizeOrigin(value))
+  .filter(Boolean)
+
+const clientOrigins = Array.from(new Set(configuredOrigins))
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -211,7 +228,7 @@ app.use(
         return
       }
 
-      if (clientOrigins.includes(origin)) {
+      if (clientOrigins.includes(normalizeOrigin(origin))) {
         callback(null, true)
         return
       }
