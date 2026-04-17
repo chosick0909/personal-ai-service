@@ -3,8 +3,12 @@ import { createClient } from '@supabase/supabase-js'
 import { Agent, fetch as undiciFetch } from 'undici'
 
 function getSupabaseConfig() {
-  const supabaseUrl = process.env.SUPABASE_URL?.trim()
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  const supabaseUrl = String(process.env.SUPABASE_URL || '')
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+  const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '')
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
   const caCertPath =
     process.env.SUPABASE_CA_CERT_PATH?.trim() ||
     process.env.NODE_EXTRA_CA_CERTS?.trim() ||
