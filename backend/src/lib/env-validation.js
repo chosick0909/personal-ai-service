@@ -21,6 +21,16 @@ export function assertBackendEnv() {
   ]
 
   const invalid = required.filter((key) => isPlaceholder(process.env[key]))
+  const supabaseUrl = String(process.env.SUPABASE_URL || '').trim()
+  const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+
+  if (supabaseUrl && !/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(supabaseUrl)) {
+    invalid.push('SUPABASE_URL(format)')
+  }
+
+  if (serviceRoleKey && !/^sb_secret_/i.test(serviceRoleKey)) {
+    invalid.push('SUPABASE_SERVICE_ROLE_KEY(format)')
+  }
 
   if (invalid.length) {
     const message =
@@ -29,4 +39,3 @@ export function assertBackendEnv() {
     throw new Error(message)
   }
 }
-

@@ -33,7 +33,21 @@ export async function requireAuth(req, _res, next) {
     }
 
     const authClient = getAuthVerifierClient()
-    const { data, error } = await authClient.auth.getUser(token)
+    let data
+    let error
+
+    try {
+      const result = await authClient.auth.getUser(token)
+      data = result?.data
+      error = result?.error
+    } catch (cause) {
+      throw new AppError('Auth verification failed. Check Supabase auth env configuration.', {
+        code: 'AUTH_VERIFICATION_FAILED',
+        statusCode: 500,
+        exposeMessage: true,
+        cause,
+      })
+    }
 
     if (error || !data?.user) {
       throw new AppError('Invalid or expired authorization token', {
