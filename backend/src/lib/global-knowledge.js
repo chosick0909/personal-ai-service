@@ -1,5 +1,6 @@
 import { AppError } from './errors.js'
 import { createEmbeddings } from './embeddings.js'
+import { buildCacheKey, cacheConfig, getCacheJson, setCacheJson } from './cache.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 
 const DEFAULT_CATEGORY_PRIORITY = ['hook', 'copywriting', 'examples', 'planning', 'monetization']
@@ -61,7 +62,6 @@ export async function retrieveGlobalKnowledgeContext({
   frameSummary,
   topK = 4,
 }) {
-  const supabase = hasSupabase()
   const categories = inferGlobalKnowledgeCategories({
     title,
     topic,
@@ -78,6 +78,25 @@ export async function retrieveGlobalKnowledgeContext({
     .filter(Boolean)
     .join('\n\n')
 
+  const normalizedTopK = Math.min(Math.max(topK, 1), 5)
+  const cacheKey = buildCacheKey('rag:global-knowledge', {
+    title: String(title || '').trim(),
+    topic: String(topic || '').trim(),
+    transcript: String(transcript || '').trim().slice(0, 1800),
+    frameSummary: String(frameSummary || '').trim().slice(0, 1200),
+    categories,
+    topK: normalizedTopK,
+  })
+
+  if (cacheConfig.enableRagQueryCache) {
+    const cached = await getCacheJson(cacheKey)
+    if (cached && typeof cached === 'object') {
+      return cached
+    }
+  }
+
+  const supabase = hasSupabase()
+
   const [embeddingResult] = await createEmbeddings(queryText, {
     stage: 'global-knowledge-retrieval',
     title,
@@ -91,7 +110,7 @@ export async function retrieveGlobalKnowledgeContext({
     const { data, error } = await supabase.rpc('match_global_knowledge_context', {
       p_category: category,
       query_embedding: embeddingResult.vector,
-      match_count: Math.min(Math.max(topK, 1), 5),
+      match_count: normalizedTopK,
     })
 
     if (error) {
@@ -122,7 +141,7 @@ export async function retrieveGlobalKnowledgeContext({
       .values(),
   )
     .sort((a, b) => Number(b.final_rank || 0) - Number(a.final_rank || 0))
-    .slice(0, Math.min(Math.max(topK, 1), 5))
+    .slice(0, normalizedTopK)
 
   const contextText = deduped.length
     ? deduped
@@ -143,9 +162,15 @@ export async function retrieveGlobalKnowledgeContext({
         .join('\n\n')
     : ''
 
-  return {
+  const result = {
     categories,
     items: deduped,
     contextText,
   }
+
+  if (cacheConfig.enableRagQueryCache) {
+    await setCacheJson(cacheKey, result, cacheConfig.ragQueryCacheTtlSeconds)
+  }
+
+  return result
 }

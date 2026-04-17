@@ -101,7 +101,7 @@ function Field({ label, description, children }) {
 }
 
 export default function SettingsPage({ onBack }) {
-  const { currentAccount, markAccountConfigured } = useAppState()
+  const { currentAccount, markAccountConfigured, updateCurrentAccountName } = useAppState()
   const [account, setAccount] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -109,6 +109,7 @@ export default function SettingsPage({ onBack }) {
   const [success, setSuccess] = useState('')
 
   const [form, setForm] = useState({
+    accountName: '',
     instagramId: '',
     category: CATEGORY_OPTIONS[0],
     accountGoal: ACCOUNT_PURPOSE_OPTIONS[0].id,
@@ -121,6 +122,7 @@ export default function SettingsPage({ onBack }) {
     products: [createProduct(0)],
     strategyPreferences: [],
     voiceTone: VOICE_TONE_OPTIONS[0].id,
+    characterPrompt: '',
     aiAdditionalInfo: '',
   })
 
@@ -149,6 +151,7 @@ export default function SettingsPage({ onBack }) {
 
         setAccount(payload.account || null)
         setForm({
+          accountName: payload.account?.name || '',
           instagramId: settings.instagramId || profile.instagram_id || '',
           category: settings.category || profile.category || CATEGORY_OPTIONS[0],
           accountGoal:
@@ -165,6 +168,7 @@ export default function SettingsPage({ onBack }) {
           products: normalizeProducts(settings.products),
           strategyPreferences: loadedStrategy,
           voiceTone: settings.voiceTone || profile.tone || VOICE_TONE_OPTIONS[0].id,
+          characterPrompt: settings.characterPrompt || '',
           aiAdditionalInfo: settings.aiAdditionalInfo || settings.characterPrompt || '',
         })
       } catch (nextError) {
@@ -259,6 +263,7 @@ export default function SettingsPage({ onBack }) {
         .join(' / ')
 
       await saveAccountProfile({
+        accountName: form.accountName,
         instagramId: form.instagramId,
         category: form.category,
         tone: form.voiceTone,
@@ -267,6 +272,7 @@ export default function SettingsPage({ onBack }) {
         goals: [form.accountGoal],
         strategy: form.strategyPreferences.join(', '),
         settings: {
+          accountName: form.accountName,
           instagramId: form.instagramId,
           category: form.category,
           accountGoal: form.accountGoal,
@@ -282,10 +288,11 @@ export default function SettingsPage({ onBack }) {
           strategyPreferences: form.strategyPreferences,
           voiceTone: form.voiceTone,
           aiAdditionalInfo: form.aiAdditionalInfo,
-          characterPrompt: form.aiAdditionalInfo,
+          characterPrompt: form.characterPrompt,
         },
       })
 
+      updateCurrentAccountName(currentAccount?.id, form.accountName.trim())
       markAccountConfigured(currentAccount?.id, true)
       setSuccess('설정이 저장되었습니다.')
       window.setTimeout(() => {
@@ -328,6 +335,9 @@ export default function SettingsPage({ onBack }) {
               <div className="grid gap-8">
                 <section className="grid gap-4 rounded-3xl border border-[#2F3543] bg-[#131A24] p-5">
                   <SectionTitle>⬇ 계정 카테고리</SectionTitle>
+                  <Field label="계정 이름">
+                    <Input value={form.accountName} onChange={updateField('accountName')} placeholder="예: HookAI 브랜드 계정" />
+                  </Field>
                   <Field label="계정 카테고리">
                     <select
                       value={form.category}
@@ -537,6 +547,14 @@ export default function SettingsPage({ onBack }) {
 
                 <section className="grid gap-4 rounded-3xl border border-[#2F3543] bg-[#131A24] p-5">
                   <SectionTitle>⬇ 추가 정보를 자유 입력</SectionTitle>
+                  <Field label="캐릭터 시스템 프롬프트" description="이 계정이 항상 지켜야 할 말투, 금지 표현, 우선순위를 입력">
+                    <Textarea
+                      value={form.characterPrompt}
+                      onChange={updateField('characterPrompt')}
+                      className="min-h-[120px]"
+                      placeholder="예: 친근하지만 결론부터 말하고, 과장/허위 표현은 금지, 실행 단계 3개로 답변"
+                    />
+                  </Field>
                   <Field label="AI 추가 정보" description="브랜드 스토리, 금지 단어, 선호 표현 방식 등 자유 입력">
                     <Textarea
                       value={form.aiAdditionalInfo}

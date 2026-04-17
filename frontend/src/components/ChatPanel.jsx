@@ -71,19 +71,8 @@ export default function ChatPanel({ entering = false }) {
       <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]">
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-            {chatMessages.map((message) => (
-              <MessageBubble key={message.id} message={message} onApply={applySuggestion} />
-            ))}
-            {isChatLoading ? (
-              <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
-                AI가 수정안을 정리하고 있습니다...
-              </div>
-            ) : null}
-          </div>
-
-          <div className="shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4">
             {feedback ? (
-              <div className="mb-3 rounded-[22px] border border-[#2F3543] bg-[#161B24] p-4">
+              <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#AEB6C5]">
@@ -94,7 +83,7 @@ export default function ChatPanel({ entering = false }) {
                   <button
                     type="button"
                     onClick={applyFeedback}
-                    className="btn-solid-contrast rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white"
+                    className="btn-solid-contrast shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white"
                   >
                     피드백 반영
                   </button>
@@ -104,11 +93,22 @@ export default function ChatPanel({ entering = false }) {
             ) : null}
 
             {pendingSuggestion ? (
-              <div className="mb-3 rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+              <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
                 최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
               </div>
             ) : null}
 
+            {chatMessages.map((message) => (
+              <MessageBubble key={message.id} message={message} onApply={applySuggestion} />
+            ))}
+            {isChatLoading ? (
+              <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+                AI가 수정안을 정리하고 있습니다...
+              </div>
+            ) : null}
+          </div>
+
+          <div className="sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4">
             <div className="rounded-[24px] border border-[#2F3543] bg-[#161B24] p-3">
               <textarea
                 value={draftMessage}

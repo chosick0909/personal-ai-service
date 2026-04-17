@@ -44,17 +44,19 @@ export default function UploadSection() {
         </h1>
         <p className="mt-2 text-center text-base leading-7 text-[#8E97A6]">분석할 영상 레퍼런스를 업로드하세요</p>
 
-        <div className="mx-auto mt-8 w-full max-w-[680px]">
-          <label className="mb-2 block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
-            레퍼런스 제목 (선택)
-          </label>
-          <input
-            value={uploadTitle}
-            onChange={(event) => setUploadTitle(event.target.value)}
-            placeholder="비우면 파일명 사용"
-            className="h-12 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280]"
-          />
-        </div>
+        {!isAnalyzing && currentStep !== 'analyzing' ? (
+          <div className="mx-auto mt-8 w-full max-w-[680px]">
+            <label className="mb-2 block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
+              레퍼런스 제목 (선택)
+            </label>
+            <input
+              value={uploadTitle}
+              onChange={(event) => setUploadTitle(event.target.value)}
+              placeholder="비우면 파일명 사용"
+              className="h-12 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280]"
+            />
+          </div>
+        ) : null}
 
         <div
           onDragOver={(event) => {

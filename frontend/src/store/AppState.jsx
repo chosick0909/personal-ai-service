@@ -28,6 +28,14 @@ import {
 const AppStateContext = createContext(null)
 const PROJECTS_KEY = 'personal-ai-service:projects'
 const ACCOUNT_SETUP_KEY = 'personal-ai-service:account-setup-map'
+const REFERENCE_HISTORY_CACHE_KEY = 'personal-ai-service:reference-history-cache:v1'
+const REFERENCE_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 24
+const ACCOUNTS_CACHE_KEY = 'personal-ai-service:accounts-cache:v1'
+const ACCOUNTS_CACHE_TTL_MS = 1000 * 60 * 60 * 24
+const REFERENCE_DETAIL_CACHE_KEY = 'personal-ai-service:reference-detail-cache:v1'
+const REFERENCE_DETAIL_CACHE_TTL_MS = 1000 * 60 * 60 * 24
+const SCRIPT_VERSIONS_CACHE_KEY = 'personal-ai-service:script-versions-cache:v1'
+const SCRIPT_VERSIONS_CACHE_TTL_MS = 1000 * 60 * 60 * 12
 const OAUTH_NOISE_KEYS = new Set([
   'error',
   'error_code',
@@ -139,6 +147,268 @@ function setStoredAccountSetupMap(map) {
   window.localStorage.setItem(ACCOUNT_SETUP_KEY, JSON.stringify(map))
 }
 
+function normalizeHistoryCacheItem(item = {}) {
+  if (!item?.id) {
+    return null
+  }
+
+  return {
+    id: String(item.id),
+    title: typeof item.title === 'string' ? item.title : '',
+    createdAt: item.createdAt || item.created_at || null,
+    updatedAt: item.updatedAt || item.updated_at || null,
+    status: item.status || null,
+    thumbnailUrl: item.thumbnailUrl || item.thumbnail_url || null,
+  }
+}
+
+function getStoredReferenceHistoryCacheMap() {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  const raw = window.localStorage.getItem(REFERENCE_HISTORY_CACHE_KEY)
+  if (!raw) {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function setStoredReferenceHistoryCacheMap(next) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.localStorage.setItem(REFERENCE_HISTORY_CACHE_KEY, JSON.stringify(next))
+}
+
+function getCachedReferenceHistory(accountId) {
+  if (!accountId) {
+    return []
+  }
+
+  const map = getStoredReferenceHistoryCacheMap()
+  const bucket = map[accountId]
+  if (!bucket || typeof bucket !== 'object') {
+    return []
+  }
+
+  const updatedAt = Number(bucket.updatedAt || 0)
+  if (updatedAt > 0 && Date.now() - updatedAt > REFERENCE_HISTORY_CACHE_TTL_MS) {
+    return []
+  }
+
+  const items = Array.isArray(bucket.items) ? bucket.items : []
+  return items.map(normalizeHistoryCacheItem).filter(Boolean)
+}
+
+function setCachedReferenceHistory(accountId, items) {
+  if (!accountId) {
+    return
+  }
+
+  const normalized = Array.isArray(items)
+    ? items.map(normalizeHistoryCacheItem).filter(Boolean).slice(0, 25)
+    : []
+  const map = getStoredReferenceHistoryCacheMap()
+  map[accountId] = {
+    updatedAt: Date.now(),
+    items: normalized,
+  }
+  setStoredReferenceHistoryCacheMap(map)
+}
+
+function getStoredMap(key) {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  const raw = window.localStorage.getItem(key)
+  if (!raw) {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function setStoredMap(key, next) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(next))
+}
+
+function resolveOwnerCacheKey(user) {
+  return String(user?.id || user?.email || '').trim()
+}
+
+function getCachedAccounts(user) {
+  const ownerKey = resolveOwnerCacheKey(user)
+  if (!ownerKey) {
+    return []
+  }
+
+  const map = getStoredMap(ACCOUNTS_CACHE_KEY)
+  const bucket = map[ownerKey]
+  if (!bucket || typeof bucket !== 'object') {
+    return []
+  }
+
+  const updatedAt = Number(bucket.updatedAt || 0)
+  if (updatedAt > 0 && Date.now() - updatedAt > ACCOUNTS_CACHE_TTL_MS) {
+    return []
+  }
+
+  const items = Array.isArray(bucket.items) ? bucket.items : []
+  return items
+    .map((item) => {
+      if (!item?.id) {
+        return null
+      }
+      return {
+        id: String(item.id),
+        name: typeof item.name === 'string' ? item.name : '',
+        slug: typeof item.slug === 'string' ? item.slug : '',
+        created_at: item.created_at || null,
+      }
+    })
+    .filter(Boolean)
+}
+
+function setCachedAccounts(user, accounts) {
+  const ownerKey = resolveOwnerCacheKey(user)
+  if (!ownerKey) {
+    return
+  }
+
+  const normalized = Array.isArray(accounts)
+    ? accounts
+        .map((item) => {
+          if (!item?.id) {
+            return null
+          }
+          return {
+            id: String(item.id),
+            name: typeof item.name === 'string' ? item.name : '',
+            slug: typeof item.slug === 'string' ? item.slug : '',
+            created_at: item.created_at || null,
+          }
+        })
+        .filter(Boolean)
+    : []
+
+  const map = getStoredMap(ACCOUNTS_CACHE_KEY)
+  map[ownerKey] = {
+    updatedAt: Date.now(),
+    items: normalized,
+  }
+  setStoredMap(ACCOUNTS_CACHE_KEY, map)
+}
+
+function referenceDetailCacheKey(accountId, referenceId) {
+  return `${String(accountId || '').trim()}::${String(referenceId || '').trim()}`
+}
+
+function getCachedReferenceDetail(accountId, referenceId) {
+  const key = referenceDetailCacheKey(accountId, referenceId)
+  if (!key || key === '::') {
+    return null
+  }
+  const map = getStoredMap(REFERENCE_DETAIL_CACHE_KEY)
+  const bucket = map[key]
+  if (!bucket || typeof bucket !== 'object') {
+    return null
+  }
+  const updatedAt = Number(bucket.updatedAt || 0)
+  if (updatedAt > 0 && Date.now() - updatedAt > REFERENCE_DETAIL_CACHE_TTL_MS) {
+    return null
+  }
+  if (!bucket.reference || !Array.isArray(bucket.generatedScripts)) {
+    return null
+  }
+  return {
+    reference: bucket.reference,
+    generatedScripts: bucket.generatedScripts,
+  }
+}
+
+function setCachedReferenceDetail(accountId, referenceId, detail) {
+  const key = referenceDetailCacheKey(accountId, referenceId)
+  if (!key || key === '::') {
+    return
+  }
+  if (!detail?.reference || !Array.isArray(detail.generatedScripts)) {
+    return
+  }
+
+  const map = getStoredMap(REFERENCE_DETAIL_CACHE_KEY)
+  map[key] = {
+    updatedAt: Date.now(),
+    reference: detail.reference,
+    generatedScripts: detail.generatedScripts,
+  }
+  setStoredMap(REFERENCE_DETAIL_CACHE_KEY, map)
+}
+
+function removeCachedReferenceDetail(accountId, referenceId) {
+  const key = referenceDetailCacheKey(accountId, referenceId)
+  if (!key || key === '::') {
+    return
+  }
+  const map = getStoredMap(REFERENCE_DETAIL_CACHE_KEY)
+  if (!(key in map)) {
+    return
+  }
+  delete map[key]
+  setStoredMap(REFERENCE_DETAIL_CACHE_KEY, map)
+}
+
+function scriptVersionsCacheKey(accountId, scriptId) {
+  return `${String(accountId || '').trim()}::${String(scriptId || '').trim()}`
+}
+
+function getCachedScriptVersions(accountId, scriptId) {
+  const key = scriptVersionsCacheKey(accountId, scriptId)
+  if (!key || key === '::') {
+    return []
+  }
+  const map = getStoredMap(SCRIPT_VERSIONS_CACHE_KEY)
+  const bucket = map[key]
+  if (!bucket || typeof bucket !== 'object') {
+    return []
+  }
+  const updatedAt = Number(bucket.updatedAt || 0)
+  if (updatedAt > 0 && Date.now() - updatedAt > SCRIPT_VERSIONS_CACHE_TTL_MS) {
+    return []
+  }
+  return Array.isArray(bucket.items) ? bucket.items : []
+}
+
+function setCachedScriptVersions(accountId, scriptId, versions) {
+  const key = scriptVersionsCacheKey(accountId, scriptId)
+  if (!key || key === '::') {
+    return
+  }
+
+  const map = getStoredMap(SCRIPT_VERSIONS_CACHE_KEY)
+  map[key] = {
+    updatedAt: Date.now(),
+    items: Array.isArray(versions) ? versions : [],
+  }
+  setStoredMap(SCRIPT_VERSIONS_CACHE_KEY, map)
+}
+
 function createEditorSections(input = {}) {
   return {
     hook: input.hook || '',
@@ -205,6 +475,24 @@ const initialState = {
   currentProjectId: null,
 }
 
+function toHistoryStep(currentStep) {
+  if (currentStep === 'editor') {
+    return 'editor'
+  }
+  if (currentStep === 'result') {
+    return 'result'
+  }
+  return 'upload'
+}
+
+function isAnalyzePage() {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  return window.location.pathname === '/analyze'
+}
+
 export function AppStateProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialState.isLoggedIn)
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -239,6 +527,10 @@ export function AppStateProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null)
   const activeReferenceIdRef = useRef(null)
   const toastTimerRef = useRef(null)
+  const historyStepRef = useRef(null)
+  const suppressNextHistoryPushRef = useRef(false)
+  const activeAccountIdRef = useRef(null)
+  const referenceHistoryReadyByAccountRef = useRef({})
 
   useEffect(() => {
     sanitizeOAuthUrlParams({ includeTokenParams: false })
@@ -350,6 +642,30 @@ export function AppStateProvider({ children }) {
     setIsResultEntering(false)
   }
 
+  const applyHistoryStep = (step) => {
+    if (step === 'editor') {
+      if (selectedScript) {
+        setCurrentStep('editor')
+      } else if (referenceData) {
+        setCurrentStep('result')
+      } else {
+        setCurrentStep('upload')
+      }
+    } else if (step === 'result') {
+      if (referenceData) {
+        setCurrentStep('result')
+      } else {
+        setCurrentStep('upload')
+      }
+    } else {
+      setCurrentStep('upload')
+    }
+
+    setViewTransition('idle')
+    setIsEditorEntering(false)
+    setIsResultEntering(false)
+  }
+
   const login = async ({ loginId, password }) => {
     const normalizedLoginId = loginId.trim()
     const normalizedPassword = password.trim()
@@ -437,7 +753,23 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    let canceled = false
+
     const run = async () => {
+      const ownerCacheKey = resolveOwnerCacheKey(currentUser)
+      const cachedAccounts = getCachedAccounts(currentUser)
+
+      if (cachedAccounts.length) {
+        setAccounts(cachedAccounts)
+        const storedAccountId = getStoredAccountId()
+        const cachedCurrentAccount =
+          cachedAccounts.find((item) => item.id === storedAccountId) || cachedAccounts[0] || null
+        if (cachedCurrentAccount) {
+          setStoredAccountId(cachedCurrentAccount.id)
+        }
+        setCurrentAccount(cachedCurrentAccount)
+      }
+
       try {
         let nextAccounts = await listAccounts()
 
@@ -450,7 +782,14 @@ export function AppStateProvider({ children }) {
           nextAccounts = [created]
         }
 
+        if (canceled) {
+          return
+        }
+
         setAccounts(nextAccounts)
+        if (ownerCacheKey) {
+          setCachedAccounts(currentUser, nextAccounts)
+        }
 
         const storedAccountId = getStoredAccountId()
         const nextCurrentAccount =
@@ -462,20 +801,109 @@ export function AppStateProvider({ children }) {
 
         setCurrentAccount(nextCurrentAccount)
       } catch (_error) {
-        setAccounts([])
-        setCurrentAccount(null)
+        if (!cachedAccounts.length) {
+          setAccounts([])
+          setCurrentAccount(null)
+        }
       }
     }
 
     run()
-  }, [isLoggedIn, currentUser?.email])
+    return () => {
+      canceled = true
+    }
+  }, [isLoggedIn, currentUser?.email, currentUser?.id])
+
+  useEffect(() => {
+    if (!isAnalyzePage()) {
+      return undefined
+    }
+
+    const handlePopState = (event) => {
+      const nextStepFromState =
+        event?.state?.studioStep ||
+        (() => {
+          const hash = String(window.location.hash || '').replace(/^#/, '').trim()
+          if (hash === 'upload' || hash === 'result' || hash === 'editor') {
+            return hash
+          }
+          return null
+        })()
+
+      if (!nextStepFromState) {
+        return
+      }
+
+      suppressNextHistoryPushRef.current = true
+      applyHistoryStep(nextStepFromState)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [referenceData, selectedScript])
+
+  useEffect(() => {
+    if (!isAnalyzePage()) {
+      return
+    }
+
+    const nextHistoryStep = toHistoryStep(currentStep)
+    const currentState = window.history.state || {}
+    const nextUrl = `${window.location.pathname}${window.location.search}#${nextHistoryStep}`
+
+    if (!historyStepRef.current) {
+      window.history.replaceState(
+        {
+          ...currentState,
+          studioStep: nextHistoryStep,
+        },
+        '',
+        nextUrl,
+      )
+      historyStepRef.current = nextHistoryStep
+      return
+    }
+
+    if (historyStepRef.current === nextHistoryStep) {
+      return
+    }
+
+    if (suppressNextHistoryPushRef.current) {
+      suppressNextHistoryPushRef.current = false
+      historyStepRef.current = nextHistoryStep
+      return
+    }
+
+    window.history.pushState(
+      {
+        ...currentState,
+        studioStep: nextHistoryStep,
+      },
+      '',
+      nextUrl,
+    )
+    historyStepRef.current = nextHistoryStep
+  }, [currentStep])
 
   useEffect(() => {
     if (!isLoggedIn || !currentAccount?.id) {
       return
     }
 
-    loadReferenceHistory()
+    activeAccountIdRef.current = currentAccount.id
+    referenceHistoryReadyByAccountRef.current[currentAccount.id] = false
+
+    const cached = getCachedReferenceHistory(currentAccount.id)
+    if (cached.length) {
+      setReferenceHistory(cached)
+    } else {
+      setReferenceHistory([])
+    }
+
+    referenceHistoryReadyByAccountRef.current[currentAccount.id] = true
+    loadReferenceHistory(currentAccount.id)
   }, [isLoggedIn, currentAccount?.id])
 
   useEffect(() => {
@@ -496,10 +924,34 @@ export function AppStateProvider({ children }) {
     })
   }, [isLoggedIn, currentAccount?.id])
 
-  const loadReferenceHistory = async () => {
+  useEffect(() => {
+    if (!isLoggedIn || !accounts.length) {
+      return
+    }
+    setCachedAccounts(currentUser, accounts)
+  }, [accounts, currentUser, isLoggedIn])
+
+  useEffect(() => {
+    if (!isLoggedIn || !currentAccount?.id) {
+      return
+    }
+    if (!referenceHistoryReadyByAccountRef.current[currentAccount.id]) {
+      return
+    }
+    setCachedReferenceHistory(currentAccount.id, referenceHistory)
+  }, [isLoggedIn, currentAccount?.id, referenceHistory])
+
+  const loadReferenceHistory = async (accountId = currentAccount?.id) => {
+    if (!accountId) {
+      return
+    }
     try {
       const items = await listReferenceVideoHistory()
+      if (activeAccountIdRef.current !== accountId) {
+        return
+      }
       setReferenceHistory(items)
+      setCachedReferenceHistory(accountId, items)
     } catch (_error) {
       // keep sidebar empty if history fetch fails in mock/dev startup
     }
@@ -657,6 +1109,37 @@ export function AppStateProvider({ children }) {
     })
   }
 
+  const updateCurrentAccountName = (accountId, nextName) => {
+    const normalizedAccountId = String(accountId || '').trim()
+    const normalizedName = String(nextName || '').trim()
+
+    if (!normalizedAccountId || !normalizedName) {
+      return
+    }
+
+    setAccounts((current) =>
+      current.map((item) =>
+        item.id === normalizedAccountId
+          ? {
+              ...item,
+              name: normalizedName,
+            }
+          : item,
+      ),
+    )
+
+    if (currentAccount?.id === normalizedAccountId) {
+      setCurrentAccount((current) =>
+        current
+          ? {
+              ...current,
+              name: normalizedName,
+            }
+          : current,
+      )
+    }
+  }
+
   const isAccountConfigured = (accountId) => Boolean(accountId && accountSetupMap[accountId])
 
   const deleteProject = (projectId) => {
@@ -689,6 +1172,7 @@ export function AppStateProvider({ children }) {
     }
 
     setReferenceHistory((current) => current.filter((item) => item.id !== referenceId))
+    removeCachedReferenceDetail(currentAccount?.id, referenceId)
 
     if (activeReferenceIdRef.current === referenceId || referenceData?.id === referenceId) {
       startNewProject()
@@ -750,9 +1234,14 @@ export function AppStateProvider({ children }) {
         ...analysis.reference,
         status: 'ready',
       }
+      activeReferenceIdRef.current = completedReference.id
 
       setReferenceData(completedReference)
       setGeneratedScripts(analysis.generatedScripts)
+      setCachedReferenceDetail(currentAccount?.id, completedReference.id, {
+        reference: completedReference,
+        generatedScripts: analysis.generatedScripts,
+      })
       setCurrentStep('result')
       setIsResultEntering(true)
       setUploadTitle('')
@@ -805,7 +1294,8 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
     setPendingSuggestion(null)
-    setViewTransition('to-editor')
+    setCurrentStep('result')
+    setViewTransition('idle')
     setIsEditorEntering(false)
 
     try {
@@ -820,20 +1310,13 @@ export function AppStateProvider({ children }) {
 
       setActiveScriptId(created.script?.id || null)
       setVersions(initialVersions)
+      setCachedScriptVersions(currentAccount?.id, created.script?.id, initialVersions)
       syncHistory(activeReferenceIdRef.current, {
         selectedScriptId: nextScript.id,
         activeScriptId: created.script?.id || null,
         editorContent: serializeEditorSections(nextScript.sections),
         versions: initialVersions,
       })
-      setTimeout(() => {
-        setCurrentStep('editor')
-        setViewTransition('idle')
-        setIsEditorEntering(true)
-        setTimeout(() => {
-          setIsEditorEntering(false)
-        }, 420)
-      }, 320)
     } catch (error) {
       setChatMessages((current) => [
         ...current,
@@ -871,11 +1354,81 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    const applyOpenedState = ({ detail, baseItem }) => {
+      activeReferenceIdRef.current = baseItem.id
+      setReferenceData(detail.reference)
+      setGeneratedScripts(detail.generatedScripts || [])
+      setSelectedScript(
+        detail.generatedScripts?.find((script) => script.id === baseItem.selectedScriptId) || null,
+      )
+      setActiveScriptId(baseItem.activeScriptId || null)
+
+      if (baseItem.activeScriptId) {
+        const cachedVersions = getCachedScriptVersions(currentAccount?.id, baseItem.activeScriptId)
+        if (cachedVersions.length) {
+          setVersions(cachedVersions)
+        } else if (Array.isArray(baseItem.versions) && baseItem.versions.length) {
+          setVersions(baseItem.versions)
+          setCachedScriptVersions(currentAccount?.id, baseItem.activeScriptId, baseItem.versions)
+        } else {
+          setVersions([])
+        }
+
+        loadScriptVersions(baseItem.activeScriptId)
+          .then((freshVersions) => {
+            setVersions(freshVersions || [])
+            setCachedScriptVersions(currentAccount?.id, baseItem.activeScriptId, freshVersions || [])
+          })
+          .catch(() => {
+            // keep cached versions when refresh fails
+          })
+      } else {
+        setVersions(Array.isArray(baseItem.versions) ? baseItem.versions : [])
+      }
+
+      setEditorSections(deserializeEditorContent(baseItem.editorContent || ''))
+      setFeedback(baseItem.feedback || null)
+      setPendingSuggestion(null)
+      setChatMessages(
+        baseItem.chatMessages || [
+          {
+            id: `history-${baseItem.id}`,
+            role: 'assistant',
+            content: `${baseItem.title} 작업을 불러왔습니다.`,
+          },
+        ],
+      )
+      setCurrentStep('result')
+      setViewTransition('idle')
+      setIsEditorEntering(false)
+      setIsResultEntering(false)
+      setReferenceHistory((current) =>
+        current.map((entry) =>
+          entry.id === baseItem.id
+            ? {
+                ...entry,
+                ...detail.reference,
+                generatedScripts: detail.generatedScripts,
+              }
+            : entry,
+        ),
+      )
+    }
+
+    const cachedDetail = getCachedReferenceDetail(currentAccount?.id, referenceId)
+    if (cachedDetail) {
+      applyOpenedState({ detail: cachedDetail, baseItem: item })
+    }
+
     const open = async () => {
       let detail
       try {
         detail = await fetchReferenceVideoDetail(referenceId)
       } catch (error) {
+        if (cachedDetail) {
+          return
+        }
+
         if (!item.generatedScripts) {
           throw error
         }
@@ -885,44 +1438,8 @@ export function AppStateProvider({ children }) {
           generatedScripts: item.generatedScripts,
         }
       }
-
-      activeReferenceIdRef.current = item.id
-      setReferenceData(detail.reference)
-      setGeneratedScripts(detail.generatedScripts || [])
-      setSelectedScript(
-        detail.generatedScripts?.find((script) => script.id === item.selectedScriptId) || null,
-      )
-      setActiveScriptId(item.activeScriptId || null)
-      setVersions(
-        item.activeScriptId ? await loadScriptVersions(item.activeScriptId) : item.versions || [],
-      )
-      setEditorSections(deserializeEditorContent(item.editorContent || ''))
-      setFeedback(item.feedback || null)
-      setPendingSuggestion(null)
-      setChatMessages(
-        item.chatMessages || [
-          {
-            id: `history-${item.id}`,
-            role: 'assistant',
-            content: `${item.title} 작업을 불러왔습니다.`,
-          },
-        ],
-      )
-      setCurrentStep(item.selectedScriptId ? 'editor' : 'result')
-      setViewTransition('idle')
-      setIsEditorEntering(false)
-      setIsResultEntering(false)
-      setReferenceHistory((current) =>
-        current.map((entry) =>
-          entry.id === item.id
-            ? {
-                ...entry,
-                ...detail.reference,
-                generatedScripts: detail.generatedScripts,
-              }
-            : entry,
-        ),
-      )
+      setCachedReferenceDetail(currentAccount?.id, referenceId, detail)
+      applyOpenedState({ detail, baseItem: item })
     }
 
     open().catch((error) => {
@@ -952,6 +1469,7 @@ export function AppStateProvider({ children }) {
 
       setVersions((current) => {
         const next = [nextVersion, ...current]
+        setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
         syncHistory(activeReferenceIdRef.current, {
           activeScriptId,
           versions: next,
@@ -1042,6 +1560,7 @@ export function AppStateProvider({ children }) {
       .then((nextVersion) => {
         setVersions((current) => {
           const next = [nextVersion, ...current]
+          setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
           syncHistory(activeReferenceIdRef.current, {
             activeScriptId,
             editorContent: serializedContent,
@@ -1140,6 +1659,7 @@ export function AppStateProvider({ children }) {
       .then((nextVersion) => {
         setVersions((current) => {
           const next = [nextVersion, ...current]
+          setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
           syncHistory(activeReferenceIdRef.current, {
             activeScriptId,
             editorContent: serializedContent,
@@ -1256,6 +1776,7 @@ export function AppStateProvider({ children }) {
       deleteAccount,
       isAccountConfigured,
       markAccountConfigured,
+      updateCurrentAccountName,
       createProject,
       selectProject,
       deleteProject,
@@ -1293,6 +1814,7 @@ export function AppStateProvider({ children }) {
       projects,
       currentProjectId,
       deleteAccount,
+      updateCurrentAccountName,
       currentUser,
       isAuthReady,
       editorSections,

@@ -1,4 +1,5 @@
 import { AppError } from './errors.js'
+import { buildCacheKey, cacheConfig, getCacheJson, setCacheJson } from './cache.js'
 import { createEmbeddings } from './embeddings.js'
 import { logAIError } from './ai-error-logger.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
@@ -81,6 +82,7 @@ export async function getDocumentWithChunks(documentId, accountId) {
 export async function searchChunks({ query, accountId, matchCount = 5 }) {
   const supabaseAdmin = requireSupabaseAdmin()
   const normalizedQuery = query?.trim()
+  const normalizedMatchCount = Math.min(Math.max(matchCount, 1), 50)
 
   if (!normalizedQuery) {
     throw new AppError('query is required', {
@@ -89,22 +91,35 @@ export async function searchChunks({ query, accountId, matchCount = 5 }) {
     })
   }
 
+  const cacheKey = buildCacheKey('rag:account-chunks', {
+    accountId,
+    query: normalizedQuery,
+    matchCount: normalizedMatchCount,
+  })
+
+  if (cacheConfig.enableRagQueryCache) {
+    const cached = await getCacheJson(cacheKey)
+    if (Array.isArray(cached)) {
+      return cached
+    }
+  }
+
   const [embeddingResult] = await createEmbeddings(normalizedQuery, {
     query: normalizedQuery,
-    matchCount,
+    matchCount: normalizedMatchCount,
   })
 
   const { data, error } = await supabaseAdmin.rpc('match_legacy_account_chunks', {
     p_account_id: accountId,
     query_embedding: embeddingResult.vector,
-    match_count: matchCount,
+    match_count: normalizedMatchCount,
   })
 
   if (error) {
     logAIError('db', error, {
       query: normalizedQuery,
       stage: 'match-chunks-rpc',
-      matchCount,
+      matchCount: normalizedMatchCount,
     })
 
     throw new AppError('Failed to search document chunks', {
@@ -112,6 +127,10 @@ export async function searchChunks({ query, accountId, matchCount = 5 }) {
       statusCode: 500,
       cause: error,
     })
+  }
+
+  if (cacheConfig.enableRagQueryCache) {
+    await setCacheJson(cacheKey, data || [], cacheConfig.ragQueryCacheTtlSeconds)
   }
 
   return data

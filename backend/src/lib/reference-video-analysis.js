@@ -1,4 +1,5 @@
 import { AppError } from './errors.js'
+import { buildCacheKey, cacheConfig, getCacheJson, hashText, setCacheJson } from './cache.js'
 import { ingestDocument } from './document-ingest.js'
 import { chunkText } from './chunking.js'
 import { createEmbeddings } from './embeddings.js'
@@ -39,6 +40,36 @@ const VARIATION_CONFIGS = [
       '감정 공감, 실제 경험, 관계 중심 톤, 심리적 저항 완화, 친근한 설득, 참여 유도',
   },
 ]
+
+const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v1').trim() || 'v1'
+
+function cacheLog(stage, details = {}) {
+  const safe = Object.fromEntries(
+    Object.entries(details).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  )
+  console.info(`[reference-video-analysis][cache:${stage}]`, safe)
+}
+
+function buildAnalysisReuseCacheKey({
+  accountId,
+  topic,
+  title,
+  originalFilename,
+  fileBuffer,
+  characterSystemPrompt,
+}) {
+  const fileHash = hashText(fileBuffer || '')
+  const promptHash = hashText(characterSystemPrompt || '')
+  return buildCacheKey('analysis:reference-video', {
+    accountId,
+    topic: String(topic || '').trim().toLowerCase(),
+    title: String(title || '').trim().toLowerCase(),
+    originalFilename: String(originalFilename || '').trim().toLowerCase(),
+    fileHash,
+    promptVersion: ANALYSIS_PROMPT_VERSION,
+    promptHash,
+  })
+}
 
 function logStage(level, stage, context = {}) {
   const safeContext = Object.fromEntries(
@@ -180,6 +211,52 @@ async function runStage(stage, context, task) {
   }
 }
 
+async function persistReusedReferenceVideo({
+  supabaseAdmin,
+  accountId,
+  title,
+  topic,
+  originalFilename,
+  mimeType,
+  cachedAnalysis,
+}) {
+  const { data, error } = await supabaseAdmin
+    .from('reference_videos')
+    .insert({
+      account_id: accountId,
+      title,
+      topic,
+      original_filename: originalFilename,
+      mime_type: mimeType || 'video/mp4',
+      duration_seconds: cachedAnalysis.duration_seconds ?? null,
+      transcript: cachedAnalysis.transcript || '',
+      transcript_segments: cachedAnalysis.transcript_segments || [],
+      frame_timestamps: cachedAnalysis.frame_timestamps || [],
+      frame_notes: cachedAnalysis.frame_notes || [],
+      structure_analysis: cachedAnalysis.structure_analysis || '',
+      hook_analysis: cachedAnalysis.hook_analysis || '',
+      psychology_analysis: cachedAnalysis.psychology_analysis || '',
+      variations: cachedAnalysis.variations || [],
+      ai_feedback: cachedAnalysis.ai_feedback || '',
+      processing_status: 'completed',
+      document_id: cachedAnalysis.document_id || null,
+    })
+    .select(
+      'id, title, topic, original_filename, duration_seconds, transcript, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at',
+    )
+    .single()
+
+  if (error) {
+    throw new AppError('Failed to persist reused reference analysis', {
+      code: 'REFERENCE_VIDEO_REUSE_PERSIST_FAILED',
+      statusCode: 500,
+      cause: error,
+    })
+  }
+
+  return data
+}
+
 export async function analyzeReferenceVideo({ file, topic, title, accountId, characterSystemPrompt = '' }) {
   if (!file) {
     throw new AppError('video file is required', {
@@ -208,6 +285,55 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
   const supabaseAdmin = getSupabaseAdmin()
   const openai = getOpenAIClient()
   const { chatModel } = getOpenAIModels()
+  const analysisReuseCacheKey = buildAnalysisReuseCacheKey({
+    accountId,
+    topic: normalizedTopic,
+    title: normalizedTitle,
+    originalFilename: normalizedOriginalName,
+    fileBuffer: file.buffer,
+    characterSystemPrompt,
+  })
+
+  if (cacheConfig.enableAnalysisResultReuse) {
+    try {
+      const cachedAnalysis = await getCacheJson(analysisReuseCacheKey)
+      if (cachedAnalysis && typeof cachedAnalysis === 'object') {
+        cacheLog('hit', {
+          accountId,
+          topic: normalizedTopic,
+          title: normalizedTitle,
+        })
+        const reused = await persistReusedReferenceVideo({
+          supabaseAdmin,
+          accountId,
+          title: normalizedTitle,
+          topic: normalizedTopic,
+          originalFilename: normalizedOriginalName,
+          mimeType: file.mimetype,
+          cachedAnalysis,
+        })
+
+        return {
+          ...reused,
+          global_knowledge_debug: Array.isArray(cachedAnalysis.global_knowledge_debug)
+            ? cachedAnalysis.global_knowledge_debug
+            : [],
+          global_knowledge_categories: Array.isArray(cachedAnalysis.global_knowledge_categories)
+            ? cachedAnalysis.global_knowledge_categories
+            : [],
+        }
+      }
+    } catch (error) {
+      cacheLog('reuse-fallback', {
+        reason: error?.message || 'unknown',
+      })
+    }
+    cacheLog('miss', {
+      accountId,
+      topic: normalizedTopic,
+      title: normalizedTitle,
+    })
+  }
 
   let workspace
 
@@ -463,11 +589,24 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
       }),
     )
 
-    return {
+    const output = {
       ...row,
       global_knowledge_debug: mapGlobalKnowledgeDebug(globalKnowledge.items || []),
       global_knowledge_categories: globalKnowledge.categories || [],
     }
+
+    if (cacheConfig.enableAnalysisResultReuse) {
+      await setCacheJson(
+        analysisReuseCacheKey,
+        {
+          ...output,
+          transcript_segments: transcript.segments || [],
+        },
+        cacheConfig.analysisResultCacheTtlSeconds,
+      )
+    }
+
+    return output
   } catch (error) {
     if (error instanceof AppError) {
       throw error
@@ -732,6 +871,49 @@ export async function deleteReferenceVideo(referenceVideoId, accountId) {
   if (error) {
     throw new AppError('Failed to delete reference video analysis', {
       code: 'REFERENCE_VIDEO_DELETE_FAILED',
+      statusCode: 500,
+      cause: error,
+    })
+  }
+
+  if (!data) {
+    throw new AppError('Reference video analysis not found', {
+      code: 'REFERENCE_VIDEO_NOT_FOUND',
+      statusCode: 404,
+    })
+  }
+
+  return data
+}
+
+export async function renameReferenceVideo(referenceVideoId, accountId, nextTitle) {
+  if (!hasSupabaseAdminConfig()) {
+    throw new AppError('Supabase admin client is not configured', {
+      code: 'SUPABASE_NOT_CONFIGURED',
+      statusCode: 500,
+    })
+  }
+
+  const normalizedTitle = String(nextTitle || '').trim()
+  if (!normalizedTitle) {
+    throw new AppError('title is required', {
+      code: 'INVALID_REFERENCE_VIDEO_TITLE',
+      statusCode: 400,
+    })
+  }
+
+  const supabaseAdmin = getSupabaseAdmin()
+  const { data, error } = await supabaseAdmin
+    .from('reference_videos')
+    .update({ title: normalizedTitle.slice(0, 200) })
+    .eq('id', referenceVideoId)
+    .eq('account_id', accountId)
+    .select('id, title')
+    .maybeSingle()
+
+  if (error) {
+    throw new AppError('Failed to rename reference video analysis', {
+      code: 'REFERENCE_VIDEO_RENAME_FAILED',
       statusCode: 500,
       cause: error,
     })
