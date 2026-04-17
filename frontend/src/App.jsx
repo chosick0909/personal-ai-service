@@ -1488,29 +1488,7 @@ function RecommendApp() {
   )
 }
 
-function hasOAuthHashTokens() {
-  if (typeof window === 'undefined') {
-    return false
-  }
-
-  const hash = window.location.hash.startsWith('#')
-    ? window.location.hash.slice(1)
-    : window.location.hash
-
-  if (!hash) {
-    return false
-  }
-
-  const params = new URLSearchParams(hash)
-  return params.has('access_token') || params.has('refresh_token')
-}
-
 export default function App() {
-  if (hasOAuthHashTokens() && window.location.pathname !== '/analyze') {
-    window.location.replace('/analyze')
-    return null
-  }
-
   const pathname = window.location.pathname
 
   if (pathname.startsWith('/settings')) {
