@@ -1,15 +1,24 @@
 @import "tailwindcss";
 
 :root {
+  --app-bg: #fdfcfb;
+  --app-surface: #ffffff;
+  --app-text: #1a1a1a;
+  --app-muted: #6b7280;
+  --app-border: #e5e7eb;
+  --app-border-accent: #e9d5ff;
+  --app-primary: #7c3aed;
+  --app-primary-soft: #faf5ff;
+  --app-shadow: 0 24px 60px rgba(17, 24, 39, 0.08);
   font-family:
-    "IBM Plex Sans KR",
     "Pretendard",
+    "IBM Plex Sans KR",
     "Segoe UI",
     sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #f3efe8;
-  background: #14110f;
+  color: var(--app-text);
+  background: var(--app-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -24,10 +33,17 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: var(--app-bg);
 }
 
 #root {
   min-height: 100vh;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 button,
@@ -39,4 +55,78 @@ select {
 
 a {
   color: inherit;
+}
+
+.btn-solid-contrast {
+  background: #e5e7eb !important;
+  color: #0b0d12 !important;
+}
+
+.btn-solid-contrast * {
+  color: inherit !important;
+}
+
+.shimmer-selected {
+  position: relative;
+  overflow: hidden;
+  border-color: #cbd5e1 !important;
+  box-shadow:
+    0 0 0 1px rgba(203, 213, 225, 0.45) inset,
+    0 0 18px rgba(148, 163, 184, 0.22);
+}
+
+.shimmer-selected::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0) 20%,
+    rgba(255, 255, 255, 0.26) 45%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  transform: translateX(-140%);
+  animation: shimmer-sweep 2.2s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    transform: translateX(-140%);
+  }
+  100% {
+    transform: translateX(140%);
+  }
+}
+
+/* Global dark scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4b5563 #11151d;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #11151d;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #4b5563 0%, #374151 100%);
+  border-radius: 999px;
+  border: 2px solid #11151d;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #6b7280 0%, #4b5563 100%);
 }

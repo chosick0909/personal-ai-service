@@ -1,0 +1,134 @@
+import { useRef, useState } from 'react'
+import { useAppState } from '../store/AppState'
+
+function UploadIcon() {
+  return (
+    <svg viewBox="0 0 40 40" aria-hidden="true" className="h-10 w-10 text-[#7C3AED]">
+      <path
+        d="M20 6.67c.5 0 1 .19 1.38.57l10 10-2.36 2.36-5.69-5.69V27.5h-3.33V13.9l-5.69 5.7-2.36-2.36 10-10c.38-.38.88-.57 1.38-.57Zm-12.5 22.5h25c2.77 0 5 2.23 5 5v.83c0 2.77-2.23 5-5 5h-25c-2.77 0-5-2.23-5-5v-.83c0-2.77 2.23-5 5-5Zm0 3.33c-.92 0-1.67.75-1.67 1.67v.83c0 .92.75 1.67 1.67 1.67h25c.92 0 1.67-.75 1.67-1.67v-.83c0-.92-.75-1.67-1.67-1.67h-25Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+export default function UploadSection() {
+  const {
+    currentStep,
+    analyzeReference,
+    isAnalyzing,
+    analyzeError,
+    uploadTitle,
+    setUploadTitle,
+  } = useAppState()
+  const [dragActive, setDragActive] = useState(false)
+  const fileInputRef = useRef(null)
+
+  const handleFile = async (file) => {
+    if (!file || isAnalyzing) {
+      return
+    }
+
+    await analyzeReference(file)
+  }
+
+  return (
+    <div className="flex h-full w-full items-start justify-center overflow-y-auto px-8 pb-16 pt-20 bg-[linear-gradient(180deg,#0D0F14_0%,#141821_100%)]">
+      <div className="w-full max-w-[1024px]">
+        <div className="mx-auto inline-flex h-[42px] items-center justify-center rounded-full border border-[#3A414F] bg-[#1B202A] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
+          {currentStep === 'analyzing' ? 'Step 2: Analyzing Reference' : 'Step 2: Upload Reference'}
+        </div>
+
+        <h1 className="mt-6 text-center text-[42px] font-bold leading-[63px] tracking-[-0.03em] text-[#F3F4F6]">
+          레퍼런스 업로드
+        </h1>
+        <p className="mt-2 text-center text-base leading-7 text-[#8E97A6]">분석할 영상 레퍼런스를 업로드하세요</p>
+
+        <div className="mx-auto mt-8 w-full max-w-[680px]">
+          <label className="mb-2 block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
+            레퍼런스 제목 (선택)
+          </label>
+          <input
+            value={uploadTitle}
+            onChange={(event) => setUploadTitle(event.target.value)}
+            placeholder="비우면 파일명 사용"
+            className="h-12 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280]"
+          />
+        </div>
+
+        <div
+          onDragOver={(event) => {
+            event.preventDefault()
+            setDragActive(true)
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(event) => {
+            event.preventDefault()
+            setDragActive(false)
+            handleFile(event.dataTransfer.files?.[0] || null)
+          }}
+          className={`mt-8 h-[434px] rounded-3xl border-2 px-6 py-10 transition ${
+            dragActive
+              ? 'border-[#8B95A7] bg-[#181C25]'
+              : 'border-[#2F3543] bg-[#131720]'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={(event) => handleFile(event.target.files?.[0] || null)}
+          />
+
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2A2F3C_0%,#1F2430_100%)] shadow-[0_1px_3px_rgba(0,0,0,0.30)]">
+              {currentStep === 'analyzing' ? (
+                <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[#E9D5FF] border-t-[#7C3AED]" />
+              ) : (
+                <UploadIcon />
+              )}
+            </div>
+
+            <div className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
+              {currentStep === 'analyzing' ? 'Analyzing...' : 'Drag & Drop'}
+            </div>
+
+            <h2 className="mt-4 text-2xl font-bold leading-8 text-[#F3F4F6]">
+              {currentStep === 'analyzing'
+                ? 'AI가 레퍼런스 구조를 분석하고 있습니다'
+                : (
+                  <>
+                    레퍼런스 영상을 이곳에 놓거나
+                    <br />
+                    파일을 선택하세요
+                  </>
+                )}
+            </h2>
+
+            <p className="mt-3 text-sm leading-6 text-[#8E97A6]">
+              {currentStep === 'analyzing'
+                ? '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
+                : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다.'}
+            </p>
+
+            {analyzeError ? (
+              <div className="mt-4 rounded-2xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-2 text-sm text-[#B91C1C]">
+                {analyzeError}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              disabled={isAnalyzing}
+              onClick={() => fileInputRef.current?.click()}
+              className="btn-solid-contrast mt-8 inline-flex h-14 items-center justify-center rounded-full px-8 text-base font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {isAnalyzing ? '분석 중...' : '파일 업로드'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

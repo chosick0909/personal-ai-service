@@ -2,6 +2,8 @@ import * as Sentry from '@sentry/node'
 
 const typeMetadata = {
   gpt: { feature: 'gpt', operation: 'completion' },
+  embedding: { feature: 'embedding', operation: 'vectorize' },
+  vision: { feature: 'vision', operation: 'frame-analysis' },
   whisper: { feature: 'whisper', operation: 'transcription' },
   db: { feature: 'db', operation: 'save' },
   analysis: { feature: 'analysis', operation: 'post-processing' },
@@ -37,8 +39,10 @@ export function logAIError(type, error, context = {}) {
     scope.setTag('feature', metadata.feature)
     scope.setTag('operation', metadata.operation)
     scope.setContext('ai_context', safeContext)
-    scope.setExtra('input', safeContext.inputPreview || null)
-    scope.setExtra('prompt', safeContext.promptPreview || null)
+    // Avoid attaching raw input/prompt text to error telemetry.
+    // Keep only coarse metadata to reduce privacy leakage risk.
+    scope.setExtra('input_length', String(safeContext.inputPreview || '').length || null)
+    scope.setExtra('prompt_length', String(safeContext.promptPreview || '').length || null)
 
     Sentry.captureException(error)
   })

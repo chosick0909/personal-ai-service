@@ -10,10 +10,16 @@
   "license": "ISC",
   "description": "Express API backend for the personal AI service",
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@sentry/node": "^10.20.0",
     "@supabase/supabase-js": "^2.100.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "openai": "^6.33.0",
+    "pdf-parse": "^2.4.5",
+    "undici": "^7.24.7"
   }
 }

@@ -1,0 +1,133 @@
+import { useEffect, useState } from 'react'
+import { useAppState } from '../store/AppState'
+
+function MessageBubble({ message, onApply }) {
+  const isUser = message.role === 'user'
+
+  return (
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div
+        className={`max-w-[88%] rounded-[22px] px-4 py-3 text-sm leading-6 ${
+          isUser
+            ? 'btn-solid-contrast'
+            : 'border border-[#2F3543] bg-[#161B24] text-[#D1D5DB]'
+        }`}
+      >
+        <div>{message.content}</div>
+        {message.proposedSections ? (
+          <button
+            type="button"
+            onClick={() => onApply(message.proposedSections)}
+            className="mt-3 rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
+          >
+            이 수정 적용
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+export default function ChatPanel({ entering = false }) {
+  const {
+    chatMessages,
+    draftMessage,
+    setDraftMessage,
+    sendChatMessage,
+    isChatLoading,
+    feedback,
+    applyFeedback,
+    pendingSuggestion,
+    applySuggestion,
+  } = useAppState()
+  const [isVisible, setIsVisible] = useState(!entering)
+
+  useEffect(() => {
+    if (entering) {
+      setIsVisible(false)
+      const timer = window.setTimeout(() => setIsVisible(true), 60)
+      return () => window.clearTimeout(timer)
+    }
+    setIsVisible(true)
+    return undefined
+  }, [entering])
+
+  return (
+    <div
+      className={`flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4 transition-all duration-500 ${
+        !isVisible ? 'translate-x-5 opacity-0 blur-[3px]' : 'translate-x-0 opacity-100 blur-0'
+      }`}
+    >
+      <div className="shrink-0 rounded-[24px] border border-[#2F3543] bg-[#121821] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.25)]">
+        <div className="inline-flex rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D1D5DB]">
+          AI Copilot
+        </div>
+        <h2 className="mt-3 text-xl font-bold text-[#F3F4F6]">AI 코파일럿</h2>
+        <p className="mt-2 text-sm leading-6 text-[#8E97A6]">
+          훅 조정, 문장 압축, CTA 교체 같은 편집 요청을 바로 보낼 수 있습니다.
+        </p>
+      </div>
+
+      <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            {chatMessages.map((message) => (
+              <MessageBubble key={message.id} message={message} onApply={applySuggestion} />
+            ))}
+            {isChatLoading ? (
+              <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+                AI가 수정안을 정리하고 있습니다...
+              </div>
+            ) : null}
+          </div>
+
+          <div className="shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4">
+            {feedback ? (
+              <div className="mb-3 rounded-[22px] border border-[#2F3543] bg-[#161B24] p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#AEB6C5]">
+                      Feedback
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-[#F3F4F6]">{feedback.score}점</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={applyFeedback}
+                    className="btn-solid-contrast rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white"
+                  >
+                    피드백 반영
+                  </button>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{feedback.detail}</p>
+              </div>
+            ) : null}
+
+            {pendingSuggestion ? (
+              <div className="mb-3 rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+                최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
+              </div>
+            ) : null}
+
+            <div className="rounded-[24px] border border-[#2F3543] bg-[#161B24] p-3">
+              <textarea
+                value={draftMessage}
+                onChange={(event) => setDraftMessage(event.target.value)}
+                className="min-h-[92px] w-full resize-none bg-transparent text-sm leading-6 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
+                placeholder="예: HOOK을 더 공격적으로 바꿔줘 / CTA를 상담 유도형으로 바꿔줘"
+              />
+              <button
+                type="button"
+                onClick={sendChatMessage}
+                disabled={isChatLoading}
+                className="btn-solid-contrast mt-3 w-full rounded-full px-4 py-3 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                수정 요청 보내기
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
