@@ -28,6 +28,60 @@ import {
 const AppStateContext = createContext(null)
 const PROJECTS_KEY = 'personal-ai-service:projects'
 const ACCOUNT_SETUP_KEY = 'personal-ai-service:account-setup-map'
+const OAUTH_NOISE_KEYS = new Set([
+  'error',
+  'error_code',
+  'error_description',
+  'access_token',
+  'refresh_token',
+  'provider_token',
+  'expires_at',
+  'expires_in',
+  'token_type',
+  'sb',
+])
+
+function sanitizeOAuthUrlParams() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const currentUrl = new URL(window.location.href)
+  let changed = false
+
+  for (const key of Array.from(currentUrl.searchParams.keys())) {
+    if (OAUTH_NOISE_KEYS.has(key)) {
+      currentUrl.searchParams.delete(key)
+      changed = true
+    }
+  }
+
+  const rawHash = currentUrl.hash.startsWith('#') ? currentUrl.hash.slice(1) : currentUrl.hash
+  if (rawHash) {
+    const hashParams = new URLSearchParams(rawHash)
+    let hashChanged = false
+
+    for (const key of Array.from(hashParams.keys())) {
+      if (OAUTH_NOISE_KEYS.has(key)) {
+        hashParams.delete(key)
+        hashChanged = true
+      }
+    }
+
+    if (hashChanged) {
+      const nextHash = hashParams.toString()
+      currentUrl.hash = nextHash ? `#${nextHash}` : ''
+      changed = true
+    }
+  }
+
+  if (!changed) {
+    return
+  }
+
+  const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`
+  window.history.replaceState({}, '', nextUrl)
+}
 
 function getStoredProjects() {
   if (typeof window === 'undefined') {
@@ -183,6 +237,8 @@ export function AppStateProvider({ children }) {
   const toastTimerRef = useRef(null)
 
   useEffect(() => {
+    sanitizeOAuthUrlParams()
+
     let mounted = true
 
     const syncSession = async () => {
