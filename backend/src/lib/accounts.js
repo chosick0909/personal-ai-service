@@ -16,6 +16,20 @@ function requireSupabaseAdmin() {
   return getSupabaseAdmin()
 }
 
+async function runAccountQuery(action, operation) {
+  try {
+    return await operation()
+  } catch (cause) {
+    throw new AppError('Account database query failed', {
+      code: 'ACCOUNT_DB_QUERY_FAILED',
+      statusCode: 500,
+      exposeMessage: true,
+      details: { action },
+      cause,
+    })
+  }
+}
+
 function raiseSchemaMismatchIfNeeded(error, action) {
   const code = String(error?.code || '').trim()
   const message = String(error?.message || '')
@@ -83,12 +97,14 @@ export async function resolveAccount({
   }
 
   if (normalizedAccountId) {
-    const { data, error } = await supabaseAdmin
-      .from('accounts')
-      .select('id, slug, name')
-      .eq('id', normalizedAccountId)
-      .eq('owner_user_id', normalizedUserId)
-      .single()
+    const { data, error } = await runAccountQuery('resolveAccountById', () =>
+      supabaseAdmin
+        .from('accounts')
+        .select('id, slug, name')
+        .eq('id', normalizedAccountId)
+        .eq('owner_user_id', normalizedUserId)
+        .single(),
+    )
 
     if (error) {
       raiseSchemaMismatchIfNeeded(error, 'resolveAccountById')
@@ -102,12 +118,14 @@ export async function resolveAccount({
     return data
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('accounts')
-    .select('id, slug, name')
-    .eq('slug', normalizedAccountSlug)
-    .eq('owner_user_id', normalizedUserId)
-    .single()
+  const { data, error } = await runAccountQuery('resolveAccountBySlug', () =>
+    supabaseAdmin
+      .from('accounts')
+      .select('id, slug, name')
+      .eq('slug', normalizedAccountSlug)
+      .eq('owner_user_id', normalizedUserId)
+      .single(),
+  )
 
   if (error) {
     raiseSchemaMismatchIfNeeded(error, 'resolveAccountBySlug')
@@ -160,11 +178,13 @@ export async function listAccounts(userId) {
     })
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('accounts')
-    .select('id, slug, name, created_at, updated_at')
-    .eq('owner_user_id', normalizedUserId)
-    .order('created_at', { ascending: true })
+  const { data, error } = await runAccountQuery('listAccounts', () =>
+    supabaseAdmin
+      .from('accounts')
+      .select('id, slug, name, created_at, updated_at')
+      .eq('owner_user_id', normalizedUserId)
+      .order('created_at', { ascending: true }),
+  )
 
   if (error) {
     raiseSchemaMismatchIfNeeded(error, 'listAccounts')
@@ -202,11 +222,13 @@ export async function createAccount(input = {}, userId) {
   let suffix = 1
 
   while (true) {
-    const { data, error } = await supabaseAdmin
-      .from('accounts')
-      .select('id')
-      .eq('slug', nextSlug)
-      .maybeSingle()
+    const { data, error } = await runAccountQuery('validateAccountSlug', () =>
+      supabaseAdmin
+        .from('accounts')
+        .select('id')
+        .eq('slug', nextSlug)
+        .maybeSingle(),
+    )
 
     if (error) {
       raiseSchemaMismatchIfNeeded(error, 'validateAccountSlug')
@@ -225,15 +247,17 @@ export async function createAccount(input = {}, userId) {
     nextSlug = `${baseSlug}-${suffix}`
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('accounts')
-    .insert({
-      name,
-      slug: nextSlug,
-      owner_user_id: normalizedUserId,
-    })
-    .select('id, slug, name, created_at, updated_at')
-    .single()
+  const { data, error } = await runAccountQuery('createAccount', () =>
+    supabaseAdmin
+      .from('accounts')
+      .insert({
+        name,
+        slug: nextSlug,
+        owner_user_id: normalizedUserId,
+      })
+      .select('id, slug, name, created_at, updated_at')
+      .single(),
+  )
 
   if (error) {
     raiseSchemaMismatchIfNeeded(error, 'createAccount')
@@ -275,13 +299,15 @@ export async function updateAccount(accountId, input = {}, userId) {
     })
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('accounts')
-    .update(payload)
-    .eq('id', accountId)
-    .eq('owner_user_id', normalizedUserId)
-    .select('id, slug, name, created_at, updated_at')
-    .single()
+  const { data, error } = await runAccountQuery('updateAccount', () =>
+    supabaseAdmin
+      .from('accounts')
+      .update(payload)
+      .eq('id', accountId)
+      .eq('owner_user_id', normalizedUserId)
+      .select('id, slug, name, created_at, updated_at')
+      .single(),
+  )
 
   if (error) {
     raiseSchemaMismatchIfNeeded(error, 'updateAccount')
@@ -314,13 +340,15 @@ export async function deleteAccount(accountId, userId) {
     })
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('accounts')
-    .delete()
-    .eq('id', normalizedAccountId)
-    .eq('owner_user_id', normalizedUserId)
-    .select('id, slug, name')
-    .single()
+  const { data, error } = await runAccountQuery('deleteAccount', () =>
+    supabaseAdmin
+      .from('accounts')
+      .delete()
+      .eq('id', normalizedAccountId)
+      .eq('owner_user_id', normalizedUserId)
+      .select('id, slug, name')
+      .single(),
+  )
 
   if (error) {
     raiseSchemaMismatchIfNeeded(error, 'deleteAccount')
