@@ -51,6 +51,7 @@ import { logAIError } from './lib/ai-error-logger.js'
 import { assertBackendEnv } from './lib/env-validation.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+// Deploy trigger: backend touchpoint.
 dotenv.config({ path: resolve(__dirname, '../../.env') })
 assertBackendEnv()
 

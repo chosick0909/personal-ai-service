@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar'
 import UploadSection from './components/UploadSection'
 import VersionModal from './components/VersionModal'
 import { getAuthPersistMode, setAuthPersistMode, supabase } from './lib/supabase'
+// Deploy trigger: frontend touchpoint.
 import { AppStateProvider, useAppState } from './store/AppState'
 
 function LandingScreen() {
