@@ -1337,7 +1337,12 @@ function AuthScreen({
 }
 
 function LoginScreen() {
-  const { login } = useAppState()
+  const { login, isLoggedIn, isAuthReady } = useAppState()
+
+  if (isAuthReady && isLoggedIn) {
+    window.location.assign('/analyze')
+    return null
+  }
 
   return (
     <AuthScreen
@@ -1353,7 +1358,12 @@ function LoginScreen() {
 }
 
 function SignupScreen() {
-  const { signup } = useAppState()
+  const { signup, isLoggedIn, isAuthReady } = useAppState()
+
+  if (isAuthReady && isLoggedIn) {
+    window.location.assign('/analyze')
+    return null
+  }
 
   return (
     <AuthScreen
