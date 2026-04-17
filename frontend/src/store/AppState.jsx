@@ -41,7 +41,7 @@ const OAUTH_NOISE_KEYS = new Set([
   'sb',
 ])
 
-function sanitizeOAuthUrlParams() {
+function sanitizeOAuthUrlParams({ includeTokenParams = false } = {}) {
   if (typeof window === 'undefined') {
     return
   }
@@ -49,8 +49,12 @@ function sanitizeOAuthUrlParams() {
   const currentUrl = new URL(window.location.href)
   let changed = false
 
+  const cleanupKeys = includeTokenParams
+    ? OAUTH_NOISE_KEYS
+    : new Set(['error', 'error_code', 'error_description'])
+
   for (const key of Array.from(currentUrl.searchParams.keys())) {
-    if (OAUTH_NOISE_KEYS.has(key)) {
+    if (cleanupKeys.has(key)) {
       currentUrl.searchParams.delete(key)
       changed = true
     }
@@ -62,7 +66,7 @@ function sanitizeOAuthUrlParams() {
     let hashChanged = false
 
     for (const key of Array.from(hashParams.keys())) {
-      if (OAUTH_NOISE_KEYS.has(key)) {
+      if (cleanupKeys.has(key)) {
         hashParams.delete(key)
         hashChanged = true
       }
@@ -237,7 +241,7 @@ export function AppStateProvider({ children }) {
   const toastTimerRef = useRef(null)
 
   useEffect(() => {
-    sanitizeOAuthUrlParams()
+    sanitizeOAuthUrlParams({ includeTokenParams: false })
 
     let mounted = true
 
@@ -253,6 +257,7 @@ export function AppStateProvider({ children }) {
       setCurrentUser(session?.user || null)
       setIsLoggedIn(Boolean(session?.user))
       setIsAuthReady(true)
+      sanitizeOAuthUrlParams({ includeTokenParams: Boolean(session?.user) })
 
       if (!session?.user) {
         setStoredAccountId('')
@@ -269,6 +274,7 @@ export function AppStateProvider({ children }) {
       setCurrentUser(session?.user || null)
       setIsLoggedIn(Boolean(session?.user))
       setIsAuthReady(true)
+      sanitizeOAuthUrlParams({ includeTokenParams: Boolean(session?.user) })
 
       if (!session?.user) {
         setStoredAccountId('')
