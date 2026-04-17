@@ -48,9 +48,11 @@ import {
   initBackendSentry,
 } from './lib/sentry.js'
 import { logAIError } from './lib/ai-error-logger.js'
+import { assertBackendEnv } from './lib/env-validation.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: resolve(__dirname, '../../.env') })
+assertBackendEnv()
 
 const app = express()
 const port = Number(process.env.PORT || 3001)
