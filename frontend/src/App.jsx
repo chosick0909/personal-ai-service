@@ -1399,7 +1399,7 @@ function MainPanel() {
 }
 
 function StudioShell() {
-  const { isVersionModalOpen, currentStep, selectedScript, viewTransition, toast, isLoggedIn, isAuthReady } = useAppState()
+  const { isVersionModalOpen, currentStep, viewTransition, toast, isLoggedIn, isAuthReady } = useAppState()
 
   if (!isAuthReady) {
     return null
@@ -1414,11 +1414,7 @@ function StudioShell() {
     <AppLayout
       sidebar={<Sidebar />}
       main={<MainPanel />}
-      panel={
-        currentStep === 'editor' || (currentStep === 'result' && selectedScript)
-          ? <ChatPanel entering={viewTransition !== 'to-result'} />
-          : null
-      }
+      panel={currentStep === 'editor' ? <ChatPanel entering={viewTransition !== 'to-result'} /> : null}
     >
       {toast ? (
         <div className="pointer-events-none fixed left-1/2 top-6 z-[60] -translate-x-1/2">

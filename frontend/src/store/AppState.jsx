@@ -1353,6 +1353,10 @@ export function AppStateProvider({ children }) {
     }, 320)
   }
 
+  const goBackToUpload = () => {
+    startNewProject()
+  }
+
   const openReference = (referenceId) => {
     const item = referenceHistory.find((entry) => entry.id === referenceId)
 
@@ -1775,6 +1779,7 @@ export function AppStateProvider({ children }) {
       viewTransition,
       isEditorEntering,
       isResultEntering,
+      goBackToUpload,
       goBackToResults,
       loadReferenceHistory,
       selectAccount,

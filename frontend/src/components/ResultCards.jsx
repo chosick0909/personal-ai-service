@@ -66,7 +66,7 @@ export default function ResultCards({ transitioning = false, entering = false })
     referenceData,
     selectedScript,
     selectScript,
-    goBackToResults,
+    goBackToUpload,
   } = useAppState()
   const [isVisible, setIsVisible] = useState(!entering)
 
@@ -167,7 +167,7 @@ export default function ResultCards({ transitioning = false, entering = false })
       <div className="mx-auto w-full max-w-[1184px]">
         <button
           type="button"
-          onClick={goBackToResults}
+          onClick={goBackToUpload}
           className="inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium text-[#AEB6C5] transition hover:bg-[#1B202A]"
         >
           <BackIcon />
