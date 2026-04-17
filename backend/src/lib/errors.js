@@ -1,13 +1,20 @@
 export class AppError extends Error {
   constructor(
     message,
-    { code = 'INTERNAL_SERVER_ERROR', statusCode = 500, details, cause } = {},
+    {
+      code = 'INTERNAL_SERVER_ERROR',
+      statusCode = 500,
+      details,
+      cause,
+      exposeMessage = false,
+    } = {},
   ) {
     super(message, { cause })
     this.name = 'AppError'
     this.code = code
     this.statusCode = statusCode
     this.details = details
+    this.exposeMessage = exposeMessage
   }
 }
 
@@ -34,8 +41,9 @@ export function errorHandler(error, req, res, _next) {
   const statusCode = error.statusCode || 500
   const code = error.code || 'INTERNAL_SERVER_ERROR'
   const isDevelopment = (process.env.NODE_ENV || 'development') === 'development'
+  const exposeMessage = Boolean(error.exposeMessage)
   const message =
-    statusCode >= 500 && !isDevelopment
+    statusCode >= 500 && !isDevelopment && !exposeMessage
       ? 'Internal server error'
       : error.message || 'Request failed'
   const rawDetails =

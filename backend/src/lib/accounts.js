@@ -16,6 +16,34 @@ function requireSupabaseAdmin() {
   return getSupabaseAdmin()
 }
 
+function raiseSchemaMismatchIfNeeded(error, action) {
+  const code = String(error?.code || '').trim()
+  const message = String(error?.message || '')
+  const details = String(error?.details || '')
+  const hint = String(error?.hint || '')
+  const merged = `${message}\n${details}\n${hint}`
+
+  const hasOwnerColumnIssue = code === '42703' || /owner_user_id/i.test(merged)
+  const hasMissingTableIssue = code === '42P01' || /relation .*accounts/i.test(merged)
+
+  if (!hasOwnerColumnIssue && !hasMissingTableIssue) {
+    return
+  }
+
+  throw new AppError(
+    '배포 DB 스키마가 최신이 아닙니다. Supabase 마이그레이션을 적용하세요 (accounts.owner_user_id 포함).',
+    {
+      code: 'DB_SCHEMA_MISMATCH',
+      statusCode: 500,
+      exposeMessage: true,
+      details: {
+        action,
+      },
+      cause: error,
+    },
+  )
+}
+
 function slugifyAccountName(value = '') {
   const normalized = value
     .trim()
@@ -63,6 +91,7 @@ export async function resolveAccount({
       .single()
 
     if (error) {
+      raiseSchemaMismatchIfNeeded(error, 'resolveAccountById')
       throw new AppError('Account not found', {
         code: 'ACCOUNT_NOT_FOUND',
         statusCode: 404,
@@ -81,6 +110,7 @@ export async function resolveAccount({
     .single()
 
   if (error) {
+    raiseSchemaMismatchIfNeeded(error, 'resolveAccountBySlug')
     throw new AppError('Account not found', {
       code: 'ACCOUNT_NOT_FOUND',
       statusCode: 404,
@@ -137,6 +167,7 @@ export async function listAccounts(userId) {
     .order('created_at', { ascending: true })
 
   if (error) {
+    raiseSchemaMismatchIfNeeded(error, 'listAccounts')
     throw new AppError('Failed to load accounts', {
       code: 'ACCOUNT_LIST_FAILED',
       statusCode: 500,
@@ -178,6 +209,7 @@ export async function createAccount(input = {}, userId) {
       .maybeSingle()
 
     if (error) {
+      raiseSchemaMismatchIfNeeded(error, 'validateAccountSlug')
       throw new AppError('Failed to validate account slug', {
         code: 'ACCOUNT_SLUG_CHECK_FAILED',
         statusCode: 500,
@@ -204,6 +236,7 @@ export async function createAccount(input = {}, userId) {
     .single()
 
   if (error) {
+    raiseSchemaMismatchIfNeeded(error, 'createAccount')
     throw new AppError('Failed to create account', {
       code: 'ACCOUNT_CREATE_FAILED',
       statusCode: 500,
@@ -251,6 +284,7 @@ export async function updateAccount(accountId, input = {}, userId) {
     .single()
 
   if (error) {
+    raiseSchemaMismatchIfNeeded(error, 'updateAccount')
     throw new AppError('Failed to update account', {
       code: 'ACCOUNT_UPDATE_FAILED',
       statusCode: 500,
@@ -289,6 +323,7 @@ export async function deleteAccount(accountId, userId) {
     .single()
 
   if (error) {
+    raiseSchemaMismatchIfNeeded(error, 'deleteAccount')
     throw new AppError('Failed to delete account', {
       code: 'ACCOUNT_DELETE_FAILED',
       statusCode: 500,

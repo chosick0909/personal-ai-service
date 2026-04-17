@@ -140,6 +140,7 @@ export async function analyzeReferenceVideo({ file, topic, title }) {
 
   const response = await apiFetch('/api/reference-videos/analyze', {
     method: 'POST',
+    timeoutMs: 8 * 60 * 1000,
     body: formData,
   })
   const payload = await parseApiResponse(response)

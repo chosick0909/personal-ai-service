@@ -55,6 +55,7 @@ export function setStoredAccountId(accountId) {
 }
 
 export async function apiFetch(input, init = {}) {
+  const { timeoutMs, ...requestInit } = init
   const headers = new Headers(init.headers || {})
   const accountId = getStoredAccountId()
   const {
@@ -69,10 +70,27 @@ export async function apiFetch(input, init = {}) {
     headers.set('Authorization', `Bearer ${session.access_token}`)
   }
 
-  return fetch(resolveApiUrl(input), {
-    ...init,
-    headers,
-  })
+  const controller = new AbortController()
+  const signals = [controller.signal]
+  if (requestInit.signal) {
+    signals.push(requestInit.signal)
+  }
+  const signal = AbortSignal.any(signals)
+  const timer = timeoutMs && Number(timeoutMs) > 0
+    ? setTimeout(() => controller.abort(new DOMException('Request timeout', 'AbortError')), Number(timeoutMs))
+    : null
+
+  try {
+    return await fetch(resolveApiUrl(input), {
+      ...requestInit,
+      headers,
+      signal,
+    })
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  }
 }
 
 export function createApiError(response, payload, fallbackMessage) {
