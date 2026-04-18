@@ -75,6 +75,8 @@ export default function Sidebar() {
   const {
     referenceHistory,
     referenceData,
+    currentStep,
+    isAnalyzing,
     openReference,
     projects,
     currentProjectId,
@@ -115,6 +117,12 @@ export default function Sidebar() {
       id: item.id,
       title: item.title,
       active: referenceData?.id === item.id,
+      isProcessing:
+        item.status === 'processing' ||
+        (referenceData?.id === item.id && (currentStep === 'analyzing' || isAnalyzing)),
+      isEditing:
+        referenceData?.id === item.id &&
+        (currentStep === 'editor' || item.lastStep === 'editor'),
       onClick: () => openReference(item.id),
       onDelete: async () => {
         const ok = window.confirm(`"${item.title}" 대화내역을 삭제할까요?`)
@@ -130,7 +138,15 @@ export default function Sidebar() {
     }
 
     return dynamic.filter((item) => item.title.toLowerCase().includes(normalizedQuery))
-  }, [deleteReferenceHistoryItem, normalizedQuery, openReference, referenceData?.id, referenceHistory])
+  }, [
+    currentStep,
+    deleteReferenceHistoryItem,
+    isAnalyzing,
+    normalizedQuery,
+    openReference,
+    referenceData?.id,
+    referenceHistory,
+  ])
 
   const accountRows = useMemo(() => accounts.slice(0, 6), [accounts])
 
@@ -285,7 +301,14 @@ export default function Sidebar() {
         <div className="px-6 pt-4 text-xs font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">최근</div>
         <div className="px-3 pb-3 pt-2">
           {recentRows.map((item) => (
-            <div key={item.id} className="group flex h-10 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm transition hover:bg-[#232833]">
+            <div
+              key={item.id}
+              className={`group flex h-10 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm transition ${
+                item.active
+                  ? 'border border-[#4B5563] bg-[#2B313D]'
+                  : 'hover:bg-[#232833]'
+              }`}
+            >
               <button
                 type="button"
                 onClick={item.onClick}
@@ -295,6 +318,17 @@ export default function Sidebar() {
               >
                 <IconFile />
                 <span className="truncate">{item.title}</span>
+                {item.isProcessing ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-[#6B7280] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold text-[#D1D5DB]">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#60A5FA]" />
+                    진행중
+                  </span>
+                ) : null}
+                {!item.isProcessing && item.isEditing ? (
+                  <span className="inline-flex items-center rounded-full border border-[#4B5563] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold text-[#CBD5E1]">
+                    편집중
+                  </span>
+                ) : null}
               </button>
               <button
                 type="button"

@@ -169,13 +169,74 @@ function normalizeHistoryCacheItem(item = {}) {
     return null
   }
 
+  const normalizedChatMessages = Array.isArray(item.chatMessages)
+    ? item.chatMessages
+        .map((message) => {
+          if (!message || typeof message !== 'object') {
+            return null
+          }
+          return {
+            id: String(message.id || `msg-${Date.now()}`),
+            role: message.role === 'user' ? 'user' : 'assistant',
+            content: String(message.content || ''),
+            feedback:
+              message.feedback && typeof message.feedback === 'object' ? message.feedback : undefined,
+            proposedSections:
+              message.proposedSections && typeof message.proposedSections === 'object'
+                ? message.proposedSections
+                : undefined,
+          }
+        })
+        .filter(Boolean)
+        .slice(-60)
+    : []
+
   return {
     id: String(item.id),
     title: typeof item.title === 'string' ? item.title : '',
+    topic: typeof item.topic === 'string' ? item.topic : '',
+    fileName: typeof item.fileName === 'string' ? item.fileName : '',
     createdAt: item.createdAt || item.created_at || null,
     updatedAt: item.updatedAt || item.updated_at || null,
     status: item.status || null,
     thumbnailUrl: item.thumbnailUrl || item.thumbnail_url || null,
+    selectedScriptId: typeof item.selectedScriptId === 'string' ? item.selectedScriptId : null,
+    activeScriptId: typeof item.activeScriptId === 'string' ? item.activeScriptId : null,
+    editorContent: typeof item.editorContent === 'string' ? item.editorContent : '',
+    versions: Array.isArray(item.versions) ? item.versions : [],
+    feedback: item.feedback && typeof item.feedback === 'object' ? item.feedback : null,
+    generatedScripts: Array.isArray(item.generatedScripts) ? item.generatedScripts : [],
+    chatMessages: normalizedChatMessages,
+    lastStep:
+      item.lastStep === 'editor' || item.lastStep === 'result' || item.lastStep === 'upload'
+        ? item.lastStep
+        : null,
+  }
+}
+
+function mergeHistoryItem(serverItem, localItem) {
+  const normalizedServer = normalizeHistoryCacheItem(serverItem)
+  if (!normalizedServer) {
+    return null
+  }
+
+  const normalizedLocal = normalizeHistoryCacheItem(localItem || {})
+  if (!normalizedLocal) {
+    return normalizedServer
+  }
+
+  return {
+    ...normalizedServer,
+    selectedScriptId: normalizedLocal.selectedScriptId || normalizedServer.selectedScriptId,
+    activeScriptId: normalizedLocal.activeScriptId || normalizedServer.activeScriptId,
+    editorContent: normalizedLocal.editorContent || normalizedServer.editorContent,
+    versions: normalizedLocal.versions?.length ? normalizedLocal.versions : normalizedServer.versions,
+    feedback: normalizedLocal.feedback || normalizedServer.feedback,
+    generatedScripts:
+      normalizedLocal.generatedScripts?.length ? normalizedLocal.generatedScripts : normalizedServer.generatedScripts,
+    chatMessages:
+      normalizedLocal.chatMessages?.length ? normalizedLocal.chatMessages : normalizedServer.chatMessages,
+    lastStep: normalizedLocal.lastStep || normalizedServer.lastStep,
   }
 }
 
@@ -993,8 +1054,16 @@ export function AppStateProvider({ children }) {
       if (activeAccountIdRef.current !== accountId) {
         return
       }
-      setReferenceHistory(items)
-      setCachedReferenceHistory(accountId, items)
+      setReferenceHistory((current) => {
+        const merged = (Array.isArray(items) ? items : [])
+          .map((serverItem) => {
+            const matchedLocal = current.find((localItem) => localItem.id === serverItem.id)
+            return mergeHistoryItem(serverItem, matchedLocal)
+          })
+          .filter(Boolean)
+        setCachedReferenceHistory(accountId, merged)
+        return merged
+      })
     } catch (_error) {
       // keep sidebar empty if history fetch fails in mock/dev startup
     }
@@ -1295,6 +1364,7 @@ export function AppStateProvider({ children }) {
             ? {
                 ...completedReference,
                 generatedScripts: analysis.generatedScripts,
+                lastStep: 'result',
               }
             : item,
         ),
@@ -1359,6 +1429,7 @@ export function AppStateProvider({ children }) {
         activeScriptId: created.script?.id || null,
         editorContent: serializeEditorSections(nextScript.sections),
         versions: initialVersions,
+        lastStep: 'editor',
       })
       setCurrentStep('editor')
       setViewTransition('idle')
@@ -1384,6 +1455,10 @@ export function AppStateProvider({ children }) {
     if (!generatedScripts.length) {
       return
     }
+
+    syncHistory(activeReferenceIdRef.current, {
+      lastStep: 'result',
+    })
 
     setViewTransition('to-result')
     setIsResultEntering(false)
@@ -1452,7 +1527,12 @@ export function AppStateProvider({ children }) {
           },
         ],
       )
-      setCurrentStep('result')
+      const restoredStep =
+        baseItem.lastStep === 'editor' &&
+        detail.generatedScripts?.some((script) => script.id === baseItem.selectedScriptId)
+          ? 'editor'
+          : 'result'
+      setCurrentStep(restoredStep)
       setViewTransition('idle')
       setIsEditorEntering(false)
       setIsResultEntering(false)
@@ -1463,6 +1543,7 @@ export function AppStateProvider({ children }) {
                 ...entry,
                 ...detail.reference,
                 generatedScripts: detail.generatedScripts,
+                lastStep: restoredStep,
               }
             : entry,
         ),
@@ -1688,7 +1769,13 @@ export function AppStateProvider({ children }) {
 
     setDraftMessage('')
     setIsChatLoading(true)
-    setChatMessages((current) => [...current, userMessage])
+    setChatMessages((current) => {
+      const next = [...current, userMessage]
+      syncHistory(activeReferenceIdRef.current, {
+        chatMessages: next,
+      })
+      return next
+    })
 
     try {
       const response = await generateChatReply({
@@ -1714,14 +1801,20 @@ export function AppStateProvider({ children }) {
         return next
       })
     } catch (error) {
-      setChatMessages((current) => [
-        ...current,
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: 'assistant',
-          content: error.message || '수정 요청 처리에 실패했습니다.',
-        },
-      ])
+      setChatMessages((current) => {
+        const next = [
+          ...current,
+          {
+            id: `assistant-error-${Date.now()}`,
+            role: 'assistant',
+            content: error.message || '수정 요청 처리에 실패했습니다.',
+          },
+        ]
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+        })
+        return next
+      })
     } finally {
       setIsChatLoading(false)
     }
@@ -1754,6 +1847,7 @@ export function AppStateProvider({ children }) {
             activeScriptId,
             editorContent: serializedContent,
             versions: next,
+            lastStep: 'editor',
           })
           return next
         })
@@ -1789,6 +1883,7 @@ export function AppStateProvider({ children }) {
       syncHistory(activeReferenceIdRef.current, {
         activeScriptId,
         editorContent: version.content,
+        lastStep: 'editor',
       })
       showToast('버전 복원 완료')
     } catch (error) {
@@ -1819,6 +1914,7 @@ export function AppStateProvider({ children }) {
 
       syncHistory(activeReferenceIdRef.current, {
         editorContent: serializeEditorSections(next),
+        lastStep: currentStep === 'editor' ? 'editor' : 'result',
       })
 
       return next
