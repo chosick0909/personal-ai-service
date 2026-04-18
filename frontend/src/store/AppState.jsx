@@ -579,6 +579,7 @@ export function AppStateProvider({ children }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
+  const [isApplyingFeedback, setIsApplyingFeedback] = useState(false)
   const [viewTransition, setViewTransition] = useState('idle')
   const [isEditorEntering, setIsEditorEntering] = useState(false)
   const [isResultEntering, setIsResultEntering] = useState(false)
@@ -1719,7 +1720,8 @@ export function AppStateProvider({ children }) {
         selectedLabel: selectedScript?.label,
         sections: editorSections,
       })
-      setFeedback(result)
+      const normalizedFeedback = { ...result, applied: false }
+      setFeedback(normalizedFeedback)
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -1727,11 +1729,11 @@ export function AppStateProvider({ children }) {
             id: `feedback-${Date.now()}`,
             role: 'assistant',
             content: result.summary || `현재 초안은 ${result.score}점입니다.`,
-            feedback: result,
+            feedback: normalizedFeedback,
           },
         ]
         syncHistory(activeReferenceIdRef.current, {
-          feedback: result,
+          feedback: normalizedFeedback,
           chatMessages: next,
         })
         return next
@@ -1756,73 +1758,92 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const applyFeedback = () => {
-    if (!feedback?.suggestedSections) {
+  const applyFeedback = async () => {
+    if (isApplyingFeedback || feedback?.applied || !feedback?.suggestedSections) {
       return
     }
 
+    setIsApplyingFeedback(true)
     const serializedContent = serializeEditorSections(feedback.suggestedSections)
     setEditorSections(createEditorSections(feedback.suggestedSections))
     setPendingSuggestion(null)
     if (!activeScriptId) {
+      setIsApplyingFeedback(false)
       return
     }
 
-    saveVersionRecord({
-      scriptId: activeScriptId,
-      title: '피드백 반영본',
-      sections: feedback.suggestedSections,
-      versionType: 'feedback_apply',
-      score: feedback.score,
-      metadata: {
-        referenceId: referenceData?.id,
-        selectedLabel: selectedScript?.label,
-        feedbackSummary: feedback.summary,
-      },
-    })
-      .then((nextVersion) => {
-        const appliedMessage = {
-          id: `feedback-applied-${Date.now()}`,
-          role: 'assistant',
-          content: '피드백을 반영해서 대본을 수정했습니다. 새로운 버전으로 저장되었어요!',
-        }
+    try {
+      const nextVersion = await saveVersionRecord({
+        scriptId: activeScriptId,
+        title: '피드백 반영본',
+        sections: feedback.suggestedSections,
+        versionType: 'feedback_apply',
+        score: feedback.score,
+        metadata: {
+          referenceId: referenceData?.id,
+          selectedLabel: selectedScript?.label,
+          feedbackSummary: feedback.summary,
+        },
+      })
 
-        setVersions((current) => {
-          const next = [nextVersion, ...current]
-          setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
-          syncHistory(activeReferenceIdRef.current, {
-            activeScriptId,
-            editorContent: serializedContent,
-            versions: next,
-            feedback,
-          })
-          return next
+      const appliedMessage = {
+        id: `feedback-applied-${Date.now()}`,
+        role: 'assistant',
+        content: '피드백을 반영해서 대본을 수정했습니다. 새로운 버전으로 저장되었어요!',
+      }
+
+      const appliedFeedback = {
+        ...feedback,
+        applied: true,
+      }
+
+      setFeedback(appliedFeedback)
+
+      setVersions((current) => {
+        const next = [nextVersion, ...current]
+        setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
+        syncHistory(activeReferenceIdRef.current, {
+          activeScriptId,
+          editorContent: serializedContent,
+          versions: next,
+          feedback: appliedFeedback,
         })
-        setChatMessages((current) => {
-          const next = [...current, appliedMessage]
-          syncHistory(activeReferenceIdRef.current, {
-            chatMessages: next,
-          })
-          return next
-        })
-        showToast('피드백 반영 저장 완료')
+        return next
       })
-      .catch((error) => {
-        setChatMessages((current) => {
-          const next = [
-            ...current,
-            {
-              id: `feedback-apply-error-${Date.now()}`,
-              role: 'assistant',
-              content: error.message || '피드백 반영 저장에 실패했습니다.',
-            },
-          ]
-          syncHistory(activeReferenceIdRef.current, {
-            chatMessages: next,
-          })
-          return next
+
+      setChatMessages((current) => {
+        const marked = current.map((message) =>
+          message.feedback
+            ? { ...message, feedback: { ...message.feedback, applied: true } }
+            : message,
+        )
+        const next = [...marked, appliedMessage]
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+          feedback: appliedFeedback,
         })
+        return next
       })
+
+      showToast('피드백 반영 저장 완료')
+    } catch (error) {
+      setChatMessages((current) => {
+        const next = [
+          ...current,
+          {
+            id: `feedback-apply-error-${Date.now()}`,
+            role: 'assistant',
+            content: error.message || '피드백 반영 저장에 실패했습니다.',
+          },
+        ]
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+        })
+        return next
+      })
+    } finally {
+      setIsApplyingFeedback(false)
+    }
   }
 
   const sendChatMessage = async () => {
@@ -2023,6 +2044,7 @@ export function AppStateProvider({ children }) {
       isAnalyzing,
       isChatLoading,
       isFeedbackLoading,
+      isApplyingFeedback,
       viewTransition,
       isEditorEntering,
       isResultEntering,
@@ -2083,6 +2105,7 @@ export function AppStateProvider({ children }) {
       isAnalyzing,
       isChatLoading,
       isFeedbackLoading,
+      isApplyingFeedback,
       isEditorEntering,
       isLoggedIn,
       isResultEntering,

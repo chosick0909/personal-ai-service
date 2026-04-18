@@ -1,8 +1,15 @@
 import { useAppState } from '../store/AppState'
 
-function MessageBubble({ message, onApply, onApplyFeedback }) {
+function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }) {
   const isUser = message.role === 'user'
   const feedback = message.feedback
+  const isFeedbackApplied = Boolean(feedback?.applied)
+  const isApplyDisabled = isFeedbackApplied || isApplyingFeedback
+  const applyButtonLabel = isFeedbackApplied
+    ? '피드백 반영 완료'
+    : isApplyingFeedback
+      ? '반영 중...'
+      : '피드백 반영하기'
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -25,9 +32,10 @@ function MessageBubble({ message, onApply, onApplyFeedback }) {
               <button
                 type="button"
                 onClick={onApplyFeedback}
-                className="btn-solid-contrast shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-white"
+                disabled={isApplyDisabled}
+                className="btn-solid-contrast shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                피드백 반영하기
+                {applyButtonLabel}
               </button>
             </div>
             <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{feedback.detail || message.content}</p>
@@ -59,6 +67,7 @@ export default function ChatPanel({ entering = false, embedded = false }) {
     sendChatMessage,
     isChatLoading,
     applyFeedback,
+    isApplyingFeedback,
     pendingSuggestion,
     applySuggestion,
   } = useAppState()
@@ -91,6 +100,7 @@ export default function ChatPanel({ entering = false, embedded = false }) {
                 message={message}
                 onApply={applySuggestion}
                 onApplyFeedback={applyFeedback}
+                isApplyingFeedback={isApplyingFeedback}
               />
             ))}
             {isChatLoading ? (
