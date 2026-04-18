@@ -338,12 +338,23 @@ export default function Sidebar() {
           </Row>
 
           {projectRows.map((item) => (
-            <div key={item.id} className="group flex h-10 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm transition hover:bg-[#232833]">
+            <div
+              key={item.id}
+              className={`group relative flex h-10 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm transition ${
+                item.active ? 'border border-[#4B5563] bg-[#2B313D]' : 'hover:bg-[#232833]'
+              }`}
+            >
+              {item.active ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-[#93C5FD]"
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={item.onClick}
                 className={`flex min-w-0 flex-1 items-center gap-2 text-left ${
-                  item.active ? 'text-[#F3F4F6]' : 'text-[#E5E7EB]'
+                  item.active ? 'font-semibold text-[#F3F4F6]' : 'text-[#E5E7EB]'
                 }`}
               >
                 <span className="truncate">{item.title}</span>
@@ -398,19 +409,14 @@ export default function Sidebar() {
                 <IconFile />
                 <span className="truncate">{item.title}</span>
                 {item.isProcessing ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-[#6B7280] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold text-[#D1D5DB]">
+                  <span className="inline-flex shrink-0 whitespace-nowrap items-center gap-1 rounded-full border border-[#6B7280] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-[#D1D5DB]">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#60A5FA]" />
                     진행중
                   </span>
                 ) : null}
                 {!item.isProcessing && item.isEditing ? (
-                  <span className="inline-flex items-center rounded-full border border-[#4B5563] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold text-[#CBD5E1]">
+                  <span className="inline-flex shrink-0 whitespace-nowrap items-center rounded-full border border-[#4B5563] bg-[#1B202A] px-2 py-0.5 text-[9px] font-semibold leading-none text-[#CBD5E1]">
                     편집중
-                  </span>
-                ) : null}
-                {item.active && !item.isProcessing ? (
-                  <span className="inline-flex items-center rounded-full border border-[#60A5FA] bg-[#172033] px-1.5 py-0.5 text-[9px] font-semibold text-[#93C5FD]">
-                    현재
                   </span>
                 ) : null}
               </button>
