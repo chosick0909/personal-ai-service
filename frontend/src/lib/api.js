@@ -1,7 +1,9 @@
 import { supabase } from './supabase'
 
 const ACCOUNT_STORAGE_KEY = 'studio:selected-account-id'
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '')
+const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim()
+const DEFAULT_API_BASE_URL = 'https://api.hookai.kr'
+const API_BASE_URL = (RAW_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '')
 
 function resolveApiUrl(input) {
   if (!API_BASE_URL || typeof input !== 'string') {

@@ -61,6 +61,8 @@ const host = process.env.HOST || '0.0.0.0'
 const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173'
 const defaultAllowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:8080',
+  'http://localhost:4173',
   'https://www.hookai.kr',
   'https://hookai.kr',
 ]
@@ -283,7 +285,7 @@ app.use('/api/admin', requireAdmin)
 app.get(
   '/api/accounts',
   asyncHandler(async (_req, res) => {
-    const accounts = await listAccounts(_req.auth?.userId)
+    const accounts = await listAccounts(_req.auth?.userId, _req.auth?.email)
 
     res.json({
       accounts,

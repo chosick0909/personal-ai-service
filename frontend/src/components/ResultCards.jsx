@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import ScriptCard from './ScriptCard'
+import Editor from './Editor'
+import ChatPanel from './ChatPanel'
 import { useAppState } from '../store/AppState'
 
 function BackIcon() {
@@ -67,20 +69,10 @@ export default function ResultCards({ transitioning = false, entering = false })
     selectedScript,
     selectScript,
     goBackToUpload,
+    currentStep,
+    setIsVersionModalOpen,
+    saveVersion,
   } = useAppState()
-  const [isVisible, setIsVisible] = useState(!entering)
-
-  useEffect(() => {
-    if (entering) {
-      setIsVisible(false)
-      const timer = window.setTimeout(() => setIsVisible(true), 24)
-      return () => window.clearTimeout(timer)
-    }
-
-    setIsVisible(true)
-    return undefined
-  }, [entering])
-
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
@@ -152,13 +144,7 @@ export default function ResultCards({ transitioning = false, entering = false })
 
   return (
     <div
-      className={`h-full overflow-y-auto px-6 py-10 transition-all duration-500 md:px-12 ${
-        transitioning
-          ? 'pointer-events-none translate-y-4 opacity-0 blur-[3px]'
-          : !isVisible
-            ? 'translate-y-6 opacity-0 blur-[4px]'
-            : 'translate-y-0 opacity-100 blur-0'
-      }`}
+      className="h-full overflow-y-auto px-6 py-10 md:px-12"
       style={{
         backgroundImage:
           'radial-gradient(ellipse 97.8% 156.47% at 20% 10%, rgba(84,89,102,0.18) 0%, rgba(84,89,102,0) 50%), radial-gradient(ellipse 94.34% 150.94% at 80% 80%, rgba(140,146,160,0.12) 0%, rgba(140,146,160,0) 50%), linear-gradient(180deg, #0D0F14 0%, #11151D 100%)',
@@ -234,6 +220,44 @@ export default function ResultCards({ transitioning = false, entering = false })
             ))}
           </div>
         </section>
+
+        {currentStep === 'editor' && selectedScript ? (
+          <section className="mt-14">
+            <SmallBadge tone="pink">Editor</SmallBadge>
+            <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-4xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6]">스크립트 에디터</h2>
+                <p className="mt-2 text-sm text-[#8E97A6]">
+                  선택한 {selectedScript.label}을 자유롭게 수정하고 AI 코파일럿으로 피드백을 적용하세요.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsVersionModalOpen(true)}
+                  className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
+                >
+                  저장 내역
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveVersion('USER')}
+                  className="btn-solid-contrast rounded-full px-5 py-2.5 text-sm font-semibold transition hover:bg-[#D1D5DB]"
+                >
+                  버전 저장
+                </button>
+              </div>
+            </div>
+            <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="min-w-0">
+                <Editor embedded entering={false} transitioning={false} />
+              </div>
+              <div className="min-w-0">
+                <ChatPanel embedded entering={false} />
+              </div>
+            </div>
+          </section>
+        ) : null}
 
       </div>
     </div>

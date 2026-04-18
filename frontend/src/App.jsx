@@ -1276,11 +1276,20 @@ function AuthScreen({
             try {
               setIsSubmitting(true)
               setAuthPersistMode(mode === 'login' ? rememberMe : true)
-              await onSubmit({
+              const result = await onSubmit({
                 loginId: email,
                 password,
                 accountName: email.split('@')[0] || email,
               })
+              if (mode === 'signup' && result?.requiresEmailConfirmation) {
+                if (result?.rateLimited) {
+                  window.alert('인증 메일은 30초 간격으로만 다시 요청할 수 있습니다. 받은 메일을 확인한 뒤 로그인해주세요.')
+                } else {
+                  window.alert('회원가입 완료. 이메일 인증 후 로그인해주세요.')
+                }
+                window.location.assign('/login')
+                return
+              }
               window.location.assign('/analyze')
             } catch (nextError) {
               setError(nextError.message || `${primaryLabel}에 실패했습니다.`)
@@ -1395,16 +1404,16 @@ function MainPanel() {
     return <UploadSection />
   }
 
-  if (currentStep === 'result') {
+  if (currentStep === 'result' || currentStep === 'editor') {
     return (
       <ResultCards
-        transitioning={viewTransition === 'to-editor'}
-        entering={isResultEntering}
+        transitioning={viewTransition === 'to-editor' || viewTransition === 'to-result'}
+        entering={isResultEntering || isEditorEntering}
       />
     )
   }
 
-  return <Editor transitioning={viewTransition === 'to-result'} entering={isEditorEntering} />
+  return <Editor transitioning={false} entering={false} />
 }
 
 function StudioShell() {
@@ -1422,7 +1431,7 @@ function StudioShell() {
     <AppLayout
       sidebar={<Sidebar />}
       main={<MainPanel />}
-      panel={currentStep === 'editor' ? <ChatPanel entering={viewTransition !== 'to-result'} /> : null}
+      panel={null}
     >
       {toast ? (
         <div className="pointer-events-none fixed left-1/2 top-6 z-[60] -translate-x-1/2">

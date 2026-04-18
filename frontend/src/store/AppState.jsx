@@ -721,11 +721,30 @@ export function AppStateProvider({ children }) {
     })
 
     if (error) {
+      const lowerMessage = String(error.message || '').toLowerCase()
+      if (lowerMessage.includes('only request this after')) {
+        return {
+          user: null,
+          requiresEmailConfirmation: true,
+          rateLimited: true,
+        }
+      }
       throw new Error(error.message || '회원가입에 실패했습니다.')
     }
 
-    if (!data?.session || !data?.user) {
-      throw new Error('이메일 인증 후 로그인해주세요.')
+    if (!data?.user) {
+      throw new Error('회원가입에 실패했습니다. 잠시 후 다시 시도해주세요.')
+    }
+
+    // When email confirmation is enabled, Supabase returns a user without a session.
+    // Treat this as a successful signup and move the user to login after verification.
+    if (!data.session) {
+      setIsLoggedIn(false)
+      setCurrentUser(null)
+      return {
+        user: data.user,
+        requiresEmailConfirmation: true,
+      }
     }
 
     const created = await createAccount({
@@ -744,7 +763,10 @@ export function AppStateProvider({ children }) {
     setIsLoggedIn(true)
     setCurrentStep('upload')
 
-    return data.user
+    return {
+      user: data.user,
+      requiresEmailConfirmation: false,
+    }
   }
 
   const logout = async () => {
@@ -1522,7 +1544,21 @@ export function AppStateProvider({ children }) {
   }
 
   const requestFeedback = async () => {
+    const userFeedbackRequestMessage = {
+      id: `user-feedback-${Date.now()}`,
+      role: 'user',
+      content: '피드백',
+    }
+
     setIsFeedbackLoading(true)
+    setChatMessages((current) => {
+      const next = [...current, userFeedbackRequestMessage]
+      syncHistory(activeReferenceIdRef.current, {
+        chatMessages: next,
+      })
+      return next
+    })
+
     try {
       const result = await generateScriptFeedback({
         referenceId: referenceData?.id,
@@ -1531,34 +1567,37 @@ export function AppStateProvider({ children }) {
         sections: editorSections,
       })
       setFeedback(result)
-      setChatMessages((current) => [
-        ...current,
-        {
-          id: `feedback-${Date.now()}`,
-          role: 'assistant',
-          content: `현재 초안은 ${result.score}점입니다. ${result.summary}`,
-        },
-      ])
-      syncHistory(activeReferenceIdRef.current, {
-        feedback: result,
-        chatMessages: [
-          ...chatMessages,
+      setChatMessages((current) => {
+        const next = [
+          ...current,
           {
             id: `feedback-${Date.now()}`,
             role: 'assistant',
-            content: `현재 초안은 ${result.score}점입니다. ${result.summary}`,
+            content: result.summary || `현재 초안은 ${result.score}점입니다.`,
+            feedback: result,
           },
-        ],
+        ]
+        syncHistory(activeReferenceIdRef.current, {
+          feedback: result,
+          chatMessages: next,
+        })
+        return next
       })
     } catch (error) {
-      setChatMessages((current) => [
-        ...current,
-        {
-          id: `feedback-error-${Date.now()}`,
-          role: 'assistant',
-          content: error.message || '피드백 생성에 실패했습니다.',
-        },
-      ])
+      setChatMessages((current) => {
+        const next = [
+          ...current,
+          {
+            id: `feedback-error-${Date.now()}`,
+            role: 'assistant',
+            content: error.message || '피드백 생성에 실패했습니다.',
+          },
+        ]
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+        })
+        return next
+      })
     } finally {
       setIsFeedbackLoading(false)
     }
@@ -1589,6 +1628,12 @@ export function AppStateProvider({ children }) {
       },
     })
       .then((nextVersion) => {
+        const appliedMessage = {
+          id: `feedback-applied-${Date.now()}`,
+          role: 'assistant',
+          content: '피드백을 반영해서 대본을 수정했습니다. 새로운 버전으로 저장되었어요!',
+        }
+
         setVersions((current) => {
           const next = [nextVersion, ...current]
           setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
@@ -1600,17 +1645,30 @@ export function AppStateProvider({ children }) {
           })
           return next
         })
+        setChatMessages((current) => {
+          const next = [...current, appliedMessage]
+          syncHistory(activeReferenceIdRef.current, {
+            chatMessages: next,
+          })
+          return next
+        })
         showToast('피드백 반영 저장 완료')
       })
       .catch((error) => {
-        setChatMessages((current) => [
-          ...current,
-          {
-            id: `feedback-apply-error-${Date.now()}`,
-            role: 'assistant',
-            content: error.message || '피드백 반영 저장에 실패했습니다.',
-          },
-        ])
+        setChatMessages((current) => {
+          const next = [
+            ...current,
+            {
+              id: `feedback-apply-error-${Date.now()}`,
+              role: 'assistant',
+              content: error.message || '피드백 반영 저장에 실패했습니다.',
+            },
+          ]
+          syncHistory(activeReferenceIdRef.current, {
+            chatMessages: next,
+          })
+          return next
+        })
       })
   }
 

@@ -12,9 +12,9 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
     <article
       className={`rounded-[28px] border p-5 shadow-[0_20px_50px_rgba(0,0,0,0.36)] transition ${
         isSelected
-          ? 'border-[#8E97A6] bg-[#161C28] ring-1 ring-[#8E97A6]'
+          ? 'border-[#A5B4FC] bg-[#161C28] ring-2 ring-[#A5B4FC] shadow-[0_24px_60px_rgba(99,102,241,0.18)]'
           : hasSelection
-            ? 'border-[#2A303B] bg-[#11151D] grayscale-[0.35] opacity-75'
+            ? 'border-[#2A303B] bg-[#11151D] grayscale-[0.55] opacity-55'
             : 'border-[#2F3543] bg-[#12151D]'
       }`}
     >
@@ -25,8 +25,8 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
               {script.label}
             </div>
             {isSelected ? (
-              <div className="inline-flex rounded-full border border-[#8E97A6] bg-[#1E2635] px-2 py-0.5 text-[10px] font-semibold text-[#E5E7EB]">
-                선택됨
+              <div className="inline-flex rounded-full border border-[#A5B4FC] bg-[#1E2635] px-2 py-0.5 text-[10px] font-semibold text-[#E5E7EB]">
+                선택한 초안
               </div>
             ) : null}
           </div>
@@ -57,7 +57,7 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
         onClick={() => onSelect(script.id)}
         className="btn-solid-contrast mt-5 flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold transition hover:bg-white"
       >
-        사용하기
+        {isSelected ? '선택됨' : '사용하기'}
       </button>
     </article>
   )

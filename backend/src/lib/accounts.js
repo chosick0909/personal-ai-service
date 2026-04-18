@@ -167,7 +167,80 @@ export function getDefaultAccountSlug() {
   return DEFAULT_ACCOUNT_SLUG
 }
 
-export async function listAccounts(userId) {
+async function transferAccountsByEmailMatch({
+  supabaseAdmin,
+  targetUserId,
+  targetEmail,
+}) {
+  const normalizedEmail = String(targetEmail || '').trim().toLowerCase()
+  if (!normalizedEmail) {
+    return false
+  }
+
+  const { data: ownedByOthers, error: ownersError } = await runAccountQuery(
+    'transferAccountsByEmailMatch:ownedByOthers',
+    () =>
+      supabaseAdmin
+        .from('accounts')
+        .select('owner_user_id')
+        .not('owner_user_id', 'is', null),
+  )
+
+  if (ownersError) {
+    raiseSchemaMismatchIfNeeded(ownersError, 'transferAccountsByEmailMatch:ownedByOthers')
+    return false
+  }
+
+  const ownerIds = Array.from(
+    new Set(
+      (ownedByOthers || [])
+        .map((item) => String(item?.owner_user_id || '').trim())
+        .filter((id) => id && id !== targetUserId),
+    ),
+  )
+
+  if (!ownerIds.length) {
+    return false
+  }
+
+  let matchedOwnerId = ''
+  for (const ownerId of ownerIds) {
+    try {
+      const result = await supabaseAdmin.auth.admin.getUserById(ownerId)
+      const ownerEmail = String(result?.data?.user?.email || '')
+        .trim()
+        .toLowerCase()
+      if (ownerEmail && ownerEmail === normalizedEmail) {
+        matchedOwnerId = ownerId
+        break
+      }
+    } catch {
+      // Ignore noisy auth lookups and continue matching candidates.
+    }
+  }
+
+  if (!matchedOwnerId) {
+    return false
+  }
+
+  const { error: transferError } = await runAccountQuery(
+    'transferAccountsByEmailMatch:updateOwner',
+    () =>
+      supabaseAdmin
+        .from('accounts')
+        .update({ owner_user_id: targetUserId })
+        .eq('owner_user_id', matchedOwnerId),
+  )
+
+  if (transferError) {
+    raiseSchemaMismatchIfNeeded(transferError, 'transferAccountsByEmailMatch:updateOwner')
+    return false
+  }
+
+  return true
+}
+
+export async function listAccounts(userId, userEmail = '') {
   const supabaseAdmin = requireSupabaseAdmin()
   const normalizedUserId = String(userId || '').trim()
 
@@ -178,13 +251,16 @@ export async function listAccounts(userId) {
     })
   }
 
-  const { data, error } = await runAccountQuery('listAccounts', () =>
-    supabaseAdmin
-      .from('accounts')
-      .select('id, slug, name, created_at, updated_at')
-      .eq('owner_user_id', normalizedUserId)
-      .order('created_at', { ascending: true }),
-  )
+  const fetchOwnedAccounts = () =>
+    runAccountQuery('listAccounts', () =>
+      supabaseAdmin
+        .from('accounts')
+        .select('id, slug, name, created_at, updated_at')
+        .eq('owner_user_id', normalizedUserId)
+        .order('created_at', { ascending: true }),
+    )
+
+  let { data, error } = await fetchOwnedAccounts()
 
   if (error) {
     raiseSchemaMismatchIfNeeded(error, 'listAccounts')
@@ -195,7 +271,35 @@ export async function listAccounts(userId) {
     })
   }
 
-  return data || []
+  let accounts = data || []
+  if (accounts.length) {
+    return accounts
+  }
+
+  // Recovery path: when the same email signs in with a different auth provider,
+  // the Supabase user id can differ. Move existing accounts to the new uid.
+  const transferred = await transferAccountsByEmailMatch({
+    supabaseAdmin,
+    targetUserId: normalizedUserId,
+    targetEmail: userEmail,
+  })
+
+  if (!transferred) {
+    return accounts
+  }
+
+  const { data: reloaded, error: reloadError } = await fetchOwnedAccounts()
+  if (reloadError) {
+    raiseSchemaMismatchIfNeeded(reloadError, 'listAccounts:reloadAfterTransfer')
+    throw new AppError('Failed to load accounts', {
+      code: 'ACCOUNT_LIST_FAILED',
+      statusCode: 500,
+      cause: reloadError,
+    })
+  }
+
+  accounts = reloaded || []
+  return accounts
 }
 
 export async function createAccount(input = {}, userId) {

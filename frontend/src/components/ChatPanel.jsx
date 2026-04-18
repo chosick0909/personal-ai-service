@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
 import { useAppState } from '../store/AppState'
 
-function MessageBubble({ message, onApply }) {
+function MessageBubble({ message, onApply, onApplyFeedback }) {
   const isUser = message.role === 'user'
+  const feedback = message.feedback
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -13,52 +13,60 @@ function MessageBubble({ message, onApply }) {
             : 'border border-[#2F3543] bg-[#161B24] text-[#D1D5DB]'
         }`}
       >
-        <div>{message.content}</div>
-        {message.proposedSections ? (
-          <button
-            type="button"
-            onClick={() => onApply(message.proposedSections)}
-            className="mt-3 rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
-          >
-            이 수정 적용
-          </button>
-        ) : null}
+        {feedback ? (
+          <div className="rounded-[18px] border border-[#2F3543] bg-[#161B24] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
+                  기획 점수
+                </div>
+                <div className="mt-1 text-2xl font-bold text-[#F3F4F6]">{feedback.score}점</div>
+              </div>
+              <button
+                type="button"
+                onClick={onApplyFeedback}
+                className="btn-solid-contrast shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-white"
+              >
+                피드백 반영하기
+              </button>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{feedback.detail || message.content}</p>
+          </div>
+        ) : (
+          <>
+            <div>{message.content}</div>
+            {message.proposedSections ? (
+              <button
+                type="button"
+                onClick={() => onApply(message.proposedSections)}
+                className="mt-3 rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
+              >
+                이 수정 적용
+              </button>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   )
 }
 
-export default function ChatPanel({ entering = false }) {
+export default function ChatPanel({ entering = false, embedded = false }) {
   const {
     chatMessages,
     draftMessage,
     setDraftMessage,
     sendChatMessage,
     isChatLoading,
-    feedback,
     applyFeedback,
     pendingSuggestion,
     applySuggestion,
   } = useAppState()
-  const [isVisible, setIsVisible] = useState(!entering)
-
-  useEffect(() => {
-    if (entering) {
-      setIsVisible(false)
-      const timer = window.setTimeout(() => setIsVisible(true), 60)
-      return () => window.clearTimeout(timer)
-    }
-    setIsVisible(true)
-    return undefined
-  }, [entering])
-
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4 transition-all duration-500 ${
-        !isVisible ? 'translate-x-5 opacity-0 blur-[3px]' : 'translate-x-0 opacity-100 blur-0'
-      }`}
+      className={`flex ${embedded ? 'h-[760px]' : 'h-full min-h-0'} flex-col overflow-hidden ${embedded ? 'rounded-[32px] border border-[#2F3543] bg-[#0F131B]' : 'bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'}`}
     >
-      <div className="shrink-0 rounded-[24px] border border-[#2F3543] bg-[#121821] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.25)]">
+      <div className={`${embedded ? 'shrink-0 border-b border-[#2F3543] px-5 py-4' : 'shrink-0 rounded-[24px] border border-[#2F3543] bg-[#121821] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className="inline-flex rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D1D5DB]">
           AI Copilot
         </div>
@@ -68,30 +76,9 @@ export default function ChatPanel({ entering = false }) {
         </p>
       </div>
 
-      <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]">
+      <div className={`${embedded ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className="flex h-full min-h-0 flex-col">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-            {feedback ? (
-              <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#AEB6C5]">
-                      Feedback
-                    </div>
-                    <div className="mt-1 text-2xl font-bold text-[#F3F4F6]">{feedback.score}점</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={applyFeedback}
-                    className="btn-solid-contrast shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white"
-                  >
-                    피드백 반영
-                  </button>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{feedback.detail}</p>
-              </div>
-            ) : null}
-
+          <div className={`min-h-0 flex-1 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
             {pendingSuggestion ? (
               <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
                 최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
@@ -99,7 +86,12 @@ export default function ChatPanel({ entering = false }) {
             ) : null}
 
             {chatMessages.map((message) => (
-              <MessageBubble key={message.id} message={message} onApply={applySuggestion} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                onApply={applySuggestion}
+                onApplyFeedback={applyFeedback}
+              />
             ))}
             {isChatLoading ? (
               <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
@@ -108,7 +100,7 @@ export default function ChatPanel({ entering = false }) {
             ) : null}
           </div>
 
-          <div className="sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4">
+          <div className={`${embedded ? 'z-10 shrink-0 border-t border-[#2F3543] bg-[#0F131B] px-5 py-4' : 'sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4'}`}>
             <div className="rounded-[24px] border border-[#2F3543] bg-[#161B24] p-3">
               <textarea
                 value={draftMessage}
