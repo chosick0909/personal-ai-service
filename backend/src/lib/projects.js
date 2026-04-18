@@ -22,7 +22,8 @@ function throwProjectDbError(baseCode, actionLabel, error) {
   if (pgCode === '42P01') {
     throw new AppError('Projects schema is missing. Run latest migration first.', {
       code: 'PROJECT_SCHEMA_MISSING',
-      statusCode: 500,
+      statusCode: 400,
+      exposeMessage: true,
       details: {
         action: actionLabel,
         hint:

@@ -182,6 +182,44 @@ function normalizeStringList(values = [], max = 3) {
   return deduped
 }
 
+function normalizeOptionalProjectId(value) {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const normalized = String(value ?? '').trim()
+  if (!normalized || normalized === 'null' || normalized === 'undefined') {
+    return null
+  }
+
+  const isUuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      normalized,
+    )
+  if (!isUuid) {
+    throw new AppError('projectId must be a valid UUID', {
+      code: 'INVALID_PROJECT_ID',
+      statusCode: 400,
+    })
+  }
+
+  return normalized
+}
+
+function isMissingProjectColumnError(error) {
+  const code = String(error?.code || '').trim()
+  const message = String(error?.message || '').toLowerCase()
+  return code === '42703' && message.includes('project_id')
+}
+
+function selectReferenceVideoColumns({ includeProjectId = true, detail = false } = {}) {
+  const base = detail
+    ? 'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at'
+    : 'id, title, topic, original_filename, duration_seconds, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, created_at'
+
+  return includeProjectId ? `${base}, project_id` : base
+}
+
 function buildGenerationGuides({ analysisResult, frameAnalysis }) {
   const insights = [
     ...toBulletCandidates(analysisResult?.hookAnalysis || ''),
@@ -284,32 +322,46 @@ async function persistReusedReferenceVideo({
   mimeType,
   cachedAnalysis,
 }) {
-  const { data, error } = await supabaseAdmin
+  const insertPayload = {
+    account_id: accountId,
+    project_id: projectId || null,
+    title,
+    topic,
+    original_filename: originalFilename,
+    mime_type: mimeType || 'video/mp4',
+    duration_seconds: cachedAnalysis.duration_seconds ?? null,
+    transcript: cachedAnalysis.transcript || '',
+    transcript_segments: cachedAnalysis.transcript_segments || [],
+    frame_timestamps: cachedAnalysis.frame_timestamps || [],
+    frame_notes: cachedAnalysis.frame_notes || [],
+    structure_analysis: cachedAnalysis.structure_analysis || '',
+    hook_analysis: cachedAnalysis.hook_analysis || '',
+    psychology_analysis: cachedAnalysis.psychology_analysis || '',
+    variations: cachedAnalysis.variations || [],
+    ai_feedback: cachedAnalysis.ai_feedback || '',
+    processing_status: 'completed',
+    document_id: cachedAnalysis.document_id || null,
+  }
+
+  let { data, error } = await supabaseAdmin
     .from('reference_videos')
-    .insert({
-      account_id: accountId,
-      project_id: projectId || null,
-      title,
-      topic,
-      original_filename: originalFilename,
-      mime_type: mimeType || 'video/mp4',
-      duration_seconds: cachedAnalysis.duration_seconds ?? null,
-      transcript: cachedAnalysis.transcript || '',
-      transcript_segments: cachedAnalysis.transcript_segments || [],
-      frame_timestamps: cachedAnalysis.frame_timestamps || [],
-      frame_notes: cachedAnalysis.frame_notes || [],
-      structure_analysis: cachedAnalysis.structure_analysis || '',
-      hook_analysis: cachedAnalysis.hook_analysis || '',
-      psychology_analysis: cachedAnalysis.psychology_analysis || '',
-      variations: cachedAnalysis.variations || [],
-      ai_feedback: cachedAnalysis.ai_feedback || '',
-      processing_status: 'completed',
-      document_id: cachedAnalysis.document_id || null,
-    })
-    .select(
-      'id, title, topic, original_filename, duration_seconds, transcript, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at, project_id',
-    )
+    .insert(insertPayload)
+    .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
     .single()
+
+  if (isMissingProjectColumnError(error)) {
+    delete insertPayload.project_id
+    const fallback = await supabaseAdmin
+      .from('reference_videos')
+      .insert(insertPayload)
+      .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
+      .single()
+    data = fallback.data
+    error = fallback.error
+    if (data) {
+      data.project_id = null
+    }
+  }
 
   if (error) {
     throw new AppError('Failed to persist reused reference analysis', {
@@ -354,6 +406,7 @@ export async function analyzeReferenceVideo({
   const normalizedOriginalName = normalizeUploadedText(file.originalname)
   const normalizedTitle = title?.trim() || normalizedOriginalName
   const normalizedTopic = topic?.trim() || normalizedTitle || '일반'
+  const normalizedProjectId = normalizeOptionalProjectId(projectId) ?? null
   const supabaseAdmin = getSupabaseAdmin()
   const openai = getOpenAIClient()
   const { chatModel } = getOpenAIModels()
@@ -378,7 +431,7 @@ export async function analyzeReferenceVideo({
         const reused = await persistReusedReferenceVideo({
           supabaseAdmin,
           accountId,
-          projectId,
+          projectId: normalizedProjectId,
           title: normalizedTitle,
           topic: normalizedTopic,
           originalFilename: normalizedOriginalName,
@@ -630,34 +683,48 @@ export async function analyzeReferenceVideo({
       ),
     )
 
-    const { data: row, error } = await runStage('save-reference-video', baseContext, async () =>
-      supabaseAdmin
+    const { data: row, error } = await runStage('save-reference-video', baseContext, async () => {
+      const insertPayload = {
+        account_id: accountId,
+        project_id: normalizedProjectId,
+        title: normalizedTitle,
+        topic: normalizedTopic,
+        original_filename: normalizedOriginalName,
+        mime_type: file.mimetype,
+        duration_seconds: durationSeconds,
+        transcript: normalizedTranscript || '',
+        transcript_segments: transcript.segments,
+        frame_timestamps: frames.map((frame) => frame.timestamp),
+        frame_notes: frameAnalysis.frames || [],
+        structure_analysis: analysisResult.structureAnalysis || '',
+        hook_analysis: analysisResult.hookAnalysis || frameAnalysis.summary || '',
+        psychology_analysis: analysisResult.psychologyAnalysis || '',
+        variations: generatedVariations,
+        ai_feedback: analysisResult.aiFeedback || '',
+        processing_status: 'completed',
+        document_id: ingestedDocument.document.id,
+      }
+
+      let insertResult = await supabaseAdmin
         .from('reference_videos')
-        .insert({
-          account_id: accountId,
-          project_id: projectId || null,
-          title: normalizedTitle,
-          topic: normalizedTopic,
-          original_filename: normalizedOriginalName,
-          mime_type: file.mimetype,
-          duration_seconds: durationSeconds,
-          transcript: normalizedTranscript || '',
-          transcript_segments: transcript.segments,
-          frame_timestamps: frames.map((frame) => frame.timestamp),
-          frame_notes: frameAnalysis.frames || [],
-          structure_analysis: analysisResult.structureAnalysis || '',
-          hook_analysis: analysisResult.hookAnalysis || frameAnalysis.summary || '',
-          psychology_analysis: analysisResult.psychologyAnalysis || '',
-          variations: generatedVariations,
-          ai_feedback: analysisResult.aiFeedback || '',
-          processing_status: 'completed',
-          document_id: ingestedDocument.document.id,
-        })
-        .select(
-          'id, title, topic, original_filename, duration_seconds, transcript, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at, project_id',
-        )
-        .single(),
-    )
+        .insert(insertPayload)
+        .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
+        .single()
+
+      if (isMissingProjectColumnError(insertResult.error)) {
+        delete insertPayload.project_id
+        insertResult = await supabaseAdmin
+          .from('reference_videos')
+          .insert(insertPayload)
+          .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
+          .single()
+        if (insertResult.data) {
+          insertResult.data.project_id = null
+        }
+      }
+
+      return insertResult
+    })
 
     if (error) {
       logAIError('db', error, {
@@ -827,13 +894,21 @@ export async function listReferenceVideos(accountId) {
   }
 
   const supabaseAdmin = getSupabaseAdmin()
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('reference_videos')
-    .select(
-      'id, title, topic, original_filename, duration_seconds, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, created_at, project_id',
-    )
+    .select(selectReferenceVideoColumns({ includeProjectId: true, detail: false }))
     .eq('account_id', accountId)
     .order('created_at', { ascending: false })
+
+  if (isMissingProjectColumnError(error)) {
+    const fallback = await supabaseAdmin
+      .from('reference_videos')
+      .select(selectReferenceVideoColumns({ includeProjectId: false, detail: false }))
+      .eq('account_id', accountId)
+      .order('created_at', { ascending: false })
+    data = (fallback.data || []).map((item) => ({ ...item, project_id: null }))
+    error = fallback.error
+  }
 
   if (error) {
     throw new AppError('Failed to load reference videos', {
@@ -855,14 +930,23 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
   }
 
   const supabaseAdmin = getSupabaseAdmin()
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('reference_videos')
-    .select(
-      'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at, project_id',
-    )
+    .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
     .eq('id', referenceVideoId)
     .eq('account_id', accountId)
     .single()
+
+  if (isMissingProjectColumnError(error)) {
+    const fallback = await supabaseAdmin
+      .from('reference_videos')
+      .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
+      .eq('id', referenceVideoId)
+      .eq('account_id', accountId)
+      .single()
+    data = fallback.data ? { ...fallback.data, project_id: null } : fallback.data
+    error = fallback.error
+  }
 
   if (error) {
     const statusCode = error.code === 'PGRST116' ? 404 : 500
@@ -1001,8 +1085,7 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
     payload.title = normalizedTitle.slice(0, 200)
   }
   if (projectId !== undefined) {
-    const normalizedProjectId = String(projectId || '').trim()
-    payload.project_id = normalizedProjectId || null
+    payload.project_id = normalizeOptionalProjectId(projectId)
   }
   if (!Object.keys(payload).length) {
     throw new AppError('No fields to update', {
@@ -1036,13 +1119,39 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
     }
   }
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('reference_videos')
     .update(payload)
     .eq('id', referenceVideoId)
     .eq('account_id', accountId)
     .select('id, title, project_id')
     .maybeSingle()
+
+  if (isMissingProjectColumnError(error)) {
+    if (Object.prototype.hasOwnProperty.call(payload, 'project_id')) {
+      throw new AppError('Projects schema is missing. Run latest migration first.', {
+        code: 'PROJECT_SCHEMA_MISSING',
+        statusCode: 400,
+        exposeMessage: true,
+        details: {
+          action: 'update-reference-project',
+          hint:
+            'Apply migration: supabase/migrations/20260418224000_add_projects_and_reference_project_link.sql',
+        },
+        cause: error,
+      })
+    }
+
+    const fallback = await supabaseAdmin
+      .from('reference_videos')
+      .update(payload)
+      .eq('id', referenceVideoId)
+      .eq('account_id', accountId)
+      .select('id, title')
+      .maybeSingle()
+    data = fallback.data ? { ...fallback.data, project_id: null } : fallback.data
+    error = fallback.error
+  }
 
   if (error) {
     throw new AppError('Failed to update reference video analysis', {
