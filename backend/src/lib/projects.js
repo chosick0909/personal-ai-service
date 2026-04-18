@@ -18,8 +18,12 @@ function normalizeProjectName(value = '') {
 
 function throwProjectDbError(baseCode, actionLabel, error) {
   const pgCode = String(error?.code || '').trim()
+  const message = String(error?.message || '').toLowerCase()
+  const isSchemaMissing =
+    pgCode === '42P01' ||
+    (message.includes("public.projects") && message.includes('schema cache'))
 
-  if (pgCode === '42P01') {
+  if (isSchemaMissing) {
     throw new AppError('Projects schema is missing. Run latest migration first.', {
       code: 'PROJECT_SCHEMA_MISSING',
       statusCode: 400,
