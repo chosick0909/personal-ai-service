@@ -16,6 +16,40 @@ function normalizeProjectName(value = '') {
   return String(value || '').trim().slice(0, 120)
 }
 
+function throwProjectDbError(baseCode, actionLabel, error) {
+  const pgCode = String(error?.code || '').trim()
+
+  if (pgCode === '42P01') {
+    throw new AppError('Projects schema is missing. Run latest migration first.', {
+      code: 'PROJECT_SCHEMA_MISSING',
+      statusCode: 500,
+      details: {
+        action: actionLabel,
+        hint:
+          'Apply migration: supabase/migrations/20260418224000_add_projects_and_reference_project_link.sql',
+      },
+      cause: error,
+    })
+  }
+
+  if (pgCode === '23503') {
+    throw new AppError('Account or project relation is invalid.', {
+      code: 'PROJECT_RELATION_INVALID',
+      statusCode: 400,
+      details: {
+        action: actionLabel,
+      },
+      cause: error,
+    })
+  }
+
+  throw new AppError(`Failed to ${actionLabel} project`, {
+    code: baseCode,
+    statusCode: 500,
+    cause: error,
+  })
+}
+
 export async function listProjects(accountId) {
   const supabaseAdmin = requireSupabaseAdmin()
   const { data, error } = await supabaseAdmin
@@ -25,11 +59,7 @@ export async function listProjects(accountId) {
     .order('created_at', { ascending: true })
 
   if (error) {
-    throw new AppError('Failed to load projects', {
-      code: 'PROJECT_LIST_FAILED',
-      statusCode: 500,
-      cause: error,
-    })
+    throwProjectDbError('PROJECT_LIST_FAILED', 'load', error)
   }
 
   return data || []
@@ -55,11 +85,7 @@ export async function createProject({ accountId, name }) {
     .single()
 
   if (error) {
-    throw new AppError('Failed to create project', {
-      code: 'PROJECT_CREATE_FAILED',
-      statusCode: 500,
-      cause: error,
-    })
+    throwProjectDbError('PROJECT_CREATE_FAILED', 'create', error)
   }
 
   return data
@@ -84,11 +110,7 @@ export async function deleteProject({ accountId, projectId }) {
     .maybeSingle()
 
   if (error) {
-    throw new AppError('Failed to delete project', {
-      code: 'PROJECT_DELETE_FAILED',
-      statusCode: 500,
-      cause: error,
-    })
+    throwProjectDbError('PROJECT_DELETE_FAILED', 'delete', error)
   }
 
   if (!data) {

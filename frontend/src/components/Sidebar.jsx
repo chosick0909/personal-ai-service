@@ -730,6 +730,24 @@ export default function Sidebar() {
                       className="w-full bg-transparent text-[17px] text-[#F4F4F5] outline-none placeholder:text-[#A1A1AA]"
                     />
                   </label>
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreateProjectOpen(false)}
+                      className="inline-flex h-10 items-center justify-center rounded-xl border border-[#3A3F4A] px-4 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#252932]"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void submitCreateProject()
+                      }}
+                      className="inline-flex h-10 items-center justify-center rounded-xl bg-[#E5E7EB] px-4 text-sm font-semibold text-[#111827] transition hover:bg-white"
+                    >
+                      생성
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>,
