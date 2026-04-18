@@ -95,6 +95,23 @@ function sanitizeOAuthUrlParams({ includeTokenParams = false } = {}) {
   window.history.replaceState({}, '', nextUrl)
 }
 
+function hasOAuthTokenHash() {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const rawHash = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash
+
+  if (!rawHash) {
+    return false
+  }
+
+  const hashParams = new URLSearchParams(rawHash)
+  return hashParams.has('access_token') || hashParams.has('refresh_token') || hashParams.has('provider_token')
+}
+
 function getStoredProjects() {
   if (typeof window === 'undefined') {
     return []
@@ -849,6 +866,10 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    if (!isAuthReady || hasOAuthTokenHash()) {
+      return
+    }
+
     const nextHistoryStep = toHistoryStep(currentStep)
     const currentState = window.history.state || {}
     const nextUrl = `${window.location.pathname}${window.location.search}#${nextHistoryStep}`
@@ -885,7 +906,7 @@ export function AppStateProvider({ children }) {
       nextUrl,
     )
     historyStepRef.current = nextHistoryStep
-  }, [currentStep])
+  }, [currentStep, isAuthReady])
 
   useEffect(() => {
     if (!isLoggedIn || !currentAccount?.id) {
