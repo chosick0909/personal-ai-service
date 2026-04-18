@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import AppLayout from './components/AppLayout'
 import ChatPanel from './components/ChatPanel'
 import Editor from './components/Editor'
@@ -1339,8 +1339,13 @@ function AuthScreen({
 function LoginScreen() {
   const { login, isLoggedIn, isAuthReady } = useAppState()
 
+  useEffect(() => {
+    if (isAuthReady && isLoggedIn) {
+      window.location.replace('/analyze')
+    }
+  }, [isAuthReady, isLoggedIn])
+
   if (isAuthReady && isLoggedIn) {
-    window.location.assign('/analyze')
     return null
   }
 
@@ -1360,8 +1365,13 @@ function LoginScreen() {
 function SignupScreen() {
   const { signup, isLoggedIn, isAuthReady } = useAppState()
 
+  useEffect(() => {
+    if (isAuthReady && isLoggedIn) {
+      window.location.replace('/analyze')
+    }
+  }, [isAuthReady, isLoggedIn])
+
   if (isAuthReady && isLoggedIn) {
-    window.location.assign('/analyze')
     return null
   }
 
@@ -1427,11 +1437,7 @@ function StudioShell() {
 }
 
 function StudioApp() {
-  return (
-    <AppStateProvider>
-      <StudioShell />
-    </AppStateProvider>
-  )
+  return <StudioShell />
 }
 
 function SettingsShell() {
@@ -1449,71 +1455,41 @@ function SettingsShell() {
 }
 
 function SettingsApp() {
-  return (
-    <AppStateProvider>
-      <SettingsShell />
-    </AppStateProvider>
-  )
+  return <SettingsShell />
 }
 
 function LoginApp() {
-  return (
-    <AppStateProvider>
-      <LoginScreen />
-    </AppStateProvider>
-  )
+  return <LoginScreen />
 }
 
 function SignupApp() {
-  return (
-    <AppStateProvider>
-      <SignupScreen />
-    </AppStateProvider>
-  )
+  return <SignupScreen />
 }
 
 function IntroApp() {
-  return (
-    <AppStateProvider>
-      <LandingScreen />
-    </AppStateProvider>
-  )
+  return <LandingScreen />
 }
 
 function RecommendApp() {
-  return (
-    <AppStateProvider>
-      <RecommendScreen />
-    </AppStateProvider>
-  )
+  return <RecommendScreen />
 }
 
 export default function App() {
   const pathname = window.location.pathname
 
+  let content = <IntroApp />
+
   if (pathname.startsWith('/settings')) {
-    return <SettingsApp />
+    content = <SettingsApp />
+  } else if (pathname.startsWith('/login')) {
+    content = <LoginApp />
+  } else if (pathname.startsWith('/signup')) {
+    content = <SignupApp />
+  } else if (pathname.startsWith('/analyze')) {
+    content = <StudioApp />
+  } else if (pathname.startsWith('/recommend')) {
+    content = <RecommendApp />
   }
 
-  if (pathname.startsWith('/login')) {
-    return <LoginApp />
-  }
-
-  if (pathname.startsWith('/signup')) {
-    return <SignupApp />
-  }
-
-  if (pathname.startsWith('/analyze')) {
-    return <StudioApp />
-  }
-
-  if (pathname.startsWith('/recommend')) {
-    return <RecommendApp />
-  }
-
-  if (pathname === '/') {
-    return <IntroApp />
-  }
-
-  return <IntroApp />
+  return <AppStateProvider>{content}</AppStateProvider>
 }
