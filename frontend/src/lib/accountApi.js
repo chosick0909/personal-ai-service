@@ -1,7 +1,8 @@
 import { apiFetch, createApiError, parseApiResponse } from './api'
 
-export async function loadAccountProfile() {
-  const response = await apiFetch('/api/account/profile')
+export async function loadAccountProfile({ accountId } = {}) {
+  const query = accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''
+  const response = await apiFetch(`/api/account/profile${query}`)
   const payload = await parseApiResponse(response)
 
   if (!response.ok) {
@@ -11,13 +12,18 @@ export async function loadAccountProfile() {
   return payload
 }
 
-export async function saveAccountProfile(input) {
+export async function saveAccountProfile(input, { accountId } = {}) {
+  const payloadBody = {
+    ...(input || {}),
+    ...(accountId ? { accountId } : {}),
+  }
+
   const response = await apiFetch('/api/account/profile', {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify(payloadBody),
   })
   const payload = await parseApiResponse(response)
 

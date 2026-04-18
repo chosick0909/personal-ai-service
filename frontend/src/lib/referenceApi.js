@@ -127,9 +127,12 @@ export function mapReferenceAnalysisToUi(analysis) {
   }
 }
 
-export async function analyzeReferenceVideo({ file, topic, title }) {
+export async function analyzeReferenceVideo({ file, topic, title, accountId }) {
   const formData = new FormData()
   formData.append('video', file)
+  if (accountId) {
+    formData.append('accountId', String(accountId))
+  }
   if (topic?.trim()) {
     formData.append('topic', topic.trim())
   }

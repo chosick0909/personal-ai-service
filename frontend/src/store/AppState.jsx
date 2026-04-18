@@ -1268,6 +1268,7 @@ export function AppStateProvider({ children }) {
     try {
       const analysis = await analyzeReferenceVideo({
         file,
+        accountId: currentAccount?.id,
         topic: effectiveTopic,
         title: uploadTitle,
       })

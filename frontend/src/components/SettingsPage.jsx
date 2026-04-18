@@ -130,11 +130,20 @@ export default function SettingsPage({ onBack }) {
     let mounted = true
 
     const run = async () => {
+      if (!currentAccount?.id) {
+        if (mounted) {
+          setIsLoading(false)
+        }
+        return
+      }
+
       setIsLoading(true)
       setError('')
 
       try {
-        const payload = await loadAccountProfile()
+        const payload = await loadAccountProfile({
+          accountId: currentAccount?.id,
+        })
         if (!mounted) {
           return
         }
@@ -186,7 +195,7 @@ export default function SettingsPage({ onBack }) {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [currentAccount?.id])
 
   const selectedGoal = useMemo(
     () => ACCOUNT_PURPOSE_OPTIONS.find((item) => item.id === form.accountGoal),
@@ -262,35 +271,40 @@ export default function SettingsPage({ onBack }) {
         .filter(Boolean)
         .join(' / ')
 
-      await saveAccountProfile({
-        accountName: form.accountName,
-        instagramId: form.instagramId,
-        category: form.category,
-        tone: form.voiceTone,
-        targetAudience,
-        goal: form.accountGoal,
-        goals: [form.accountGoal],
-        strategy: form.strategyPreferences.join(', '),
-        settings: {
+      await saveAccountProfile(
+        {
           accountName: form.accountName,
           instagramId: form.instagramId,
           category: form.category,
-          accountGoal: form.accountGoal,
-          persona: {
-            age: form.personaAge,
-            gender: form.personaGender,
-            job: form.personaJob,
-            interests: form.personaInterests,
-            painPoints: form.personaPainPoints,
-            desiredChange: form.personaDesiredChange,
+          tone: form.voiceTone,
+          targetAudience,
+          goal: form.accountGoal,
+          goals: [form.accountGoal],
+          strategy: form.strategyPreferences.join(', '),
+          settings: {
+            accountName: form.accountName,
+            instagramId: form.instagramId,
+            category: form.category,
+            accountGoal: form.accountGoal,
+            persona: {
+              age: form.personaAge,
+              gender: form.personaGender,
+              job: form.personaJob,
+              interests: form.personaInterests,
+              painPoints: form.personaPainPoints,
+              desiredChange: form.personaDesiredChange,
+            },
+            products: normalizedProducts,
+            strategyPreferences: form.strategyPreferences,
+            voiceTone: form.voiceTone,
+            aiAdditionalInfo: form.aiAdditionalInfo,
+            characterPrompt: form.characterPrompt,
           },
-          products: normalizedProducts,
-          strategyPreferences: form.strategyPreferences,
-          voiceTone: form.voiceTone,
-          aiAdditionalInfo: form.aiAdditionalInfo,
-          characterPrompt: form.characterPrompt,
         },
-      })
+        {
+          accountId: currentAccount?.id,
+        },
+      )
 
       updateCurrentAccountName(currentAccount?.id, form.accountName.trim())
       markAccountConfigured(currentAccount?.id, true)

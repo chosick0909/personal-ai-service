@@ -747,12 +747,23 @@ app.post(
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id)
+    const sessionId =
+      req.body?.sessionId ||
+      req.body?.session_id ||
+      req.headers['x-session-id'] ||
+      `feedback:${req.body?.referenceId || account.id}`
+    const personalization = await buildPersonalizationContext({
+      accountId: account.id,
+      sessionId,
+      fallbackSession: `feedback:${req.body?.referenceId || account.id}`,
+    })
     const result = await generateScriptFeedback({
       accountId: account.id,
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
       sections: req.body?.sections,
       characterSystemPrompt: character.systemPrompt,
+      personalizationContext: personalization.context,
     })
     let feedbackRecord = null
 
@@ -774,6 +785,10 @@ app.post(
     res.json({
       feedback: result,
       feedbackRecord,
+      personalization: {
+        sessionId: personalization.sessionId,
+        snapshot: personalization.snapshot,
+      },
     })
   }),
 )
