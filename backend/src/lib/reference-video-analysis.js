@@ -41,7 +41,7 @@ const VARIATION_CONFIGS = [
   },
 ]
 
-const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v1').trim() || 'v1'
+const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
 
 function cacheLog(stage, details = {}) {
   const safe = Object.fromEntries(
@@ -156,19 +156,82 @@ function mapGlobalKnowledgeDebug(items = []) {
   }))
 }
 
-function normalizeVariationDraft(parsed, fallback) {
+function toBulletCandidates(text = '') {
+  return String(text || '')
+    .split(/\n+/)
+    .map((line) => line.replace(/^[-*•\d.\s]+/, '').trim())
+    .filter(Boolean)
+    .flatMap((line) => line.split(/(?<=[.!?。！？])\s+/))
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+}
+
+function normalizeStringList(values = [], max = 3) {
+  if (!Array.isArray(values)) {
+    return []
+  }
+
+  const deduped = []
+  for (const value of values) {
+    const normalized = String(value || '').trim()
+    if (!normalized) continue
+    if (deduped.includes(normalized)) continue
+    deduped.push(normalized)
+    if (deduped.length >= max) break
+  }
+  return deduped
+}
+
+function buildGenerationGuides({ analysisResult, frameAnalysis }) {
+  const insights = [
+    ...toBulletCandidates(analysisResult?.hookAnalysis || ''),
+    ...toBulletCandidates(analysisResult?.psychologyAnalysis || ''),
+    ...(frameAnalysis?.frames || [])
+      .map((frame) => String(frame?.hookReason || frame?.observation || '').trim())
+      .filter(Boolean),
+  ]
+
+  const checkpoints = [
+    ...toBulletCandidates(analysisResult?.structureAnalysis || ''),
+    ...toBulletCandidates(analysisResult?.aiFeedback || ''),
+  ]
+
+  return {
+    keyInsights: normalizeStringList(insights, 4),
+    checkpoints: normalizeStringList(checkpoints, 4),
+  }
+}
+
+function normalizeVariationDraft(parsed, fallback, guides = {}) {
   const sections = {
     hook: parsed?.hook?.trim() || '',
     body: parsed?.body?.trim() || '',
     cta: parsed?.cta?.trim() || '',
   }
 
+  const usedInsights = normalizeStringList(
+    parsed?.usedInsights,
+    3,
+  )
+  const usedCheckpoints = normalizeStringList(
+    parsed?.usedCheckpoints,
+    3,
+  )
+
   return {
     label: fallback.label,
     angle: parsed?.angle?.trim() || fallback.angle,
+    coreMessage: parsed?.coreMessage?.trim() || '',
+    hookIntent: parsed?.hookIntent?.trim() || '',
+    bodyLogic: parsed?.bodyLogic?.trim() || '',
+    ctaReason: parsed?.ctaReason?.trim() || '',
     hook: sections.hook,
     body: sections.body,
     cta: sections.cta,
+    usedInsights: usedInsights.length ? usedInsights : normalizeStringList(guides.keyInsights, 2),
+    usedCheckpoints: usedCheckpoints.length
+      ? usedCheckpoints
+      : normalizeStringList(guides.checkpoints, 2),
     usedChunkIds: [],
     usedKnowledge: [],
   }
@@ -445,8 +508,6 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
           {
             role: 'user',
             content:
-              `레퍼런스 제목: ${normalizedTitle}\n` +
-              `내 주제: ${normalizedTopic}\n\n` +
               `검색된 글로벌 지식 자료 (우선 참고):\n${globalKnowledge.contextText || '검색된 글로벌 지식 자료 없음'}\n\n` +
               `전사:\n${normalizedTranscript || '전사 추출 없음'}\n\n` +
               `첫 3초 프레임 분석:\n${JSON.stringify(frameAnalysis, null, 2)}\n\n` +
@@ -468,13 +529,14 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
     const analysisResult = await runStage('parse-analysis-json', baseContext, async () =>
       parseModelJson(analysisResponse.choices[0]?.message?.content || ''),
     )
+    const generationGuides = buildGenerationGuides({ analysisResult, frameAnalysis })
 
     const generatedVariations = await Promise.all(
       VARIATION_CONFIGS.map((config) =>
         runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
           const variationKnowledge = await retrieveGlobalKnowledgeContext({
-            title: normalizedTitle,
-            topic: `${normalizedTopic}\n전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
+            title: '',
+            topic: `전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
             transcript: normalizedTranscript || '',
             frameSummary,
             topK: 4,
@@ -488,6 +550,14 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
                 role: 'system',
                 content: [
                   '당신은 숏폼 콘텐츠 작가다. 지정된 전략에 맞는 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
+                  '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 계정/타겟/상품 맥락 > 전략 라벨/전략 의도 > 레퍼런스 전사.',
+                  '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
+                  '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
+                  '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
+                  '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
+                  'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
+                  'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
+                  '아래 인사이트/체크포인트를 최소 2개 이상 반영하고, usedInsights/usedCheckpoints에 반영 항목을 기록하라.',
                   '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
                   '공통: 설명체보다 대화체. 문장은 짧게 끊고 리듬감 있게. 추상적 표현 금지.',
                   'HOOK 금지: "~하시나요?" 같은 평범한 질문, 너무 일반적인 문제 제기.',
@@ -504,11 +574,25 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
               {
                 role: 'user',
                 content:
-                  `레퍼런스 제목: ${normalizedTitle}\n` +
-                  `내 주제: ${normalizedTopic}\n` +
                   `전략 라벨: ${config.label}\n` +
                   `전략 방향: ${config.angle}\n` +
                   `전략 의도: ${config.retrievalHint}\n\n` +
+                  `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
+                  '작성 강제 조건:\n' +
+                  '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 반드시 작성\n' +
+                  '- 레퍼런스 제목/파일명/원문 주제는 무시\n' +
+                  '- 레퍼런스 원문 주제와 계정 설정이 충돌하면 계정 설정을 우선\n' +
+                  '- 레퍼런스는 구조/후킹 패턴만 참고하고 소재는 계정 도메인으로 재작성\n\n' +
+                  `핵심 인사이트(최소 2개 반영):\n${
+                    generationGuides.keyInsights.length
+                      ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                      : '- 없음'
+                  }\n\n` +
+                  `바로 써먹을 체크포인트(최소 2개 반영):\n${
+                    generationGuides.checkpoints.length
+                      ? generationGuides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                      : '- 없음'
+                  }\n\n` +
                   `공통 분석 요약:\n구조: ${analysisResult.structureAnalysis || '-'}\n후킹: ${analysisResult.hookAnalysis || '-'}\n심리: ${analysisResult.psychologyAnalysis || '-'}\n\n` +
                   `레퍼런스 전사:\n${normalizedTranscript || '전사 추출 없음'}\n\n` +
                   `참고 글로벌 지식(이 안에서 우선 참고):\n${variationKnowledge.contextText || '검색된 지식 없음'}\n\n` +
@@ -518,13 +602,13 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
                   '- body: 약 35~45초 (220~320자)\n' +
                   '- cta: 약 8~12초 (40~80자)\n' +
                   '다음 JSON 형식으로만 답하세요: ' +
-                  '{"label":"","angle":"","hook":"","body":"","cta":""}',
+                  '{"label":"","angle":"","coreMessage":"","hookIntent":"","bodyLogic":"","ctaReason":"","hook":"","body":"","cta":"","usedInsights":[],"usedCheckpoints":[]}',
               },
             ],
           })
 
           const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
-          const normalized = normalizeVariationDraft(parsed, config)
+          const normalized = normalizeVariationDraft(parsed, config, generationGuides)
           const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
 
           return {

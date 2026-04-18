@@ -82,6 +82,28 @@ function buildReferenceContext(reference) {
   ].join('\n')
 }
 
+function buildReferenceGuides(reference) {
+  const insights = [
+    reference.hook_analysis,
+    reference.psychology_analysis,
+    ...(reference.frame_notes || []).map((frame) => frame?.hookReason || frame?.observation || ''),
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 4)
+
+  const checkpoints = [reference.structure_analysis, reference.ai_feedback]
+    .flatMap((value) =>
+      String(value || '')
+        .split(/\n+/)
+        .map((line) => line.replace(/^[-*•\d.\s]+/, '').trim())
+        .filter(Boolean),
+    )
+    .slice(0, 4)
+
+  return { insights, checkpoints }
+}
+
 export async function refineScriptWithAI({
   accountId,
   referenceId,
@@ -104,6 +126,7 @@ export async function refineScriptWithAI({
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
   const referenceContext = buildReferenceContext(reference)
+  const guides = buildReferenceGuides(reference)
 
   try {
     const response = await openai.chat.completions.create({
@@ -118,6 +141,8 @@ export async function refineScriptWithAI({
             'HOOK 규칙: 첫 문장에서 긴장감, 반전, 궁금증을 만든다. "~하시나요?" 같은 평범한 질문은 금지한다.',
             'BODY 규칙: 상황으로 시작하고 한 문장씩 끊어 전개한다. "많은 사람들이 ~ 하지만" 같은 문장을 금지한다.',
             'CTA 규칙: 행동 이유(손해/이득/궁금증)를 포함해 짧고 강하게 마무리한다. "좋아요/팔로우 부탁" 문구는 금지한다.',
+            '연결성 규칙: HOOK에서 던진 문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
+            '아래 핵심 인사이트/체크포인트를 가능한 한 유지해서 수정한다.',
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
@@ -130,6 +155,16 @@ export async function refineScriptWithAI({
           role: 'user',
           content:
             `${referenceContext}\n\n` +
+            `핵심 인사이트:\n${
+              guides.insights.length
+                ? guides.insights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `바로 써먹을 체크포인트:\n${
+              guides.checkpoints.length
+                ? guides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
             `선택한 안: ${selectedLabel || '-'}\n` +
             `사용자 요청: ${normalizedRequest}\n\n` +
             `현재 초안:\nHOOK: ${normalizedSections.hook}\nBODY: ${normalizedSections.body}\nCTA: ${normalizedSections.cta}\n\n` +
@@ -181,6 +216,7 @@ export async function generateScriptFeedback({
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
   const referenceContext = buildReferenceContext(reference)
+  const guides = buildReferenceGuides(reference)
 
   try {
     const response = await openai.chat.completions.create({
@@ -193,6 +229,7 @@ export async function generateScriptFeedback({
             '당신은 숏폼 콘텐츠 평가자다. 제공된 초안을 100점 만점으로 평가하고, 개선 포인트를 짧고 명확하게 제안한다. 출력은 JSON만 반환한다.',
             'suggestedSections를 작성할 때는 설명형/교과서형 문장을 피하고, 실제 사람이 말하는 톤으로 다시 써라.',
             'HOOK은 긴장감 있게, BODY는 상황/경험형으로, CTA는 행동 이유를 담아 짧고 강하게 제안하라.',
+            '평가 시 HOOK/BODY/CTA 연결성과 핵심 인사이트 반영 여부를 반드시 본다.',
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
@@ -205,6 +242,16 @@ export async function generateScriptFeedback({
           role: 'user',
           content:
             `${referenceContext}\n\n` +
+            `핵심 인사이트:\n${
+              guides.insights.length
+                ? guides.insights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `바로 써먹을 체크포인트:\n${
+              guides.checkpoints.length
+                ? guides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
             `선택한 안: ${selectedLabel || '-'}\n` +
             `현재 초안:\nHOOK: ${normalizedSections.hook}\nBODY: ${normalizedSections.body}\nCTA: ${normalizedSections.cta}\n\n` +
             '다음 JSON 형식으로만 답하세요: ' +
