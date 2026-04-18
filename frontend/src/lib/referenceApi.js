@@ -109,6 +109,7 @@ export function mapReferenceAnalysisToUi(analysis) {
       createdAt: analysis.created_at,
       fileName: analysis.original_filename,
       status: analysis.processing_status || 'ready',
+      projectId: analysis.project_id || null,
       structureAnalysis: analysis.structure_analysis || '구조 분석이 없습니다.',
       hookAnalysis: analysis.hook_analysis || '후킹 분석이 없습니다.',
       psychologyAnalysis: analysis.psychology_analysis || '심리 기제 분석이 없습니다.',
@@ -127,7 +128,7 @@ export function mapReferenceAnalysisToUi(analysis) {
   }
 }
 
-export async function analyzeReferenceVideo({ file, topic, title, accountId }) {
+export async function analyzeReferenceVideo({ file, topic, title, accountId, projectId }) {
   const formData = new FormData()
   formData.append('video', file)
   if (accountId) {
@@ -139,6 +140,9 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId }) {
 
   if (title?.trim()) {
     formData.append('title', title.trim())
+  }
+  if (projectId) {
+    formData.append('projectId', String(projectId))
   }
 
   const response = await apiFetch('/api/reference-videos/analyze', {
@@ -169,6 +173,7 @@ export async function listReferenceVideoHistory() {
     topic: item.topic,
     createdAt: item.created_at,
     status: item.processing_status || 'ready',
+    projectId: item.project_id || null,
   }))
 }
 
@@ -191,6 +196,23 @@ export async function deleteReferenceVideo(referenceId) {
 
   if (!response.ok) {
     throw createApiError(response, payload, '레퍼런스 기록 삭제에 실패했습니다.')
+  }
+
+  return payload.item || null
+}
+
+export async function updateReferenceVideo(referenceId, input = {}) {
+  const response = await apiFetch(`/api/reference-videos/${referenceId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  })
+  const payload = await parseApiResponse(response)
+
+  if (!response.ok) {
+    throw createApiError(response, payload, '레퍼런스 수정에 실패했습니다.')
   }
 
   return payload.item || null

@@ -41,7 +41,9 @@ import {
   deleteReferenceVideo,
   getReferenceVideo,
   listReferenceVideos,
+  updateReferenceVideo,
 } from './lib/reference-video-analysis.js'
+import { createProject, deleteProject, listProjects } from './lib/projects.js'
 import {
   attachSentryRequestContext,
   captureExceptionWithRequest,
@@ -461,6 +463,22 @@ app.get(
   }),
 )
 
+app.patch(
+  '/api/reference-videos/:id',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const updated = await updateReferenceVideo(req.params.id, account.id, {
+      title: req.body?.title,
+      projectId: req.body?.projectId,
+    })
+
+    res.json({
+      message: 'Reference video updated',
+      item: updated,
+    })
+  }),
+)
+
 app.get(
   '/api/reference-videos/:id',
   asyncHandler(async (req, res) => {
@@ -486,6 +504,50 @@ app.delete(
   }),
 )
 
+app.get(
+  '/api/projects',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req, { body: false })
+    const projects = await listProjects(account.id)
+
+    res.json({
+      items: projects,
+      count: projects.length,
+    })
+  }),
+)
+
+app.post(
+  '/api/projects',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const project = await createProject({
+      accountId: account.id,
+      name: req.body?.name,
+    })
+
+    res.status(201).json({
+      item: project,
+    })
+  }),
+)
+
+app.delete(
+  '/api/projects/:id',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req, { body: false })
+    const deleted = await deleteProject({
+      accountId: account.id,
+      projectId: req.params.id,
+    })
+
+    res.json({
+      message: 'Project deleted',
+      item: deleted,
+    })
+  }),
+)
+
 app.post(
   '/api/reference-videos/analyze',
   analyzeRateLimiter,
@@ -503,6 +565,7 @@ app.post(
       file: req.file,
       topic: req.body?.topic,
       title: req.body?.title,
+      projectId: req.body?.projectId || null,
       characterSystemPrompt: character.systemPrompt,
     })
 

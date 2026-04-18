@@ -277,6 +277,7 @@ async function runStage(stage, context, task) {
 async function persistReusedReferenceVideo({
   supabaseAdmin,
   accountId,
+  projectId,
   title,
   topic,
   originalFilename,
@@ -287,6 +288,7 @@ async function persistReusedReferenceVideo({
     .from('reference_videos')
     .insert({
       account_id: accountId,
+      project_id: projectId || null,
       title,
       topic,
       original_filename: originalFilename,
@@ -305,7 +307,7 @@ async function persistReusedReferenceVideo({
       document_id: cachedAnalysis.document_id || null,
     })
     .select(
-      'id, title, topic, original_filename, duration_seconds, transcript, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at',
+      'id, title, topic, original_filename, duration_seconds, transcript, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at, project_id',
     )
     .single()
 
@@ -320,7 +322,14 @@ async function persistReusedReferenceVideo({
   return data
 }
 
-export async function analyzeReferenceVideo({ file, topic, title, accountId, characterSystemPrompt = '' }) {
+export async function analyzeReferenceVideo({
+  file,
+  topic,
+  title,
+  accountId,
+  projectId = null,
+  characterSystemPrompt = '',
+}) {
   if (!file) {
     throw new AppError('video file is required', {
       code: 'VIDEO_FILE_REQUIRED',
@@ -369,6 +378,7 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
         const reused = await persistReusedReferenceVideo({
           supabaseAdmin,
           accountId,
+          projectId,
           title: normalizedTitle,
           topic: normalizedTopic,
           originalFilename: normalizedOriginalName,
@@ -625,6 +635,7 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
         .from('reference_videos')
         .insert({
           account_id: accountId,
+          project_id: projectId || null,
           title: normalizedTitle,
           topic: normalizedTopic,
           original_filename: normalizedOriginalName,
@@ -643,7 +654,7 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, cha
           document_id: ingestedDocument.document.id,
         })
         .select(
-          'id, title, topic, original_filename, duration_seconds, transcript, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at',
+          'id, title, topic, original_filename, duration_seconds, transcript, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at, project_id',
         )
         .single(),
     )
@@ -819,7 +830,7 @@ export async function listReferenceVideos(accountId) {
   const { data, error } = await supabaseAdmin
     .from('reference_videos')
     .select(
-      'id, title, topic, original_filename, duration_seconds, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, created_at',
+      'id, title, topic, original_filename, duration_seconds, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, created_at, project_id',
     )
     .eq('account_id', accountId)
     .order('created_at', { ascending: false })
@@ -847,7 +858,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
   const { data, error } = await supabaseAdmin
     .from('reference_videos')
     .select(
-      'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at',
+      'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at, project_id',
     )
     .eq('id', referenceVideoId)
     .eq('account_id', accountId)
@@ -970,7 +981,7 @@ export async function deleteReferenceVideo(referenceVideoId, accountId) {
   return data
 }
 
-export async function renameReferenceVideo(referenceVideoId, accountId, nextTitle) {
+export async function updateReferenceVideo(referenceVideoId, accountId, { title, projectId } = {}) {
   if (!hasSupabaseAdminConfig()) {
     throw new AppError('Supabase admin client is not configured', {
       code: 'SUPABASE_NOT_CONFIGURED',
@@ -978,26 +989,64 @@ export async function renameReferenceVideo(referenceVideoId, accountId, nextTitl
     })
   }
 
-  const normalizedTitle = String(nextTitle || '').trim()
-  if (!normalizedTitle) {
-    throw new AppError('title is required', {
-      code: 'INVALID_REFERENCE_VIDEO_TITLE',
+  const payload = {}
+  if (title !== undefined) {
+    const normalizedTitle = String(title || '').trim()
+    if (!normalizedTitle) {
+      throw new AppError('title is required', {
+        code: 'INVALID_REFERENCE_VIDEO_TITLE',
+        statusCode: 400,
+      })
+    }
+    payload.title = normalizedTitle.slice(0, 200)
+  }
+  if (projectId !== undefined) {
+    const normalizedProjectId = String(projectId || '').trim()
+    payload.project_id = normalizedProjectId || null
+  }
+  if (!Object.keys(payload).length) {
+    throw new AppError('No fields to update', {
+      code: 'REFERENCE_VIDEO_UPDATE_EMPTY',
       statusCode: 400,
     })
   }
 
   const supabaseAdmin = getSupabaseAdmin()
+  if (payload.project_id) {
+    const { data: project, error: projectError } = await supabaseAdmin
+      .from('projects')
+      .select('id')
+      .eq('id', payload.project_id)
+      .eq('account_id', accountId)
+      .maybeSingle()
+
+    if (projectError) {
+      throw new AppError('Failed to validate project', {
+        code: 'PROJECT_VALIDATE_FAILED',
+        statusCode: 500,
+        cause: projectError,
+      })
+    }
+
+    if (!project) {
+      throw new AppError('Project not found', {
+        code: 'PROJECT_NOT_FOUND',
+        statusCode: 404,
+      })
+    }
+  }
+
   const { data, error } = await supabaseAdmin
     .from('reference_videos')
-    .update({ title: normalizedTitle.slice(0, 200) })
+    .update(payload)
     .eq('id', referenceVideoId)
     .eq('account_id', accountId)
-    .select('id, title')
+    .select('id, title, project_id')
     .maybeSingle()
 
   if (error) {
-    throw new AppError('Failed to rename reference video analysis', {
-      code: 'REFERENCE_VIDEO_RENAME_FAILED',
+    throw new AppError('Failed to update reference video analysis', {
+      code: 'REFERENCE_VIDEO_UPDATE_FAILED',
       statusCode: 500,
       cause: error,
     })

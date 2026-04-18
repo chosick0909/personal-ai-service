@@ -16,7 +16,13 @@ import {
   generateChatReply,
   generateScriptFeedback,
   listReferenceVideoHistory,
+  updateReferenceVideo as updateReferenceVideoRecord,
 } from '../lib/referenceApi'
+import {
+  createProject as createProjectRecord,
+  deleteProjectById,
+  listProjects as listProjectRecords,
+} from '../lib/projectApi'
 import {
   createScriptSelection,
   downloadScriptPdf,
@@ -26,7 +32,6 @@ import {
 } from '../lib/scriptApi'
 
 const AppStateContext = createContext(null)
-const PROJECTS_KEY = 'personal-ai-service:projects'
 const ACCOUNT_SETUP_KEY = 'personal-ai-service:account-setup-map'
 const REFERENCE_HISTORY_CACHE_KEY = 'personal-ai-service:reference-history-cache:v1'
 const REFERENCE_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 24
@@ -112,32 +117,6 @@ function hasOAuthTokenHash() {
   return hashParams.has('access_token') || hashParams.has('refresh_token') || hashParams.has('provider_token')
 }
 
-function getStoredProjects() {
-  if (typeof window === 'undefined') {
-    return []
-  }
-
-  const raw = window.localStorage.getItem(PROJECTS_KEY)
-  if (!raw) {
-    return []
-  }
-
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function setStoredProjects(projects) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects))
-}
-
 function getStoredAccountSetupMap() {
   if (typeof window === 'undefined') {
     return {}
@@ -199,6 +178,7 @@ function normalizeHistoryCacheItem(item = {}) {
     createdAt: item.createdAt || item.created_at || null,
     updatedAt: item.updatedAt || item.updated_at || null,
     status: item.status || null,
+    projectId: item.projectId || item.project_id || null,
     thumbnailUrl: item.thumbnailUrl || item.thumbnail_url || null,
     selectedScriptId: typeof item.selectedScriptId === 'string' ? item.selectedScriptId : null,
     activeScriptId: typeof item.activeScriptId === 'string' ? item.activeScriptId : null,
@@ -227,6 +207,7 @@ function mergeHistoryItem(serverItem, localItem) {
 
   return {
     ...normalizedServer,
+    projectId: normalizedServer.projectId || normalizedLocal.projectId || null,
     selectedScriptId: normalizedLocal.selectedScriptId || normalizedServer.selectedScriptId,
     activeScriptId: normalizedLocal.activeScriptId || normalizedServer.activeScriptId,
     editorContent: normalizedLocal.editorContent || normalizedServer.editorContent,
@@ -1017,15 +998,33 @@ export function AppStateProvider({ children }) {
       return
     }
 
-    const allProjects = getStoredProjects()
-    const scoped = allProjects.filter((item) => item.accountId === currentAccount.id)
-    setProjects(scoped)
-    setCurrentProjectId((current) => {
-      if (current && scoped.some((item) => item.id === current)) {
-        return current
+    let canceled = false
+
+    const run = async () => {
+      try {
+        const items = await listProjectRecords()
+        if (canceled) {
+          return
+        }
+        setProjects(items)
+        setCurrentProjectId((current) => {
+          if (current && items.some((item) => item.id === current)) {
+            return current
+          }
+          return null
+        })
+      } catch (_error) {
+        if (!canceled) {
+          setProjects([])
+          setCurrentProjectId(null)
+        }
       }
-      return scoped[0]?.id || null
-    })
+    }
+
+    run()
+    return () => {
+      canceled = true
+    }
   }, [isLoggedIn, currentAccount?.id])
 
   useEffect(() => {
@@ -1137,8 +1136,6 @@ export function AppStateProvider({ children }) {
       return next
     })
 
-    const nextAllProjects = getStoredProjects().filter((item) => item.accountId !== normalizedAccountId)
-    setStoredProjects(nextAllProjects)
     if (currentAccount?.id === normalizedAccountId) {
       const nextCurrentAccount = remainingAccounts[0] || null
       setCurrentAccount(nextCurrentAccount)
@@ -1170,30 +1167,32 @@ export function AppStateProvider({ children }) {
     setIsResultEntering(false)
   }
 
-  const createProject = (name = '') => {
+  const createProject = async (name = '') => {
     if (!currentAccount?.id) {
-      return
+      return null
     }
 
     const normalizedName = name.trim()
     const baseName = normalizedName || '새 프로젝트'
-    const nextProject = {
-      id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      accountId: currentAccount.id,
+    const created = await createProjectRecord({
       name: baseName,
-      createdAt: new Date().toISOString(),
+      accountId: currentAccount.id,
+    })
+    if (!created) {
+      return null
     }
-
-    const allProjects = getStoredProjects()
-    const nextAllProjects = [...allProjects, nextProject]
-    setStoredProjects(nextAllProjects)
-    setProjects((current) => [...current, nextProject])
-    setCurrentProjectId(nextProject.id)
-    startNewProject()
+    setProjects((current) => [...current, created])
+    setCurrentProjectId(created.id)
+    return created
   }
 
   const selectProject = (projectId) => {
-    if (!projectId || projectId === currentProjectId) {
+    if (!projectId) {
+      setCurrentProjectId(null)
+      return
+    }
+
+    if (projectId === currentProjectId) {
       return
     }
 
@@ -1203,7 +1202,6 @@ export function AppStateProvider({ children }) {
     }
 
     setCurrentProjectId(projectId)
-    startNewProject()
   }
 
   const markAccountConfigured = (accountId, configured = true) => {
@@ -1254,21 +1252,35 @@ export function AppStateProvider({ children }) {
 
   const isAccountConfigured = (accountId) => Boolean(accountId && accountSetupMap[accountId])
 
-  const deleteProject = (projectId) => {
+  const deleteProject = async (projectId) => {
     if (!projectId) {
-      return
+      return false
+    }
+
+    try {
+      await deleteProjectById(projectId)
+    } catch (error) {
+      showToast(error.message || '프로젝트 삭제에 실패했습니다.', 'error')
+      return false
     }
 
     const nextProjects = projects.filter((item) => item.id !== projectId)
     setProjects(nextProjects)
-
-    const nextAllProjects = getStoredProjects().filter((item) => item.id !== projectId)
-    setStoredProjects(nextAllProjects)
+    setReferenceHistory((current) =>
+      current.map((item) =>
+        item.projectId === projectId
+          ? {
+              ...item,
+              projectId: null,
+            }
+          : item,
+      ),
+    )
 
     if (currentProjectId === projectId) {
-      setCurrentProjectId(nextProjects[0]?.id || null)
-      startNewProject()
+      setCurrentProjectId(null)
     }
+    return true
   }
 
   const deleteReferenceHistoryItem = async (referenceId) => {
@@ -1294,6 +1306,63 @@ export function AppStateProvider({ children }) {
     return true
   }
 
+  const renameReferenceHistoryItem = async (referenceId, nextTitle) => {
+    const normalizedTitle = String(nextTitle || '').trim()
+    if (!normalizedTitle) {
+      throw new Error('이름을 입력하세요.')
+    }
+
+    const updated = await updateReferenceVideoRecord(referenceId, {
+      title: normalizedTitle,
+      accountId: currentAccount?.id,
+    })
+
+    setReferenceHistory((current) =>
+      current.map((item) =>
+        item.id === referenceId
+          ? {
+              ...item,
+              title: updated?.title || normalizedTitle,
+            }
+          : item,
+      ),
+    )
+
+    if (referenceData?.id === referenceId) {
+      setReferenceData((current) =>
+        current
+          ? {
+              ...current,
+              title: updated?.title || normalizedTitle,
+            }
+          : current,
+      )
+    }
+
+    return updated
+  }
+
+  const moveReferenceToProject = async (referenceId, projectId) => {
+    const targetProjectId = String(projectId || '').trim() || null
+    const updated = await updateReferenceVideoRecord(referenceId, {
+      projectId: targetProjectId,
+      accountId: currentAccount?.id,
+    })
+
+    setReferenceHistory((current) =>
+      current.map((item) =>
+        item.id === referenceId
+          ? {
+              ...item,
+              projectId: updated?.project_id || targetProjectId,
+            }
+          : item,
+      ),
+    )
+
+    return updated
+  }
+
   const analyzeReference = async (file) => {
     const normalizedTopic = uploadTopic.trim()
     const fallbackTopic = uploadTitle.trim() || file.name.replace(/\.[^.]+$/, '') || '일반'
@@ -1305,6 +1374,7 @@ export function AppStateProvider({ children }) {
       title: uploadTitle.trim() || file.name.replace(/\.[^.]+$/, ''),
       fileName: file.name,
       topic: effectiveTopic,
+      projectId: currentProjectId || null,
       createdAt,
       status: 'processing',
     }
@@ -1340,6 +1410,7 @@ export function AppStateProvider({ children }) {
         accountId: currentAccount?.id,
         topic: effectiveTopic,
         title: uploadTitle,
+        projectId: currentProjectId || null,
       })
 
       const completedReference = {
@@ -1967,6 +2038,8 @@ export function AppStateProvider({ children }) {
       createProject,
       selectProject,
       deleteProject,
+      renameReferenceHistoryItem,
+      moveReferenceToProject,
       deleteReferenceHistoryItem,
       startNewProject,
       login,
@@ -2027,6 +2100,8 @@ export function AppStateProvider({ children }) {
       createProject,
       selectProject,
       deleteProject,
+      renameReferenceHistoryItem,
+      moveReferenceToProject,
       deleteReferenceHistoryItem,
       startNewProject,
       logout,

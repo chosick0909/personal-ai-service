@@ -12,6 +12,47 @@ function IconDots() {
   )
 }
 
+function IconShare() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#D1D5DB]">
+      <path
+        d="M11.8 9.2a2.1 2.1 0 0 0-1.48.62L6.37 7.98a2.2 2.2 0 0 0 0-1.02l3.95-1.84a2.1 2.1 0 1 0-.58-1.2L5.78 5.76a2.1 2.1 0 1 0 0 3.48l3.96 1.84a2.1 2.1 0 1 0 2.06-1.88Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+function IconPencil() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#D1D5DB]">
+      <path
+        d="M10.98 1.8a1.8 1.8 0 0 1 2.55 2.55L6.2 11.67 3 12.3l.63-3.2L10.98 1.8Zm1 1 1.2 1.2M4.45 9.74l1.8 1.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function IconMove() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#D1D5DB]">
+      <path
+        d="M2.2 3.6h4l1 1.3h6.6c.9 0 1.6.7 1.6 1.6v4.6c0 .9-.7 1.6-1.6 1.6H2.2a1.6 1.6 0 0 1-1.6-1.6V5.2c0-.9.7-1.6 1.6-1.6Zm6.4 3.2h4.2m0 0-1.4-1.4m1.4 1.4-1.4 1.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function IconSearch() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#8E97A6]">
@@ -63,13 +104,13 @@ function Row({ children, onClick, active = false, muted = false }) {
   )
 }
 
-const PROJECT_EMOJIS = ['📱', '✈️', '📖', '🎵', '🍳']
-
 export default function Sidebar() {
   const [query, setQuery] = useState('')
   const [isAccountSwitchOpen, setIsAccountSwitchOpen] = useState(false)
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false)
   const [projectNameDraft, setProjectNameDraft] = useState('')
+  const [activeReferenceMenuId, setActiveReferenceMenuId] = useState(null)
+  const [activeMoveMenuId, setActiveMoveMenuId] = useState(null)
   const accountSheetRef = useRef(null)
   const projectInputRef = useRef(null)
   const {
@@ -91,15 +132,16 @@ export default function Sidebar() {
     createProject,
     selectProject,
     deleteProject,
+    renameReferenceHistoryItem,
+    moveReferenceToProject,
     deleteReferenceHistoryItem,
   } = useAppState()
 
   const normalizedQuery = query.trim().toLowerCase()
 
   const projectRows = useMemo(() => {
-    const dynamic = projects.slice(0, 12).map((project, idx) => ({
+    const dynamic = projects.slice(0, 20).map((project) => ({
       id: project.id,
-      emoji: PROJECT_EMOJIS[idx % PROJECT_EMOJIS.length],
       title: project.name,
       active: currentProjectId === project.id,
       onClick: () => selectProject(project.id),
@@ -113,9 +155,14 @@ export default function Sidebar() {
   }, [projects, currentProjectId, normalizedQuery, selectProject])
 
   const recentRows = useMemo(() => {
-    const dynamic = referenceHistory.slice(0, 6).map((item) => ({
+    const scopedHistory = currentProjectId
+      ? referenceHistory.filter((item) => item.projectId === currentProjectId)
+      : referenceHistory
+
+    const dynamic = scopedHistory.slice(0, 30).map((item) => ({
       id: item.id,
       title: item.title,
+      projectId: item.projectId || null,
       active: referenceData?.id === item.id,
       isProcessing:
         item.status === 'processing' ||
@@ -139,6 +186,7 @@ export default function Sidebar() {
 
     return dynamic.filter((item) => item.title.toLowerCase().includes(normalizedQuery))
   }, [
+    currentProjectId,
     currentStep,
     deleteReferenceHistoryItem,
     isAnalyzing,
@@ -196,15 +244,39 @@ export default function Sidebar() {
     }
   }, [isCreateProjectOpen])
 
+  useEffect(() => {
+    if (!activeReferenceMenuId) {
+      return undefined
+    }
+
+    const handleClickOutside = () => {
+      setActiveReferenceMenuId(null)
+      setActiveMoveMenuId(null)
+    }
+
+    const timer = window.setTimeout(() => {
+      document.addEventListener('click', handleClickOutside)
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [activeReferenceMenuId])
+
   const openCreateProjectModal = () => {
     setProjectNameDraft('')
     setIsCreateProjectOpen(true)
   }
 
-  const submitCreateProject = () => {
-    createProject(projectNameDraft)
-    setIsCreateProjectOpen(false)
-    setProjectNameDraft('')
+  const submitCreateProject = async () => {
+    try {
+      await createProject(projectNameDraft)
+      setIsCreateProjectOpen(false)
+      setProjectNameDraft('')
+    } catch (error) {
+      window.alert(error.message || '프로젝트 생성에 실패했습니다.')
+    }
   }
 
   const handleAccountSelect = (account) => {
@@ -256,6 +328,10 @@ export default function Sidebar() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="px-6 pt-4 text-xs font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">프로젝트</div>
         <div className="px-3 pt-2">
+          <Row onClick={() => selectProject(null)} active={!currentProjectId}>
+            <IconFolder />
+            전체
+          </Row>
           <Row onClick={openCreateProjectModal}>
             <IconFolder />
             새 프로젝트
@@ -270,14 +346,17 @@ export default function Sidebar() {
                   item.active ? 'text-[#F3F4F6]' : 'text-[#E5E7EB]'
                 }`}
               >
-                <span className="w-4 text-center text-base leading-none">{item.emoji}</span>
                 <span className="truncate">{item.title}</span>
               </button>
               <button
                 type="button"
-                onClick={(event) => {
+                onClick={async (event) => {
                   event.stopPropagation()
-                  deleteProject(item.id)
+                  const ok = window.confirm(`"${item.title}" 프로젝트를 삭제할까요?`)
+                  if (!ok) {
+                    return
+                  }
+                  await deleteProject(item.id)
                 }}
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[#8E97A6] opacity-0 transition hover:bg-[#2B313D] hover:text-[#D1D5DB] group-hover:opacity-100"
                 aria-label={`${item.title} 삭제`}
@@ -303,7 +382,7 @@ export default function Sidebar() {
           {recentRows.map((item) => (
             <div
               key={item.id}
-              className={`group flex h-10 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm transition ${
+              className={`group relative flex h-10 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm transition ${
                 item.active
                   ? 'border border-[#4B5563] bg-[#2B313D]'
                   : 'hover:bg-[#232833]'
@@ -329,21 +408,135 @@ export default function Sidebar() {
                     편집중
                   </span>
                 ) : null}
+                {item.active && !item.isProcessing ? (
+                  <span className="inline-flex items-center rounded-full border border-[#60A5FA] bg-[#172033] px-1.5 py-0.5 text-[9px] font-semibold text-[#93C5FD]">
+                    현재
+                  </span>
+                ) : null}
               </button>
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
-                  item.onDelete()
+                  setActiveReferenceMenuId((current) => (current === item.id ? null : item.id))
+                  setActiveMoveMenuId(null)
                 }}
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[#8E97A6] opacity-0 transition hover:bg-[#2B313D] hover:text-[#D1D5DB] group-hover:opacity-100"
-                aria-label={`${item.title} 삭제`}
-                title="대화내역 삭제"
+                aria-label={`${item.title} 메뉴`}
+                title="메뉴"
               >
-                <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5">
-                  <path d="M4.2 4.2 8 8m0 0 3.8 3.8M8 8l3.8-3.8M8 8 4.2 11.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                </svg>
+                <IconDots />
               </button>
+              {activeReferenceMenuId === item.id ? (
+                <div
+                  className="absolute right-2 top-[calc(100%+6px)] z-20 w-[220px] overflow-hidden rounded-xl border border-[#3A4252] bg-[#2B2F36] shadow-[0_10px_28px_rgba(0,0,0,0.35)]"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    className="flex h-11 w-full items-center gap-3 px-3 text-left text-sm text-[#F3F4F6] transition hover:bg-[#343943]"
+                    onClick={async () => {
+                      const shareUrl = `${window.location.origin}/analyze?reference=${encodeURIComponent(item.id)}`
+                      try {
+                        await navigator.clipboard.writeText(shareUrl)
+                        window.alert('공유 링크를 복사했습니다.')
+                      } catch {
+                        window.alert(shareUrl)
+                      }
+                      setActiveReferenceMenuId(null)
+                    }}
+                  >
+                    <IconShare />
+                    공유하기
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-11 w-full items-center gap-3 px-3 text-left text-sm text-[#F3F4F6] transition hover:bg-[#343943]"
+                    onClick={async () => {
+                      const nextName = window.prompt('새 이름을 입력하세요', item.title)
+                      if (!nextName || !nextName.trim()) {
+                        return
+                      }
+                      try {
+                        await renameReferenceHistoryItem(item.id, nextName.trim())
+                        setActiveReferenceMenuId(null)
+                      } catch (error) {
+                        window.alert(error.message || '이름 바꾸기에 실패했습니다.')
+                      }
+                    }}
+                  >
+                    <IconPencil />
+                    이름 바꾸기
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm text-[#F3F4F6] transition hover:bg-[#343943]"
+                    onClick={() => setActiveMoveMenuId((current) => (current === item.id ? null : item.id))}
+                  >
+                    <span className="flex items-center gap-3">
+                      <IconMove />
+                      프로젝트로 이동
+                    </span>
+                    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#AEB6C5]">
+                      <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  {activeMoveMenuId === item.id ? (
+                    <div className="border-t border-[#3A4252] bg-[#252932] p-2">
+                      <button
+                        type="button"
+                        className="flex h-9 w-full items-center rounded-lg px-2 text-left text-xs text-[#D1D5DB] transition hover:bg-[#343943]"
+                        onClick={async () => {
+                          try {
+                            await moveReferenceToProject(item.id, null)
+                            setActiveMoveMenuId(null)
+                            setActiveReferenceMenuId(null)
+                          } catch (error) {
+                            window.alert(error.message || '프로젝트 이동에 실패했습니다.')
+                          }
+                        }}
+                      >
+                        프로젝트 없음
+                      </button>
+                      {projects.map((project) => (
+                        <button
+                          key={project.id}
+                          type="button"
+                          className={`flex h-9 w-full items-center rounded-lg px-2 text-left text-xs transition ${
+                            item.projectId === project.id
+                              ? 'bg-[#3B4252] text-[#F8FAFC]'
+                              : 'text-[#D1D5DB] hover:bg-[#343943]'
+                          }`}
+                          onClick={async () => {
+                            try {
+                              await moveReferenceToProject(item.id, project.id)
+                              setActiveMoveMenuId(null)
+                              setActiveReferenceMenuId(null)
+                            } catch (error) {
+                              window.alert(error.message || '프로젝트 이동에 실패했습니다.')
+                            }
+                          }}
+                        >
+                          {project.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="border-t border-[#3A4252] p-2">
+                    <button
+                      type="button"
+                      className="flex h-9 w-full items-center rounded-lg px-2 text-left text-xs text-[#FCA5A5] transition hover:bg-[#3A1E23]"
+                      onClick={async () => {
+                        await item.onDelete()
+                        setActiveReferenceMenuId(null)
+                        setActiveMoveMenuId(null)
+                      }}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -508,41 +701,21 @@ export default function Sidebar() {
               <div className="absolute left-1/2 top-1/2 w-[min(620px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[24px] border border-[#2A2A2A] bg-[#1B1B1F] shadow-[0_14px_30px_rgba(0,0,0,0.35)]">
                 <div className="flex items-center justify-between px-4 pb-2 pt-3">
                   <h3 className="text-[20px] font-semibold text-[#F4F4F5]">프로젝트 만들기</h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded text-[#E5E7EB] transition hover:bg-white/10"
-                      aria-label="설정"
-                    >
-                      <svg viewBox="0 0 16 16" aria-hidden="true" className="h-5 w-5">
-                        <path
-                          d="M6.26.94h3.48l.38 1.86a5.4 5.4 0 0 1 1.25.72l1.77-.74 1.74 3.01-1.38 1.22c.07.4.1.8.1 1.2 0 .4-.03.8-.1 1.2l1.38 1.22-1.74 3.01-1.77-.74c-.39.3-.8.54-1.25.72l-.38 1.86H6.26l-.38-1.86a5.4 5.4 0 0 1-1.25-.72l-1.77.74L1.12 11.6 2.5 10.38a6.3 6.3 0 0 1 0-2.4L1.12 6.76 2.86 3.75l1.77.74c.39-.3.8-.54 1.25-.72L6.26.94Zm1.74 4.11A3.15 3.15 0 1 0 8 11.35 3.15 3.15 0 0 0 8 5.05Z"
-                          fill="currentColor"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsCreateProjectOpen(false)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded text-[#E5E7EB] transition hover:bg-white/10"
-                      aria-label="닫기"
-                    >
-                      <svg viewBox="0 0 16 16" aria-hidden="true" className="h-5 w-5">
-                        <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                      </svg>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateProjectOpen(false)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded text-[#E5E7EB] transition hover:bg-white/10"
+                    aria-label="닫기"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-5 w-5">
+                      <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                  </button>
                 </div>
 
                 <div className="px-4 pb-4 pt-2">
                   <p className="mb-2 text-[12px] font-medium text-[#D1D5DB]">프로젝트 이름</p>
-                  <label className="flex h-[54px] items-center gap-3 rounded-2xl border border-[#3F3F46] bg-[#202227] px-3">
-                    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-6 w-6 text-[#A1A1AA]">
-                      <path
-                        d="M8 8.2a2.6 2.6 0 1 0 0-5.2a2.6 2.6 0 0 0 0 5.2Zm0 1.4c-2.6 0-4.8 1.6-4.8 3.5 0 .5.3.9.8.9h8c.5 0 .8-.4.8-.9 0-1.9-2.2-3.5-4.8-3.5Zm4.7-8.1h1.1v1.6h1.6v1.1h-1.6v1.6h-1.1V4.2H11V3.1h1.7V1.5Z"
-                        fill="currentColor"
-                      />
-                    </svg>
+                  <label className="flex h-[54px] items-center rounded-2xl border border-[#3F3F46] bg-[#202227] px-3">
                     <input
                       ref={projectInputRef}
                       value={projectNameDraft}
