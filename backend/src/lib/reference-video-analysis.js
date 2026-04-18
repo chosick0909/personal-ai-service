@@ -209,7 +209,17 @@ function normalizeOptionalProjectId(value) {
 function isMissingProjectColumnError(error) {
   const code = String(error?.code || '').trim()
   const message = String(error?.message || '').toLowerCase()
-  return code === '42703' && message.includes('project_id')
+  if (code === '42703' && message.includes('project_id')) {
+    return true
+  }
+
+  // Supabase PostgREST can surface schema cache misses as PGRST errors
+  // like: "Could not find the 'project_id' column ... in the schema cache"
+  if (message.includes('project_id') && message.includes('schema cache')) {
+    return true
+  }
+
+  return false
 }
 
 function selectReferenceVideoColumns({ includeProjectId = true, detail = false } = {}) {
