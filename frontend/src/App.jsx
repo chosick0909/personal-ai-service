@@ -1526,13 +1526,39 @@ const RF_LIKERT_OPTIONS = [
   { value: -2, label: '매우 아니다' },
 ]
 
+const RF_CATEGORY_SEED_OPTIONS = [
+  { code: 'beauty', label: '뷰티', description: '스킨케어/메이크업/제품 비교' },
+  { code: 'fashion', label: '패션', description: '코디/체형/스타일링' },
+  { code: 'self_growth', label: '자기계발', description: '루틴/생산성/습관 개선' },
+  { code: 'finance', label: '재테크', description: '지출관리/투자 기초/자산관리' },
+  { code: 'ai_tech', label: 'AI/테크', description: 'AI 활용/자동화/툴 실전' },
+  { code: 'home_living', label: '홈/리빙', description: '정리/청소/생활 효율' },
+  { code: 'cooking', label: '요리', description: '레시피/식단/주방 루틴' },
+  { code: 'fitness', label: '피트니스', description: '운동 루틴/자세/건강 관리' },
+  { code: 'relationship', label: '관계/연애', description: '대화법/갈등 해결/공감' },
+  { code: 'daily_life', label: '일상/브이로그', description: '일상 기록/루틴/라이프스타일' },
+  { code: 'pet', label: '반려동물', description: '반려 케어/용품/행동 팁' },
+  { code: 'travel', label: '여행', description: '일정/예산/동선 가이드' },
+  { code: 'professional_brand', label: '전문직 브랜딩', description: '신뢰형 정보/리드 전환' },
+]
+
 const RF_QUESTIONS = [
+  {
+    code: 'Q1_CATEGORY_SEED',
+    type: 'multi_select',
+    title: '먼저, 관심 있는 카테고리를 최대 3개 골라주세요.',
+    subtitle: '최종 확정이 아니라 초기 시드 가중치로만 반영됩니다.',
+    options: RF_CATEGORY_SEED_OPTIONS.map((option) => ({
+      ...option,
+      effects: { categoryScores: { [option.code]: 2 } },
+    })),
+    maxSelect: 3,
+  },
   { code: 'Q1_INFO_ORGANIZE', type: 'likert', title: '나는 정보를 쉽게 정리해서 전달하는 편이다.', subtitle: '정보형 전달력과 문제해결형 기초 성향을 봅니다.', effects: { styleScores: { informative: 2, problem_solving: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1, professional_brand: 1 } } },
   { code: 'Q2_EMPATHY', type: 'likert', title: '나는 감정이나 공감 포인트를 말로 풀어내는 편이다.', subtitle: '공감형/스토리형 콘텐츠 적합도를 측정합니다.', effects: { styleScores: { empathetic: 2, storytelling: 1 }, categoryScores: { relationship: 2, daily_life: 1, travel: 1 } } },
   { code: 'Q3_PROBLEM_SOLVING', type: 'likert', title: '나는 다른 사람의 문제를 듣고 해결책을 제시하는 게 익숙하다.', subtitle: '문제 해결형 콘텐츠와 컨설팅형 수익 적합도를 봅니다.', effects: { styleScores: { problem_solving: 2 }, monetizationScores: { consulting: 1 }, categoryScores: { self_growth: 1, finance: 1, professional_brand: 1, fitness: 1, home_living: 1 } } },
   { code: 'Q4_REVIEW_PREFERENCE', type: 'likert', title: '제품이나 도구를 직접 써보고 비교해보는 걸 좋아한다.', subtitle: '리뷰형 콘텐츠와 제품 전환 구조 적합도를 봅니다.', effects: { styleScores: { review: 2 }, monetizationScores: { affiliate: 1, group_buy: 1 }, categoryScores: { beauty: 1, fashion: 1, ai_tech: 1, home_living: 1, pet: 1, fitness: 1, cooking: 1 } } },
   { code: 'Q5_FACE_COMFORT', type: 'likert', title: '카메라 앞에서 내 얼굴이나 목소리를 드러내는 게 편하다.', subtitle: '노출 성향과 제작 방식 추천에 반영됩니다.', effects: { productionScores: { face_on: 2, voice_over: 1 } }, special: 'face_comfort' },
-  { code: 'Q6_DEEP_TOPIC', type: 'likert', title: '한 가지 주제를 반복해서 깊게 파는 게 편하다.', subtitle: '지속형 콘텐츠 운영 적합도를 측정합니다.', effects: { styleScores: { informative: 1, problem_solving: 1 }, monetizationScores: { digital_product: 1, consulting: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1, professional_brand: 1, fitness: 1 } } },
   {
     code: 'Q7_IMPRESSION',
     type: 'single_choice',
@@ -1680,6 +1706,13 @@ function rfObjectiveScore(answerMap) {
       const option = question.options.find((it) => it.code === answer.optionCode)
       if (option) rfApplyPatch(raw, option.effects, 1)
     }
+    if (question.type === 'multi_select') {
+      const selectedOptionCodes = Array.isArray(answer.optionCodes) ? answer.optionCodes : []
+      selectedOptionCodes.forEach((optionCode) => {
+        const option = question.options.find((it) => it.code === optionCode)
+        if (option) rfApplyPatch(raw, option.effects, 1)
+      })
+    }
   })
   return raw
 }
@@ -1800,6 +1833,9 @@ function rfBuildTitles(topCategoryKey) {
 function rfComputeResult(answerMap) {
   const rawScores = rfObjectiveScore(answerMap)
   const { adjusted, notes } = rfFreeTextAdjust(rawScores, answerMap)
+  const seedCategoryKeys = Array.isArray(answerMap.Q1_CATEGORY_SEED?.optionCodes)
+    ? answerMap.Q1_CATEGORY_SEED.optionCodes
+    : []
 
   const topCategories = rfTopEntries(adjusted.categoryScores, 3).map(([key, score]) => {
     const meta = RF_CATEGORY_META[key]
@@ -1822,6 +1858,15 @@ function rfComputeResult(answerMap) {
       contentStyle: `${rfStyleLabel(topStyles[0]?.[0])} 중심`,
       strength: `${topCategories[0]?.label || '핵심'} 카테고리 설득력`,
     },
+    seedCategoryKeys,
+    seedAligned: seedCategoryKeys.length === 0
+      ? true
+      : seedCategoryKeys.includes(topCategories[0]?.key),
+    seedSummary: seedCategoryKeys.length === 0
+      ? '초기 카테고리 선택 없이 성향/수익/제작 방식 점수로 추천을 계산했습니다.'
+      : seedCategoryKeys.includes(topCategories[0]?.key)
+        ? '초기 선택 카테고리와 후속 성향 점수가 같은 방향으로 수렴했습니다.'
+        : '초기 선택은 반영됐지만 후속 성향/수익/제작 방식 점수가 더 강하게 작동해 최종 1순위가 재정렬되었습니다.',
     adjustmentNote: notes.length > 0 ? `자연어 보정 적용: ${notes.join(' / ')}` : '자연어 보정 없음',
     sourceNote: '시장성 문구는 업로드된 “인스타그램 13대 버티컬 시장 분석 및 수익화 전략 리포트” 핵심 수치 요약을 기반으로 구성했습니다.',
   }
@@ -1837,6 +1882,9 @@ function RecommendScreenV2() {
 
   const result = useMemo(() => (isCompleted ? rfComputeResult(answers) : null), [answers, isCompleted])
   const currentText = currentQuestion?.type === 'free_text' ? answers[currentQuestion.code]?.text || '' : ''
+  const currentMultiSelected = currentQuestion?.type === 'multi_select'
+    ? (answers[currentQuestion.code]?.optionCodes || [])
+    : []
 
   useEffect(() => {
     if (!result?.topCategories?.length) {
@@ -1885,6 +1933,18 @@ function RecommendScreenV2() {
     setAnswers((prev) => ({ ...prev, [code]: { optionCode } }))
     setCurrentIndex((prev) => prev + 1)
   }
+  const saveMultiSelectToggle = (code, optionCode, maxSelect = 3) => {
+    setAnswers((prev) => {
+      const existing = prev[code]?.optionCodes || []
+      const exists = existing.includes(optionCode)
+      const nextOptionCodes = exists
+        ? existing.filter((it) => it !== optionCode)
+        : existing.length >= maxSelect
+          ? existing
+          : [...existing, optionCode]
+      return { ...prev, [code]: { optionCodes: nextOptionCodes } }
+    })
+  }
   const saveText = (code, text) => {
     setAnswers((prev) => ({ ...prev, [code]: { text } }))
   }
@@ -1932,10 +1992,61 @@ function RecommendScreenV2() {
 
             <section className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.38)]">
               <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
-                {currentQuestion.type === 'likert' ? '척도형 질문' : currentQuestion.type === 'single_choice' ? '선택형 질문' : '서술형 질문'}
+                {currentQuestion.type === 'likert'
+                  ? '척도형 질문'
+                  : currentQuestion.type === 'single_choice'
+                    ? '선택형 질문'
+                    : currentQuestion.type === 'multi_select'
+                      ? '카테고리 선택 질문'
+                      : '서술형 질문'}
               </div>
               <h2 className="mt-5 text-[30px] font-bold leading-[1.3] tracking-[-0.03em] text-[#F8FAFC]">{currentQuestion.title}</h2>
               <p className="mt-3 text-base leading-7 text-[#9CA3AF]">{currentQuestion.subtitle}</p>
+
+              {currentQuestion.type === 'multi_select' && (
+                <div className="mt-8">
+                  <div className="mb-4 text-xs font-semibold text-[#9CA3AF]">
+                    현재 선택: {currentMultiSelected.length} / {currentQuestion.maxSelect || 3}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {currentQuestion.options.map((option) => {
+                      const selected = currentMultiSelected.includes(option.code)
+                      const reachedMax = !selected && currentMultiSelected.length >= (currentQuestion.maxSelect || 3)
+                      return (
+                        <button
+                          key={option.code}
+                          type="button"
+                          onClick={() => saveMultiSelectToggle(currentQuestion.code, option.code, currentQuestion.maxSelect || 3)}
+                          disabled={reachedMax}
+                          className={`rounded-2xl border px-4 py-4 text-left transition ${
+                            selected
+                              ? 'border-[#93C5FD] bg-[#162033]'
+                              : 'border-[#2F3543] bg-[#171B24] hover:border-[#94A3B8] hover:bg-[#1D2330]'
+                          } ${reachedMax ? 'cursor-not-allowed opacity-55' : ''}`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-base font-semibold text-[#F8FAFC]">{option.label}</div>
+                            {selected ? (
+                              <span className="inline-flex items-center rounded-full border border-[#60A5FA] bg-[#172033] px-2 py-0.5 text-[10px] font-semibold text-[#93C5FD]">선택됨</span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 text-xs leading-6 text-[#9CA3AF]">{option.description}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-6 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentIndex((prev) => prev + 1)}
+                      disabled={currentMultiSelected.length === 0}
+                      className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      다음으로
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {currentQuestion.type === 'likert' && (
                 <div className="mt-8 grid gap-3">
@@ -1984,6 +2095,9 @@ function RecommendScreenV2() {
               <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">Recommendation Result</div>
               <h1 className="mt-5 text-[42px] font-bold leading-[1.15] tracking-[-0.03em] text-[#F8FAFC]">{selectedCategory ? `추천 카테고리: ${selectedCategory.label}` : '추천 결과'}</h1>
               <p className="mt-4 max-w-[840px] text-base leading-8 text-[#9CA3AF]">{comprehensiveSummary}</p>
+              <div className="mt-3 max-w-[840px] rounded-xl border border-[#2F3543] bg-[#171B24] px-4 py-3 text-sm leading-7 text-[#AEB6C5]">
+                <span className="font-semibold text-[#E5E7EB]">초기 선택 반영:</span> {result.seedSummary}
+              </div>
             </div>
 
             <div className="grid gap-8 lg:grid-cols-[1fr_1fr]">
