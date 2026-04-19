@@ -59,7 +59,7 @@ function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }
   )
 }
 
-export default function ChatPanel({ entering = false, embedded = false, fixedHeight = null }) {
+export default function ChatPanel({ entering = false, embedded = false }) {
   const {
     chatMessages,
     draftMessage,
@@ -77,12 +77,11 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
 
   return (
     <div
-      className={`flex ${embedded ? 'h-full min-h-0' : 'h-full min-h-0'} flex-col overflow-hidden ${embedded ? 'rounded-[32px] border border-[#2F3543] bg-[#0F131B]' : 'bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'}`}
-      style={
-        embedded && Number.isFinite(fixedHeight) && fixedHeight > 0
-          ? { height: `${fixedHeight}px`, maxHeight: `${fixedHeight}px` }
-          : undefined
-      }
+      className={`flex min-h-0 flex-col overflow-hidden ${
+        embedded
+          ? 'min-h-[720px] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
+          : 'h-full bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'
+      }`}
     >
       <div className={`${embedded ? 'shrink-0 border-b border-[#2F3543] px-5 py-4' : 'shrink-0 rounded-[24px] border border-[#2F3543] bg-[#121821] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className="inline-flex rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D1D5DB]">
@@ -98,7 +97,7 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
       </div>
 
       <div className={`${embedded ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
-        <div className="flex h-full min-h-0 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           <div className={`min-h-0 flex-1 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
             {pendingSuggestion ? (
               <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">

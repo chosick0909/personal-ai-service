@@ -74,9 +74,7 @@ export default function ResultCards({ transitioning = false, entering = false })
   } = useAppState()
   const editorSectionRef = useRef(null)
   const scrollContainerRef = useRef(null)
-  const editorPanelRef = useRef(null)
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
-  const [editorPanelHeight, setEditorPanelHeight] = useState(null)
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
@@ -171,33 +169,6 @@ export default function ResultCards({ transitioning = false, entering = false })
 
     return () => window.clearTimeout(timer)
   }, [shouldScrollToEditor, currentStep, selectedScript])
-
-  useEffect(() => {
-    if (currentStep !== 'editor' || !selectedScript || !editorPanelRef.current) {
-      return
-    }
-
-    const updateHeight = () => {
-      const nextHeight = editorPanelRef.current?.getBoundingClientRect().height
-      if (Number.isFinite(nextHeight) && nextHeight > 0) {
-        setEditorPanelHeight(Math.round(nextHeight))
-      }
-    }
-
-    updateHeight()
-
-    const observer = new ResizeObserver(() => {
-      updateHeight()
-    })
-
-    observer.observe(editorPanelRef.current)
-    window.addEventListener('resize', updateHeight)
-
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', updateHeight)
-    }
-  }, [currentStep, selectedScript])
 
   return (
     <div
@@ -309,12 +280,12 @@ export default function ResultCards({ transitioning = false, entering = false })
                 </button>
               </div>
             </div>
-            <div className="mt-8 grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div ref={editorPanelRef} className="min-w-0">
+            <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="min-w-0">
                 <Editor embedded entering={false} transitioning={false} />
               </div>
-              <div className="min-w-0 h-full">
-                <ChatPanel embedded entering={false} fixedHeight={editorPanelHeight} />
+              <div className="min-w-0">
+                <ChatPanel embedded entering={false} />
               </div>
             </div>
           </section>
