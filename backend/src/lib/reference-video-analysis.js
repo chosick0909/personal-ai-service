@@ -26,18 +26,42 @@ const VARIATION_CONFIGS = [
     angle: '문제 제기형',
     retrievalHint:
       '문제 제기, 손실 회피, 실수 경고, 잘못된 습관 반전, 위험 신호, 즉시 행동 유도',
+    strategyProfile: {
+      opening: '출발은 "이거 틀렸다/잘못하고 있다" 계열의 문제 제기',
+      emotion: '긴장, 위기감, 손해 회피',
+      flow: '통념 깨기 -> 왜 문제인지 -> 지금 바꿔야 하는 이유',
+      tone: '직설적이고 날카로운 톤',
+      ctaStyle: '경고형 CTA',
+      forbidden: '설명형 문장, 공감형 서사',
+    },
   },
   {
     label: 'B안',
     angle: '정보 압축형',
     retrievalHint:
       '핵심 요약, 단계별 설명, 프레임워크, 체크리스트, 실행 순서, 빠른 이해',
+    strategyProfile: {
+      opening: '출발은 "헷갈리는 걸 정리해준다" 계열의 선언',
+      emotion: '명확함, 정리감, 이해감',
+      flow: '핵심 기준 -> 구조 -> 단계 -> 요약',
+      tone: '깔끔하고 논리적인 톤',
+      ctaStyle: '체크리스트형 CTA',
+      forbidden: '감정 몰입, 스토리텔링 중심 전개',
+    },
   },
   {
     label: 'C안',
     angle: '공감 유도형',
     retrievalHint:
       '감정 공감, 실제 경험, 관계 중심 톤, 심리적 저항 완화, 친근한 설득, 참여 유도',
+    strategyProfile: {
+      opening: '출발은 "나도 이랬다/너도 이렇지?" 계열의 공감 진입',
+      emotion: '공감, 경험 공유, 관계 형성',
+      flow: '상황 -> 공감 -> 깨달음 -> 자연스러운 전환',
+      tone: '부드럽고 사람 말투',
+      ctaStyle: '공감형 CTA',
+      forbidden: '과도한 정보 나열, 공격적인 어조',
+    },
   },
 ]
 
@@ -125,6 +149,11 @@ const MAX_REFERENCE_SURFACE_TERMS = 16
 
 const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
 
+const CROSS_VARIATION_SIMILARITY_THRESHOLD = 0.62
+const OPENING_SIMILARITY_THRESHOLD = 0.7
+const FLOW_SIMILARITY_THRESHOLD = 0.75
+const MAX_DIVERSITY_REWRITE_PASSES = 2
+
 function cacheLog(stage, details = {}) {
   const safe = Object.fromEntries(
     Object.entries(details).filter(([, value]) => value !== undefined && value !== null && value !== ''),
@@ -191,6 +220,114 @@ function parseMetadata(value) {
   }
 
   return {}
+}
+
+function normalizeForSimilarity(text = '') {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tokenizeForSimilarity(text = '') {
+  const normalized = normalizeForSimilarity(text)
+  if (!normalized) return []
+  return normalized.split(' ').filter((token) => token.length >= 2)
+}
+
+function jaccardSimilarity(aTokens = [], bTokens = []) {
+  const aSet = new Set(aTokens)
+  const bSet = new Set(bTokens)
+  if (!aSet.size && !bSet.size) return 1
+  if (!aSet.size || !bSet.size) return 0
+  let intersection = 0
+  for (const token of aSet) {
+    if (bSet.has(token)) intersection += 1
+  }
+  const union = aSet.size + bSet.size - intersection
+  return union ? intersection / union : 0
+}
+
+function firstSentence(text = '') {
+  return String(text || '')
+    .split(/[.!?\n]/)
+    .map((part) => part.trim())
+    .find(Boolean) || ''
+}
+
+function sectionFlowFingerprint(variation = {}) {
+  const hookHead = firstSentence(variation?.hook || '')
+  const bodyHead = firstSentence(variation?.body || '')
+  const ctaHead = firstSentence(variation?.cta || '')
+  return `${normalizeForSimilarity(hookHead)}|${normalizeForSimilarity(bodyHead)}|${normalizeForSimilarity(ctaHead)}`
+}
+
+function summarizeStrategyProfile(strategyProfile = {}) {
+  return [
+    `- 출발: ${strategyProfile.opening || '-'}`,
+    `- 감정: ${strategyProfile.emotion || '-'}`,
+    `- 흐름: ${strategyProfile.flow || '-'}`,
+    `- 톤: ${strategyProfile.tone || '-'}`,
+    `- CTA 유형: ${strategyProfile.ctaStyle || '-'}`,
+    `- 금지: ${strategyProfile.forbidden || '-'}`,
+  ].join('\n')
+}
+
+function evaluateVariationSimilarity(variations = []) {
+  const conflicts = []
+  for (let i = 0; i < variations.length; i += 1) {
+    for (let j = i + 1; j < variations.length; j += 1) {
+      const left = variations[i] || {}
+      const right = variations[j] || {}
+      const leftText = [left.hook, left.body, left.cta].join(' ')
+      const rightText = [right.hook, right.body, right.cta].join(' ')
+      const overallSimilarity = jaccardSimilarity(
+        tokenizeForSimilarity(leftText),
+        tokenizeForSimilarity(rightText),
+      )
+      const openingSimilarity = jaccardSimilarity(
+        tokenizeForSimilarity(firstSentence(left.hook || '')),
+        tokenizeForSimilarity(firstSentence(right.hook || '')),
+      )
+      const flowSimilarity = jaccardSimilarity(
+        tokenizeForSimilarity(sectionFlowFingerprint(left)),
+        tokenizeForSimilarity(sectionFlowFingerprint(right)),
+      )
+
+      const reasons = []
+      if (overallSimilarity >= CROSS_VARIATION_SIMILARITY_THRESHOLD) {
+        reasons.push('hook/body/cta 전체 텍스트 유사도 높음')
+      }
+      if (openingSimilarity >= OPENING_SIMILARITY_THRESHOLD) {
+        reasons.push('HOOK 시작 문장 패턴 유사')
+      }
+      if (flowSimilarity >= FLOW_SIMILARITY_THRESHOLD) {
+        reasons.push('논리 흐름 유사')
+      }
+
+      if (reasons.length) {
+        conflicts.push({
+          indices: [i, j],
+          labels: [left.label || `안${i + 1}`, right.label || `안${j + 1}`],
+          reasons,
+        })
+      }
+    }
+  }
+
+  return conflicts
+}
+
+function buildOtherVariationSummary(variations = []) {
+  return (variations || [])
+    .map((item, index) => {
+      const hookHead = firstSentence(item?.hook || '')
+      const bodyHead = firstSentence(item?.body || '')
+      const ctaHead = firstSentence(item?.cta || '')
+      return `${index + 1}. ${item?.label || '안'} (${item?.angle || ''})\n- HOOK 시작: ${hookHead || '-'}\n- BODY 시작: ${bodyHead || '-'}\n- CTA 시작: ${ctaHead || '-'}`
+    })
+    .join('\n')
 }
 
 function pickFirstNonEmpty(...candidates) {
@@ -671,6 +808,7 @@ async function regenerateVariationWithGPT({
         role: 'user',
         content:
           `전략 라벨: ${config.label}\n전략 방향: ${config.angle}\n` +
+          `전략 프로필:\n${summarizeStrategyProfile(config.strategyProfile || {})}\n` +
           `카테고리: ${categoryGuard.category}\n` +
           `세팅 신호(우선 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
           `레퍼런스 금지 표면 단어(절대 사용 금지): ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
@@ -733,6 +871,78 @@ async function regenerateVariationWithGPT({
     usedChunkIds: [],
     usedKnowledge: [],
     alignment: { ok: true, reason: 'fallback-regenerated' },
+  }
+}
+
+async function regenerateVariationForDistinctness({
+  openai,
+  chatModel,
+  config,
+  categoryGuard,
+  guardPromptSummary,
+  characterSystemPrompt,
+  generationGuides,
+  structureBlueprint,
+  referenceSurfaceTerms,
+  otherVariations,
+  retryReason = '',
+}) {
+  const response = await openai.chat.completions.create({
+    model: chatModel,
+    temperature: 0.65,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '당신은 A/B/C 차별화 전담 작가다. 같은 주제라도 전략별 사고방식이 완전히 다르게 보이도록 HOOK/BODY/CTA를 다시 작성한다. 출력은 JSON만 반환한다.',
+      },
+      {
+        role: 'user',
+        content:
+          `현재 작성 대상: ${config.label} (${config.angle})\n` +
+          `전략 프로필(반드시 준수):\n${summarizeStrategyProfile(config.strategyProfile || {})}\n\n` +
+          `카테고리: ${categoryGuard.category}\n` +
+          `세팅 신호: ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
+          `레퍼런스 금지 표면 단어: ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
+          `${retryReason ? `차별화 실패 사유: ${retryReason}\n` : ''}\n` +
+          `다른 초안 요약(겹치면 안 됨):\n${buildOtherVariationSummary(otherVariations)}\n\n` +
+          `HOOK 문장 구조 참고:\n${
+            structureBlueprint?.hookSentencePattern?.length
+              ? structureBlueprint.hookSentencePattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `핵심 인사이트:\n${
+            generationGuides.keyInsights.length
+              ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `실행 포인트:\n${
+            generationGuides.checkpoints.length
+              ? generationGuides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `캐릭터 세팅:\n${characterSystemPrompt || '없음'}\n\n` +
+          '강제 차별화 규칙:\n' +
+          '- 다른 안의 표현/문장 구조/흐름을 재사용하지 말 것\n' +
+          '- HOOK 시작 방식은 다른 안과 완전히 다르게 쓸 것\n' +
+          '- BODY 설명 방식(서사/정리/직설)을 전략에 맞게 다르게 쓸 것\n' +
+          '- CTA 유형은 전략 프로필에 맞게 구분할 것\n' +
+          '- 레퍼런스 주제 복사 금지, 레퍼런스 단어 복사 금지\n' +
+          '- 분석 메타 표현(첫 3초, 화면, 자막, 클로즈업, 프레임) 금지\n\n' +
+          '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
+      },
+    ],
+  })
+
+  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+  return {
+    label: config.label,
+    angle: config.angle,
+    hook: String(parsed?.hook || '').trim(),
+    body: String(parsed?.body || '').trim(),
+    cta: String(parsed?.cta || '').trim(),
+    usedInsights: normalizeStringList(generationGuides.keyInsights, 2),
+    usedCheckpoints: normalizeStringList(generationGuides.checkpoints, 2),
   }
 }
 
@@ -1321,6 +1531,8 @@ export async function analyzeReferenceVideo({
             'BODY 규칙: 상황으로 시작하고 실제 경험/발견처럼 한 문장씩 끊어 전개.',
             'CTA 금지: "좋아요/팔로우 부탁" 같은 뻔한 마무리.',
             'CTA 규칙: 왜 지금 행동해야 하는지(손해/이득/궁금증)를 넣어 짧고 강하게.',
+            'A/B/C 차별화 규칙: 라벨만 다르게 쓰지 말고 전략별 사고방식 자체를 다르게 작성한다.',
+            '다른 안과 같은 표현, 같은 시작 문장 패턴, 같은 흐름 재사용 금지.',
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
           ]
             .filter(Boolean)
@@ -1330,6 +1542,7 @@ export async function analyzeReferenceVideo({
             `전략 라벨: ${config.label}\n` +
             `전략 방향: ${config.angle}\n` +
             `전략 의도: ${config.retrievalHint}\n\n` +
+            `전략 프로필(필수 준수):\n${summarizeStrategyProfile(config.strategyProfile || {})}\n\n` +
             `카테고리 강제 가드(절대 준수):\n${categoryGuardText}\n\n` +
             `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
             `레퍼런스 금지 표면 단어(절대 사용 금지): ${referenceGuard.surfaceTerms.join(', ') || '없음'}\n\n` +
@@ -1362,6 +1575,7 @@ export async function analyzeReferenceVideo({
             '- HOOK은 위의 HOOK 문장 구조 참고를 따라 시작 방식과 문장 호흡을 최대한 비슷하게 맞춘다\n' +
             '- 단, HOOK도 원문 단어/원문 상황/고유명사는 절대 사용 금지\n' +
             '- BODY/CTA는 레퍼런스 문장 구조를 따라 쓰지 말고 현재 계정 맥락으로 자연스럽게 새로 쓴다\n' +
+            '- HOOK/BODY/CTA 모두 전략 프로필의 톤/감정/흐름/금지 규칙을 반드시 따른다\n' +
             '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 작성\n' +
             '- 키워드를 억지로 끼워 넣지 말고, 자연스러운 주장과 흐름을 우선\n\n' +
             `핵심 인사이트(우선 참고):\n${
@@ -1559,7 +1773,64 @@ export async function analyzeReferenceVideo({
         }),
       ),
     )
-    const generatedVariations = enforceVariationDiversity(generatedVariationsRaw, categoryGuard)
+    let generatedVariations = enforceVariationDiversity(generatedVariationsRaw, categoryGuard)
+
+    for (let pass = 0; pass < MAX_DIVERSITY_REWRITE_PASSES; pass += 1) {
+      const conflicts = evaluateVariationSimilarity(generatedVariations)
+      if (!conflicts.length) break
+
+      const targetIndices = Array.from(new Set(conflicts.flatMap((conflict) => conflict.indices)))
+      for (const index of targetIndices) {
+        const current = generatedVariations[index]
+        if (!current) continue
+        const config = VARIATION_CONFIGS[index] || VARIATION_CONFIGS[0]
+        const conflictReasons = conflicts
+          .filter((conflict) => conflict.indices.includes(index))
+          .map((conflict) => `${conflict.labels.join(' vs ')}: ${conflict.reasons.join(', ')}`)
+          .join(' | ')
+        const others = generatedVariations.filter((_, idx) => idx !== index)
+        const regenerated = await regenerateVariationForDistinctness({
+          openai,
+          chatModel,
+          config,
+          categoryGuard,
+          guardPromptSummary,
+          characterSystemPrompt,
+          generationGuides,
+          structureBlueprint,
+          referenceSurfaceTerms: referenceGuard.surfaceTerms,
+          otherVariations: others,
+          retryReason: conflictReasons,
+        })
+        const alignment = validateVariationAlignment(regenerated, categoryGuard, referenceGuard)
+        if (alignment.ok) {
+          generatedVariations[index] = {
+            ...current,
+            ...regenerated,
+            alignment,
+          }
+          continue
+        }
+
+        const fallback = await regenerateVariationWithGPT({
+          openai,
+          chatModel,
+          config,
+          categoryGuard,
+          guardPromptSummary,
+          characterSystemPrompt,
+          generationGuides,
+          structureBlueprint,
+          referenceSurfaceTerms: referenceGuard.surfaceTerms,
+          retryReason: `차별화 재생성 실패: ${alignment.reason}`,
+        })
+        generatedVariations[index] = {
+          ...current,
+          ...fallback,
+          alignment: validateVariationAlignment(fallback, categoryGuard, referenceGuard),
+        }
+      }
+    }
 
     const { data: row, error } = await runStage('save-reference-video', baseContext, async () => {
       const insertPayload = {
