@@ -72,6 +72,15 @@ const OFF_DOMAIN_FORBIDDEN_TERMS = [
 ]
 
 const IT_STARTUP_TERMS = ['IT', '창업', '스타트업', '부트캠프', 'SaaS', '코딩', '개발자']
+const MAX_VARIATION_RETRIES = 4
+
+const ACCOUNT_GOAL_LABELS = {
+  'personal-influencer': '퍼스널 인플루언싱',
+  'brand-marketing': '브랜드 마케팅',
+  'education-content': '교육/지식 콘텐츠',
+  'consulting-lead': '상담 문의 전환',
+  'community-growth': '커뮤니티 성장',
+}
 
 const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
 
@@ -210,6 +219,54 @@ function normalizeStringList(values = [], max = 3) {
     if (deduped.includes(normalized)) continue
     deduped.push(normalized)
     if (deduped.length >= max) break
+  }
+  return deduped
+}
+
+function containsTerm(text = '', term = '') {
+  const normalizedText = String(text || '').toLowerCase()
+  const normalizedTerm = String(term || '').toLowerCase()
+  if (!normalizedText || !normalizedTerm) {
+    return false
+  }
+  return normalizedText.includes(normalizedTerm)
+}
+
+function normalizeSettingCue(value = '') {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return ''
+  return trimmed.replace(/\s+/g, ' ')
+}
+
+function buildSettingCues(accountSettings = {}) {
+  const cues = []
+  const goal = normalizeSettingCue(
+    ACCOUNT_GOAL_LABELS[String(accountSettings?.accountGoal || '').trim()] ||
+      accountSettings?.accountGoal,
+  )
+  if (goal) {
+    cues.push(goal)
+  }
+
+  const strategy = Array.isArray(accountSettings?.strategyPreferences)
+    ? accountSettings.strategyPreferences
+    : []
+  for (const item of strategy) {
+    const normalized = normalizeSettingCue(item)
+    if (normalized) cues.push(normalized)
+  }
+
+  const products = Array.isArray(accountSettings?.products) ? accountSettings.products : []
+  for (const product of products) {
+    const name = normalizeSettingCue(product?.name)
+    if (name) cues.push(name)
+  }
+
+  const deduped = []
+  for (const cue of cues) {
+    if (deduped.includes(cue)) continue
+    deduped.push(cue)
+    if (deduped.length >= 6) break
   }
   return deduped
 }
@@ -370,6 +427,7 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
     ? accountSettings.strategyPreferences.map((item) => String(item || '').trim()).filter(Boolean)
     : []
   const accountGoal = String(accountSettings?.accountGoal || '').trim()
+  const settingCues = buildSettingCues(accountSettings)
   return {
     category,
     anchors,
@@ -377,6 +435,46 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
     voiceTone,
     strategyPreferences,
     accountGoal,
+    settingCues,
+  }
+}
+
+function buildForbiddenTermsForGuard(guard = {}) {
+  const base = [...OFF_DOMAIN_FORBIDDEN_TERMS]
+
+  if (guard?.category !== 'AI') {
+    base.push(...IT_STARTUP_TERMS)
+  }
+
+  return normalizeStringList(base, 30)
+}
+
+function buildFallbackVariation(config, guard = {}, guides = {}) {
+  const keyword1 = guard.anchors?.[0] || guard.category || '콘텐츠'
+  const keyword2 = guard.anchors?.[1] || guard.anchors?.[0] || '핵심 포인트'
+  const insight1 = guides.keyInsights?.[0] || '첫 문장에서 긴장감을 만듭니다.'
+  const insight2 = guides.checkpoints?.[0] || '핵심 포인트를 짧게 압축합니다.'
+  const cue = guard.settingCues?.[0] || guard.accountGoal || ''
+
+  return {
+    label: config.label,
+    angle: config.angle,
+    coreMessage: `${keyword1} 콘텐츠를 ${config.angle} 방식으로 전달`,
+    hookIntent: '초반 후킹 강화',
+    bodyLogic: '문제-해결 흐름',
+    ctaReason: '즉시 행동 유도',
+    hook: `${keyword1} 하시는 분들, 이 한 가지 놓치면 바로 티 납니다.`,
+    body:
+      `${keyword1}에서 가장 먼저 봐야 할 건 ${keyword2}입니다. ` +
+      `${insight1} ` +
+      `${cue ? `${cue} 목적이라면` : '실전이라면'} 지금부터 순서대로 적용해 보세요. ` +
+      `${insight2}`,
+    cta: `오늘 영상 저장해 두고 ${keyword1} 체크리스트부터 바로 실행해 보세요.`,
+    usedInsights: normalizeStringList(guides.keyInsights, 2),
+    usedCheckpoints: normalizeStringList(guides.checkpoints, 2),
+    usedChunkIds: [],
+    usedKnowledge: [],
+    alignment: { ok: true, reason: 'fallback-generated' },
   }
 }
 
@@ -394,7 +492,7 @@ function validateVariationAlignment(variation, guard) {
     return { ok: false, reason: '본문이 비어 있음' }
   }
 
-  const anchorHits = (guard.anchors || []).filter((term) => text.includes(term))
+  const anchorHits = (guard.anchors || []).filter((term) => containsTerm(text, term))
   const minAnchorHits = guard.anchors?.length >= 4 ? 2 : 1
   if (guard.anchors?.length && anchorHits.length < minAnchorHits) {
     return {
@@ -403,7 +501,32 @@ function validateVariationAlignment(variation, guard) {
     }
   }
 
-  const forbiddenHit = OFF_DOMAIN_FORBIDDEN_TERMS.find((term) => text.includes(term))
+  const hookText = String(variation?.hook || '').trim()
+  const bodyText = String(variation?.body || '').trim()
+  if (guard.anchors?.length) {
+    const sectionAnchorHit = [hookText, bodyText].some((sectionText) =>
+      guard.anchors.some((term) => containsTerm(sectionText, term)),
+    )
+    if (!sectionAnchorHit) {
+      return {
+        ok: false,
+        reason: `카테고리(${guard.category}) 키워드가 HOOK/BODY 핵심 구간에 없음`,
+      }
+    }
+  }
+
+  const settingCues = Array.isArray(guard.settingCues) ? guard.settingCues : []
+  if (settingCues.length) {
+    const cueHit = settingCues.some((cue) => containsTerm(text, cue))
+    if (!cueHit) {
+      return {
+        ok: false,
+        reason: `계정 설정 신호(목표/전략/상품) 미반영: ${settingCues.slice(0, 3).join(', ')}`,
+      }
+    }
+  }
+
+  const forbiddenHit = OFF_DOMAIN_FORBIDDEN_TERMS.find((term) => containsTerm(text, term))
   if (forbiddenHit && !['전문직(회사홍보)', '기타'].includes(guard.category)) {
     return {
       ok: false,
@@ -412,7 +535,7 @@ function validateVariationAlignment(variation, guard) {
   }
 
   if (guard.category !== 'AI') {
-    const itStartupHit = IT_STARTUP_TERMS.find((term) => text.includes(term))
+    const itStartupHit = IT_STARTUP_TERMS.find((term) => containsTerm(text, term))
     if (itStartupHit) {
       return {
         ok: false,
@@ -755,6 +878,9 @@ export async function analyzeReferenceVideo({
       categoryGuard.anchors.length
         ? `필수 반영 키워드(최소 1개 이상): ${categoryGuard.anchors.join(', ')}`
         : null,
+      categoryGuard.settingCues.length
+        ? `설정 신호(최소 1개 이상 반드시 반영): ${categoryGuard.settingCues.join(', ')}`
+        : null,
       categoryGuard.voiceTone ? `브랜드 톤: ${categoryGuard.voiceTone}` : null,
       categoryGuard.strategyPreferences.length
         ? `전략 선호도: ${categoryGuard.strategyPreferences.join(', ')}`
@@ -765,6 +891,7 @@ export async function analyzeReferenceVideo({
       categoryGuard.category !== 'AI'
         ? 'IT/창업/스타트업/부트캠프 등 AI·창업 도메인 키워드가 나오면 실패로 간주한다.'
         : null,
+      `금지어 목록: ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}`,
     ]
       .filter(Boolean)
       .join('\n')
@@ -774,8 +901,8 @@ export async function analyzeReferenceVideo({
         runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
           const variationKnowledge = await retrieveGlobalKnowledgeContext({
             title: '',
-            topic: `전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
-            transcript: normalizedTranscript || '',
+            topic: `카테고리: ${categoryGuard.category}\n전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
+            transcript: '',
             frameSummary: '',
             topK: 4,
           })
@@ -787,6 +914,7 @@ export async function analyzeReferenceVideo({
             '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
             '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
             '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
+            '계정 카테고리가 AI가 아닌데 IT/창업/스타트업/부트캠프/SaaS 소재를 쓰면 즉시 실패다.',
             'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
             'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
             '아래 인사이트/체크포인트를 최소 2개 이상 반영하고, usedInsights/usedCheckpoints에 반영 항목을 기록하라.',
@@ -814,6 +942,7 @@ export async function analyzeReferenceVideo({
             '- 레퍼런스 제목/파일명/원문 주제는 무시\n' +
             '- 레퍼런스 원문 주제와 계정 설정이 충돌하면 계정 설정을 우선\n' +
             '- 레퍼런스는 구조/후킹 패턴만 참고하고 소재는 계정 도메인으로 재작성\n\n' +
+            `금지어(절대 사용 금지): ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}\n\n` +
             `핵심 인사이트(최소 2개 반영):\n${
               generationGuides.keyInsights.length
                 ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -838,7 +967,7 @@ export async function analyzeReferenceVideo({
           let alignment = { ok: false, reason: '초기 상태' }
           let retryHint = ''
 
-          for (let attempt = 0; attempt < 3; attempt += 1) {
+          for (let attempt = 0; attempt < MAX_VARIATION_RETRIES; attempt += 1) {
             const variationResponse = await openai.chat.completions.create({
               model: chatModel,
               temperature: 0.6,
@@ -852,7 +981,9 @@ export async function analyzeReferenceVideo({
                   content:
                     baseUserContent +
                     (retryHint
-                      ? `\n\n[재작성 지시]\n직전 응답이 실패했습니다.\n실패 사유: ${retryHint}\n같은 전략을 유지하되 계정 카테고리 정합성을 더 강하게 맞춰 다시 작성하세요.`
+                      ? `\n\n[재작성 지시]\n직전 응답이 실패했습니다.\n실패 사유: ${retryHint}\n` +
+                        '같은 전략을 유지하되, 계정 설정(카테고리/목표/상품/전략) 신호를 본문에 반드시 반영해 다시 작성하세요.\n' +
+                        `금지어는 절대 쓰지 마세요: ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}`
                       : ''),
                 },
               ],
@@ -882,11 +1013,14 @@ export async function analyzeReferenceVideo({
                   content:
                     `카테고리: ${categoryGuard.category}\n` +
                     `필수 키워드(최소 2개): ${categoryGuard.anchors.join(', ') || '없음'}\n` +
+                    `설정 신호(최소 1개): ${categoryGuard.settingCues.join(', ') || '없음'}\n` +
+                    `금지어: ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}\n` +
                     `실패 사유: ${alignment.reason}\n\n` +
                     `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
                     '반드시 유지할 조건:\n' +
                     '- 문체/전략 라벨은 유지\n' +
                     '- 이질 도메인 단어는 제거\n' +
+                    '- 설정 신호(목표/전략/상품)를 최소 1개 반영\n' +
                     '- 카테고리 키워드를 최소 2개 이상 자연스럽게 반영\n\n' +
                     '다음 JSON 형식으로만 답하세요: ' +
                     '{"hook":"","body":"","cta":""}',
@@ -903,8 +1037,13 @@ export async function analyzeReferenceVideo({
             alignment = validateVariationAlignment(normalized, categoryGuard)
           }
 
+          if (normalized && !alignment.ok) {
+            normalized = buildFallbackVariation(config, categoryGuard, generationGuides)
+            alignment = validateVariationAlignment(normalized, categoryGuard)
+          }
+
           if (!normalized) {
-            normalized = normalizeVariationDraft({}, config, generationGuides)
+            normalized = buildFallbackVariation(config, categoryGuard, generationGuides)
           }
 
           const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
