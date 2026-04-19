@@ -1550,7 +1550,7 @@ const RF_QUESTIONS = [
     subtitle: '최종 확정이 아니라 초기 시드 가중치로만 반영됩니다.',
     options: RF_CATEGORY_SEED_OPTIONS.map((option) => ({
       ...option,
-      effects: { categoryScores: { [option.code]: 2 } },
+      effects: { categoryScores: { [option.code]: 5 } },
     })),
     maxSelect: 3,
   },
@@ -1612,39 +1612,6 @@ const RF_QUESTIONS = [
       { code: 'FITNESS_ROUTINE', label: '초보 루틴 설계/체크형', description: '운동 순서, 루틴, 습관화 중심', effects: { categoryScores: { fitness: 4, self_growth: 1 }, styleScores: { problem_solving: 2 }, monetizationScores: { digital_product: 1 } } },
       { code: 'FITNESS_FORM', label: '자세 교정/문제 해결형', description: '실수 교정과 개선 중심', effects: { categoryScores: { fitness: 4 }, styleScores: { informative: 1, problem_solving: 2 }, monetizationScores: { consulting: 1 } } },
       { code: 'FITNESS_NOPE', label: '운동/건강은 비중 낮게', description: '다른 카테고리에 집중', effects: { categoryScores: { daily_life: 1, relationship: 1 } } },
-    ],
-  },
-  {
-    code: 'Q12_TRAVEL_FOCUS',
-    type: 'single_choice',
-    title: '여행 콘텐츠라면 어떤 강점이 더 크나요?',
-    subtitle: '여행 카테고리 전용 가중치를 분리합니다.',
-    options: [
-      { code: 'TRAVEL_ROUTE', label: '동선/예산 최적화 정보', description: '일정·비용·루트 설계', effects: { categoryScores: { travel: 4 }, styleScores: { informative: 2 }, monetizationScores: { affiliate: 1 } } },
-      { code: 'TRAVEL_STORY', label: '경험/감성 스토리 전달', description: '분위기 + 공감형 콘텐츠', effects: { categoryScores: { travel: 3, daily_life: 1 }, styleScores: { storytelling: 2, empathetic: 1 }, monetizationScores: { ad_collab: 1 } } },
-      { code: 'TRAVEL_NOPE', label: '여행은 우선순위 낮음', description: '다른 카테고리에 집중', effects: { categoryScores: { self_growth: 1, home_living: 1 } } },
-    ],
-  },
-  {
-    code: 'Q13_PET_FOCUS',
-    type: 'single_choice',
-    title: '반려동물 콘텐츠라면 어떤 쪽이 더 맞나요?',
-    subtitle: '반려동물 카테고리 적합도를 분리합니다.',
-    options: [
-      { code: 'PET_PROBLEM', label: '행동/건강 문제 해결형', description: '실전 팁·루틴 중심', effects: { categoryScores: { pet: 4 }, styleScores: { problem_solving: 2 }, monetizationScores: { group_buy: 1, affiliate: 1 } } },
-      { code: 'PET_REVIEW', label: '사료/간식/용품 리뷰형', description: '실사용 후기·비교형', effects: { categoryScores: { pet: 4 }, styleScores: { review: 2 }, monetizationScores: { group_buy: 1, affiliate: 1 } } },
-      { code: 'PET_NOPE', label: '반려동물은 우선순위 낮음', description: '다른 카테고리에 집중', effects: { categoryScores: { fashion: 1, relationship: 1 } } },
-    ],
-  },
-  {
-    code: 'Q14_RELATIONSHIP_FOCUS',
-    type: 'single_choice',
-    title: '관계/연애 콘텐츠라면 어떤 강점이 더 큰가요?',
-    subtitle: '관계/연애 카테고리 적합도를 분리합니다.',
-    options: [
-      { code: 'RELATIONSHIP_GUIDE', label: '상황별 대화/해결 가이드', description: '문제 해결 중심', effects: { categoryScores: { relationship: 4 }, styleScores: { empathetic: 1, problem_solving: 2 }, monetizationScores: { consulting: 1 } } },
-      { code: 'RELATIONSHIP_STORY', label: '경험/공감 스토리형', description: '공감·몰입 중심', effects: { categoryScores: { relationship: 4, daily_life: 1 }, styleScores: { storytelling: 2, empathetic: 2 }, monetizationScores: { digital_product: 1 } } },
-      { code: 'RELATIONSHIP_NOPE', label: '관계/연애는 우선순위 낮음', description: '다른 카테고리에 집중', effects: { categoryScores: { ai_tech: 1, professional_brand: 1 } } },
     ],
   },
   { code: 'Q15_FREQUENT_QUESTION', type: 'free_text', title: '사람들이 나한테 자주 묻는 질문은?', subtitle: '키워드 기반으로 카테고리/콘텐츠 타입을 미세 보정합니다.', placeholder: '예: 피부 뭐 써요? / 돈 관리는 어떻게 해요? / AI 자동화 어떻게 시작해요?' },
@@ -1886,14 +1853,6 @@ function RecommendScreenV2() {
     ? (answers[currentQuestion.code]?.optionCodes || [])
     : []
 
-  useEffect(() => {
-    if (!result?.topCategories?.length) {
-      setSelectedCategoryKey(null)
-      return
-    }
-    setSelectedCategoryKey((prev) => prev || result.topCategories[0].key)
-  }, [result])
-
   const selectedCategory = useMemo(() => {
     if (!result?.topCategories?.length) return null
     return result.topCategories.find((item) => item.key === selectedCategoryKey) || result.topCategories[0]
@@ -1984,7 +1943,7 @@ function RecommendScreenV2() {
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1E2432]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#CBD5E1_0%,#F8FAFC_100%)] transition-all duration-300" style={{ width: `${progress}%` }} /></div>
               </div>
               <div className="mt-8 rounded-2xl border border-[#2F3543] bg-[#171B24] px-4 py-4 text-xs leading-6 text-[#AEB6C5]">
-                Q15, Q16은 자연어 보정 질문입니다.
+                마지막 2문항은 자연어 보정 질문입니다.
                 <br />
                 선택형 점수를 뒤집지 않고 상위 후보를 보정하는 방식으로 적용됩니다.
               </div>
@@ -2039,8 +1998,7 @@ function RecommendScreenV2() {
                     <button
                       type="button"
                       onClick={() => setCurrentIndex((prev) => prev + 1)}
-                      disabled={currentMultiSelected.length === 0}
-                      className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white"
                     >
                       다음으로
                     </button>
@@ -2248,7 +2206,7 @@ function SignupScreen() {
 }
 
 function MainPanel() {
-  const { currentStep, viewTransition, isEditorEntering, isResultEntering } = useAppState()
+  const { currentStep, isEditorEntering, isResultEntering } = useAppState()
 
   if (currentStep === 'upload' || currentStep === 'analyzing') {
     return <UploadSection />
