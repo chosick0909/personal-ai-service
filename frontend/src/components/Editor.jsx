@@ -47,9 +47,13 @@ export default function Editor({ transitioning = false, entering = false, embedd
     feedback,
     goBackToResults,
     exportCurrentScriptPdf,
+    copilotLimits,
+    copilotRemaining,
   } = useAppState()
   const totalLength =
     editorSections.hook.length + editorSections.body.length + editorSections.cta.length
+  const isFeedbackLimitReached = copilotRemaining.feedback <= 0
+  const isFeedbackButtonDisabled = isFeedbackLoading || isFeedbackLimitReached
 
   return (
     <div
@@ -126,12 +130,20 @@ export default function Editor({ transitioning = false, entering = false, embedd
               <button
                 type="button"
                 onClick={requestFeedback}
-                disabled={isFeedbackLoading}
+                disabled={isFeedbackButtonDisabled}
                 className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isFeedbackLoading ? '피드백 생성 중...' : '피드백 받기'}
+                {isFeedbackLoading
+                  ? '피드백 생성 중...'
+                  : isFeedbackLimitReached
+                    ? '피드백 한도 도달'
+                    : '피드백 받기'}
               </button>
             </div>
+            <p className="mt-3 text-xs leading-5 text-[#94A3B8]">
+              초안당 피드백은 최대 {copilotLimits.feedback}회입니다. 현재 남은 피드백 {copilotRemaining.feedback}회
+              / 남은 수정 요청 {copilotRemaining.chat}회
+            </p>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

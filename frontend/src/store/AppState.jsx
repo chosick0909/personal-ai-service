@@ -53,6 +53,8 @@ const OAUTH_NOISE_KEYS = new Set([
   'token_type',
   'sb',
 ])
+const COPILOT_CHAT_LIMIT_PER_DRAFT = 5
+const COPILOT_FEEDBACK_LIMIT_PER_DRAFT = 2
 
 function sanitizeOAuthUrlParams({ includeTokenParams = false } = {}) {
   if (typeof window === 'undefined') {
@@ -534,6 +536,13 @@ const initialState = {
   currentProjectId: null,
 }
 
+function createInitialCopilotUsage() {
+  return {
+    chatUsed: 0,
+    feedbackUsed: 0,
+  }
+}
+
 function toHistoryStep(currentStep) {
   if (currentStep === 'editor') {
     return 'editor'
@@ -584,6 +593,7 @@ export function AppStateProvider({ children }) {
   const [isEditorEntering, setIsEditorEntering] = useState(false)
   const [isResultEntering, setIsResultEntering] = useState(false)
   const [toast, setToast] = useState(null)
+  const [copilotUsage, setCopilotUsage] = useState(createInitialCopilotUsage())
   const [currentUser, setCurrentUser] = useState(null)
   const activeReferenceIdRef = useRef(null)
   const toastTimerRef = useRef(null)
@@ -700,6 +710,7 @@ export function AppStateProvider({ children }) {
     setViewTransition('idle')
     setIsEditorEntering(false)
     setIsResultEntering(false)
+    setCopilotUsage(createInitialCopilotUsage())
   }
 
   const applyHistoryStep = (step) => {
@@ -1166,6 +1177,7 @@ export function AppStateProvider({ children }) {
     setViewTransition('idle')
     setIsEditorEntering(false)
     setIsResultEntering(false)
+    setCopilotUsage(createInitialCopilotUsage())
   }
 
   const createProject = async (name = '') => {
@@ -1391,6 +1403,7 @@ export function AppStateProvider({ children }) {
     setPendingSuggestion(null)
     setAnalyzeError('')
     setChatMessages([])
+    setCopilotUsage(createInitialCopilotUsage())
     setReferenceHistory((current) => [localReference, ...current])
     setCurrentStep('analyzing')
     setIsAnalyzing(true)
@@ -1464,6 +1477,7 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
     setPendingSuggestion(null)
+    setCopilotUsage(createInitialCopilotUsage())
     setViewTransition('to-editor')
     setIsEditorEntering(false)
 
@@ -1583,6 +1597,7 @@ export function AppStateProvider({ children }) {
           },
         ],
       )
+      setCopilotUsage(createInitialCopilotUsage())
       const restoredStep =
         baseItem.lastStep === 'editor' &&
         detail.generatedScripts?.some((script) => script.id === baseItem.selectedScriptId)
@@ -1682,6 +1697,26 @@ export function AppStateProvider({ children }) {
   }
 
   const requestFeedback = async () => {
+    if (copilotUsage.feedbackUsed >= COPILOT_FEEDBACK_LIMIT_PER_DRAFT) {
+      setChatMessages((current) => {
+        const next = [
+          ...current,
+          {
+            id: `feedback-limit-${Date.now()}`,
+            role: 'assistant',
+            content:
+              `이번 초안에서는 피드백 요청을 최대 ${COPILOT_FEEDBACK_LIMIT_PER_DRAFT}회로 제한했습니다. ` +
+              '현재 에디터 수정 후 코파일럿 채팅으로 세부 조정해 주세요.',
+          },
+        ]
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+        })
+        return next
+      })
+      return
+    }
+
     const userFeedbackRequestMessage = {
       id: `user-feedback-${Date.now()}`,
       role: 'user',
@@ -1689,6 +1724,10 @@ export function AppStateProvider({ children }) {
     }
 
     setIsFeedbackLoading(true)
+    setCopilotUsage((current) => ({
+      ...current,
+      feedbackUsed: current.feedbackUsed + 1,
+    }))
     setChatMessages((current) => {
       const next = [...current, userFeedbackRequestMessage]
       syncHistory(activeReferenceIdRef.current, {
@@ -1837,6 +1876,26 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    if (copilotUsage.chatUsed >= COPILOT_CHAT_LIMIT_PER_DRAFT) {
+      setChatMessages((current) => {
+        const next = [
+          ...current,
+          {
+            id: `chat-limit-${Date.now()}`,
+            role: 'assistant',
+            content:
+              `이번 초안에서는 코파일럿 수정 요청을 최대 ${COPILOT_CHAT_LIMIT_PER_DRAFT}회로 제한했습니다. ` +
+              '핵심 수정은 에디터에서 직접 정리한 뒤 피드백 기능을 사용해 주세요.',
+          },
+        ]
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+        })
+        return next
+      })
+      return
+    }
+
     const userMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -1845,6 +1904,10 @@ export function AppStateProvider({ children }) {
 
     setDraftMessage('')
     setIsChatLoading(true)
+    setCopilotUsage((current) => ({
+      ...current,
+      chatUsed: current.chatUsed + 1,
+    }))
     setChatMessages((current) => {
       const next = [...current, userMessage]
       syncHistory(activeReferenceIdRef.current, {
@@ -2024,6 +2087,15 @@ export function AppStateProvider({ children }) {
       pendingSuggestion,
       activeScriptId,
       toast,
+      copilotUsage,
+      copilotLimits: {
+        chat: COPILOT_CHAT_LIMIT_PER_DRAFT,
+        feedback: COPILOT_FEEDBACK_LIMIT_PER_DRAFT,
+      },
+      copilotRemaining: {
+        chat: Math.max(0, COPILOT_CHAT_LIMIT_PER_DRAFT - copilotUsage.chatUsed),
+        feedback: Math.max(0, COPILOT_FEEDBACK_LIMIT_PER_DRAFT - copilotUsage.feedbackUsed),
+      },
       isVersionModalOpen,
       isAnalyzing,
       isChatLoading,
@@ -2097,6 +2169,7 @@ export function AppStateProvider({ children }) {
       pendingSuggestion,
       activeScriptId,
       toast,
+      copilotUsage,
       referenceData,
       referenceHistory,
       selectedScript,

@@ -70,7 +70,12 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
     isApplyingFeedback,
     pendingSuggestion,
     applySuggestion,
+    copilotLimits,
+    copilotRemaining,
   } = useAppState()
+  const isChatLimitReached = copilotRemaining.chat <= 0
+  const isSendDisabled = isChatLoading || isChatLimitReached
+
   return (
     <div
       className={`flex ${embedded ? 'h-full min-h-0' : 'h-full min-h-0'} flex-col overflow-hidden ${embedded ? 'rounded-[32px] border border-[#2F3543] bg-[#0F131B]' : 'bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'}`}
@@ -87,6 +92,10 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
         <h2 className="mt-3 text-xl font-bold text-[#F3F4F6]">AI 코파일럿</h2>
         <p className="mt-2 text-sm leading-6 text-[#8E97A6]">
           훅 조정, 문장 압축, CTA 교체 같은 편집 요청을 바로 보낼 수 있습니다.
+        </p>
+        <p className="mt-2 text-xs leading-5 text-[#94A3B8]">
+          비용 최적화를 위해 초안당 수정 요청 {copilotLimits.chat}회, 피드백 {copilotLimits.feedback}회로 제한됩니다.
+          현재 남은 수정 요청 {copilotRemaining.chat}회 / 피드백 {copilotRemaining.feedback}회
         </p>
       </div>
 
@@ -117,19 +126,25 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
 
           <div className={`${embedded ? 'z-10 shrink-0 border-t border-[#2F3543] bg-[#0F131B] px-5 py-4' : 'sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4'}`}>
             <div className="rounded-[24px] border border-[#2F3543] bg-[#161B24] p-3">
+              {isChatLimitReached ? (
+                <div className="mb-3 rounded-xl border border-[#7F1D1D] bg-[#2A1515] px-3 py-2 text-xs leading-5 text-[#FECACA]">
+                  이번 초안의 수정 요청 한도를 모두 사용했습니다. 에디터에서 직접 수정하거나 새 초안을 선택해 주세요.
+                </div>
+              ) : null}
               <textarea
                 value={draftMessage}
                 onChange={(event) => setDraftMessage(event.target.value)}
                 className="min-h-[92px] w-full resize-none bg-transparent text-sm leading-6 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
                 placeholder="예: HOOK을 더 공격적으로 바꿔줘 / CTA를 상담 유도형으로 바꿔줘"
+                disabled={isSendDisabled}
               />
               <button
                 type="button"
                 onClick={sendChatMessage}
-                disabled={isChatLoading}
+                disabled={isSendDisabled}
                 className="btn-solid-contrast mt-3 w-full rounded-full px-4 py-3 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                수정 요청 보내기
+                {isChatLimitReached ? '수정 요청 한도 도달' : '수정 요청 보내기'}
               </button>
             </div>
           </div>
