@@ -425,9 +425,21 @@ function buildGenerationGuides({ analysisResult }) {
   ]
 
   return {
-    keyInsights: normalizeStringList(insights, 4),
+    keyInsights: normalizeStringList(
+      insights.filter((line) => isUsableScriptGuideLine(line)),
+      4,
+    ),
     checkpoints: normalizeStringList(checkpoints, 4),
   }
+}
+
+function isUsableScriptGuideLine(line = '') {
+  const text = String(line || '').trim()
+  if (!text) return false
+  // Script generation guides should avoid visual/meta-analysis jargon.
+  const bannedMetaPattern =
+    /(첫\s*\d+초|클로즈업|화면|자막|컷\s*전환|프레임|장면|시선\s*집중|문구|도입부에서는|전개에서는|결론에서는)/i
+  return !bannedMetaPattern.test(text)
 }
 
 function normalizeVariationDraft(parsed, fallback, guides = {}) {
@@ -654,6 +666,18 @@ function enforceVariationDiversity(variations = [], guard = {}) {
     }
     return normalized
   })
+}
+
+function needsFlowPolish(variation = {}) {
+  const text = [variation?.hook, variation?.body, variation?.cta]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join('\n')
+  if (!text) return false
+
+  const awkwardPattern =
+    /(첫\s*\d+초|클로즈업|화면|자막|문구|프레임|장면|시선\s*집중|도입부에서는|전개에서는|결론에서는|저\s*원래부터|즉각\s*사로잡)/i
+  return awkwardPattern.test(text)
 }
 
 function normalizeVariationForValidation(rawVariation, index = 0) {
@@ -1294,6 +1318,48 @@ export async function analyzeReferenceVideo({
           if (!alignment.ok) {
             normalized = buildFallbackVariation(config, categoryGuard, {})
             alignment = validateVariationAlignment(normalized, categoryGuard)
+          }
+
+          if (normalized && alignment.ok && needsFlowPolish(normalized)) {
+            try {
+              const polishResponse = await openai.chat.completions.create({
+                model: chatModel,
+                temperature: 0.3,
+                messages: [
+                  {
+                    role: 'system',
+                    content:
+                      '당신은 숏폼 스크립트 문장 다듬기 편집자다. 의미는 유지하고 문장만 더 자연스럽게 고친다. ' +
+                      '영상 분석 메타 표현(예: 첫 3초, 자막, 클로즈업, 화면, 장면, 문구)을 절대 쓰지 마라. ' +
+                      '출력은 JSON만 반환한다.',
+                  },
+                  {
+                    role: 'user',
+                    content:
+                      `전략 라벨: ${config.label}\n전략 방향: ${config.angle}\n` +
+                      `카테고리: ${categoryGuard.category}\n` +
+                      `세팅 신호(최소 1개 유지): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n\n` +
+                      `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
+                      '수정 조건:\n' +
+                      '- 훅/바디/CTA 연결 흐름 유지\n' +
+                      '- 의미는 유지하고 문장만 자연스럽게\n' +
+                      '- 설명문 말투보다 실제 말하는 톤으로\n' +
+                      '- 전략 라벨 톤은 유지\n\n' +
+                      '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
+                  },
+                ],
+              })
+              const polished = parseModelJson(polishResponse.choices[0]?.message?.content || '')
+              normalized = {
+                ...normalized,
+                hook: String(polished?.hook || normalized.hook || '').trim(),
+                body: String(polished?.body || normalized.body || '').trim(),
+                cta: String(polished?.cta || normalized.cta || '').trim(),
+              }
+              alignment = validateVariationAlignment(normalized, categoryGuard)
+            } catch (_error) {
+              // Keep original draft when polish step fails.
+            }
           }
 
           return {
