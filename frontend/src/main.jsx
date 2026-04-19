@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import { initFrontendSentry, installSentryTestHelpers } from './lib/sentry'
-import logoPng from './Logo.png'
+import logoWebp from './Logo.webp'
 
 initFrontendSentry()
 installSentryTestHelpers()
@@ -19,8 +19,8 @@ function applyFavicon() {
     favicon.setAttribute('rel', 'icon')
     document.head.appendChild(favicon)
   }
-  favicon.setAttribute('type', 'image/png')
-  favicon.setAttribute('href', logoPng)
+  favicon.setAttribute('type', 'image/webp')
+  favicon.setAttribute('href', logoWebp)
 }
 
 applyFavicon()

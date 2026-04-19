@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar'
 import UploadSection from './components/UploadSection'
 import VersionModal from './components/VersionModal'
 import { getAuthPersistMode, setAuthPersistMode, supabase } from './lib/supabase'
+import logoWebp from './Logo.webp'
 // Deploy trigger: frontend touchpoint.
 import { AppStateProvider, useAppState } from './store/AppState'
 
@@ -1248,8 +1249,8 @@ function AuthScreen({
           &lt; Home
         </a>
 
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/5 text-lg font-semibold text-white">
-          H
+        <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-white/5">
+          <img src={logoWebp} alt="HookAI 로고" className="h-full w-full object-cover" />
         </div>
         <h1 className="mt-6 text-center text-[36px] font-extrabold tracking-[-0.03em] text-[#F8FAFC]">
           {title}

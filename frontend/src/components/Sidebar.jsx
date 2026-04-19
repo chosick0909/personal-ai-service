@@ -12,17 +12,6 @@ function IconDots() {
   )
 }
 
-function IconShare() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#D1D5DB]">
-      <path
-        d="M11.8 9.2a2.1 2.1 0 0 0-1.48.62L6.37 7.98a2.2 2.2 0 0 0 0-1.02l3.95-1.84a2.1 2.1 0 1 0-.58-1.2L5.78 5.76a2.1 2.1 0 1 0 0 3.48l3.96 1.84a2.1 2.1 0 1 0 2.06-1.88Z"
-        fill="currentColor"
-      />
-    </svg>
-  )
-}
-
 function IconPencil() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#D1D5DB]">
@@ -442,23 +431,6 @@ export default function Sidebar() {
                     type="button"
                     className="flex h-11 w-full items-center gap-3 px-3 text-left text-sm text-[#F3F4F6] transition hover:bg-[#343943]"
                     onClick={async () => {
-                      const shareUrl = `${window.location.origin}/analyze?reference=${encodeURIComponent(item.id)}`
-                      try {
-                        await navigator.clipboard.writeText(shareUrl)
-                        window.alert('공유 링크를 복사했습니다.')
-                      } catch {
-                        window.alert(shareUrl)
-                      }
-                      setActiveReferenceMenuId(null)
-                    }}
-                  >
-                    <IconShare />
-                    공유하기
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-11 w-full items-center gap-3 px-3 text-left text-sm text-[#F3F4F6] transition hover:bg-[#343943]"
-                    onClick={async () => {
                       const nextName = window.prompt('새 이름을 입력하세요', item.title)
                       if (!nextName || !nextName.trim()) {
                         return
@@ -578,7 +550,6 @@ export default function Sidebar() {
                       <div className="truncate text-[12px] font-semibold leading-4 text-[#F3F4F6]">
                         {account.name}
                       </div>
-                      <div className="truncate text-[11px] leading-4 text-[#A5ACB8]">@{account.slug}</div>
                       <button
                         type="button"
                         onClick={(event) => {
@@ -683,9 +654,6 @@ export default function Sidebar() {
           <div className="min-w-0 flex-1 text-left">
             <div className="truncate text-sm font-semibold text-[#F3F4F6]">
               {currentAccount?.name || currentUser?.email || '계정'}
-            </div>
-            <div className="truncate text-xs text-[#8E97A6]">
-              {currentAccount?.slug ? `@${currentAccount.slug}` : currentUser?.email || '@account'}
             </div>
             {currentAccount?.id && !isAccountConfigured(currentAccount.id) ? (
               <div className="mt-1 inline-flex items-center rounded-full border border-[#7F1D1D] bg-[#2A1417] px-2 py-0.5 text-[10px] font-semibold text-[#FCA5A5]">
