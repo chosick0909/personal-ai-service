@@ -1345,6 +1345,484 @@ function AuthScreen({
   )
 }
 
+const RF_CATEGORY_KEYS = [
+  'beauty',
+  'fashion',
+  'self_growth',
+  'finance',
+  'ai_tech',
+  'home_living',
+  'cooking',
+  'fitness',
+  'relationship',
+  'daily_life',
+  'pet',
+  'travel',
+  'professional_brand',
+]
+
+const RF_STYLE_KEYS = ['informative', 'empathetic', 'problem_solving', 'review', 'storytelling']
+const RF_MONETIZATION_KEYS = ['group_buy', 'affiliate', 'ad_collab', 'digital_product', 'consulting', 'service_sale']
+const RF_PRODUCTION_KEYS = ['face_on', 'face_partial', 'face_off', 'hand_product', 'screen_recording', 'text_slide', 'voice_over']
+
+const RF_CATEGORY_META = {
+  beauty: { label: '뷰티', marketSummary: '글로벌 6,500억 달러 규모, 국내 8조 원대 이상 소비 시장', growthSummary: '산업 인접 기준 연 5%대 성장 추정', conversionRate: 4.8, competition: 62, monetizationSpeed: 82 },
+  fashion: { label: '패션', marketSummary: '온라인 패션 거래액 상위권 유지', growthSummary: '마이크로 브랜드 숏폼 유입 확산', conversionRate: 4.2, competition: 66, monetizationSpeed: 76 },
+  self_growth: { label: '자기계발', marketSummary: '교육/자기계발 디지털 상품 수요 확대', growthSummary: '문제 해결형 포맷의 LTV가 높음', conversionRate: 3.9, competition: 58, monetizationSpeed: 74 },
+  finance: { label: '재테크', marketSummary: '개인 자산관리 관심층 확대로 정보형 수요 증가', growthSummary: '입문자 정리형 포맷의 재방문율 상승', conversionRate: 3.7, competition: 61, monetizationSpeed: 72 },
+  ai_tech: { label: 'AI/테크', marketSummary: '자동화/툴 활용 시장이 빠르게 확대', growthSummary: '화면녹화 기반 실전 포맷 효율 상승', conversionRate: 4.1, competition: 55, monetizationSpeed: 79 },
+  home_living: { label: '홈/리빙', marketSummary: '살림/정리 카테고리 반복 구매 빈도 높음', growthSummary: '문제 해결형 숏폼의 저장률 우수', conversionRate: 4.5, competition: 57, monetizationSpeed: 80 },
+  cooking: { label: '요리', marketSummary: '레시피/주방템 시장은 계절성 수요 강함', growthSummary: '짧은 레시피 비교 포맷 클릭률 우수', conversionRate: 4.4, competition: 59, monetizationSpeed: 78 },
+  fitness: { label: '피트니스', marketSummary: '홈트/건강 루틴 시장 수요 지속', growthSummary: '루틴 제시형 콘텐츠 재시청률 높음', conversionRate: 3.8, competition: 64, monetizationSpeed: 71 },
+  relationship: { label: '관계/연애', marketSummary: '공감형 카테고리 댓글 밀도 높음', growthSummary: '경험담+해결가이드 결합 포맷 확산', conversionRate: 3.4, competition: 63, monetizationSpeed: 67 },
+  daily_life: { label: '일상/브이로그', marketSummary: '광고/브랜디드 협업 친화 카테고리', growthSummary: '캐릭터형 계정 팬덤 축적 시 확장성 높음', conversionRate: 3.3, competition: 69, monetizationSpeed: 65 },
+  pet: { label: '반려동물', marketSummary: '반려동물 시장 성장과 제품 추천 전환 강세', growthSummary: '문제 해결형 루틴 콘텐츠 저장률 우수', conversionRate: 4.3, competition: 56, monetizationSpeed: 79 },
+  travel: { label: '여행', marketSummary: '경험형 콘텐츠 도달은 강하지만 계절성 존재', growthSummary: '동선 가이드 결합 시 전환 효율 개선', conversionRate: 3.2, competition: 68, monetizationSpeed: 63 },
+  professional_brand: { label: '전문직 브랜딩', marketSummary: '전문 서비스/상담형 리드 확보 유리', growthSummary: '신뢰형 전달 시 고단가 전환 가능성 큼', conversionRate: 3.8, competition: 51, monetizationSpeed: 77 },
+}
+
+const RF_MONETIZATION_META = {
+  group_buy: { label: '공동구매', reason: '반복 구매 제품과 문제 해결형 콘텐츠의 전환 궁합이 높습니다.' },
+  affiliate: { label: '어필리에이트', reason: '리뷰형/비교형 콘텐츠에서 클릭-구매 흐름을 빠르게 만들 수 있습니다.' },
+  ad_collab: { label: '브랜드 협업/광고', reason: '도달형/스토리형 포맷에서 협업 제안으로 연결하기 좋습니다.' },
+  digital_product: { label: '디지털 상품', reason: '정보형 전문성 자산을 전자책/템플릿/강의로 패키징하기 좋습니다.' },
+  consulting: { label: '컨설팅', reason: '문제 해결형 포지션이 명확할수록 상담 전환이 유리합니다.' },
+  service_sale: { label: '서비스 판매', reason: '코칭/맞춤 서비스형 비즈니스와 연결이 쉽습니다.' },
+}
+
+const RF_LIKERT_OPTIONS = [
+  { value: 2, label: '매우 그렇다' },
+  { value: 1, label: '그렇다' },
+  { value: 0, label: '보통이다' },
+  { value: -1, label: '아니다' },
+  { value: -2, label: '매우 아니다' },
+]
+
+const RF_QUESTIONS = [
+  { code: 'Q1_INFO_ORGANIZE', type: 'likert', title: '나는 정보를 쉽게 정리해서 전달하는 편이다.', subtitle: '정보형 전달력과 문제해결형 기초 성향을 봅니다.', effects: { styleScores: { informative: 2, problem_solving: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1 } } },
+  { code: 'Q2_EMPATHY', type: 'likert', title: '나는 감정이나 공감 포인트를 말로 풀어내는 편이다.', subtitle: '공감형/스토리형 콘텐츠 적합도를 측정합니다.', effects: { styleScores: { empathetic: 2, storytelling: 1 }, categoryScores: { relationship: 1, daily_life: 1 } } },
+  { code: 'Q3_PROBLEM_SOLVING', type: 'likert', title: '나는 다른 사람의 문제를 듣고 해결책을 제시하는 게 익숙하다.', subtitle: '문제 해결형 콘텐츠와 컨설팅형 수익 적합도를 봅니다.', effects: { styleScores: { problem_solving: 2 }, monetizationScores: { consulting: 1 }, categoryScores: { self_growth: 1, finance: 1, professional_brand: 1 } } },
+  { code: 'Q4_REVIEW_PREFERENCE', type: 'likert', title: '제품이나 도구를 직접 써보고 비교해보는 걸 좋아한다.', subtitle: '리뷰형 콘텐츠와 제품 전환 구조 적합도를 봅니다.', effects: { styleScores: { review: 2 }, monetizationScores: { affiliate: 1, group_buy: 1 }, categoryScores: { beauty: 1, fashion: 1, ai_tech: 1, home_living: 1, pet: 1 } } },
+  { code: 'Q5_FACE_COMFORT', type: 'likert', title: '카메라 앞에서 내 얼굴이나 목소리를 드러내는 게 편하다.', subtitle: '노출 성향과 제작 방식 추천에 반영됩니다.', effects: { productionScores: { face_on: 2, voice_over: 1 } }, special: 'face_comfort' },
+  { code: 'Q6_DEEP_TOPIC', type: 'likert', title: '한 가지 주제를 반복해서 깊게 파는 게 편하다.', subtitle: '지속형 콘텐츠 운영 적합도를 측정합니다.', effects: { styleScores: { informative: 1, problem_solving: 1 }, monetizationScores: { digital_product: 1, consulting: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1, professional_brand: 1 } } },
+  {
+    code: 'Q7_IMPRESSION',
+    type: 'single_choice',
+    title: '사람들이 내 콘텐츠를 보고 가장 먼저 느꼈으면 하는 건?',
+    subtitle: '콘텐츠 첫인상 목표를 정합니다.',
+    options: [
+      { code: 'USEFUL', label: '유용하다', description: '정리되어 있고 바로 써먹을 수 있다', effects: { styleScores: { informative: 4, problem_solving: 3 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2 } } },
+      { code: 'TRUST', label: '믿음 간다', description: '검증된 기준과 경험이 느껴진다', effects: { styleScores: { problem_solving: 3, review: 2 }, categoryScores: { beauty: 2, professional_brand: 2, finance: 2 } } },
+      { code: 'FUN', label: '재밌다 / 표현력이 좋다', description: '몰입감 있고 계속 보게 된다', effects: { styleScores: { storytelling: 3, empathetic: 2 }, categoryScores: { daily_life: 2, relationship: 2, fashion: 1 } } },
+    ],
+  },
+  {
+    code: 'Q8_FAST_MONETIZATION',
+    type: 'single_choice',
+    title: '가장 빨리 수익으로 연결하고 싶은 방식은?',
+    subtitle: '초기 수익화 루트 가중치를 강하게 반영합니다.',
+    options: [
+      { code: 'PRODUCT', label: '제품 추천/판매', description: '리뷰/추천 기반 전환', effects: { monetizationScores: { group_buy: 5, affiliate: 4 }, categoryScores: { beauty: 2, fashion: 2, home_living: 2, cooking: 2, pet: 2 } } },
+      { code: 'KNOWLEDGE', label: '지식/노하우 판매', description: '전자책/강의/컨설팅', effects: { monetizationScores: { digital_product: 5, consulting: 3 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2, professional_brand: 2 } } },
+      { code: 'BRAND_COLLAB', label: '광고/브랜드 협업', description: '도달 기반 협업', effects: { monetizationScores: { ad_collab: 5 }, categoryScores: { daily_life: 2, beauty: 2, fashion: 2, travel: 2 } } },
+    ],
+  },
+  {
+    code: 'Q9_PRODUCTION_STRENGTH',
+    type: 'single_choice',
+    title: '가장 자신 있는 제작 방식은?',
+    subtitle: '실행 난이도와 꾸준함을 동시에 반영합니다.',
+    options: [
+      { code: 'HAND_PRODUCT', label: '손/제품 시연', description: '제품 보여주며 설명하기', effects: { productionScores: { hand_product: 4 }, styleScores: { review: 2 }, categoryScores: { beauty: 2, cooking: 2, home_living: 2, pet: 1 } } },
+      { code: 'SCREEN_RECORDING', label: '화면 녹화/자료 정리', description: '툴 사용법, 정보형 정리', effects: { productionScores: { screen_recording: 4, text_slide: 1 }, styleScores: { informative: 2 }, categoryScores: { ai_tech: 3, finance: 2, professional_brand: 2 } } },
+      { code: 'TALK_STORY', label: '말하기/경험 공유', description: '스토리텔링 중심 진행', effects: { productionScores: { face_on: 2, voice_over: 2 }, styleScores: { storytelling: 2, empathetic: 2 }, categoryScores: { daily_life: 2, self_growth: 1 } } },
+    ],
+  },
+  {
+    code: 'Q10_QUARTER_GOAL',
+    type: 'single_choice',
+    title: '초기 3개월 목표에 가장 가까운 건?',
+    subtitle: '성장 우선순위를 최종 고정합니다.',
+    options: [
+      { code: 'FIRST_REVENUE', label: '빠르게 첫 매출 만들기', description: '전환 중심 실험 우선', effects: { monetizationScores: { group_buy: 3, affiliate: 3 }, styleScores: { review: 2 }, categoryScores: { beauty: 1, home_living: 1, pet: 1, cooking: 1 } } },
+      { code: 'POSITIONING', label: '전문성 포지션 만들기', description: '신뢰 기반 브랜딩 축적', effects: { monetizationScores: { digital_product: 3, consulting: 2 }, styleScores: { informative: 2 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2, professional_brand: 2 } } },
+      { code: 'REACH_SCALE', label: '팔로워/도달 빠르게 키우기', description: '조회수/반응 지표 우선', effects: { monetizationScores: { ad_collab: 2 }, styleScores: { storytelling: 2, empathetic: 2 }, categoryScores: { daily_life: 2, fashion: 1, travel: 1 } } },
+    ],
+  },
+  { code: 'Q11_FREQUENT_QUESTION', type: 'free_text', title: '사람들이 나한테 자주 묻는 질문은?', subtitle: '키워드 기반으로 카테고리/콘텐츠 타입을 보정합니다.', placeholder: '예: 피부 뭐 써요? / 돈 관리는 어떻게 해요? / AI 자동화 어떻게 시작해요?' },
+  { code: 'Q12_PAY_50K', type: 'free_text', title: '지금 당장 5만원 받고 해결해줄 수 있는 것은?', subtitle: '수익 모델과 카테고리에 강한 보정이 들어갑니다.', placeholder: '예: 트러블 피부 루틴 정리 / AI 업무 자동화 템플릿 / 살림 동선 체크리스트' },
+]
+
+function rfEmptyMap(keys) {
+  return keys.reduce((acc, key) => {
+    acc[key] = 0
+    return acc
+  }, {})
+}
+
+function rfCreateScores() {
+  return {
+    categoryScores: rfEmptyMap(RF_CATEGORY_KEYS),
+    styleScores: rfEmptyMap(RF_STYLE_KEYS),
+    monetizationScores: rfEmptyMap(RF_MONETIZATION_KEYS),
+    productionScores: rfEmptyMap(RF_PRODUCTION_KEYS),
+  }
+}
+
+function rfCloneScores(scores) {
+  return {
+    categoryScores: { ...scores.categoryScores },
+    styleScores: { ...scores.styleScores },
+    monetizationScores: { ...scores.monetizationScores },
+    productionScores: { ...scores.productionScores },
+  }
+}
+
+function rfApplyPatch(scores, patch, factor = 1) {
+  if (!patch) return
+  ;['categoryScores', 'styleScores', 'monetizationScores', 'productionScores'].forEach((group) => {
+    const groupPatch = patch[group]
+    if (!groupPatch) return
+    Object.entries(groupPatch).forEach(([key, value]) => {
+      scores[group][key] = (scores[group][key] || 0) + value * factor
+    })
+  })
+}
+
+function rfObjectiveScore(answerMap) {
+  const raw = rfCreateScores()
+  RF_QUESTIONS.forEach((question) => {
+    const answer = answerMap[question.code]
+    if (!answer) return
+    if (question.type === 'likert') {
+      const value = Number(answer.value || 0)
+      rfApplyPatch(raw, question.effects, value)
+      if (question.special === 'face_comfort' && value <= -1) {
+        raw.productionScores.face_off += Math.abs(value) * 2
+        ;['ai_tech', 'finance', 'home_living', 'cooking', 'professional_brand'].forEach((key) => {
+          raw.categoryScores[key] += 1
+        })
+      }
+    }
+    if (question.type === 'single_choice') {
+      const option = question.options.find((it) => it.code === answer.optionCode)
+      if (option) rfApplyPatch(raw, option.effects, 1)
+    }
+  })
+  return raw
+}
+
+function rfFreeTextAdjust(rawScores, answerMap) {
+  const adjusted = rfCloneScores(rawScores)
+  const notes = []
+  const text = `${answerMap.Q11_FREQUENT_QUESTION?.text || ''}\n${answerMap.Q12_PAY_50K?.text || ''}`.toLowerCase()
+  const hasAny = (keywords) => keywords.some((word) => text.includes(word))
+
+  if (hasAny(['피부', '트러블', '화장품', '메이크업', '올리브영'])) {
+    adjusted.categoryScores.beauty += 5
+    adjusted.styleScores.review += 2
+    adjusted.monetizationScores.group_buy += 2
+    adjusted.monetizationScores.affiliate += 2
+    notes.push('뷰티 키워드 보정')
+  }
+  if (hasAny(['정리', '수납', '청소', '주방', '살림'])) {
+    adjusted.categoryScores.home_living += 5
+    adjusted.styleScores.problem_solving += 2
+    adjusted.monetizationScores.group_buy += 2
+    notes.push('리빙 키워드 보정')
+  }
+  if (hasAny(['ai', '자동화', '업무', '챗gpt', '프롬프트', 'gpt'])) {
+    adjusted.categoryScores.ai_tech += 5
+    adjusted.styleScores.informative += 2
+    adjusted.monetizationScores.digital_product += 3
+    adjusted.monetizationScores.affiliate += 2
+    notes.push('AI/자동화 키워드 보정')
+  }
+  if (hasAny(['재무', 'etf', '월급', '지출', '가계부', '투자'])) {
+    adjusted.categoryScores.finance += 5
+    adjusted.styleScores.informative += 2
+    adjusted.monetizationScores.digital_product += 2
+    adjusted.monetizationScores.consulting += 2
+    notes.push('재무 키워드 보정')
+  }
+  if (hasAny(['컨설팅', '코칭', '상담', '진단', '멘토링'])) {
+    adjusted.monetizationScores.consulting += 3
+    adjusted.categoryScores.professional_brand += 2
+    notes.push('상담/코칭 키워드 보정')
+  }
+
+  return { adjusted, notes }
+}
+
+function rfTopEntries(scoreMap, count) {
+  return Object.entries(scoreMap).sort((a, b) => b[1] - a[1]).slice(0, count)
+}
+
+function rfBuildDirections(topCategories, styleKey, productionKey) {
+  const styleLabel = {
+    informative: '정보형',
+    empathetic: '공감형',
+    problem_solving: '문제 해결형',
+    review: '리뷰형',
+    storytelling: '스토리형',
+  }[styleKey] || '정보형'
+  const prodLabel = {
+    face_on: '얼굴 노출 진행',
+    face_partial: '부분 노출 진행',
+    face_off: '비노출 진행',
+    hand_product: '손/제품 시연',
+    screen_recording: '화면 녹화',
+    text_slide: '텍스트 슬라이드',
+    voice_over: '보이스오버',
+  }[productionKey] || '부분 노출 진행'
+
+  return topCategories.slice(0, 2).map((category) => {
+    if (category.key === 'beauty') {
+      return { label: '트러블 피부 문제 해결형', reason: `${styleLabel} + ${prodLabel} 조합이 뷰티 전환 퍼널과 맞습니다.` }
+    }
+    if (category.key === 'ai_tech') {
+      return { label: '직장인 업무 자동화형', reason: `${styleLabel} 전달과 ${prodLabel} 방식이 AI/테크 입문층에 적합합니다.` }
+    }
+    if (category.key === 'home_living') {
+      return { label: '생활 문제 즉시 해결형', reason: `${styleLabel} 메시지로 살림/정리 문제를 빠르게 해결하는 포맷입니다.` }
+    }
+    return { label: `${category.label} ${styleLabel} 실행형`, reason: `${category.label} 카테고리에 ${styleLabel} 톤과 ${prodLabel} 방식이 잘 맞습니다.` }
+  })
+}
+
+function rfBuildTitles(topCategoryKey) {
+  const map = {
+    beauty: ['이거 몰라서 피부 계속 뒤집어지는 거임', '광고 아니고 진짜 재구매한 이유', '모공 부각 심한 날엔 이 조합만 씀', '트러블 날 때 이 순서부터 바꿔야 함', '화장 안 뜨게 하려면 이거부터 바꿔'],
+    ai_tech: ['이거 하나로 업무시간 2시간 줄였습니다', '챗GPT 쓸 때 이 프롬프트부터 바꾸세요', '자동화 초보는 이 순서로 시작하면 됩니다', 'AI툴 3개 비교해보고 남긴 결론', '실무에서 바로 먹히는 자동화 루틴 공개'],
+    home_living: ['집안일 시간 줄이려면 이 동선부터 바꿔요', '정리 못하는 사람도 이 규칙이면 됩니다', '주방 정리 이거 하나로 반은 끝나요', '살림템 사기 전에 이 체크부터 하세요', '매일 지치는 집안일, 이 방식이 제일 빨랐어요'],
+  }
+  return map[topCategoryKey] || ['초보가 가장 먼저 바꿔야 할 1가지', '전환 잘 나오는 포맷', '이 순서로 만들면 편합니다', '시작할 때 놓치면 안 되는 포인트', '수익화 속도 올리는 실전 루틴']
+}
+
+function rfComputeResult(answerMap) {
+  const rawScores = rfObjectiveScore(answerMap)
+  const { adjusted, notes } = rfFreeTextAdjust(rawScores, answerMap)
+
+  const topCategories = rfTopEntries(adjusted.categoryScores, 3).map(([key, score]) => {
+    const meta = RF_CATEGORY_META[key]
+    const growth = Math.round((meta.conversionRate * 8 + meta.monetizationSpeed * 0.55) / 2)
+    return { key, label: meta.label, score: Math.round(score), marketSummary: meta.marketSummary, growthSummary: meta.growthSummary, conversionRate: meta.conversionRate, competition: meta.competition, monetizationSpeed: meta.monetizationSpeed, marketGrowth: growth }
+  })
+
+  const topStyles = rfTopEntries(adjusted.styleScores, 3)
+  const topProductions = rfTopEntries(adjusted.productionScores, 2)
+  const monetizationRoutes = rfTopEntries(adjusted.monetizationScores, 2).map(([key]) => ({ key, label: RF_MONETIZATION_META[key].label, reason: RF_MONETIZATION_META[key].reason }))
+  const contentDirections = rfBuildDirections(topCategories, topStyles[0]?.[0], topProductions[0]?.[0])
+  const titles = rfBuildTitles(topCategories[0]?.key)
+  const visibilityStyle = topProductions[0]?.[0] === 'face_off' ? '비노출 또는 부분 노출 적합' : topProductions[0]?.[0] === 'face_on' ? '얼굴 노출형 진행 적합' : '부분 노출 + 보이스오버 혼합 적합'
+
+  return {
+    rawScores,
+    adjustedScores: adjusted,
+    topCategories,
+    contentDirections,
+    titles,
+    monetizationRoutes,
+    personaSummary: {
+      visibilityStyle,
+      contentStyle: `${({ informative: '정보형', empathetic: '공감형', problem_solving: '문제 해결형', review: '리뷰형', storytelling: '스토리형' }[topStyles[0]?.[0]] || '정보형')} 중심`,
+      strength: `${topCategories[0]?.label || '핵심'} 카테고리 설득력`,
+    },
+    adjustmentNote: notes.length > 0 ? `자연어 보정 적용: ${notes.join(' / ')}` : '자연어 보정 없음',
+    sourceNote: '시장성 문구는 업로드된 “인스타그램 13대 버티컬 시장 분석 및 수익화 전략 리포트” 핵심 수치 요약을 기반으로 구성했습니다.',
+  }
+}
+
+function RecommendScreenV2() {
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [answers, setAnswers] = useState({})
+  const isCompleted = currentIndex >= RF_QUESTIONS.length
+  const currentQuestion = RF_QUESTIONS[currentIndex]
+  const progress = Math.round((currentIndex / RF_QUESTIONS.length) * 100)
+
+  const result = useMemo(() => (isCompleted ? rfComputeResult(answers) : null), [answers, isCompleted])
+  const currentText = currentQuestion?.type === 'free_text' ? answers[currentQuestion.code]?.text || '' : ''
+
+  const saveLikert = (code, value) => {
+    setAnswers((prev) => ({ ...prev, [code]: { value } }))
+    setCurrentIndex((prev) => prev + 1)
+  }
+  const saveChoice = (code, optionCode) => {
+    setAnswers((prev) => ({ ...prev, [code]: { optionCode } }))
+    setCurrentIndex((prev) => prev + 1)
+  }
+  const saveText = (code, text) => {
+    setAnswers((prev) => ({ ...prev, [code]: { text } }))
+  }
+  const restart = () => {
+    setAnswers({})
+    setCurrentIndex(0)
+  }
+
+  return (
+    <main
+      className="min-h-screen bg-[#0B0D12] px-6 py-10 text-[#F3F4F6]"
+      style={{
+        fontFamily: 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
+        backgroundImage: 'radial-gradient(circle at 15% 15%, rgba(148,163,184,0.16) 0%, rgba(148,163,184,0) 28%), radial-gradient(circle at 85% 18%, rgba(71,85,105,0.18) 0%, rgba(71,85,105,0) 28%), linear-gradient(180deg, #0B0D12 0%, #0F1219 100%)',
+      }}
+    >
+      <div className="mx-auto max-w-[1120px]">
+        <div className="flex items-center justify-between">
+          <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-[#D1D5DB]">
+            <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4"><path d="M11.67 4.17 5.84 10l5.83 5.83" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            홈으로
+          </a>
+          <div className="inline-flex rounded-full border border-[#374151] bg-[#12151D] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#E5E7EB]">
+            Content Direction Fit
+          </div>
+        </div>
+
+        {!isCompleted ? (
+          <section className="mt-12 grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
+            <aside className="rounded-[32px] border border-[#2F3543] bg-[#12151D]/95 p-8 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+              <div className="text-sm font-semibold text-[#CBD5E1]">Q{currentIndex + 1} / {RF_QUESTIONS.length}</div>
+              <h1 className="mt-4 text-[34px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F8FAFC]">내 콘텐츠 방향 추천받기</h1>
+              <p className="mt-4 text-sm leading-7 text-[#9CA3AF]">12문항 하이브리드 진단으로 카테고리·콘텐츠 타입·수익 루트를 점수 기반으로 추천합니다.</p>
+              <div className="mt-8">
+                <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF]"><span>진행률</span><span>{progress}%</span></div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1E2432]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#CBD5E1_0%,#F8FAFC_100%)] transition-all duration-300" style={{ width: `${progress}%` }} /></div>
+              </div>
+              <div className="mt-8 rounded-2xl border border-[#2F3543] bg-[#171B24] px-4 py-4 text-xs leading-6 text-[#AEB6C5]">
+                Q11, Q12는 자연어 보정 질문입니다.
+                <br />
+                선택형 점수를 뒤집지 않고 상위 후보를 보정하는 방식으로 적용됩니다.
+              </div>
+            </aside>
+
+            <section className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.38)]">
+              <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
+                {currentQuestion.type === 'likert' ? '척도형 질문' : currentQuestion.type === 'single_choice' ? '선택형 질문' : '서술형 질문'}
+              </div>
+              <h2 className="mt-5 text-[30px] font-bold leading-[1.3] tracking-[-0.03em] text-[#F8FAFC]">{currentQuestion.title}</h2>
+              <p className="mt-3 text-base leading-7 text-[#9CA3AF]">{currentQuestion.subtitle}</p>
+
+              {currentQuestion.type === 'likert' && (
+                <div className="mt-8 grid gap-3">
+                  {RF_LIKERT_OPTIONS.map((option) => (
+                    <button key={`${currentQuestion.code}-${option.value}`} type="button" onClick={() => saveLikert(currentQuestion.code, option.value)} className="rounded-2xl border border-[#2F3543] bg-[#171B24] px-5 py-4 text-left text-sm font-semibold text-[#E5E7EB] transition hover:border-[#94A3B8] hover:bg-[#1D2330]">
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {currentQuestion.type === 'single_choice' && (
+                <div className="mt-8 grid gap-4">
+                  {currentQuestion.options.map((option, index) => (
+                    <button key={option.code} type="button" onClick={() => saveChoice(currentQuestion.code, option.code)} className="group rounded-[24px] border border-[#2F3543] bg-[#171B24] p-5 text-left transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:bg-[#1D2330]">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-3">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1E2432] text-sm font-bold text-[#E5E7EB]">{String.fromCharCode(65 + index)}</span>
+                            <h3 className="text-lg font-bold text-[#F8FAFC]">{option.label}</h3>
+                          </div>
+                          <p className="mt-3 text-sm text-[#9CA3AF]">{option.description}</p>
+                        </div>
+                        <svg viewBox="0 0 20 20" aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-[#94A3B8] transition group-hover:text-[#E2E8F0]"><path d="M7.5 4.17 13.33 10 7.5 15.83" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {currentQuestion.type === 'free_text' && (
+                <div className="mt-8">
+                  <textarea value={currentText} onChange={(event) => saveText(currentQuestion.code, event.target.value)} placeholder={currentQuestion.placeholder} className="h-44 w-full resize-none rounded-2xl border border-[#374151] bg-[#171B24] px-4 py-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280]" />
+                  <div className="mt-3 text-xs text-[#9CA3AF]">키워드가 포함되면 카테고리/수익모델 보정이 자동 적용됩니다.</div>
+                  <div className="mt-6 flex justify-end gap-2">
+                    <button type="button" onClick={() => setCurrentIndex((prev) => prev + 1)} className="inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#12151D] px-5 text-sm font-semibold text-[#CBD5E1] transition hover:bg-[#1D2330]">건너뛰기</button>
+                    <button type="button" onClick={() => setCurrentIndex((prev) => prev + 1)} disabled={currentText.trim().length === 0} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">다음으로</button>
+                  </div>
+                </div>
+              )}
+            </section>
+          </section>
+        ) : (
+          <section className="mt-12 grid gap-8">
+            <div className="rounded-[36px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.38)] md:p-10">
+              <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">Recommendation Result</div>
+              <h1 className="mt-5 text-[42px] font-bold leading-[1.15] tracking-[-0.03em] text-[#F8FAFC]">#1 추천: {result.topCategories[0].label}</h1>
+              <p className="mt-4 max-w-[840px] text-base leading-8 text-[#9CA3AF]">선택형 점수 + 자연어 보정을 합산한 결과, 현재 성향과 가장 잘 맞는 카테고리는 <span className="font-semibold text-[#F8FAFC]">{result.topCategories[0].label}</span> 입니다.</p>
+              <div className="mt-3 text-xs text-[#94A3B8]">{result.sourceNote}</div>
+            </div>
+
+            <div className="grid gap-8 lg:grid-cols-[1fr_1fr]">
+              <article className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
+                <div className="text-sm font-semibold uppercase tracking-[0.16em] text-[#CBD5E1]">Top Categories</div>
+                <div className="mt-5 space-y-4">
+                  {result.topCategories.map((item, index) => (
+                    <div key={item.key} className={`rounded-2xl border p-4 ${index === 0 ? 'border-[#93C5FD] bg-[#162033]' : 'border-[#2F3543] bg-[#171B24]'}`}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div><div className="text-xs font-semibold text-[#CBD5E1]">#{index + 1} 추천</div><div className="mt-1 text-xl font-bold text-[#F8FAFC]">{item.label}</div></div>
+                        <div className="rounded-full border border-[#374151] bg-[#12151D] px-3 py-1 text-sm font-bold text-[#F8FAFC]">{item.score}점</div>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{item.marketSummary}</p>
+                      <p className="mt-1 text-xs leading-6 text-[#9CA3AF]">{item.growthSummary}</p>
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[#D1D5DB] md:grid-cols-4">
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">성장 {item.marketGrowth}%</div>
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">전환 {item.conversionRate}%</div>
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">경쟁 {item.competition}</div>
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">수익화 {item.monetizationSpeed}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
+                <div className="text-sm font-semibold uppercase tracking-[0.16em] text-[#CBD5E1]">Action Plan</div>
+                <h2 className="mt-4 text-[24px] font-bold text-[#F8FAFC]">콘텐츠 방향 + 수익 루트</h2>
+                <div className="mt-5 space-y-3">
+                  {result.contentDirections.map((direction, index) => (
+                    <div key={`${direction.label}-${index}`} className="rounded-xl border border-[#2F3543] bg-[#171B24] p-4">
+                      <div className="text-sm font-semibold text-[#F8FAFC]">{direction.label}</div>
+                      <div className="mt-1 text-xs leading-6 text-[#AEB6C5]">{direction.reason}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 space-y-3">
+                  {result.monetizationRoutes.map((route) => (
+                    <div key={route.key} className="rounded-xl border border-[#2F3543] bg-[#171B24] p-4">
+                      <div className="text-sm font-semibold text-[#F8FAFC]">{route.label}</div>
+                      <div className="mt-1 text-xs leading-6 text-[#AEB6C5]">{route.reason}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 rounded-xl border border-[#2F3543] bg-[#171B24] p-4">
+                  <div className="text-sm font-semibold text-[#F8FAFC]">페르소나 요약</div>
+                  <div className="mt-2 text-xs leading-6 text-[#AEB6C5]">노출 성향: {result.personaSummary.visibilityStyle}</div>
+                  <div className="text-xs leading-6 text-[#AEB6C5]">콘텐츠 타입: {result.personaSummary.contentStyle}</div>
+                  <div className="text-xs leading-6 text-[#AEB6C5]">강점: {result.personaSummary.strength}</div>
+                </div>
+              </article>
+            </div>
+
+            <article className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
+              <div className="text-sm font-semibold uppercase tracking-[0.16em] text-[#CBD5E1]">추천 제목 5개</div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {result.titles.map((title, index) => (
+                  <div key={`${title}-${index}`} className="rounded-xl border border-[#2F3543] bg-[#171B24] px-4 py-3 text-sm text-[#E5E7EB]">{title}</div>
+                ))}
+              </div>
+              <div className="mt-5 rounded-xl border border-[#2F3543] bg-[#171B24] px-4 py-3 text-xs text-[#AEB6C5]">{result.adjustmentNote}</div>
+              <div className="mt-7 flex flex-wrap gap-3">
+                <button type="button" onClick={restart} className="inline-flex h-[52px] items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-7 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]">다시 진단하기</button>
+                <a href="/analyze" className="btn-solid-contrast inline-flex h-[52px] items-center justify-center rounded-full px-7 text-sm font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.35)] transition hover:bg-white">이 방향으로 분석 시작하기</a>
+              </div>
+            </article>
+          </section>
+        )}
+      </div>
+    </main>
+  )
+}
+
 function LoginScreen() {
   const { login, isLoggedIn, isAuthReady } = useAppState()
 
@@ -1480,7 +1958,7 @@ function IntroApp() {
 }
 
 function RecommendApp() {
-  return <RecommendScreen />
+  return <RecommendScreenV2 />
 }
 
 export default function App() {
