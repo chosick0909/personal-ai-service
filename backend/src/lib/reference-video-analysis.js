@@ -72,7 +72,10 @@ const OFF_DOMAIN_FORBIDDEN_TERMS = [
 ]
 
 const IT_STARTUP_TERMS = ['IT', '창업', '스타트업', '부트캠프', 'SaaS', '코딩', '개발자']
-const MAX_VARIATION_RETRIES = 4
+const MAX_VARIATION_RETRIES = 2
+const VARIATION_CONTEXT_TEXT_MAX = 800
+const MAX_PROMPT_FORBIDDEN_TERMS = 8
+const MAX_PROMPT_SETTING_CUES = 3
 
 const ACCOUNT_GOAL_LABELS = {
   'personal-influencer': '퍼스널 인플루언싱',
@@ -223,6 +226,13 @@ function normalizeStringList(values = [], max = 3) {
   return deduped
 }
 
+function clampText(text = '', maxLength = 800) {
+  const normalized = String(text || '').trim()
+  if (!normalized) return ''
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}...`
+}
+
 function containsTerm(text = '', term = '') {
   const normalizedText = String(text || '').toLowerCase()
   const normalizedTerm = String(term || '').toLowerCase()
@@ -260,6 +270,11 @@ function buildSettingCues(accountSettings = {}) {
   for (const product of products) {
     const name = normalizeSettingCue(product?.name)
     if (name) cues.push(name)
+  }
+
+  const voiceTone = normalizeSettingCue(accountSettings?.voiceTone)
+  if (voiceTone) {
+    cues.push(voiceTone)
   }
 
   const deduped = []
@@ -439,6 +454,12 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
   }
 }
 
+function buildPromptGuardSummary(guard = {}) {
+  const forbiddenTerms = buildForbiddenTermsForGuard(guard).slice(0, MAX_PROMPT_FORBIDDEN_TERMS)
+  const settingCues = normalizeStringList(guard.settingCues || [], MAX_PROMPT_SETTING_CUES)
+  return { forbiddenTerms, settingCues }
+}
+
 function buildForbiddenTermsForGuard(guard = {}) {
   const base = [...OFF_DOMAIN_FORBIDDEN_TERMS]
 
@@ -522,6 +543,19 @@ function validateVariationAlignment(variation, guard) {
       return {
         ok: false,
         reason: `계정 설정 신호(목표/전략/상품) 미반영: ${settingCues.slice(0, 3).join(', ')}`,
+      }
+    }
+  }
+
+  // 세팅값 최우선 모드: 카테고리가 정해진 경우 핵심 구간(HOOK/BODY)에도 세팅 신호가 드러나야 통과.
+  if (guard.category !== '기타' && settingCues.length) {
+    const coreCueHit = settingCues.some(
+      (cue) => containsTerm(hookText, cue) || containsTerm(bodyText, cue),
+    )
+    if (!coreCueHit) {
+      return {
+        ok: false,
+        reason: `세팅 신호가 HOOK/BODY 핵심 구간에 없음: ${settingCues.slice(0, 2).join(', ')}`,
       }
     }
   }
@@ -873,13 +907,14 @@ export async function analyzeReferenceVideo({
       accountSettings,
       characterSystemPrompt,
     })
+    const guardPromptSummary = buildPromptGuardSummary(categoryGuard)
     const categoryGuardText = [
       `카테고리: ${categoryGuard.category}`,
       categoryGuard.anchors.length
         ? `필수 반영 키워드(최소 1개 이상): ${categoryGuard.anchors.join(', ')}`
         : null,
-      categoryGuard.settingCues.length
-        ? `설정 신호(최소 1개 이상 반드시 반영): ${categoryGuard.settingCues.join(', ')}`
+      guardPromptSummary.settingCues.length
+        ? `설정 신호(최소 1개 이상 반드시 반영): ${guardPromptSummary.settingCues.join(', ')}`
         : null,
       categoryGuard.voiceTone ? `브랜드 톤: ${categoryGuard.voiceTone}` : null,
       categoryGuard.strategyPreferences.length
@@ -891,7 +926,7 @@ export async function analyzeReferenceVideo({
       categoryGuard.category !== 'AI'
         ? 'IT/창업/스타트업/부트캠프 등 AI·창업 도메인 키워드가 나오면 실패로 간주한다.'
         : null,
-      `금지어 목록: ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}`,
+      `금지어 목록: ${guardPromptSummary.forbiddenTerms.join(', ')}`,
     ]
       .filter(Boolean)
       .join('\n')
@@ -906,6 +941,10 @@ export async function analyzeReferenceVideo({
             frameSummary: '',
             topK: 4,
           })
+          const compactKnowledgeContext = clampText(
+            variationKnowledge.contextText || '',
+            VARIATION_CONTEXT_TEXT_MAX,
+          )
 
           const systemContent = [
             '당신은 숏폼 콘텐츠 작가다. 지정된 전략에 맞는 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
@@ -942,7 +981,7 @@ export async function analyzeReferenceVideo({
             '- 레퍼런스 제목/파일명/원문 주제는 무시\n' +
             '- 레퍼런스 원문 주제와 계정 설정이 충돌하면 계정 설정을 우선\n' +
             '- 레퍼런스는 구조/후킹 패턴만 참고하고 소재는 계정 도메인으로 재작성\n\n' +
-            `금지어(절대 사용 금지): ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}\n\n` +
+            `금지어(절대 사용 금지): ${guardPromptSummary.forbiddenTerms.join(', ')}\n\n` +
             `핵심 인사이트(최소 2개 반영):\n${
               generationGuides.keyInsights.length
                 ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -953,8 +992,11 @@ export async function analyzeReferenceVideo({
                 ? generationGuides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
                 : '- 없음'
             }\n\n` +
+            `세팅 신호(최소 1개 이상 직접 반영): ${
+              guardPromptSummary.settingCues.join(', ') || '없음'
+            }\n\n` +
             `공통 분석 요약:\n구조: ${analysisResult.structureAnalysis || '-'}\n후킹: ${analysisResult.hookAnalysis || '-'}\n심리: ${analysisResult.psychologyAnalysis || '-'}\n\n` +
-            `참고 글로벌 지식(이 안에서 우선 참고):\n${variationKnowledge.contextText || '검색된 지식 없음'}\n\n` +
+            `참고 글로벌 지식(요약본):\n${compactKnowledgeContext || '검색된 지식 없음'}\n\n` +
             '분량 규칙(중요): 1분 릴스 기준으로 충분히 길게 작성하세요.\n' +
             '- 목표 길이: 약 50~70초\n' +
             '- hook: 약 8~12초 (45~90자)\n' +
@@ -983,7 +1025,7 @@ export async function analyzeReferenceVideo({
                     (retryHint
                       ? `\n\n[재작성 지시]\n직전 응답이 실패했습니다.\n실패 사유: ${retryHint}\n` +
                         '같은 전략을 유지하되, 계정 설정(카테고리/목표/상품/전략) 신호를 본문에 반드시 반영해 다시 작성하세요.\n' +
-                        `금지어는 절대 쓰지 마세요: ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}`
+                        `금지어는 절대 쓰지 마세요: ${guardPromptSummary.forbiddenTerms.join(', ')}`
                       : ''),
                 },
               ],
@@ -1013,8 +1055,8 @@ export async function analyzeReferenceVideo({
                   content:
                     `카테고리: ${categoryGuard.category}\n` +
                     `필수 키워드(최소 2개): ${categoryGuard.anchors.join(', ') || '없음'}\n` +
-                    `설정 신호(최소 1개): ${categoryGuard.settingCues.join(', ') || '없음'}\n` +
-                    `금지어: ${buildForbiddenTermsForGuard(categoryGuard).join(', ')}\n` +
+                    `설정 신호(최소 1개): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
+                    `금지어: ${guardPromptSummary.forbiddenTerms.join(', ')}\n` +
                     `실패 사유: ${alignment.reason}\n\n` +
                     `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
                     '반드시 유지할 조건:\n' +
