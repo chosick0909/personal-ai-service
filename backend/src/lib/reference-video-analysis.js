@@ -671,7 +671,7 @@ async function regenerateVariationWithGPT({
         content:
           `전략 라벨: ${config.label}\n전략 방향: ${config.angle}\n` +
           `카테고리: ${categoryGuard.category}\n` +
-          `세팅 신호(최소 1개 이상 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
+          `세팅 신호(우선 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
           `레퍼런스 금지 표면 단어(절대 사용 금지): ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
           `${retryReason ? `재생성 사유: ${retryReason}\n` : ''}\n` +
           `논리 구조 청사진:\n${
@@ -682,6 +682,11 @@ async function regenerateVariationWithGPT({
           `설득 패턴:\n${
             structureBlueprint?.persuasionPattern?.length
               ? structureBlueprint.persuasionPattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `메시지 구조:\n${
+            structureBlueprint?.messageStructure?.length
+              ? structureBlueprint.messageStructure.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
               : '- 없음'
           }\n\n` +
           `핵심 인사이트:\n${
@@ -700,7 +705,8 @@ async function regenerateVariationWithGPT({
           '- 레퍼런스는 논리 구조만 참고하고 내용은 현재 계정 도메인으로 완전 재창조\n' +
           '- 분석 메타 표현(첫 3초, 프레임, 클로즈업, 화면, 자막, 연출) 금지\n' +
           '- 사람 말투로 자연스럽게 작성\n' +
-          '- HOOK/BODY/CTA 흐름을 분명히 연결\n\n' +
+          '- HOOK/BODY/CTA 흐름을 분명히 연결\n' +
+          '- 세팅 신호와 키워드는 억지 삽입보다 자연스러운 반영을 우선\n\n' +
           '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
       },
     ],
@@ -1267,7 +1273,7 @@ export async function analyzeReferenceVideo({
         : null,
       categoryGuard.accountGoal ? `운영 목적: ${categoryGuard.accountGoal}` : null,
       categoryGuard.instagramId ? `인스타그램: @${categoryGuard.instagramId}` : null,
-      '계정 카테고리/세팅 신호와 맞지 않으면 실패로 간주하고 다시 작성한다.',
+      '계정 카테고리/세팅 신호는 강하게 참고하되, 억지 키워드 삽입보다 자연스러운 문장을 우선한다.',
     ]
       .filter(Boolean)
       .join('\n')
@@ -1296,7 +1302,7 @@ export async function analyzeReferenceVideo({
             '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
             'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
             'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
-            '아래 인사이트/체크포인트를 최소 2개 이상 반영하고, usedInsights/usedCheckpoints에 반영 항목을 기록하라.',
+            '아래 인사이트/체크포인트는 필요한 만큼 자연스럽게 반영하고, usedInsights/usedCheckpoints에는 실제로 참고한 항목만 기록하라.',
             '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
             '공통: 설명체보다 대화체. 문장은 짧게 끊고 리듬감 있게. 추상적 표현 금지.',
             'HOOK 금지: "~하시나요?" 같은 평범한 질문, 너무 일반적인 문제 제기.',
@@ -1327,24 +1333,30 @@ export async function analyzeReferenceVideo({
                 ? structureBlueprint.persuasionPattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
                 : '- 없음'
             }\n\n` +
+            `메시지 구조:\n${
+              structureBlueprint.messageStructure.length
+                ? structureBlueprint.messageStructure.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
             '작성 강제 조건:\n' +
             '- 1단계: 논리 구조만 사용\n' +
             '- 2단계: 현재 계정 도메인으로 완전 변환\n' +
             '- 3단계: 완전히 새로운 주장(thesis) 생성\n' +
             '- 4단계: thesis 기반으로 HOOK/BODY/CTA 작성\n' +
             '- 레퍼런스 표면 단어/문장 변형/원문 주제 복사 금지\n' +
-            '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 반드시 작성\n\n' +
-            `핵심 인사이트(최소 2개 반영):\n${
+            '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 작성\n' +
+            '- 키워드를 억지로 끼워 넣지 말고, 자연스러운 주장과 흐름을 우선\n\n' +
+            `핵심 인사이트(우선 참고):\n${
               generationGuides.keyInsights.length
                 ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
                 : '- 없음'
             }\n\n` +
-            `바로 써먹을 체크포인트(최소 2개 반영):\n${
+            `바로 써먹을 체크포인트(우선 참고):\n${
               generationGuides.checkpoints.length
                 ? generationGuides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
                 : '- 없음'
             }\n\n` +
-            `세팅 신호(최소 1개 이상 직접 반영): ${
+            `세팅 신호(직접적이고 자연스럽게 반영): ${
               guardPromptSummary.settingCues.join(', ') || '없음'
             }\n\n` +
             `참고 글로벌 지식(요약본):\n${compactKnowledgeContext || '검색된 지식 없음'}\n\n` +
@@ -1375,7 +1387,7 @@ export async function analyzeReferenceVideo({
                     baseUserContent +
                     (retryHint
                       ? `\n\n[재작성 지시]\n직전 응답이 실패했습니다.\n실패 사유: ${retryHint}\n` +
-                        '같은 전략을 유지하되, 계정 설정(카테고리/목표/상품/전략) 신호를 본문에 반드시 반영해 다시 작성하세요.'
+                        '같은 전략을 유지하되, 계정 설정 신호는 자연스럽게 살리고 문장은 더 유연하게 다시 작성하세요.'
                       : ''),
                 },
               ],
@@ -1398,21 +1410,21 @@ export async function analyzeReferenceVideo({
                 {
                   role: 'system',
                   content:
-                    '당신은 카테고리 정합 복구기다. 주어진 스크립트의 구조(HOOK/BODY/CTA)는 유지하되, 지정 카테고리 키워드를 강제로 반영해 다시 작성한다. 출력은 JSON만 반환.',
+                    '당신은 카테고리 정합 복구기다. 주어진 스크립트의 구조(HOOK/BODY/CTA)는 유지하되, 이질 도메인만 제거하고 현재 카테고리에 맞게 자연스럽게 다시 쓴다. 출력은 JSON만 반환.',
                 },
                 {
                   role: 'user',
                   content:
                     `카테고리: ${categoryGuard.category}\n` +
-                    `필수 키워드(최소 2개): ${categoryGuard.anchors.join(', ') || '없음'}\n` +
-                    `설정 신호(최소 1개): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
+                    `참고 카테고리 키워드: ${categoryGuard.anchors.join(', ') || '없음'}\n` +
+                    `참고 설정 신호: ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
                     `실패 사유: ${alignment.reason}\n\n` +
                     `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
                     '반드시 유지할 조건:\n' +
                     '- 문체/전략 라벨은 유지\n' +
                     '- 이질 도메인 단어는 제거\n' +
-                    '- 설정 신호(목표/전략/상품)를 최소 1개 반영\n' +
-                    '- 카테고리 키워드를 최소 2개 이상 자연스럽게 반영\n\n' +
+                    '- 설정 신호와 카테고리 힌트는 자연스럽게만 반영\n' +
+                    '- 키워드 개수보다 문장 자연스러움을 우선\n\n' +
                     '다음 JSON 형식으로만 답하세요: ' +
                     '{"hook":"","body":"","cta":""}',
                 },
@@ -1478,11 +1490,7 @@ export async function analyzeReferenceVideo({
             alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
           }
 
-          if (
-            normalized &&
-            alignment.ok &&
-            (needsFlowPolish(normalized) || (Array.isArray(alignment.warnings) && alignment.warnings.length > 0))
-          ) {
+          if (normalized && alignment.ok && needsFlowPolish(normalized)) {
             try {
               const polishResponse = await openai.chat.completions.create({
                 model: chatModel,
