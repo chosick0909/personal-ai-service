@@ -523,9 +523,9 @@ function extractCategoryFromCharacterPrompt(characterSystemPrompt = '') {
 }
 
 function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' } = {}) {
-  const category = normalizeCategoryLabel(
-    accountSettings?.category || extractCategoryFromCharacterPrompt(characterSystemPrompt),
-  )
+  const rawCategory =
+    String(accountSettings?.category || extractCategoryFromCharacterPrompt(characterSystemPrompt) || '').trim()
+  const category = normalizeCategoryLabel(rawCategory)
   const anchors = CATEGORY_ANCHOR_TERMS[category] || []
   const instagramId = String(accountSettings?.instagramId || '')
     .trim()
@@ -545,7 +545,14 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
     accountGoal,
     settingCues: settingCues.all,
     hardSettingCues: settingCues.hard,
+    rawCategory,
   }
+}
+
+function isItStartupDomainAllowed(guard = {}) {
+  const normalizedCategory = String(guard?.category || '').trim()
+  const rawCategory = String(guard?.rawCategory || '').toLowerCase()
+  return normalizedCategory === 'AI' || /it|창업|스타트업|startup|saas|개발/.test(rawCategory)
 }
 
 function buildPromptGuardSummary(guard = {}) {
@@ -557,7 +564,7 @@ function buildPromptGuardSummary(guard = {}) {
 function buildForbiddenTermsForGuard(guard = {}) {
   const base = [...OFF_DOMAIN_FORBIDDEN_TERMS]
 
-  if (guard?.category !== 'AI') {
+  if (!isItStartupDomainAllowed(guard)) {
     base.push(...IT_STARTUP_TERMS)
   }
 
@@ -708,7 +715,7 @@ function validateVariationAlignment(variation, guard) {
     }
   }
 
-  if (guard.category !== 'AI') {
+  if (!isItStartupDomainAllowed(guard)) {
     const itStartupHit = IT_STARTUP_TERMS.find((term) => containsTerm(text, term))
     if (itStartupHit) {
       return {
