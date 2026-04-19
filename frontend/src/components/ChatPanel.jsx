@@ -96,9 +96,9 @@ export default function ChatPanel({ entering = false, embedded = false }) {
         </div>
       </div>
 
-      <div className={`${embedded ? 'relative min-h-0 flex-1 overflow-hidden' : 'mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
+      <div className={`${embedded ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className={`min-h-0 flex-1 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4 pb-[220px]' : 'px-4 py-4'}`}>
+          <div className={`min-h-0 flex-1 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
             {pendingSuggestion ? (
               <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
                 최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
@@ -121,7 +121,7 @@ export default function ChatPanel({ entering = false, embedded = false }) {
             ) : null}
           </div>
 
-          <div className={`${embedded ? 'absolute inset-x-0 bottom-0 z-10 border-t border-[#2F3543] bg-[#0F131B] px-5 py-4' : 'sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4'}`}>
+          <div className={`${embedded ? 'mt-auto shrink-0 border-t border-[#2F3543] bg-[#0F131B] px-5 py-4' : 'sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4'}`}>
             <div className="rounded-[24px] border border-[#2F3543] bg-[#161B24] p-3">
               {isChatLimitReached ? (
                 <div className="mb-3 rounded-xl border border-[#7F1D1D] bg-[#2A1515] px-3 py-2 text-xs leading-5 text-[#FECACA]">
