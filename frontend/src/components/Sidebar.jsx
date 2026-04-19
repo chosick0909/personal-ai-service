@@ -75,6 +75,21 @@ function IconFile() {
   )
 }
 
+function IconChatBubble() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#D1D5DB]">
+      <path
+        d="M8 2C4.13 2 1 4.63 1 7.86c0 1.48.66 2.83 1.76 3.86L2.1 14l2.6-1.17c.98.32 2.05.5 3.3.5 3.87 0 7-2.63 7-5.87C15 4.63 11.87 2 8 2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function Row({ children, onClick, active = false, muted = false }) {
   return (
     <button
@@ -94,7 +109,8 @@ function Row({ children, onClick, active = false, muted = false }) {
 }
 
 export default function Sidebar() {
-  const [query, setQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isAccountSwitchOpen, setIsAccountSwitchOpen] = useState(false)
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false)
   const [projectNameDraft, setProjectNameDraft] = useState('')
@@ -102,6 +118,7 @@ export default function Sidebar() {
   const [activeMoveMenuId, setActiveMoveMenuId] = useState(null)
   const accountSheetRef = useRef(null)
   const projectInputRef = useRef(null)
+  const searchInputRef = useRef(null)
   const {
     referenceHistory,
     referenceData,
@@ -127,7 +144,7 @@ export default function Sidebar() {
     startNewProject,
   } = useAppState()
 
-  const normalizedQuery = query.trim().toLowerCase()
+  const normalizedQuery = searchQuery.trim().toLowerCase()
   const matchesReferenceSearch = (item) => {
     if (!normalizedQuery) {
       return true
@@ -145,11 +162,7 @@ export default function Sidebar() {
       onClick: () => selectProject(project.id),
     }))
 
-    if (!normalizedQuery) {
-      return dynamic
-    }
-
-    return dynamic.filter((item) => item.title.toLowerCase().includes(normalizedQuery))
+    return dynamic
   }, [projects, currentProjectId, normalizedQuery, selectProject])
 
   const recentRows = useMemo(() => {
@@ -179,11 +192,7 @@ export default function Sidebar() {
       },
     }))
 
-    if (!normalizedQuery) {
-      return dynamic
-    }
-
-    return dynamic.filter((item) => matchesReferenceSearch(item))
+    return dynamic
   }, [
     currentProjectId,
     currentStep,
@@ -194,6 +203,62 @@ export default function Sidebar() {
     referenceData?.id,
     referenceHistory,
   ])
+
+  const searchRows = useMemo(() => {
+    return referenceHistory
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        transcript: item.transcript || '',
+        createdAt: item.createdAt || item.created_at || null,
+        active: referenceData?.id === item.id,
+        onClick: () => {
+          openReference(item.id)
+          setIsSearchOpen(false)
+          setSearchQuery('')
+        },
+      }))
+      .filter((item) => matchesReferenceSearch(item))
+      .slice(0, 40)
+  }, [matchesReferenceSearch, openReference, referenceData?.id, referenceHistory])
+
+  const groupedSearchRows = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat('ko-KR', {
+      month: 'long',
+      day: 'numeric',
+    })
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const groups = []
+    const map = new Map()
+
+    for (const item of searchRows) {
+      const created = item.createdAt ? new Date(item.createdAt) : null
+      let label = '이전'
+      if (created && !Number.isNaN(created.getTime())) {
+        const day = new Date(created)
+        day.setHours(0, 0, 0, 0)
+        if (day.getTime() === today.getTime()) {
+          label = '오늘'
+        } else if (day.getTime() === yesterday.getTime()) {
+          label = '어제'
+        } else {
+          label = formatter.format(created)
+        }
+      }
+
+      if (!map.has(label)) {
+        const nextGroup = { label, items: [] }
+        map.set(label, nextGroup)
+        groups.push(nextGroup)
+      }
+      map.get(label).items.push(item)
+    }
+
+    return groups
+  }, [searchRows])
 
   const accountRows = useMemo(() => accounts.slice(0, 6), [accounts])
 
@@ -220,6 +285,28 @@ export default function Sidebar() {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isAccountSwitchOpen])
+
+  useEffect(() => {
+    if (!isSearchOpen) {
+      return undefined
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsSearchOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    const timer = window.setTimeout(() => {
+      searchInputRef.current?.focus()
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isSearchOpen])
 
   useEffect(() => {
     if (!isCreateProjectOpen) {
@@ -325,15 +412,14 @@ export default function Sidebar() {
     <div className="relative flex h-full flex-col bg-[#12151D] text-[#E5E7EB]">
       <div className="shrink-0">
         <div className="px-3 pb-3 pt-4">
-          <label className="flex h-[38px] items-center gap-2 rounded-[10px] border border-[#2F3543] bg-[#1B202A] px-3">
+          <button
+            type="button"
+            onClick={() => setIsSearchOpen(true)}
+            className="flex h-[38px] w-full items-center gap-2 rounded-[10px] border border-[#2F3543] bg-[#1B202A] px-3 text-left transition hover:border-[#3A4252] hover:bg-[#202631]"
+          >
             <IconSearch />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="채팅 검색"
-              className="w-full bg-transparent text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
-            />
-          </label>
+            <span className="text-sm text-[#6B7280]">채팅 검색</span>
+          </button>
 
           <div className="mt-2">
             <Row onClick={handleNewReferenceAnalysis}>
@@ -756,6 +842,87 @@ export default function Sidebar() {
                     >
                       생성
                     </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {isSearchOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[130] bg-[rgba(6,8,12,0.62)] backdrop-blur-[2px]"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  setIsSearchOpen(false)
+                }
+              }}
+            >
+              <div className="absolute left-1/2 top-[9vh] w-[min(760px,calc(100vw-40px))] -translate-x-1/2 overflow-hidden rounded-[28px] border border-[#3A3F4A] bg-[#2A2A2A] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+                <div className="flex items-center gap-3 border-b border-[#434343] px-5 py-4">
+                  <IconSearch />
+                  <input
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="채팅 검색..."
+                    className="w-full bg-transparent text-[17px] text-[#F3F4F6] outline-none placeholder:text-[#A3A3A3]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsSearchOpen(false)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#A3A3A3] transition hover:bg-white/5 hover:text-[#F3F4F6]"
+                    aria-label="검색 닫기"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-5 w-5">
+                      <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="max-h-[70vh] overflow-y-auto px-4 py-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSearchOpen(false)
+                      setSearchQuery('')
+                      handleNewReferenceAnalysis()
+                    }}
+                    className="flex h-[74px] w-full items-center gap-3 rounded-[20px] bg-[#464646] px-6 text-left text-[18px] font-semibold text-[#F3F4F6] transition hover:bg-[#515151]"
+                  >
+                    <IconPencil />
+                    새 채팅
+                  </button>
+
+                  <div className="mt-5 space-y-5">
+                    {groupedSearchRows.length ? (
+                      groupedSearchRows.map((group) => (
+                        <div key={group.label}>
+                          <div className="px-2 text-sm font-semibold text-[#A3A3A3]">{group.label}</div>
+                          <div className="mt-3 space-y-1">
+                            {group.items.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={item.onClick}
+                                className={`flex w-full items-center gap-3 rounded-[16px] px-3 py-3 text-left transition ${
+                                  item.active ? 'bg-[#3A3A3A]' : 'hover:bg-[#333333]'
+                                }`}
+                              >
+                                <IconChatBubble />
+                                <span className="truncate text-[16px] text-[#F3F4F6]">{item.title}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-[20px] border border-dashed border-[#4A4A4A] px-5 py-10 text-center text-sm text-[#A3A3A3]">
+                        제목 또는 전사(STT) 내용으로 검색해보세요.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
