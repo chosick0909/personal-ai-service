@@ -93,10 +93,10 @@ export default function ResultCards({ transitioning = false, entering = false })
 
     return [
       points[0] || '첫 문장이 문제를 즉시 제기함',
-      points[1] || '중간 설명이 짧고 시각적으로 상상하기 쉬움',
+      points[1] || '중간 설명이 짧고 핵심 메시지가 빠르게 전달됨',
       points[2] || 'CTA가 길지 않고 명확함',
-      points[3] || '텍스트 오버레이가 첫 화면에 즉시 표시됨',
-      points[4] || '불필요한 효과음 없이 메시지에 집중',
+      points[3] || '구조 흐름이 자연스럽고 이탈 포인트가 적음',
+      points[4] || '시각 요소는 마지막 인사이트 박스에서만 분리 분석',
     ]
   }, [referenceData?.keyPoints])
 

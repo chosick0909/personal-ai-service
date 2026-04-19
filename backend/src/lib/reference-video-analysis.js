@@ -71,6 +71,8 @@ const OFF_DOMAIN_FORBIDDEN_TERMS = [
   '부동산',
 ]
 
+const IT_STARTUP_TERMS = ['IT', '창업', '스타트업', '부트캠프', 'SaaS', '코딩', '개발자']
+
 const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
 
 function cacheLog(stage, details = {}) {
@@ -260,13 +262,10 @@ function selectReferenceVideoColumns({ includeProjectId = true, detail = false }
   return includeProjectId ? `${base}, project_id` : base
 }
 
-function buildGenerationGuides({ analysisResult, frameAnalysis }) {
+function buildGenerationGuides({ analysisResult }) {
   const insights = [
     ...toBulletCandidates(analysisResult?.hookAnalysis || ''),
     ...toBulletCandidates(analysisResult?.psychologyAnalysis || ''),
-    ...(frameAnalysis?.frames || [])
-      .map((frame) => String(frame?.hookReason || frame?.observation || '').trim())
-      .filter(Boolean),
   ]
 
   const checkpoints = [
@@ -318,7 +317,34 @@ function normalizeVariationDraft(parsed, fallback, guides = {}) {
 function normalizeCategoryLabel(value) {
   const raw = String(value || '').trim()
   if (!raw) return '기타'
-  return CATEGORY_ANCHOR_TERMS[raw] ? raw : '기타'
+
+  if (CATEGORY_ANCHOR_TERMS[raw]) {
+    return raw
+  }
+
+  const compact = raw.replace(/\s+/g, '').toLowerCase()
+  const categoryAliases = [
+    { category: '패션', aliases: ['패션', 'fashion', '인플루언서', '패션인플루언서', '스타일'] },
+    { category: '뷰티', aliases: ['뷰티', 'beauty', '메이크업', '화장', '스킨케어'] },
+    { category: 'AI', aliases: ['ai', 'it', '창업', '스타트업', '개발', '테크'] },
+    { category: '육아', aliases: ['육아', '아기', '부모'] },
+    { category: '반려동물', aliases: ['반려', '반려동물', '강아지', '고양이', '펫'] },
+    { category: '자기계발', aliases: ['자기계발', '생산성', '습관'] },
+    { category: '재테크', aliases: ['재테크', '투자', '자산'] },
+    { category: '여행', aliases: ['여행', '트립'] },
+    { category: '요리', aliases: ['요리', '레시피', '쿠킹'] },
+    { category: '교육', aliases: ['교육', '학습', '강의'] },
+    { category: '멘탈케어', aliases: ['멘탈', '심리', '감정'] },
+    { category: '테크 가젯', aliases: ['가젯', '디바이스', '리뷰'] },
+    { category: '살림', aliases: ['살림', '정리', '수납', '청소'] },
+    { category: '전문직(회사홍보)', aliases: ['전문직', '회사홍보', '브랜드', '서비스'] },
+  ]
+
+  const matched = categoryAliases.find((item) =>
+    item.aliases.some((alias) => compact.includes(alias.toLowerCase())),
+  )
+
+  return matched?.category || '기타'
 }
 
 function extractCategoryFromCharacterPrompt(characterSystemPrompt = '') {
@@ -343,12 +369,14 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
   const strategyPreferences = Array.isArray(accountSettings?.strategyPreferences)
     ? accountSettings.strategyPreferences.map((item) => String(item || '').trim()).filter(Boolean)
     : []
+  const accountGoal = String(accountSettings?.accountGoal || '').trim()
   return {
     category,
     anchors,
     instagramId,
     voiceTone,
     strategyPreferences,
+    accountGoal,
   }
 }
 
@@ -380,6 +408,16 @@ function validateVariationAlignment(variation, guard) {
     return {
       ok: false,
       reason: `계정 카테고리(${guard.category})와 이질 도메인 키워드 감지: ${forbiddenHit}`,
+    }
+  }
+
+  if (guard.category !== 'AI') {
+    const itStartupHit = IT_STARTUP_TERMS.find((term) => text.includes(term))
+    if (itStartupHit) {
+      return {
+        ok: false,
+        reason: `계정 카테고리(${guard.category})와 충돌하는 IT/창업 키워드 감지: ${itStartupHit}`,
+      }
     }
   }
 
@@ -674,6 +712,8 @@ export async function analyzeReferenceVideo({
             role: 'system',
             content: [
               '당신은 숏폼 레퍼런스 영상을 분석하는 한국어 전략가다. 전사와 첫 3초 프레임 분석을 함께 보고 구조, 후킹 포인트, 심리기제, AI 피드백을 JSON으로만 반환한다.',
+              '중요: structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback은 전사(텍스트) 기준으로만 분석한다.',
+              '프레임(시각) 정보는 구조 보조 참고용으로만 사용하고, 위 4개 텍스트 필드의 핵심 근거는 반드시 전사에 둔다.',
               '검색된 지식 자료가 주어지면 그 근거를 우선 사용하고, 부족한 연결만 합리적으로 보완한다.',
               characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             ]
@@ -704,7 +744,7 @@ export async function analyzeReferenceVideo({
     const analysisResult = await runStage('parse-analysis-json', baseContext, async () =>
       parseModelJson(analysisResponse.choices[0]?.message?.content || ''),
     )
-    const generationGuides = buildGenerationGuides({ analysisResult, frameAnalysis })
+    const generationGuides = buildGenerationGuides({ analysisResult })
 
     const categoryGuard = buildCategoryGuard({
       accountSettings,
@@ -719,8 +759,12 @@ export async function analyzeReferenceVideo({
       categoryGuard.strategyPreferences.length
         ? `전략 선호도: ${categoryGuard.strategyPreferences.join(', ')}`
         : null,
+      categoryGuard.accountGoal ? `운영 목적: ${categoryGuard.accountGoal}` : null,
       categoryGuard.instagramId ? `인스타그램: @${categoryGuard.instagramId}` : null,
       '이질 도메인(건축/부동산/시공 등)으로 벗어나면 실패로 간주하고 다시 작성한다.',
+      categoryGuard.category !== 'AI'
+        ? 'IT/창업/스타트업/부트캠프 등 AI·창업 도메인 키워드가 나오면 실패로 간주한다.'
+        : null,
     ]
       .filter(Boolean)
       .join('\n')
@@ -732,7 +776,7 @@ export async function analyzeReferenceVideo({
             title: '',
             topic: `전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
             transcript: normalizedTranscript || '',
-            frameSummary,
+            frameSummary: '',
             topK: 4,
           })
 
@@ -781,7 +825,6 @@ export async function analyzeReferenceVideo({
                 : '- 없음'
             }\n\n` +
             `공통 분석 요약:\n구조: ${analysisResult.structureAnalysis || '-'}\n후킹: ${analysisResult.hookAnalysis || '-'}\n심리: ${analysisResult.psychologyAnalysis || '-'}\n\n` +
-            `레퍼런스 전사:\n${normalizedTranscript || '전사 추출 없음'}\n\n` +
             `참고 글로벌 지식(이 안에서 우선 참고):\n${variationKnowledge.contextText || '검색된 지식 없음'}\n\n` +
             '분량 규칙(중요): 1분 릴스 기준으로 충분히 길게 작성하세요.\n' +
             '- 목표 길이: 약 50~70초\n' +

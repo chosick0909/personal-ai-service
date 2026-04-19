@@ -90,9 +90,10 @@ function summarizeFrameInsight(frameNotes = []) {
 
 function buildKeyPoints(analysis) {
   const items = [
+    analysis.structure_analysis,
     analysis.hook_analysis,
     analysis.psychology_analysis,
-    ...(analysis.frame_notes || []).slice(0, 2).map((frame) => frame.hookReason || frame.observation),
+    analysis.ai_feedback,
   ]
 
   return items.filter(Boolean).slice(0, 4)
