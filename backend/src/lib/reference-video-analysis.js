@@ -567,8 +567,13 @@ function buildForbiddenTermsForGuard(guard = {}) {
 function buildFallbackVariation(config, guard = {}, guides = {}) {
   const keyword1 = guard.anchors?.[0] || guard.category || '콘텐츠'
   const keyword2 = guard.anchors?.[1] || guard.anchors?.[0] || '핵심 포인트'
-  const insight1 = guides.keyInsights?.[0] || '첫 문장에서 긴장감을 만듭니다.'
-  const insight2 = guides.checkpoints?.[0] || '핵심 포인트를 짧게 압축합니다.'
+  const forbiddenTerms = buildForbiddenTermsForGuard(guard)
+  const safeInsight1 =
+    (guides.keyInsights || []).find((item) => !forbiddenTerms.some((term) => containsTerm(item, term))) || ''
+  const safeInsight2 =
+    (guides.checkpoints || []).find((item) => !forbiddenTerms.some((term) => containsTerm(item, term))) || ''
+  const insight1 = safeInsight1 || '첫 문장에서 긴장감을 만듭니다.'
+  const insight2 = safeInsight2 || '핵심 포인트를 짧게 압축합니다.'
   const cue = guard.settingCues?.[0] || guard.accountGoal || ''
 
   return {
@@ -590,6 +595,36 @@ function buildFallbackVariation(config, guard = {}, guides = {}) {
     usedChunkIds: [],
     usedKnowledge: [],
     alignment: { ok: true, reason: 'fallback-generated' },
+  }
+}
+
+function normalizeVariationForValidation(rawVariation, index = 0) {
+  if (rawVariation && typeof rawVariation === 'object' && !Array.isArray(rawVariation)) {
+    return {
+      label: String(rawVariation.label || `안${index + 1}`),
+      angle: String(rawVariation.angle || ''),
+      hook: String(rawVariation.hook || '').trim(),
+      body: String(rawVariation.body || '').trim(),
+      cta: String(rawVariation.cta || '').trim(),
+    }
+  }
+
+  const text = String(rawVariation || '').trim()
+  if (!text) {
+    return { label: `안${index + 1}`, angle: '', hook: '', body: '', cta: '' }
+  }
+
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  return {
+    label: `안${index + 1}`,
+    angle: '',
+    hook: lines[0] || '',
+    body: lines.slice(1, -1).join(' ') || lines[1] || '',
+    cta: lines[lines.length - 1] || '',
   }
 }
 
@@ -835,6 +870,32 @@ export async function analyzeReferenceVideo({
     try {
       const cachedAnalysis = await getCacheJson(analysisReuseCacheKey)
       if (cachedAnalysis && typeof cachedAnalysis === 'object') {
+        const categoryGuard = buildCategoryGuard({
+          accountSettings,
+          characterSystemPrompt,
+        })
+        const cachedVariations = Array.isArray(cachedAnalysis.variations)
+          ? cachedAnalysis.variations
+          : []
+        const cachedValidation = cachedVariations.map((variation, index) =>
+          validateVariationAlignment(normalizeVariationForValidation(variation, index), categoryGuard),
+        )
+        const cacheAlignmentOk =
+          !cachedVariations.length || cachedValidation.every((item) => item?.ok === true)
+
+        if (!cacheAlignmentOk) {
+          cacheLog('invalidate-misaligned', {
+            accountId,
+            topic: normalizedTopic,
+            title: normalizedTitle,
+            reasons: cachedValidation.filter((item) => !item?.ok).map((item) => item.reason).slice(0, 3),
+          })
+        }
+
+        if (!cacheAlignmentOk) {
+          throw new Error('cached variations are misaligned with current category guard')
+        }
+
         cacheLog('hit', {
           accountId,
           topic: normalizedTopic,
@@ -1197,6 +1258,11 @@ export async function analyzeReferenceVideo({
           }
 
           const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
+
+          if (!alignment.ok) {
+            normalized = buildFallbackVariation(config, categoryGuard, {})
+            alignment = validateVariationAlignment(normalized, categoryGuard)
+          }
 
           return {
             ...normalized,
