@@ -59,22 +59,8 @@ const CATEGORY_ANCHOR_TERMS = {
   기타: [],
 }
 
-const OFF_DOMAIN_FORBIDDEN_TERMS = [
-  '건축',
-  '절벽',
-  '공법',
-  '토목',
-  '구조기술사',
-  '시공',
-  '아파트',
-  '분양',
-  '부동산',
-]
-
-const IT_STARTUP_TERMS = ['IT', '창업', '스타트업', '부트캠프', 'SaaS', '코딩', '개발자']
 const MAX_VARIATION_RETRIES = 2
 const VARIATION_CONTEXT_TEXT_MAX = 800
-const MAX_PROMPT_FORBIDDEN_TERMS = 8
 const MAX_PROMPT_SETTING_CUES = 3
 
 const ACCOUNT_GOAL_LABELS = {
@@ -549,26 +535,9 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
   }
 }
 
-function isItStartupDomainAllowed(guard = {}) {
-  const normalizedCategory = String(guard?.category || '').trim()
-  const rawCategory = String(guard?.rawCategory || '').toLowerCase()
-  return normalizedCategory === 'AI' || /it|창업|스타트업|startup|saas|개발/.test(rawCategory)
-}
-
 function buildPromptGuardSummary(guard = {}) {
-  const forbiddenTerms = buildForbiddenTermsForGuard(guard).slice(0, MAX_PROMPT_FORBIDDEN_TERMS)
   const settingCues = normalizeStringList(guard.settingCues || [], MAX_PROMPT_SETTING_CUES)
-  return { forbiddenTerms, settingCues }
-}
-
-function buildForbiddenTermsForGuard(guard = {}) {
-  const base = [...OFF_DOMAIN_FORBIDDEN_TERMS]
-
-  if (!isItStartupDomainAllowed(guard)) {
-    base.push(...IT_STARTUP_TERMS)
-  }
-
-  return normalizeStringList(base, 30)
+  return { settingCues }
 }
 
 function pickSettingCue(guard = {}, offset = 0) {
@@ -580,13 +549,8 @@ function pickSettingCue(guard = {}, offset = 0) {
 function buildFallbackVariation(config, guard = {}, guides = {}) {
   const keyword1 = guard.anchors?.[0] || guard.category || '콘텐츠'
   const keyword2 = guard.anchors?.[1] || guard.anchors?.[0] || '핵심 포인트'
-  const forbiddenTerms = buildForbiddenTermsForGuard(guard)
-  const safeInsight1 =
-    (guides.keyInsights || []).find((item) => !forbiddenTerms.some((term) => containsTerm(item, term))) || ''
-  const safeInsight2 =
-    (guides.checkpoints || []).find((item) => !forbiddenTerms.some((term) => containsTerm(item, term))) || ''
-  const insight1 = safeInsight1 || '첫 문장에서 긴장감을 만듭니다.'
-  const insight2 = safeInsight2 || '핵심 포인트를 짧게 압축합니다.'
+  const insight1 = guides.keyInsights?.[0] || '첫 문장에서 긴장감을 만듭니다.'
+  const insight2 = guides.checkpoints?.[0] || '핵심 포인트를 짧게 압축합니다.'
   const cue = pickSettingCue(guard, 0) || guard.accountGoal || ''
   const cue2 = pickSettingCue(guard, 1) || cue
   const hardCue =
@@ -790,24 +754,6 @@ function validateVariationAlignment(variation, guard) {
       return {
         ok: false,
         reason: `핵심 세팅 신호(캐릭터/AI추가정보) 미반영: ${hardSettingCues.slice(0, 2).join(', ')}`,
-      }
-    }
-  }
-
-  const forbiddenHit = OFF_DOMAIN_FORBIDDEN_TERMS.find((term) => containsTerm(text, term))
-  if (forbiddenHit && !['전문직(회사홍보)', '기타'].includes(guard.category)) {
-    return {
-      ok: false,
-      reason: `계정 카테고리(${guard.category})와 이질 도메인 키워드 감지: ${forbiddenHit}`,
-    }
-  }
-
-  if (!isItStartupDomainAllowed(guard)) {
-    const itStartupHit = IT_STARTUP_TERMS.find((term) => containsTerm(text, term))
-    if (itStartupHit) {
-      return {
-        ok: false,
-        reason: `계정 카테고리(${guard.category})와 충돌하는 IT/창업 키워드 감지: ${itStartupHit}`,
       }
     }
   }
@@ -1185,11 +1131,7 @@ export async function analyzeReferenceVideo({
         : null,
       categoryGuard.accountGoal ? `운영 목적: ${categoryGuard.accountGoal}` : null,
       categoryGuard.instagramId ? `인스타그램: @${categoryGuard.instagramId}` : null,
-      '이질 도메인(건축/부동산/시공 등)으로 벗어나면 실패로 간주하고 다시 작성한다.',
-      categoryGuard.category !== 'AI'
-        ? 'IT/창업/스타트업/부트캠프 등 AI·창업 도메인 키워드가 나오면 실패로 간주한다.'
-        : null,
-      `금지어 목록: ${guardPromptSummary.forbiddenTerms.join(', ')}`,
+      '계정 카테고리/세팅 신호와 맞지 않으면 실패로 간주하고 다시 작성한다.',
     ]
       .filter(Boolean)
       .join('\n')
@@ -1216,7 +1158,6 @@ export async function analyzeReferenceVideo({
             '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
             '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
             '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
-            '계정 카테고리가 AI가 아닌데 IT/창업/스타트업/부트캠프/SaaS 소재를 쓰면 즉시 실패다.',
             'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
             'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
             '아래 인사이트/체크포인트를 최소 2개 이상 반영하고, usedInsights/usedCheckpoints에 반영 항목을 기록하라.',
@@ -1244,7 +1185,6 @@ export async function analyzeReferenceVideo({
             '- 레퍼런스 제목/파일명/원문 주제는 무시\n' +
             '- 레퍼런스 원문 주제와 계정 설정이 충돌하면 계정 설정을 우선\n' +
             '- 레퍼런스는 구조/후킹 패턴만 참고하고 소재는 계정 도메인으로 재작성\n\n' +
-            `금지어(절대 사용 금지): ${guardPromptSummary.forbiddenTerms.join(', ')}\n\n` +
             `핵심 인사이트(최소 2개 반영):\n${
               generationGuides.keyInsights.length
                 ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -1287,8 +1227,7 @@ export async function analyzeReferenceVideo({
                     baseUserContent +
                     (retryHint
                       ? `\n\n[재작성 지시]\n직전 응답이 실패했습니다.\n실패 사유: ${retryHint}\n` +
-                        '같은 전략을 유지하되, 계정 설정(카테고리/목표/상품/전략) 신호를 본문에 반드시 반영해 다시 작성하세요.\n' +
-                        `금지어는 절대 쓰지 마세요: ${guardPromptSummary.forbiddenTerms.join(', ')}`
+                        '같은 전략을 유지하되, 계정 설정(카테고리/목표/상품/전략) 신호를 본문에 반드시 반영해 다시 작성하세요.'
                       : ''),
                 },
               ],
@@ -1319,7 +1258,6 @@ export async function analyzeReferenceVideo({
                     `카테고리: ${categoryGuard.category}\n` +
                     `필수 키워드(최소 2개): ${categoryGuard.anchors.join(', ') || '없음'}\n` +
                     `설정 신호(최소 1개): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
-                    `금지어: ${guardPromptSummary.forbiddenTerms.join(', ')}\n` +
                     `실패 사유: ${alignment.reason}\n\n` +
                     `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
                     '반드시 유지할 조건:\n' +
