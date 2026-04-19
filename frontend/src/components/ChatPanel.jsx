@@ -79,7 +79,7 @@ export default function ChatPanel({ entering = false, embedded = false }) {
     <div
       className={`flex min-h-0 flex-col overflow-hidden ${
         embedded
-          ? 'min-h-[720px] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
+          ? 'h-[720px] max-h-[720px] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
           : 'h-full bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'
       }`}
     >
