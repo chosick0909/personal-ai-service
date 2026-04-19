@@ -110,6 +110,7 @@ function Row({ children, onClick, active = false, muted = false }) {
 
 function normalizeSearchText(value = '') {
   return String(value || '')
+    .normalize('NFC')
     .toLowerCase()
     .replace(/\s+/g, '')
     .replace(/[._-]+/g, '')
@@ -152,18 +153,18 @@ export default function Sidebar() {
     startNewProject,
   } = useAppState()
 
-  const normalizedQuery = searchQuery.trim().toLowerCase()
+  const normalizedQuery = String(searchQuery || '').normalize('NFC').trim().toLowerCase()
   const matchesReferenceSearch = (item) => {
     if (!normalizedQuery) {
       return true
     }
-    const rawNeedle = String(normalizedQuery || '').toLowerCase()
+    const rawNeedle = String(normalizedQuery || '').normalize('NFC').toLowerCase()
     const compactNeedle = normalizeSearchText(normalizedQuery)
     const haystacks = [
-      String(item.title || '').toLowerCase(),
-      String(item.fileName || '').toLowerCase(),
-      String(item.topic || '').toLowerCase(),
-      String(item.transcript || '').toLowerCase(),
+      String(item.title || '').normalize('NFC').toLowerCase(),
+      String(item.fileName || '').normalize('NFC').toLowerCase(),
+      String(item.topic || '').normalize('NFC').toLowerCase(),
+      String(item.transcript || '').normalize('NFC').toLowerCase(),
     ]
 
     return haystacks.some((haystack) => {
