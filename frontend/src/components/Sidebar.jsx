@@ -687,6 +687,11 @@ export default function Sidebar() {
             <div className="truncate text-xs text-[#8E97A6]">
               {currentAccount?.slug ? `@${currentAccount.slug}` : currentUser?.email || '@account'}
             </div>
+            {currentAccount?.id && !isAccountConfigured(currentAccount.id) ? (
+              <div className="mt-1 inline-flex items-center rounded-full border border-[#7F1D1D] bg-[#2A1417] px-2 py-0.5 text-[10px] font-semibold text-[#FCA5A5]">
+                계정설정필요
+              </div>
+            ) : null}
           </div>
           <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#AEB6C5]">
             <path d="M8 11.5 3.5 6.5h9L8 11.5Z" fill="currentColor" />

@@ -3,9 +3,27 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import { initFrontendSentry, installSentryTestHelpers } from './lib/sentry'
+import logoPng from './Logo.png'
 
 initFrontendSentry()
 installSentryTestHelpers()
+
+function applyFavicon() {
+  if (typeof document === 'undefined') {
+    return
+  }
+
+  let favicon = document.querySelector("link[rel='icon']")
+  if (!favicon) {
+    favicon = document.createElement('link')
+    favicon.setAttribute('rel', 'icon')
+    document.head.appendChild(favicon)
+  }
+  favicon.setAttribute('type', 'image/png')
+  favicon.setAttribute('href', logoPng)
+}
+
+applyFavicon()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

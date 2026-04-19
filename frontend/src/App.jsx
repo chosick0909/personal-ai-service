@@ -11,6 +11,21 @@ import { getAuthPersistMode, setAuthPersistMode, supabase } from './lib/supabase
 // Deploy trigger: frontend touchpoint.
 import { AppStateProvider, useAppState } from './store/AppState'
 
+const FABRIC_DARK_BACKGROUND = {
+  backgroundImage:
+    'radial-gradient(ellipse 130% 88% at 14% 10%, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0) 52%), radial-gradient(ellipse 110% 80% at 84% 78%, rgba(148,163,184,0.10) 0%, rgba(148,163,184,0) 56%), linear-gradient(180deg, #07090D 0%, #0B0E14 100%)',
+}
+
+function FabricBackgroundOverlay() {
+  return (
+    <>
+      <div className="pointer-events-none absolute -left-24 top-10 h-[340px] w-[500px] rotate-[-14deg] rounded-full bg-white/10 blur-3xl" />
+      <div className="pointer-events-none absolute right-[-180px] top-[22%] h-[420px] w-[520px] rotate-[16deg] rounded-full bg-slate-300/10 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-[-140px] left-[18%] h-[300px] w-[620px] rotate-[-6deg] rounded-full bg-white/10 blur-3xl" />
+    </>
+  )
+}
+
 function LandingScreen() {
   const stepCards = [
     {
@@ -129,16 +144,13 @@ function LandingScreen() {
 
   return (
     <main
-      className="relative min-h-screen overflow-hidden bg-[#0B0D12] text-[#F3F4F6]"
+      className="relative min-h-screen overflow-hidden bg-[#07090D] text-[#F3F4F6]"
       style={{
         fontFamily: 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
-        backgroundImage:
-          'radial-gradient(ellipse 153.53% 105.45% at 20% 10%, rgba(148, 163, 184, 0.14) 0%, rgba(148, 163, 184, 0) 50%), radial-gradient(ellipse 141.31% 97.05% at 80% 80%, rgba(203, 213, 225, 0.08) 0%, rgba(203, 213, 225, 0) 50%), linear-gradient(180deg, #0B0D12 0%, #0F1219 100%)',
+        ...FABRIC_DARK_BACKGROUND,
       }}
     >
-      <div className="pointer-events-none absolute -left-16 top-24 h-72 w-72 rounded-full bg-[#334155]/35 blur-3xl" />
-      <div className="pointer-events-none absolute right-0 top-[28rem] h-80 w-80 rounded-full bg-[#475569]/30 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-20 left-1/3 h-72 w-72 rounded-full bg-[#64748B]/30 blur-3xl" />
+      <FabricBackgroundOverlay />
 
       <div className="mx-auto w-full max-w-[1920px] px-6 pb-28 pt-24 md:pt-[154px]">
         <section className="mx-auto max-w-[1024px] text-center">
@@ -180,7 +192,7 @@ function LandingScreen() {
               <span className="!text-[#F8FAFC]">바로 시작하기</span>
             </a>
           </div>
-
+          <p className="mt-5 text-xs text-[#9CA3AF]">Free trial · 신용카드 없이 시작</p>
           <div className="mt-14 grid w-full gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-[#2F3543] bg-[#12151D] px-6 py-5 text-left">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">평균 분석 시간</div>
@@ -1178,19 +1190,19 @@ function RecommendScreen() {
                 </div>
               </div>
 
-              <div className="mt-8 flex flex-wrap gap-3">
+              <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <button
                   type="button"
                   onClick={handleRestart}
                   className="inline-flex h-12 items-center justify-center rounded-full border border-[#374151] bg-[#171B24] px-6 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1E2432]"
                 >
-                  다시 진단하기
+                  다시진단하기
                 </button>
                 <a
                   href="/analyze"
                   className="btn-solid-contrast inline-flex h-12 items-center justify-center rounded-full px-6 text-sm font-semibold transition hover:bg-white"
                 >
-                  이 방향으로 분석 시작하기
+                  분석시작해보기
                 </a>
               </div>
             </div>
@@ -1212,23 +1224,53 @@ function AuthScreen({
 }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [agreeToTerms, setAgreeToTerms] = useState(false)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isOAuthSubmitting, setIsOAuthSubmitting] = useState(false)
   const [rememberMe, setRememberMe] = useState(() => getAuthPersistMode())
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#0b0d12_0%,#111827_100%)] px-6 py-10">
-      <div className="w-full max-w-[420px] rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_28px_80px_rgba(0,0,0,0.45)]">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1D2330] text-lg font-semibold text-[#F3F4F6]">
-          PA
+    <main
+      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07090D] px-6 py-10"
+      style={{
+        ...FABRIC_DARK_BACKGROUND,
+      }}
+    >
+      <FabricBackgroundOverlay />
+
+      <div className="relative w-full max-w-[440px] overflow-hidden rounded-[34px] border border-white/15 bg-[linear-gradient(180deg,rgba(8,10,14,0.95)_0%,rgba(11,14,20,0.92)_100%)] p-8 shadow-[0_34px_90px_rgba(0,0,0,0.62)] backdrop-blur-xl">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-60 w-60 rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute -left-16 bottom-[-90px] h-56 w-72 rounded-full bg-white/10 blur-3xl" />
+        <a href="/" className="inline-flex items-center text-xs font-medium text-[#A1A8B5] transition hover:text-[#D1D5DB]">
+          &lt; Home
+        </a>
+
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/5 text-lg font-semibold text-white">
+          H
         </div>
-        <h1 className="mt-6 text-center text-[30px] font-bold tracking-[-0.03em] text-[#F8FAFC]">
+        <h1 className="mt-6 text-center text-[36px] font-extrabold tracking-[-0.03em] text-[#F8FAFC]">
           {title}
         </h1>
         <p className="mt-3 text-center text-sm leading-6 text-[#9CA3AF]">{subtitle}</p>
 
         <div className="mt-8 grid gap-4">
+          {mode === 'signup' ? (
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-[#CBD5E1]">이름</span>
+              <input
+                value={displayName}
+                onChange={(event) => {
+                  setDisplayName(event.target.value)
+                  setError('')
+                }}
+                placeholder="홍길동"
+                className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
+              />
+            </label>
+          ) : null}
           <label className="grid gap-2">
             <span className="text-sm font-medium text-[#CBD5E1]">이메일</span>
             <input
@@ -1238,7 +1280,7 @@ function AuthScreen({
                 setError('')
               }}
               placeholder="your@email.com"
-              className="h-12 rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1]"
+              className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
             />
           </label>
           <label className="grid gap-2">
@@ -1251,9 +1293,24 @@ function AuthScreen({
                 setError('')
               }}
               placeholder="••••••••"
-              className="h-12 rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1]"
+              className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
             />
           </label>
+          {mode === 'signup' ? (
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-[#CBD5E1]">비밀번호 확인</span>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value)
+                  setError('')
+                }}
+                placeholder="••••••••"
+                className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
+              />
+            </label>
+          ) : null}
           {mode === 'login' ? (
             <label className="mt-1 inline-flex items-center gap-2 text-sm text-[#CBD5E1]">
               <input
@@ -1263,6 +1320,17 @@ function AuthScreen({
                 className="h-4 w-4 rounded border border-[#4B5563] bg-[#171B24] accent-[#D1D5DB]"
               />
               자동 로그인
+            </label>
+          ) : null}
+          {mode === 'signup' ? (
+            <label className="mt-1 inline-flex items-center gap-2 text-sm text-[#CBD5E1]">
+              <input
+                type="checkbox"
+                checked={agreeToTerms}
+                onChange={(event) => setAgreeToTerms(event.target.checked)}
+                className="h-4 w-4 rounded border border-[#4B5563] bg-[#171B24] accent-[#D1D5DB]"
+              />
+              서비스 이용약관 및 개인정보 처리방침에 동의합니다.
             </label>
           ) : null}
         </div>
@@ -1275,11 +1343,25 @@ function AuthScreen({
           onClick={async () => {
             try {
               setIsSubmitting(true)
+              if (mode === 'signup') {
+                if (!displayName.trim()) {
+                  throw new Error('이름을 입력해주세요.')
+                }
+                if (password.length < 8) {
+                  throw new Error('비밀번호는 8자 이상 입력해주세요.')
+                }
+                if (password !== confirmPassword) {
+                  throw new Error('비밀번호 확인이 일치하지 않습니다.')
+                }
+                if (!agreeToTerms) {
+                  throw new Error('약관 동의 후 회원가입을 진행해주세요.')
+                }
+              }
               setAuthPersistMode(mode === 'login' ? rememberMe : true)
               const result = await onSubmit({
                 loginId: email,
                 password,
-                accountName: email.split('@')[0] || email,
+                accountName: mode === 'signup' ? displayName.trim() : email.split('@')[0] || email,
               })
               if (mode === 'signup' && result?.requiresEmailConfirmation) {
                 if (result?.rateLimited) {
@@ -1297,10 +1379,16 @@ function AuthScreen({
               setIsSubmitting(false)
             }
           }}
-          className="btn-solid-contrast mt-8 flex h-12 w-full items-center justify-center rounded-2xl text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
+          className="mt-8 flex h-12 w-full items-center justify-center rounded-2xl border border-white/15 bg-[linear-gradient(180deg,#D5D7DC_0%,#A8AFBA_100%)] text-sm font-semibold text-[#0B0D12] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {primaryLabel}
         </button>
+
+        <div className="mt-4 flex items-center gap-3 text-xs text-[#9CA3AF]">
+          <span className="h-px flex-1 bg-white/10" />
+          or
+          <span className="h-px flex-1 bg-white/10" />
+        </div>
 
         <button
           type="button"
@@ -1326,7 +1414,7 @@ function AuthScreen({
               setIsOAuthSubmitting(false)
             }
           }}
-          className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#374151] bg-[#171B24] text-sm font-semibold text-[#F8FAFC] transition hover:bg-[#1F2937] disabled:cursor-not-allowed disabled:opacity-70"
+          className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 text-sm font-semibold text-[#F8FAFC] transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
             <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.8-5.4 3.8-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.4 14.6 2.4 12 2.4 6.8 2.4 2.6 6.7 2.6 12s4.2 9.6 9.4 9.6c5.4 0 9-3.8 9-9.1 0-.6-.1-1-.1-1.4H12Z" />
@@ -1391,10 +1479,12 @@ const RF_MONETIZATION_META = {
 }
 
 const RF_INSTAGRAM_WHY_NOW = [
-  '인스타그램은 단순 SNS를 넘어 검색·추천·구매까지 이어지는 생활형 플랫폼으로 자리잡았고, 국내 사용자도 2025년 대비 약 100만 명 이상 증가하며 성장 중입니다.',
-  '릴스 중심 숏폼 구조 덕분에 팔로워가 많지 않아도 노출이 가능해, 초보 계정도 빠르게 테스트하고 기회를 잡을 수 있습니다.',
-  '광고 시장 규모가 약 26조 원 수준으로 확대되면서 브랜드 예산이 개인 크리에이터·숏폼으로 이동하고 있어 개인 수익화 기회가 커졌습니다.',
-  '지금은 조회수만이 아니라 구매 전환까지 직접 연결되는 구조라 작은 계정도 실제 매출을 만들 가능성이 높습니다.',
+  '인스타그램은 단순 SNS를 넘어 검색·추천·구매까지 이어지는 생활형 플랫폼으로 자리잡았고, 국내 MAU도 2025년 대비 약 100만 명 이상 증가한 흐름으로 추정됩니다.',
+  '릴스 중심 숏폼 구조 덕분에 팔로워 규모가 작아도 추천 피드 유입이 가능해 초기 계정도 실험-학습 사이클을 빠르게 돌릴 수 있습니다.',
+  '글로벌 디지털 광고 집행비에서 숏폼 비중은 지속 확대 중이며, 국내 디지털 광고 시장도 약 26조 원 수준까지 커지며 브랜드 예산이 크리에이터로 이동하고 있습니다.',
+  '숏폼의 장점은 제작 단가 대비 테스트 속도입니다. 같은 주제도 오프닝/구성/CTA만 바꿔 1주 단위로 여러 버전을 검증할 수 있어 학습 효율이 높습니다.',
+  '지금의 인스타그램은 조회수 중심에서 저장·공유·DM·링크 클릭 같은 행동 지표 중심으로 전환되고 있어 소규모 계정도 매출 기여를 만들 여지가 커졌습니다.',
+  '결론적으로 지금은 “계정 규모”보다 “명확한 문제 해결 포맷”이 성과를 좌우하는 구간이라, 초보 시작자에게도 진입 타이밍이 유리한 시장입니다.',
 ]
 
 const RF_CATEGORY_ACTION_BLUEPRINT = {
@@ -1428,7 +1518,11 @@ const RF_CATEGORY_MARKET_NARRATIVE = {
 
 인스타그램에서는 긴 강의보다 짧고 바로 적용 가능한 인사이트 콘텐츠가 강하게 작동합니다. 이 분야는 저장·재시청·링크 클릭 같은 행동 지표가 높아 실제 수익화로 이어지기 좋은 특징이 있습니다.
 
-전자책·템플릿·강의·코칭으로 확장하기 쉬워 팔로워 수가 크지 않아도 문제 해결 능력과 구조화된 콘텐츠만 갖추면 높은 객단가 매출을 만들 수 있습니다.`,
+전자책·템플릿·강의·코칭으로 확장하기 쉬워 팔로워 수가 크지 않아도 문제 해결 능력과 구조화된 콘텐츠만 갖추면 높은 객단가 매출을 만들 수 있습니다.
+
+특히 자기계발 카테고리는 콘텐츠 수명이 상대적으로 긴 편입니다. 유행성 이슈보다 원리·루틴·체계 중심 콘텐츠가 많아 게시물 1개가 장기간 검색·저장 트래픽을 가져오는 경우가 많습니다. 이 특성은 광고형 수익뿐 아니라 디지털 상품 전환에도 유리하게 작동합니다.
+
+또한 “문제 정의 → 실행 방법 → 점검 체크리스트” 구조가 명확할수록 신뢰도가 빠르게 올라가며, 계정 규모보다 문제 해결의 선명도가 전환율을 좌우합니다. 즉 초기 단계에서도 포맷만 제대로 잡으면 성장과 수익화를 동시에 만들 수 있는 카테고리입니다.`,
   finance: `재테크 카테고리는 높은 관심도와 실질적 수익 연결 가능성을 동시에 갖춘 분야입니다. 글로벌 약 4,500억 달러, 국내 약 15조 원 규모이며 연평균 약 12.5% 성장률을 보입니다.
 
 인스타그램에서는 복잡한 이론보다 지출 구조, 관리 순서, 체크리스트처럼 즉시 실행 가능한 정보형 콘텐츠가 높은 반응을 얻습니다. 저장과 재방문이 높아 신뢰 형성에 유리하고, 신뢰는 곧 전환으로 이어집니다.
@@ -1507,15 +1601,40 @@ function rfBuildComprehensiveSummary(result, selectedCategory) {
   if (!result || !selectedCategory) return ''
   const style = rfStyleLabel(result.dominantStyleKey)
   const production = rfProductionLabel(result.dominantProductionKey)
-  const second = result.topCategories?.[1]?.label
-  const third = result.topCategories?.[2]?.label
-  const compareText = [second, third].filter(Boolean).join(', ')
+  const topCategories = result.topCategories || []
+  const selectedRank = Math.max(1, topCategories.findIndex((item) => item.key === selectedCategory.key) + 1)
+  const orderText = topCategories.map((item) => item.label).join(' → ')
 
   return [
     `응답 패턴을 종합하면 현재 성향은 ${style} 전달을 중심으로 ${production} 방식에서 강점이 뚜렷합니다.`,
-    `그 결과 ${selectedCategory.label} 카테고리가 1순위로 도출됐고, 실행 우선순위는 ${selectedCategory.label}${compareText ? ` → ${compareText}` : ''} 순입니다.`,
-    `즉 지금은 범위를 넓히기보다 1순위 카테고리에 집중해 초기 반응과 전환 데이터를 먼저 확보하는 전략이 가장 유리합니다.`,
+    `현재 선택한 카테고리는 ${selectedCategory.label}이며 추천 순위는 ${selectedRank}순위입니다.`,
+    orderText ? `전체 우선순위는 ${orderText} 순으로 집계됐습니다.` : '',
+    `즉 지금은 선택한 카테고리의 실행 포맷으로 빠르게 테스트해 초기 반응과 전환 데이터를 확보하는 전략이 가장 유리합니다.`,
   ].join(' ')
+}
+
+function rfGrowthLevel(value) {
+  if (value >= 37) return '좋음'
+  if (value >= 32) return '보통'
+  return '다소 어려움'
+}
+
+function rfConversionLevel(value) {
+  if (value >= 4.2) return '좋음'
+  if (value >= 3.6) return '보통'
+  return '다소 어려움'
+}
+
+function rfCompetitionLevel(value) {
+  if (value >= 63) return '상'
+  if (value >= 56) return '중'
+  return '하'
+}
+
+function rfMonetizationLevel(value) {
+  if (value >= 78) return '높음'
+  if (value >= 70) return '보통'
+  return '다소 어려움'
 }
 
 const RF_LIKERT_OPTIONS = [
@@ -1601,17 +1720,6 @@ const RF_QUESTIONS = [
       { code: 'FIRST_REVENUE', label: '빠르게 첫 매출 만들기', description: '전환 중심 실험 우선', effects: { monetizationScores: { group_buy: 3, affiliate: 3 }, styleScores: { review: 2 }, categoryScores: { beauty: 1, home_living: 1, pet: 1, cooking: 1, fitness: 1 } } },
       { code: 'POSITIONING', label: '전문성 포지션 만들기', description: '신뢰 기반 브랜딩 축적', effects: { monetizationScores: { digital_product: 3, consulting: 2 }, styleScores: { informative: 2 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2, professional_brand: 2 } } },
       { code: 'REACH_SCALE', label: '팔로워/도달 빠르게 키우기', description: '조회수/반응 지표 우선', effects: { monetizationScores: { ad_collab: 2 }, styleScores: { storytelling: 2, empathetic: 2 }, categoryScores: { daily_life: 2, fashion: 1, travel: 1 } } },
-    ],
-  },
-  {
-    code: 'Q11_FITNESS_FOCUS',
-    type: 'single_choice',
-    title: '운동/건강 콘텐츠를 만든다면 가장 자신 있는 포맷은?',
-    subtitle: '피트니스 적합도를 별도 분리합니다.',
-    options: [
-      { code: 'FITNESS_ROUTINE', label: '초보 루틴 설계/체크형', description: '운동 순서, 루틴, 습관화 중심', effects: { categoryScores: { fitness: 4, self_growth: 1 }, styleScores: { problem_solving: 2 }, monetizationScores: { digital_product: 1 } } },
-      { code: 'FITNESS_FORM', label: '자세 교정/문제 해결형', description: '실수 교정과 개선 중심', effects: { categoryScores: { fitness: 4 }, styleScores: { informative: 1, problem_solving: 2 }, monetizationScores: { consulting: 1 } } },
-      { code: 'FITNESS_NOPE', label: '운동/건강은 비중 낮게', description: '다른 카테고리에 집중', effects: { categoryScores: { daily_life: 1, relationship: 1 } } },
     ],
   },
   { code: 'Q15_FREQUENT_QUESTION', type: 'free_text', title: '사람들이 나한테 자주 묻는 질문은?', subtitle: '키워드 기반으로 카테고리/콘텐츠 타입을 미세 보정합니다.', placeholder: '예: 피부 뭐 써요? / 돈 관리는 어떻게 해요? / AI 자동화 어떻게 시작해요?' },
@@ -2080,10 +2188,10 @@ function RecommendScreenV2() {
                       <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{item.marketSummary}</p>
                       <p className="mt-1 text-xs leading-6 text-[#9CA3AF]">{item.growthSummary}</p>
                       <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[#D1D5DB] md:grid-cols-4">
-                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">성장 {item.marketGrowth}%</div>
-                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">전환 {item.conversionRate}%</div>
-                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">경쟁 {item.competition}</div>
-                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">수익화 {item.monetizationSpeed}</div>
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">성장성 {rfGrowthLevel(item.marketGrowth)}</div>
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">전환률 {rfConversionLevel(item.conversionRate)}</div>
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">경쟁 {rfCompetitionLevel(item.competition)}</div>
+                        <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">수익화 {rfMonetizationLevel(item.monetizationSpeed)}</div>
                       </div>
                     </button>
                   ))}
@@ -2141,9 +2249,9 @@ function RecommendScreenV2() {
                 ))}
               </div>
               <div className="mt-5 rounded-xl border border-[#2F3543] bg-[#171B24] px-4 py-3 text-xs text-[#AEB6C5]">{result.adjustmentNote}</div>
-              <div className="mt-7 flex flex-wrap gap-3">
-                <button type="button" onClick={restart} className="inline-flex h-[52px] items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-7 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]">다시 진단하기</button>
-                <a href="/analyze" className="btn-solid-contrast inline-flex h-[52px] items-center justify-center rounded-full px-7 text-sm font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.35)] transition hover:bg-white">이 방향으로 분석 시작하기</a>
+              <div className="mt-7 flex flex-wrap justify-center gap-3">
+                <button type="button" onClick={restart} className="inline-flex h-[52px] items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-7 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]">다시진단하기</button>
+                <a href="/analyze" className="btn-solid-contrast inline-flex h-[52px] items-center justify-center rounded-full px-7 text-sm font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.35)] transition hover:bg-white">분석시작해보기</a>
               </div>
             </article>
           </section>
@@ -2169,8 +2277,8 @@ function LoginScreen() {
   return (
     <AuthScreen
       mode="login"
-      title="콘텐츠 기획 AI"
-      subtitle="AI와 함께하는 콘텐츠 전략 설계"
+      title="HookAI 로그인"
+      subtitle="한 번의 분석으로, 전략은 더 선명하게."
       primaryLabel="로그인"
       secondaryHref="/signup"
       secondaryLabel="회원가입"
@@ -2195,8 +2303,8 @@ function SignupScreen() {
   return (
     <AuthScreen
       mode="signup"
-      title="콘텐츠 기획 AI"
-      subtitle="AI와 함께할 새 워크스페이스를 만들어보세요"
+      title="HookAI 시작하기"
+      subtitle="좋은 레퍼런스를, 실행 가능한 전략으로."
       primaryLabel="회원가입"
       secondaryHref="/login"
       secondaryLabel="로그인"
@@ -2206,7 +2314,7 @@ function SignupScreen() {
 }
 
 function MainPanel() {
-  const { currentStep, isEditorEntering, isResultEntering } = useAppState()
+  const { currentStep, viewTransition, isEditorEntering, isResultEntering } = useAppState()
 
   if (currentStep === 'upload' || currentStep === 'analyzing') {
     return <UploadSection />

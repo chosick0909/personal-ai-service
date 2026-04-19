@@ -83,7 +83,7 @@ function Textarea(props) {
   return (
     <textarea
       {...props}
-      className={`min-h-[112px] rounded-2xl border border-[#374151] bg-[#171B24] px-4 py-3 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] ${props.className || ''}`}
+      className={`w-full min-h-[112px] rounded-2xl border border-[#374151] bg-[#171B24] px-4 py-3 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] ${props.className || ''}`}
     />
   )
 }
