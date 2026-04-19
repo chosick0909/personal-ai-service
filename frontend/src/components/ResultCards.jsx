@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ScriptCard from './ScriptCard'
 import Editor from './Editor'
 import ChatPanel from './ChatPanel'
@@ -73,6 +73,8 @@ export default function ResultCards({ transitioning = false, entering = false })
     setIsVersionModalOpen,
     saveVersion,
   } = useAppState()
+  const editorSectionRef = useRef(null)
+  const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
@@ -141,6 +143,22 @@ export default function ResultCards({ transitioning = false, entering = false })
     ],
     [referenceData],
   )
+
+  useEffect(() => {
+    if (!shouldScrollToEditor || currentStep !== 'editor' || !selectedScript) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      editorSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+      setShouldScrollToEditor(false)
+    }, 80)
+
+    return () => window.clearTimeout(timer)
+  }, [shouldScrollToEditor, currentStep, selectedScript])
 
   return (
     <div
@@ -213,7 +231,10 @@ export default function ResultCards({ transitioning = false, entering = false })
               <ScriptCard
                 key={script.id}
                 script={script}
-                onSelect={selectScript}
+                onSelect={(scriptId) => {
+                  setShouldScrollToEditor(true)
+                  selectScript(scriptId)
+                }}
                 isSelected={selectedScript?.id === script.id}
                 hasSelection={Boolean(selectedScript)}
               />
@@ -222,7 +243,7 @@ export default function ResultCards({ transitioning = false, entering = false })
         </section>
 
         {currentStep === 'editor' && selectedScript ? (
-          <section className="mt-14">
+          <section ref={editorSectionRef} className="mt-14">
             <SmallBadge tone="pink">Editor</SmallBadge>
             <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -248,11 +269,11 @@ export default function ResultCards({ transitioning = false, entering = false })
                 </button>
               </div>
             </div>
-            <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="mt-8 grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className="min-w-0">
                 <Editor embedded entering={false} transitioning={false} />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 h-full">
                 <ChatPanel embedded entering={false} />
               </div>
             </div>
