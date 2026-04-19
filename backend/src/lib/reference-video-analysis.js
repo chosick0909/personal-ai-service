@@ -100,6 +100,28 @@ const SETTING_STOPWORDS = new Set([
   '현실적',
   '효율',
 ])
+const REFERENCE_SURFACE_STOPWORDS = new Set([
+  '그리고',
+  '그래서',
+  '하지만',
+  '지금',
+  '정말',
+  '진짜',
+  '사람들',
+  '콘텐츠',
+  '영상',
+  '문장',
+  '구조',
+  '방법',
+  '기준',
+  '문제',
+  '해결',
+  '설명',
+  '사용',
+  '적용',
+  '이유',
+])
+const MAX_REFERENCE_SURFACE_TERMS = 16
 
 const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
 
@@ -445,6 +467,68 @@ function isUsableScriptGuideLine(line = '') {
   return !bannedMetaPattern.test(text)
 }
 
+function extractReferenceSurfaceTerms({ title = '', topic = '', transcript = '' } = {}) {
+  const corpus = `${title}\n${topic}\n${transcript}`
+  const tokens = String(corpus || '')
+    .toLowerCase()
+    .split(/[\s,./!?|()[\]{}:;"'`~<>+=_*&^%$#@\-–—→\n\r\t]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => token.length >= 2 && token.length <= 20)
+    .filter((token) => !/^\d+$/.test(token))
+    .filter((token) => !REFERENCE_SURFACE_STOPWORDS.has(token))
+
+  const counts = new Map()
+  for (const token of tokens) {
+    counts.set(token, (counts.get(token) || 0) + 1)
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([token]) => token)
+    .slice(0, MAX_REFERENCE_SURFACE_TERMS)
+}
+
+function findReferenceSurfaceLeakage(text = '', referenceSurfaceTerms = []) {
+  const normalized = String(text || '').toLowerCase()
+  if (!normalized) return null
+  return (referenceSurfaceTerms || []).find((term) => containsTerm(normalized, term)) || null
+}
+
+async function buildStructureBlueprint({
+  openai,
+  chatModel,
+  analysisResult,
+  transcript,
+}) {
+  const response = await openai.chat.completions.create({
+    model: chatModel,
+    temperature: 0.1,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '너는 레퍼런스에서 논리 구조만 추출하는 분석기다. 주제/업종/키워드는 제거하고 추상 구조만 JSON으로 반환한다.',
+      },
+      {
+        role: 'user',
+        content:
+          `레퍼런스 전사:\n${transcript || '-'}\n\n` +
+          `구조 분석:\n${analysisResult?.structureAnalysis || '-'}\n\n` +
+          `후킹 분석:\n${analysisResult?.hookAnalysis || '-'}\n\n` +
+          `심리 분석:\n${analysisResult?.psychologyAnalysis || '-'}\n\n` +
+          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[]}',
+      },
+    ],
+  })
+
+  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+  const logicFlow = normalizeStringList(parsed?.logicFlow, 4)
+  const persuasionPattern = normalizeStringList(parsed?.persuasionPattern, 4)
+  const messageStructure = normalizeStringList(parsed?.messageStructure, 4)
+  return { logicFlow, persuasionPattern, messageStructure }
+}
+
 function normalizeVariationDraft(parsed, fallback, guides = {}) {
   const sections = {
     hook: parsed?.hook?.trim() || '',
@@ -569,6 +653,8 @@ async function regenerateVariationWithGPT({
   guardPromptSummary,
   characterSystemPrompt,
   generationGuides,
+  structureBlueprint,
+  referenceSurfaceTerms,
   retryReason = '',
 }) {
   const response = await openai.chat.completions.create({
@@ -586,7 +672,18 @@ async function regenerateVariationWithGPT({
           `전략 라벨: ${config.label}\n전략 방향: ${config.angle}\n` +
           `카테고리: ${categoryGuard.category}\n` +
           `세팅 신호(최소 1개 이상 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
+          `레퍼런스 금지 표면 단어(절대 사용 금지): ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
           `${retryReason ? `재생성 사유: ${retryReason}\n` : ''}\n` +
+          `논리 구조 청사진:\n${
+            structureBlueprint?.logicFlow?.length
+              ? structureBlueprint.logicFlow.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `설득 패턴:\n${
+            structureBlueprint?.persuasionPattern?.length
+              ? structureBlueprint.persuasionPattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
           `핵심 인사이트:\n${
             generationGuides.keyInsights.length
               ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -599,6 +696,8 @@ async function regenerateVariationWithGPT({
           }\n\n` +
           `캐릭터 세팅:\n${characterSystemPrompt || '없음'}\n\n` +
           '작성 조건:\n' +
+          '- 레퍼런스 표면 주제/키워드/문장 변형 사용 금지(패러프레이즈 포함)\n' +
+          '- 레퍼런스는 논리 구조만 참고하고 내용은 현재 계정 도메인으로 완전 재창조\n' +
           '- 분석 메타 표현(첫 3초, 프레임, 클로즈업, 화면, 자막, 연출) 금지\n' +
           '- 사람 말투로 자연스럽게 작성\n' +
           '- HOOK/BODY/CTA 흐름을 분명히 연결\n\n' +
@@ -702,7 +801,7 @@ function normalizeVariationForValidation(rawVariation, index = 0) {
   }
 }
 
-function validateVariationAlignment(variation, guard) {
+function validateVariationAlignment(variation, guard, referenceGuard = {}) {
   if (!guard?.category || guard.category === '기타') {
     return { ok: true, reason: '카테고리 가드 없음', warnings: [] }
   }
@@ -714,6 +813,16 @@ function validateVariationAlignment(variation, guard) {
 
   if (!text) {
     return { ok: false, reason: '본문이 비어 있음', warnings: ['본문이 비어 있음'] }
+  }
+
+  const leakedTerm = findReferenceSurfaceLeakage(text, referenceGuard?.surfaceTerms || [])
+  if (leakedTerm) {
+    return { ok: false, reason: `레퍼런스 표면 단어 누출: ${leakedTerm}`, warnings: [] }
+  }
+
+  const metaLeakPattern = /(첫\s*\d+초|프레임|장면|클로즈업|화면|자막|영상|편집|연출|컷\s*전환)/i
+  if (metaLeakPattern.test(text)) {
+    return { ok: false, reason: '분석 메타 표현 누출', warnings: [] }
   }
 
   const warnings = []
@@ -915,11 +1024,22 @@ export async function analyzeReferenceVideo({
           accountSettings,
           characterSystemPrompt,
         })
+        const cachedReferenceGuard = {
+          surfaceTerms: extractReferenceSurfaceTerms({
+            title: cachedAnalysis.title || normalizedTitle,
+            topic: cachedAnalysis.topic || normalizedTopic,
+            transcript: cachedAnalysis.transcript || '',
+          }),
+        }
         const cachedVariations = Array.isArray(cachedAnalysis.variations)
           ? cachedAnalysis.variations
           : []
         const cachedValidation = cachedVariations.map((variation, index) =>
-          validateVariationAlignment(normalizeVariationForValidation(variation, index), categoryGuard),
+          validateVariationAlignment(
+            normalizeVariationForValidation(variation, index),
+            categoryGuard,
+            cachedReferenceGuard,
+          ),
         )
         const cacheAlignmentOk =
           !cachedVariations.length || cachedValidation.every((item) => item?.ok === true)
@@ -1109,6 +1229,21 @@ export async function analyzeReferenceVideo({
       parseModelJson(analysisResponse.choices[0]?.message?.content || ''),
     )
     const generationGuides = buildGenerationGuides({ analysisResult })
+    const referenceGuard = {
+      surfaceTerms: extractReferenceSurfaceTerms({
+        title: normalizedTitle,
+        topic: normalizedTopic,
+        transcript: normalizedTranscript || '',
+      }),
+    }
+    const structureBlueprint = await runStage('extract-structure-blueprint', baseContext, async () =>
+      buildStructureBlueprint({
+        openai,
+        chatModel,
+        analysisResult,
+        transcript: normalizedTranscript || '',
+      }),
+    )
 
     const categoryGuard = buildCategoryGuard({
       accountSettings,
@@ -1181,11 +1316,24 @@ export async function analyzeReferenceVideo({
             `전략 의도: ${config.retrievalHint}\n\n` +
             `카테고리 강제 가드(절대 준수):\n${categoryGuardText}\n\n` +
             `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
+            `레퍼런스 금지 표면 단어(절대 사용 금지): ${referenceGuard.surfaceTerms.join(', ') || '없음'}\n\n` +
+            `논리 구조 청사진:\n${
+              structureBlueprint.logicFlow.length
+                ? structureBlueprint.logicFlow.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `설득 패턴:\n${
+              structureBlueprint.persuasionPattern.length
+                ? structureBlueprint.persuasionPattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
             '작성 강제 조건:\n' +
-            '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 반드시 작성\n' +
-            '- 레퍼런스 제목/파일명/원문 주제는 무시\n' +
-            '- 레퍼런스 원문 주제와 계정 설정이 충돌하면 계정 설정을 우선\n' +
-            '- 레퍼런스는 구조/후킹 패턴만 참고하고 소재는 계정 도메인으로 재작성\n\n' +
+            '- 1단계: 논리 구조만 사용\n' +
+            '- 2단계: 현재 계정 도메인으로 완전 변환\n' +
+            '- 3단계: 완전히 새로운 주장(thesis) 생성\n' +
+            '- 4단계: thesis 기반으로 HOOK/BODY/CTA 작성\n' +
+            '- 레퍼런스 표면 단어/문장 변형/원문 주제 복사 금지\n' +
+            '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 반드시 작성\n\n' +
             `핵심 인사이트(최소 2개 반영):\n${
               generationGuides.keyInsights.length
                 ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -1235,7 +1383,7 @@ export async function analyzeReferenceVideo({
 
             const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
             normalized = normalizeVariationDraft(parsed, config, generationGuides)
-            alignment = validateVariationAlignment(normalized, categoryGuard)
+            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
             if (alignment.ok) {
               break
             }
@@ -1277,7 +1425,7 @@ export async function analyzeReferenceVideo({
               body: String(repaired?.body || normalized.body || '').trim(),
               cta: String(repaired?.cta || normalized.cta || '').trim(),
             }
-            alignment = validateVariationAlignment(normalized, categoryGuard)
+            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
           }
 
           if (normalized && !alignment.ok) {
@@ -1289,9 +1437,11 @@ export async function analyzeReferenceVideo({
               guardPromptSummary,
               characterSystemPrompt,
               generationGuides,
+              structureBlueprint,
+              referenceSurfaceTerms: referenceGuard.surfaceTerms,
               retryReason: alignment.reason,
             })
-            alignment = validateVariationAlignment(normalized, categoryGuard)
+            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
           }
 
           if (!normalized) {
@@ -1303,9 +1453,11 @@ export async function analyzeReferenceVideo({
               guardPromptSummary,
               characterSystemPrompt,
               generationGuides,
+              structureBlueprint,
+              referenceSurfaceTerms: referenceGuard.surfaceTerms,
               retryReason: '초안 생성 결과가 비어 있음',
             })
-            alignment = validateVariationAlignment(normalized, categoryGuard)
+            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
           }
 
           const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
@@ -1319,9 +1471,11 @@ export async function analyzeReferenceVideo({
               guardPromptSummary,
               characterSystemPrompt,
               generationGuides,
+              structureBlueprint,
+              referenceSurfaceTerms: referenceGuard.surfaceTerms,
               retryReason: alignment.reason,
             })
-            alignment = validateVariationAlignment(normalized, categoryGuard)
+            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
           }
 
           if (
@@ -1364,7 +1518,7 @@ export async function analyzeReferenceVideo({
                 body: String(polished?.body || normalized.body || '').trim(),
                 cta: String(polished?.cta || normalized.cta || '').trim(),
               }
-              alignment = validateVariationAlignment(normalized, categoryGuard)
+              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
             } catch (_error) {
               // Keep original draft when polish step fails.
             }
