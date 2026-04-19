@@ -73,6 +73,7 @@ export default function ResultCards({ transitioning = false, entering = false })
     saveVersion,
   } = useAppState()
   const editorSectionRef = useRef(null)
+  const scrollContainerRef = useRef(null)
   const editorPanelRef = useRef(null)
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
   const [editorPanelHeight, setEditorPanelHeight] = useState(null)
@@ -147,10 +148,24 @@ export default function ResultCards({ transitioning = false, entering = false })
     }
 
     const timer = window.setTimeout(() => {
-      editorSectionRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      })
+      const container = scrollContainerRef.current
+      const section = editorSectionRef.current
+
+      if (container && section) {
+        const containerRect = container.getBoundingClientRect()
+        const sectionRect = section.getBoundingClientRect()
+        const targetTop = container.scrollTop + (sectionRect.top - containerRect.top) - 6
+
+        container.scrollTo({
+          top: Math.max(0, targetTop),
+          behavior: 'smooth',
+        })
+      } else {
+        section?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      }
       setShouldScrollToEditor(false)
     }, 80)
 
@@ -186,6 +201,7 @@ export default function ResultCards({ transitioning = false, entering = false })
 
   return (
     <div
+      ref={scrollContainerRef}
       className="h-full overflow-y-auto px-6 py-10 md:px-12"
       style={{
         backgroundImage:

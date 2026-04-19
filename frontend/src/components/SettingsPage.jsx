@@ -3,15 +3,45 @@ import { loadAccountProfile, saveAccountProfile } from '../lib/accountApi'
 import { useAppState } from '../store/AppState'
 
 const CATEGORY_OPTIONS = [
-  '개인 브랜드',
-  '비즈니스',
-  '이커머스',
+  '뷰티',
+  '육아',
+  '반려동물',
+  '살림',
+  '자기계발',
+  '패션',
+  'AI',
+  '전문직(회사홍보)',
+  '재테크',
+  '여행',
+  '요리',
+  '테크 가젯',
+  '멘탈케어',
   '교육',
-  '건강/웰니스',
-  '음식/요리',
-  '패션/뷰티',
   '기타',
 ]
+
+const LEGACY_CATEGORY_ALIAS_MAP = {
+  '개인 브랜드': '자기계발',
+  비즈니스: '전문직(회사홍보)',
+  이커머스: '살림',
+  '건강/웰니스': '멘탈케어',
+  '음식/요리': '요리',
+  '패션/뷰티': '뷰티',
+}
+
+function normalizeCategory(value) {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return CATEGORY_OPTIONS[0]
+  }
+
+  const mapped = LEGACY_CATEGORY_ALIAS_MAP[raw] || raw
+  if (CATEGORY_OPTIONS.includes(mapped)) {
+    return mapped
+  }
+
+  return '기타'
+}
 
 const ACCOUNT_PURPOSE_OPTIONS = [
   { id: 'personal-influencer', title: '퍼스널 인플루언싱', description: '광고 / 협찬 / 공동구매 수익' },
@@ -110,7 +140,6 @@ export default function SettingsPage({ onBack }) {
 
   const [form, setForm] = useState({
     accountName: '',
-    instagramId: '',
     category: CATEGORY_OPTIONS[0],
     accountGoal: ACCOUNT_PURPOSE_OPTIONS[0].id,
     personaAge: '',
@@ -161,8 +190,7 @@ export default function SettingsPage({ onBack }) {
         setAccount(payload.account || null)
         setForm({
           accountName: payload.account?.name || '',
-          instagramId: settings.instagramId || profile.instagram_id || '',
-          category: settings.category || profile.category || CATEGORY_OPTIONS[0],
+          category: normalizeCategory(settings.category || profile.category || CATEGORY_OPTIONS[0]),
           accountGoal:
             settings.accountGoal ||
             profile.goal ||
@@ -274,7 +302,6 @@ export default function SettingsPage({ onBack }) {
       await saveAccountProfile(
         {
           accountName: form.accountName,
-          instagramId: form.instagramId,
           category: form.category,
           tone: form.voiceTone,
           targetAudience,
@@ -283,7 +310,6 @@ export default function SettingsPage({ onBack }) {
           strategy: form.strategyPreferences.join(', '),
           settings: {
             accountName: form.accountName,
-            instagramId: form.instagramId,
             category: form.category,
             accountGoal: form.accountGoal,
             persona: {

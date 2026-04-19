@@ -1249,7 +1249,7 @@ function AuthScreen({
           &lt; Home
         </a>
 
-        <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-white/5">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl">
           <img src={logoWebp} alt="HookAI 로고" className="h-full w-full object-cover" />
         </div>
         <h1 className="mt-6 text-center text-[36px] font-extrabold tracking-[-0.03em] text-[#F8FAFC]">

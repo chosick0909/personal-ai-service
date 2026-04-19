@@ -1390,14 +1390,7 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections())
     setPendingSuggestion(null)
     setAnalyzeError('')
-    setChatMessages([
-      {
-        id: 'analysis-start',
-        role: 'assistant',
-        content:
-          '레퍼런스가 업로드되었습니다. 분석이 끝나면 구조/후킹 포인트와 A/B/C 초안이 준비됩니다.',
-      },
-    ])
+    setChatMessages([])
     setReferenceHistory((current) => [localReference, ...current])
     setCurrentStep('analyzing')
     setIsAnalyzing(true)
@@ -1441,15 +1434,6 @@ export function AppStateProvider({ children }) {
             : item,
         ),
       )
-      setChatMessages((current) => [
-        ...current,
-        {
-          id: `analysis-complete-${Date.now()}`,
-          role: 'assistant',
-          content:
-            '실제 Whisper/Vision 분석이 완료되었습니다. 중앙에서 A/B/C 안을 비교하고, 마음에 드는 안을 선택해 에디터로 넘어가세요.',
-        },
-      ])
       setTimeout(() => {
         setIsResultEntering(false)
       }, 420)

@@ -567,6 +567,10 @@ app.post(
       title: req.body?.title,
       projectId: req.body?.projectId || null,
       characterSystemPrompt: character.systemPrompt,
+      accountSettings:
+        character?.profile?.settings && typeof character.profile.settings === 'object'
+          ? character.profile.settings
+          : {},
     })
 
     res.status(201).json({

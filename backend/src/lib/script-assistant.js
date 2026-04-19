@@ -143,6 +143,7 @@ export async function refineScriptWithAI({
             'CTA 규칙: 행동 이유(손해/이득/궁금증)를 포함해 짧고 강하게 마무리한다. "좋아요/팔로우 부탁" 문구는 금지한다.',
             '연결성 규칙: HOOK에서 던진 문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
             '아래 핵심 인사이트/체크포인트를 가능한 한 유지해서 수정한다.',
+            '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
@@ -230,6 +231,7 @@ export async function generateScriptFeedback({
             'suggestedSections를 작성할 때는 설명형/교과서형 문장을 피하고, 실제 사람이 말하는 톤으로 다시 써라.',
             'HOOK은 긴장감 있게, BODY는 상황/경험형으로, CTA는 행동 이유를 담아 짧고 강하게 제안하라.',
             '평가 시 HOOK/BODY/CTA 연결성과 핵심 인사이트 반영 여부를 반드시 본다.',
+            '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`

@@ -59,7 +59,7 @@ function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }
   )
 }
 
-export default function ChatPanel({ entering = false, embedded = false }) {
+export default function ChatPanel({ entering = false, embedded = false, fixedHeight = null }) {
   const {
     chatMessages,
     draftMessage,
@@ -73,7 +73,12 @@ export default function ChatPanel({ entering = false, embedded = false }) {
   } = useAppState()
   return (
     <div
-      className={`flex ${embedded ? 'h-full min-h-[760px]' : 'h-full min-h-0'} flex-col overflow-hidden ${embedded ? 'rounded-[32px] border border-[#2F3543] bg-[#0F131B]' : 'bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'}`}
+      className={`flex ${embedded ? 'h-full min-h-0' : 'h-full min-h-0'} flex-col overflow-hidden ${embedded ? 'rounded-[32px] border border-[#2F3543] bg-[#0F131B]' : 'bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'}`}
+      style={
+        embedded && Number.isFinite(fixedHeight) && fixedHeight > 0
+          ? { height: `${fixedHeight}px`, maxHeight: `${fixedHeight}px` }
+          : undefined
+      }
     >
       <div className={`${embedded ? 'shrink-0 border-b border-[#2F3543] px-5 py-4' : 'shrink-0 rounded-[24px] border border-[#2F3543] bg-[#121821] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className="inline-flex rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D1D5DB]">

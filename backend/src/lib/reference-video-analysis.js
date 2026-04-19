@@ -41,6 +41,36 @@ const VARIATION_CONFIGS = [
   },
 ]
 
+const CATEGORY_ANCHOR_TERMS = {
+  뷰티: ['피부', '스킨케어', '메이크업', '화장', '제품', '루틴'],
+  육아: ['육아', '아이', '부모', '월령', '아기', '양육'],
+  반려동물: ['반려동물', '강아지', '고양이', '보호자', '사료', '간식'],
+  살림: ['살림', '정리', '수납', '청소', '주방', '생활'],
+  자기계발: ['자기계발', '습관', '생산성', '성장', '목표', '실행'],
+  패션: ['패션', '코디', '스타일', '의류', '착장', '핏'],
+  AI: ['AI', '자동화', '프롬프트', '업무', '툴', '생산성'],
+  '전문직(회사홍보)': ['전문성', '상담', '고객', '사례', '브랜딩', '서비스'],
+  재테크: ['재테크', '지출', '예산', '투자', '자산', '가계부'],
+  여행: ['여행', '일정', '코스', '숙소', '항공', '예산'],
+  요리: ['요리', '레시피', '재료', '식단', '조리', '주방'],
+  '테크 가젯': ['가젯', '디바이스', '리뷰', '비교', '사용성', '기능'],
+  멘탈케어: ['멘탈', '감정', '스트레스', '회복', '루틴', '심리'],
+  교육: ['교육', '학습', '강의', '개념', '설명', '이해'],
+  기타: [],
+}
+
+const OFF_DOMAIN_FORBIDDEN_TERMS = [
+  '건축',
+  '절벽',
+  '공법',
+  '토목',
+  '구조기술사',
+  '시공',
+  '아파트',
+  '분양',
+  '부동산',
+]
+
 const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
 
 function cacheLog(stage, details = {}) {
@@ -285,6 +315,77 @@ function normalizeVariationDraft(parsed, fallback, guides = {}) {
   }
 }
 
+function normalizeCategoryLabel(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return '기타'
+  return CATEGORY_ANCHOR_TERMS[raw] ? raw : '기타'
+}
+
+function extractCategoryFromCharacterPrompt(characterSystemPrompt = '') {
+  const source = String(characterSystemPrompt || '')
+  if (!source) {
+    return ''
+  }
+
+  const matched = source.match(/카테고리\s*:\s*([^\n]+)/)
+  return matched?.[1]?.trim() || ''
+}
+
+function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' } = {}) {
+  const category = normalizeCategoryLabel(
+    accountSettings?.category || extractCategoryFromCharacterPrompt(characterSystemPrompt),
+  )
+  const anchors = CATEGORY_ANCHOR_TERMS[category] || []
+  const instagramId = String(accountSettings?.instagramId || '')
+    .trim()
+    .replace(/^@/, '')
+  const voiceTone = String(accountSettings?.voiceTone || '').trim()
+  const strategyPreferences = Array.isArray(accountSettings?.strategyPreferences)
+    ? accountSettings.strategyPreferences.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  return {
+    category,
+    anchors,
+    instagramId,
+    voiceTone,
+    strategyPreferences,
+  }
+}
+
+function validateVariationAlignment(variation, guard) {
+  if (!guard?.category || guard.category === '기타') {
+    return { ok: true, reason: '카테고리 가드 없음' }
+  }
+
+  const text = [variation?.hook, variation?.body, variation?.cta]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join('\n')
+
+  if (!text) {
+    return { ok: false, reason: '본문이 비어 있음' }
+  }
+
+  const anchorHits = (guard.anchors || []).filter((term) => text.includes(term))
+  const minAnchorHits = guard.anchors?.length >= 4 ? 2 : 1
+  if (guard.anchors?.length && anchorHits.length < minAnchorHits) {
+    return {
+      ok: false,
+      reason: `카테고리(${guard.category}) 핵심 키워드 반영 부족(현재 ${anchorHits.length}개, 최소 ${minAnchorHits}개): ${guard.anchors.slice(0, 4).join(', ')}`,
+    }
+  }
+
+  const forbiddenHit = OFF_DOMAIN_FORBIDDEN_TERMS.find((term) => text.includes(term))
+  if (forbiddenHit && !['전문직(회사홍보)', '기타'].includes(guard.category)) {
+    return {
+      ok: false,
+      reason: `계정 카테고리(${guard.category})와 이질 도메인 키워드 감지: ${forbiddenHit}`,
+    }
+  }
+
+  return { ok: true, reason: '카테고리 정합 통과' }
+}
+
 async function runStage(stage, context, task) {
   logStage('info', `${stage}:start`, context)
 
@@ -391,6 +492,7 @@ export async function analyzeReferenceVideo({
   accountId,
   projectId = null,
   characterSystemPrompt = '',
+  accountSettings = {},
 }) {
   if (!file) {
     throw new AppError('video file is required', {
@@ -604,6 +706,25 @@ export async function analyzeReferenceVideo({
     )
     const generationGuides = buildGenerationGuides({ analysisResult, frameAnalysis })
 
+    const categoryGuard = buildCategoryGuard({
+      accountSettings,
+      characterSystemPrompt,
+    })
+    const categoryGuardText = [
+      `카테고리: ${categoryGuard.category}`,
+      categoryGuard.anchors.length
+        ? `필수 반영 키워드(최소 1개 이상): ${categoryGuard.anchors.join(', ')}`
+        : null,
+      categoryGuard.voiceTone ? `브랜드 톤: ${categoryGuard.voiceTone}` : null,
+      categoryGuard.strategyPreferences.length
+        ? `전략 선호도: ${categoryGuard.strategyPreferences.join(', ')}`
+        : null,
+      categoryGuard.instagramId ? `인스타그램: @${categoryGuard.instagramId}` : null,
+      '이질 도메인(건축/부동산/시공 등)으로 벗어나면 실패로 간주하고 다시 작성한다.',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
     const generatedVariations = await Promise.all(
       VARIATION_CONFIGS.map((config) =>
         runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
@@ -615,77 +736,139 @@ export async function analyzeReferenceVideo({
             topK: 4,
           })
 
-          const variationResponse = await openai.chat.completions.create({
-            model: chatModel,
-            temperature: 0.8,
-            messages: [
-              {
-                role: 'system',
-                content: [
-                  '당신은 숏폼 콘텐츠 작가다. 지정된 전략에 맞는 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
-                  '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 계정/타겟/상품 맥락 > 전략 라벨/전략 의도 > 레퍼런스 전사.',
-                  '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
-                  '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
-                  '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
-                  '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
-                  'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
-                  'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
-                  '아래 인사이트/체크포인트를 최소 2개 이상 반영하고, usedInsights/usedCheckpoints에 반영 항목을 기록하라.',
-                  '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
-                  '공통: 설명체보다 대화체. 문장은 짧게 끊고 리듬감 있게. 추상적 표현 금지.',
-                  'HOOK 금지: "~하시나요?" 같은 평범한 질문, 너무 일반적인 문제 제기.',
-                  'HOOK 규칙: 첫 문장에서 긴장감/반전/궁금증을 만들고 한 문장으로 강하게 시작.',
-                  'BODY 금지: "많은 사람들이 ~ 하지만" 같은 교과서 문장, 긴 한 문장 설명.',
-                  'BODY 규칙: 상황으로 시작하고 실제 경험/발견처럼 한 문장씩 끊어 전개.',
-                  'CTA 금지: "좋아요/팔로우 부탁" 같은 뻔한 마무리.',
-                  'CTA 규칙: 왜 지금 행동해야 하는지(손해/이득/궁금증)를 넣어 짧고 강하게.',
-                  characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
-                ]
-                  .filter(Boolean)
-                  .join('\n\n'),
-              },
-              {
-                role: 'user',
-                content:
-                  `전략 라벨: ${config.label}\n` +
-                  `전략 방향: ${config.angle}\n` +
-                  `전략 의도: ${config.retrievalHint}\n\n` +
-                  `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
-                  '작성 강제 조건:\n' +
-                  '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 반드시 작성\n' +
-                  '- 레퍼런스 제목/파일명/원문 주제는 무시\n' +
-                  '- 레퍼런스 원문 주제와 계정 설정이 충돌하면 계정 설정을 우선\n' +
-                  '- 레퍼런스는 구조/후킹 패턴만 참고하고 소재는 계정 도메인으로 재작성\n\n' +
-                  `핵심 인사이트(최소 2개 반영):\n${
-                    generationGuides.keyInsights.length
-                      ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
-                      : '- 없음'
-                  }\n\n` +
-                  `바로 써먹을 체크포인트(최소 2개 반영):\n${
-                    generationGuides.checkpoints.length
-                      ? generationGuides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
-                      : '- 없음'
-                  }\n\n` +
-                  `공통 분석 요약:\n구조: ${analysisResult.structureAnalysis || '-'}\n후킹: ${analysisResult.hookAnalysis || '-'}\n심리: ${analysisResult.psychologyAnalysis || '-'}\n\n` +
-                  `레퍼런스 전사:\n${normalizedTranscript || '전사 추출 없음'}\n\n` +
-                  `참고 글로벌 지식(이 안에서 우선 참고):\n${variationKnowledge.contextText || '검색된 지식 없음'}\n\n` +
-                  '분량 규칙(중요): 1분 릴스 기준으로 충분히 길게 작성하세요.\n' +
-                  '- 목표 길이: 약 50~70초\n' +
-                  '- hook: 약 8~12초 (45~90자)\n' +
-                  '- body: 약 35~45초 (220~320자)\n' +
-                  '- cta: 약 8~12초 (40~80자)\n' +
-                  '다음 JSON 형식으로만 답하세요: ' +
-                  '{"label":"","angle":"","coreMessage":"","hookIntent":"","bodyLogic":"","ctaReason":"","hook":"","body":"","cta":"","usedInsights":[],"usedCheckpoints":[]}',
-              },
-            ],
-          })
+          const systemContent = [
+            '당신은 숏폼 콘텐츠 작가다. 지정된 전략에 맞는 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
+            '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 계정/타겟/상품 맥락 > 전략 라벨/전략 의도 > 레퍼런스 전사.',
+            '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
+            '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
+            '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
+            '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
+            'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
+            'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
+            '아래 인사이트/체크포인트를 최소 2개 이상 반영하고, usedInsights/usedCheckpoints에 반영 항목을 기록하라.',
+            '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
+            '공통: 설명체보다 대화체. 문장은 짧게 끊고 리듬감 있게. 추상적 표현 금지.',
+            'HOOK 금지: "~하시나요?" 같은 평범한 질문, 너무 일반적인 문제 제기.',
+            'HOOK 규칙: 첫 문장에서 긴장감/반전/궁금증을 만들고 한 문장으로 강하게 시작.',
+            'BODY 금지: "많은 사람들이 ~ 하지만" 같은 교과서 문장, 긴 한 문장 설명.',
+            'BODY 규칙: 상황으로 시작하고 실제 경험/발견처럼 한 문장씩 끊어 전개.',
+            'CTA 금지: "좋아요/팔로우 부탁" 같은 뻔한 마무리.',
+            'CTA 규칙: 왜 지금 행동해야 하는지(손해/이득/궁금증)를 넣어 짧고 강하게.',
+            characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n\n')
 
-          const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
-          const normalized = normalizeVariationDraft(parsed, config, generationGuides)
+          const baseUserContent =
+            `전략 라벨: ${config.label}\n` +
+            `전략 방향: ${config.angle}\n` +
+            `전략 의도: ${config.retrievalHint}\n\n` +
+            `카테고리 강제 가드(절대 준수):\n${categoryGuardText}\n\n` +
+            `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
+            '작성 강제 조건:\n' +
+            '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 반드시 작성\n' +
+            '- 레퍼런스 제목/파일명/원문 주제는 무시\n' +
+            '- 레퍼런스 원문 주제와 계정 설정이 충돌하면 계정 설정을 우선\n' +
+            '- 레퍼런스는 구조/후킹 패턴만 참고하고 소재는 계정 도메인으로 재작성\n\n' +
+            `핵심 인사이트(최소 2개 반영):\n${
+              generationGuides.keyInsights.length
+                ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `바로 써먹을 체크포인트(최소 2개 반영):\n${
+              generationGuides.checkpoints.length
+                ? generationGuides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `공통 분석 요약:\n구조: ${analysisResult.structureAnalysis || '-'}\n후킹: ${analysisResult.hookAnalysis || '-'}\n심리: ${analysisResult.psychologyAnalysis || '-'}\n\n` +
+            `레퍼런스 전사:\n${normalizedTranscript || '전사 추출 없음'}\n\n` +
+            `참고 글로벌 지식(이 안에서 우선 참고):\n${variationKnowledge.contextText || '검색된 지식 없음'}\n\n` +
+            '분량 규칙(중요): 1분 릴스 기준으로 충분히 길게 작성하세요.\n' +
+            '- 목표 길이: 약 50~70초\n' +
+            '- hook: 약 8~12초 (45~90자)\n' +
+            '- body: 약 35~45초 (220~320자)\n' +
+            '- cta: 약 8~12초 (40~80자)\n' +
+            '다음 JSON 형식으로만 답하세요: ' +
+            '{"label":"","angle":"","coreMessage":"","hookIntent":"","bodyLogic":"","ctaReason":"","hook":"","body":"","cta":"","usedInsights":[],"usedCheckpoints":[]}'
+
+          let normalized = null
+          let alignment = { ok: false, reason: '초기 상태' }
+          let retryHint = ''
+
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            const variationResponse = await openai.chat.completions.create({
+              model: chatModel,
+              temperature: 0.6,
+              messages: [
+                {
+                  role: 'system',
+                  content: systemContent,
+                },
+                {
+                  role: 'user',
+                  content:
+                    baseUserContent +
+                    (retryHint
+                      ? `\n\n[재작성 지시]\n직전 응답이 실패했습니다.\n실패 사유: ${retryHint}\n같은 전략을 유지하되 계정 카테고리 정합성을 더 강하게 맞춰 다시 작성하세요.`
+                      : ''),
+                },
+              ],
+            })
+
+            const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
+            normalized = normalizeVariationDraft(parsed, config, generationGuides)
+            alignment = validateVariationAlignment(normalized, categoryGuard)
+            if (alignment.ok) {
+              break
+            }
+            retryHint = alignment.reason
+          }
+
+          if (normalized && !alignment.ok && categoryGuard.category !== '기타') {
+            const repairResponse = await openai.chat.completions.create({
+              model: chatModel,
+              temperature: 0.3,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    '당신은 카테고리 정합 복구기다. 주어진 스크립트의 구조(HOOK/BODY/CTA)는 유지하되, 지정 카테고리 키워드를 강제로 반영해 다시 작성한다. 출력은 JSON만 반환.',
+                },
+                {
+                  role: 'user',
+                  content:
+                    `카테고리: ${categoryGuard.category}\n` +
+                    `필수 키워드(최소 2개): ${categoryGuard.anchors.join(', ') || '없음'}\n` +
+                    `실패 사유: ${alignment.reason}\n\n` +
+                    `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
+                    '반드시 유지할 조건:\n' +
+                    '- 문체/전략 라벨은 유지\n' +
+                    '- 이질 도메인 단어는 제거\n' +
+                    '- 카테고리 키워드를 최소 2개 이상 자연스럽게 반영\n\n' +
+                    '다음 JSON 형식으로만 답하세요: ' +
+                    '{"hook":"","body":"","cta":""}',
+                },
+              ],
+            })
+            const repaired = parseModelJson(repairResponse.choices[0]?.message?.content || '')
+            normalized = {
+              ...normalized,
+              hook: String(repaired?.hook || normalized.hook || '').trim(),
+              body: String(repaired?.body || normalized.body || '').trim(),
+              cta: String(repaired?.cta || normalized.cta || '').trim(),
+            }
+            alignment = validateVariationAlignment(normalized, categoryGuard)
+          }
+
+          if (!normalized) {
+            normalized = normalizeVariationDraft({}, config, generationGuides)
+          }
+
           const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
 
           return {
             ...normalized,
+            alignment,
             usedChunkIds: knowledgeItems.map((item) => item.id),
             usedKnowledge: knowledgeItems,
           }
