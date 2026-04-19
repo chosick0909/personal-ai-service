@@ -108,6 +108,14 @@ function Row({ children, onClick, active = false, muted = false }) {
   )
 }
 
+function normalizeSearchText(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[._-]+/g, '')
+    .trim()
+}
+
 export default function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -149,9 +157,21 @@ export default function Sidebar() {
     if (!normalizedQuery) {
       return true
     }
-    const title = String(item.title || '').toLowerCase()
-    const transcript = String(item.transcript || '').toLowerCase()
-    return title.includes(normalizedQuery) || transcript.includes(normalizedQuery)
+    const rawNeedle = String(normalizedQuery || '').toLowerCase()
+    const compactNeedle = normalizeSearchText(normalizedQuery)
+    const haystacks = [
+      String(item.title || '').toLowerCase(),
+      String(item.fileName || '').toLowerCase(),
+      String(item.topic || '').toLowerCase(),
+      String(item.transcript || '').toLowerCase(),
+    ]
+
+    return haystacks.some((haystack) => {
+      if (haystack.includes(rawNeedle)) {
+        return true
+      }
+      return normalizeSearchText(haystack).includes(compactNeedle)
+    })
   }
 
   const projectRows = useMemo(() => {
@@ -173,6 +193,8 @@ export default function Sidebar() {
     const dynamic = scopedHistory.slice(0, 30).map((item) => ({
       id: item.id,
       title: item.title,
+      fileName: item.fileName || '',
+      topic: item.topic || '',
       transcript: item.transcript || '',
       projectId: item.projectId || null,
       active: referenceData?.id === item.id,
@@ -209,6 +231,8 @@ export default function Sidebar() {
       .map((item) => ({
         id: item.id,
         title: item.title,
+        fileName: item.fileName || '',
+        topic: item.topic || '',
         transcript: item.transcript || '',
         createdAt: item.createdAt || item.created_at || null,
         active: referenceData?.id === item.id,
