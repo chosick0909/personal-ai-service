@@ -80,9 +80,9 @@ export default function ChatPanel({ entering = false, embedded = false }) {
 
   return (
     <div
-      className={`flex min-h-0 flex-col overflow-hidden ${
+      className={`grid min-h-0 overflow-hidden ${
         embedded
-          ? 'h-[640px] max-h-[640px] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
+          ? 'h-[640px] max-h-[640px] grid-rows-[auto_minmax(0,1fr)_auto] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
           : 'h-full bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'
       }`}
     >
@@ -95,75 +95,73 @@ export default function ChatPanel({ entering = false, embedded = false }) {
         </div>
       </div>
 
-      <div className={`${embedded ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className={`min-h-0 flex-1 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
-            {!hasMessages ? (
-              <div className="flex h-full min-h-[220px] flex-col justify-center rounded-[24px] border border-dashed border-[#2F3543] bg-[#121821] px-4 py-5">
-                <div className="text-sm font-semibold text-[#E5E7EB]">수정하고 싶은 부분을 바로 요청해보세요</div>
-                <div className="mt-2 text-xs leading-5 text-[#8E97A6]">빠르게 시작할 수 있는 요청 예시입니다.</div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {QUICK_PROMPTS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => setDraftMessage(prompt)}
-                      className="rounded-full border border-[#374151] bg-[#171B24] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#202636]"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {pendingSuggestion ? (
-              <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
-                최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
-              </div>
-            ) : null}
-
-            {chatMessages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                onApply={applySuggestion}
-                onApplyFeedback={applyFeedback}
-                isApplyingFeedback={isApplyingFeedback}
-              />
-            ))}
-            {isChatLoading ? (
-              <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
-                AI가 수정안을 정리하고 있습니다...
-              </div>
-            ) : null}
-          </div>
-
-          <div className={`${embedded ? 'shrink-0 border-t border-[#2F3543] bg-[#0F131B] px-5 py-3' : 'sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4'}`}>
-            <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] p-3">
-              {isChatLimitReached ? (
-                <div className="mb-3 rounded-xl border border-[#7F1D1D] bg-[#2A1515] px-3 py-2 text-xs leading-5 text-[#FECACA]">
-                  수정 요청 한도 도달
-                </div>
-              ) : null}
-              <textarea
-                value={draftMessage}
-                onChange={(event) => setDraftMessage(event.target.value)}
-                rows={2}
-                className="max-h-[96px] min-h-[52px] w-full resize-none bg-transparent text-sm leading-6 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
-                placeholder="예: HOOK을 더 공격적으로 바꿔줘 / CTA를 상담 유도형으로 바꿔줘"
-                disabled={isSendDisabled}
-              />
-              <div className="mt-3 flex items-center justify-end">
-                <button
-                  type="button"
-                  onClick={sendChatMessage}
-                  disabled={isSendDisabled}
-                  className="btn-solid-contrast rounded-full px-4 py-2.5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isChatLimitReached ? '한도 도달' : `보내기 (${copilotRemaining.chat})`}
-                </button>
+      <div className={`${embedded ? 'min-h-0 overflow-hidden' : 'mt-4 min-h-0 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
+        <div className={`h-full min-h-0 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
+          {!hasMessages ? (
+            <div className="flex h-full min-h-[220px] flex-col justify-center rounded-[24px] border border-dashed border-[#2F3543] bg-[#121821] px-4 py-5">
+              <div className="text-sm font-semibold text-[#E5E7EB]">수정하고 싶은 부분을 바로 요청해보세요</div>
+              <div className="mt-2 text-xs leading-5 text-[#8E97A6]">빠르게 시작할 수 있는 요청 예시입니다.</div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {QUICK_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => setDraftMessage(prompt)}
+                    className="rounded-full border border-[#374151] bg-[#171B24] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#202636]"
+                  >
+                    {prompt}
+                  </button>
+                ))}
               </div>
             </div>
+          ) : null}
+          {pendingSuggestion ? (
+            <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+              최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
+            </div>
+          ) : null}
+
+          {chatMessages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onApply={applySuggestion}
+              onApplyFeedback={applyFeedback}
+              isApplyingFeedback={isApplyingFeedback}
+            />
+          ))}
+          {isChatLoading ? (
+            <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+              AI가 수정안을 정리하고 있습니다...
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className={`${embedded ? 'border-t border-[#2F3543] bg-[#0F131B] px-5 py-3' : 'sticky bottom-0 z-10 shrink-0 border-t border-[#2F3543] bg-[#121821] px-4 py-4'}`}>
+        <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] p-3">
+          {isChatLimitReached ? (
+            <div className="mb-3 rounded-xl border border-[#7F1D1D] bg-[#2A1515] px-3 py-2 text-xs leading-5 text-[#FECACA]">
+              수정 요청 한도 도달
+            </div>
+          ) : null}
+          <textarea
+            value={draftMessage}
+            onChange={(event) => setDraftMessage(event.target.value)}
+            rows={2}
+            className="max-h-[96px] min-h-[52px] w-full resize-none bg-transparent text-sm leading-6 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
+            placeholder="예: HOOK을 더 공격적으로 바꿔줘 / CTA를 상담 유도형으로 바꿔줘"
+            disabled={isSendDisabled}
+          />
+          <div className="mt-3 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={sendChatMessage}
+              disabled={isSendDisabled}
+              className="btn-solid-contrast rounded-full px-4 py-2.5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isChatLimitReached ? '한도 도달' : `보내기 (${copilotRemaining.chat})`}
+            </button>
           </div>
         </div>
       </div>
