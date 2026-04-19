@@ -1390,6 +1390,64 @@ const RF_MONETIZATION_META = {
   service_sale: { label: '서비스 판매', reason: '코칭/맞춤 서비스형 비즈니스와 연결이 쉽습니다.' },
 }
 
+const RF_INSTAGRAM_WHY_NOW = [
+  '인스타그램은 단순 SNS를 넘어 검색·추천·구매까지 이어지는 생활형 플랫폼으로 자리잡았고, 국내 사용자도 2025년 대비 약 100만 명 이상 증가하며 성장 중입니다.',
+  '릴스 중심 숏폼 구조 덕분에 팔로워가 많지 않아도 노출이 가능해, 초보 계정도 빠르게 테스트하고 기회를 잡을 수 있습니다.',
+  '광고 시장 규모가 약 26조 원 수준으로 확대되면서 브랜드 예산이 개인 크리에이터·숏폼으로 이동하고 있어 개인 수익화 기회가 커졌습니다.',
+  '지금은 조회수만이 아니라 구매 전환까지 직접 연결되는 구조라 작은 계정도 실제 매출을 만들 가능성이 높습니다.',
+]
+
+const RF_CATEGORY_ACTION_BLUEPRINT = {
+  beauty: { directions: ['트러블 피부 문제 해결형', '루틴 전후 비교형'], monetization: ['group_buy', 'affiliate'] },
+  fashion: { directions: ['체형/상황별 코디 해결형', '가격대별 비교 추천형'], monetization: ['affiliate', 'group_buy'] },
+  self_growth: { directions: ['실행 루틴 코칭형', '목표 달성 체크리스트형'], monetization: ['digital_product', 'consulting'] },
+  finance: { directions: ['지출/자산관리 구조화형', '초보 투자 원칙 정리형'], monetization: ['digital_product', 'consulting'] },
+  ai_tech: { directions: ['직장인 업무 자동화형', 'AI 툴 실전 비교형'], monetization: ['digital_product', 'affiliate'] },
+  home_living: { directions: ['생활 문제 즉시 해결형', '정리/청소 루틴 최적화형'], monetization: ['group_buy', 'affiliate'] },
+  cooking: { directions: ['10분 실전 레시피형', '상황별 식단 해결형'], monetization: ['group_buy', 'affiliate'] },
+  fitness: { directions: ['초보 루틴 점진 개선형', '목표형 식단/운동 가이드형'], monetization: ['digital_product', 'affiliate'] },
+  relationship: { directions: ['공감 기반 문제 해결형', '상황별 대화 가이드형'], monetization: ['consulting', 'digital_product'] },
+  daily_life: { directions: ['현실 공감 스토리형', '일상 효율 개선형'], monetization: ['ad_collab', 'affiliate'] },
+  pet: { directions: ['반려 문제 해결 루틴형', '보호자 실사용 리뷰형'], monetization: ['group_buy', 'affiliate'] },
+  travel: { directions: ['예산 최적화 동선형', '상황별 여행 체크리스트형'], monetization: ['affiliate', 'ad_collab'] },
+  professional_brand: { directions: ['전문직 신뢰 확보형', '사례 기반 리드 전환형'], monetization: ['consulting', 'service_sale'] },
+}
+
+const RF_CATEGORY_MARKET_NARRATIVE = {
+  beauty: '뷰티는 글로벌 약 6,500억 달러, 국내 약 8조 원 이상의 검증된 시장입니다. 전후 변화·루틴 제안이 숏폼에서 바로 반응을 만들기 쉽고, 반복 구매 제품이 많아 공동구매/제휴 전환이 빠른 구조입니다.',
+  fashion: '패션은 글로벌 약 1조 5천억 달러, 국내 약 50조 원 규모의 대형 시장입니다. 시각적 변화가 즉시 전달되어 저장/공유가 높고, 코디 기준을 명확히 잡으면 높은 경쟁 속에서도 빠르게 차별화할 수 있습니다.',
+  self_growth: '자기계발은 글로벌 약 4,200억 달러, 국내 약 6조 원 규모이며 연평균 약 9.1% 성장으로 확장성이 큽니다. 짧은 인사이트를 전자책·템플릿·강의로 연결하기 좋은 고부가가치 카테고리입니다.',
+  finance: '재테크는 글로벌 약 4,500억 달러, 국내 약 15조 원 규모와 연평균 약 12.5% 성장률을 보입니다. 구조화된 정보형 콘텐츠의 저장/재방문이 높고, 신뢰 기반으로 디지털 상품·상담 전환이 가능한 시장입니다.',
+  ai_tech: 'AI는 글로벌 약 1,200억 달러, 국내 약 2조 원 규모에 연평균 약 31% 성장으로 가장 빠른 상승 구간입니다. 화면 녹화 중심 운영이 가능해 얼굴 비노출 계정도 시작이 쉽고, 템플릿·자동화 상품으로 확장성이 큽니다.',
+  home_living: '살림/리빙은 글로벌 약 2,800억 달러, 국내 약 12조 원 규모의 실전형 시장입니다. 정리 전후·청소 전후처럼 즉각적 변화가 강해 저장률이 높고, 생활용품 반복 구매 구조로 수익 전환이 안정적입니다.',
+  cooking: '요리는 글로벌 약 4,000억 달러, 국내 약 10조 원 규모로 연평균 약 7.4% 성장합니다. 짧고 따라하기 쉬운 레시피는 저장/재시청이 높고, 식재료·도구·밀키트 제휴로 수익 구조를 만들기 쉽습니다.',
+  pet: '반려동물은 글로벌 약 3,000억 달러, 국내 약 4~6조 원 규모에 연평균 약 6.7% 성장 중입니다. 감성 도달력과 제품 전환이 동시에 강하고, 사료·간식·위생용품 등 반복 소비 덕분에 안정적인 매출 구조가 가능합니다.',
+  travel: '여행은 글로벌 약 9,500억 달러, 국내 약 25조 원 규모로 연평균 약 10.2% 성장합니다. 감성 콘텐츠에 일정·예산 정보를 결합하면 저장/클릭 전환이 높고, 항공·숙소·액티비티 제휴 확장성이 큽니다.',
+  professional_brand: '전문직/회사홍보는 글로벌 약 1,500억 달러, 국내 약 7조 원 규모에 연평균 약 11.8% 성장하는 고단가 리드 시장입니다. 조회수보다 신뢰형 콘텐츠가 중요하며, 상담·서비스 전환 단가가 높은 구조입니다.',
+}
+
+function rfStyleLabel(styleKey) {
+  return {
+    informative: '정보형',
+    empathetic: '공감형',
+    problem_solving: '문제 해결형',
+    review: '리뷰형',
+    storytelling: '스토리형',
+  }[styleKey] || '정보형'
+}
+
+function rfProductionLabel(productionKey) {
+  return {
+    face_on: '얼굴 노출 진행',
+    face_partial: '부분 노출 진행',
+    face_off: '비노출 진행',
+    hand_product: '손/제품 시연',
+    screen_recording: '화면 녹화',
+    text_slide: '텍스트 슬라이드',
+    voice_over: '보이스오버',
+  }[productionKey] || '부분 노출 진행'
+}
+
 const RF_LIKERT_OPTIONS = [
   { value: 2, label: '매우 그렇다' },
   { value: 1, label: '그렇다' },
@@ -1558,36 +1616,28 @@ function rfTopEntries(scoreMap, count) {
   return Object.entries(scoreMap).sort((a, b) => b[1] - a[1]).slice(0, count)
 }
 
-function rfBuildDirections(topCategories, styleKey, productionKey) {
-  const styleLabel = {
-    informative: '정보형',
-    empathetic: '공감형',
-    problem_solving: '문제 해결형',
-    review: '리뷰형',
-    storytelling: '스토리형',
-  }[styleKey] || '정보형'
-  const prodLabel = {
-    face_on: '얼굴 노출 진행',
-    face_partial: '부분 노출 진행',
-    face_off: '비노출 진행',
-    hand_product: '손/제품 시연',
-    screen_recording: '화면 녹화',
-    text_slide: '텍스트 슬라이드',
-    voice_over: '보이스오버',
-  }[productionKey] || '부분 노출 진행'
+function rfBuildActionPlanForCategory(categoryKey, categoryLabel, styleKey, productionKey, monetizationScores) {
+  const styleLabel = rfStyleLabel(styleKey)
+  const prodLabel = rfProductionLabel(productionKey)
+  const blueprint = RF_CATEGORY_ACTION_BLUEPRINT[categoryKey] || {
+    directions: [`${categoryLabel} ${styleLabel} 실행형`, `${categoryLabel} 문제 해결형`],
+    monetization: [],
+  }
 
-  return topCategories.slice(0, 2).map((category) => {
-    if (category.key === 'beauty') {
-      return { label: '트러블 피부 문제 해결형', reason: `${styleLabel} + ${prodLabel} 조합이 뷰티 전환 퍼널과 맞습니다.` }
-    }
-    if (category.key === 'ai_tech') {
-      return { label: '직장인 업무 자동화형', reason: `${styleLabel} 전달과 ${prodLabel} 방식이 AI/테크 입문층에 적합합니다.` }
-    }
-    if (category.key === 'home_living') {
-      return { label: '생활 문제 즉시 해결형', reason: `${styleLabel} 메시지로 살림/정리 문제를 빠르게 해결하는 포맷입니다.` }
-    }
-    return { label: `${category.label} ${styleLabel} 실행형`, reason: `${category.label} 카테고리에 ${styleLabel} 톤과 ${prodLabel} 방식이 잘 맞습니다.` }
-  })
+  const directions = blueprint.directions.map((label) => ({
+    label,
+    reason: `${styleLabel} 톤과 ${prodLabel} 방식이 ${categoryLabel} 카테고리 전환 구조에 적합합니다.`,
+  }))
+
+  const fallbackMonetization = rfTopEntries(monetizationScores, 3).map(([key]) => key)
+  const monetizationKeys = [...new Set([...blueprint.monetization, ...fallbackMonetization])].slice(0, 2)
+  const monetizationRoutes = monetizationKeys.map((key) => ({
+    key,
+    label: RF_MONETIZATION_META[key]?.label || key,
+    reason: RF_MONETIZATION_META[key]?.reason || '현재 성향과 연결 가능한 수익화 방식입니다.',
+  }))
+
+  return { directions, monetizationRoutes }
 }
 
 function rfBuildTitles(topCategoryKey) {
@@ -1595,6 +1645,13 @@ function rfBuildTitles(topCategoryKey) {
     beauty: ['이거 몰라서 피부 계속 뒤집어지는 거임', '광고 아니고 진짜 재구매한 이유', '모공 부각 심한 날엔 이 조합만 씀', '트러블 날 때 이 순서부터 바꿔야 함', '화장 안 뜨게 하려면 이거부터 바꿔'],
     ai_tech: ['이거 하나로 업무시간 2시간 줄였습니다', '챗GPT 쓸 때 이 프롬프트부터 바꾸세요', '자동화 초보는 이 순서로 시작하면 됩니다', 'AI툴 3개 비교해보고 남긴 결론', '실무에서 바로 먹히는 자동화 루틴 공개'],
     home_living: ['집안일 시간 줄이려면 이 동선부터 바꿔요', '정리 못하는 사람도 이 규칙이면 됩니다', '주방 정리 이거 하나로 반은 끝나요', '살림템 사기 전에 이 체크부터 하세요', '매일 지치는 집안일, 이 방식이 제일 빨랐어요'],
+    finance: ['돈이 안 모이는 사람은 이 순서부터 틀렸어요', '월급 관리, 이 구조로 바꾸니 바로 달라졌어요', 'ETF 초보는 이 실수부터 막아야 합니다', '가계부 오래 못 가는 이유, 딱 하나입니다', '재테크 시작 전에 이 체크리스트 먼저 보세요'],
+    professional_brand: ['전문직 계정, 조회수보다 이게 먼저입니다', '문의가 늘어나는 프로필 구조는 따로 있습니다', '상담 전환되는 콘텐츠는 이렇게 다릅니다', '회사홍보 안 먹히는 이유, 포지션부터 틀렸습니다', '신뢰를 쌓는 30초 오프닝 공식'],
+    fashion: ['코디가 촌스러워 보이는 진짜 이유', '체형별로 이 비율만 바꿔도 달라집니다', '출근룩 실패 줄이는 3가지 기준', '가성비 옷도 고급져 보이는 조합', '쇼핑 전에 이 체크부터 하세요'],
+    pet: ['반려견 문제행동, 이 루틴부터 바꿔보세요', '사료 바꿀 때 꼭 확인해야 할 기준', '초보 집사가 가장 많이 놓치는 포인트', '반려동물 간식, 이건 꼭 피하세요', '병원 가기 전 집에서 확인할 체크리스트'],
+    cooking: ['요리 초보가 실패하는 이유, 순서가 틀렸어요', '10분 저녁, 이 조합이면 충분합니다', '자취생 식비 줄이는 레시피 루틴', '다이어트 식단, 맛없게 먹지 마세요', '주방 동선만 바꿔도 요리 속도가 달라집니다'],
+    travel: ['2박3일 여행, 이 동선이면 손해 안 봅니다', '여행 예산 새는 포인트를 막는 법', '현지에서 후회 안 하는 준비 체크리스트', '항공/숙소 예약 타이밍 이렇게 잡으세요', '초보 여행자일수록 이 루트를 추천합니다'],
+    self_growth: ['계획만 세우고 실패하는 이유는 이것', '꾸준함이 안 되는 사람의 공통 패턴', '작심삼일 끊는 1주 루틴 설계법', '목표 달성률을 올리는 체크포인트', '자기계발, 이 순서부터 바꾸면 됩니다'],
   }
   return map[topCategoryKey] || ['초보가 가장 먼저 바꿔야 할 1가지', '전환 잘 나오는 포맷', '이 순서로 만들면 편합니다', '시작할 때 놓치면 안 되는 포인트', '수익화 속도 올리는 실전 루틴']
 }
@@ -1611,21 +1668,17 @@ function rfComputeResult(answerMap) {
 
   const topStyles = rfTopEntries(adjusted.styleScores, 3)
   const topProductions = rfTopEntries(adjusted.productionScores, 2)
-  const monetizationRoutes = rfTopEntries(adjusted.monetizationScores, 2).map(([key]) => ({ key, label: RF_MONETIZATION_META[key].label, reason: RF_MONETIZATION_META[key].reason }))
-  const contentDirections = rfBuildDirections(topCategories, topStyles[0]?.[0], topProductions[0]?.[0])
-  const titles = rfBuildTitles(topCategories[0]?.key)
   const visibilityStyle = topProductions[0]?.[0] === 'face_off' ? '비노출 또는 부분 노출 적합' : topProductions[0]?.[0] === 'face_on' ? '얼굴 노출형 진행 적합' : '부분 노출 + 보이스오버 혼합 적합'
 
   return {
     rawScores,
     adjustedScores: adjusted,
     topCategories,
-    contentDirections,
-    titles,
-    monetizationRoutes,
+    dominantStyleKey: topStyles[0]?.[0] || 'informative',
+    dominantProductionKey: topProductions[0]?.[0] || 'face_partial',
     personaSummary: {
       visibilityStyle,
-      contentStyle: `${({ informative: '정보형', empathetic: '공감형', problem_solving: '문제 해결형', review: '리뷰형', storytelling: '스토리형' }[topStyles[0]?.[0]] || '정보형')} 중심`,
+      contentStyle: `${rfStyleLabel(topStyles[0]?.[0])} 중심`,
       strength: `${topCategories[0]?.label || '핵심'} 카테고리 설득력`,
     },
     adjustmentNote: notes.length > 0 ? `자연어 보정 적용: ${notes.join(' / ')}` : '자연어 보정 없음',
@@ -1636,12 +1689,48 @@ function rfComputeResult(answerMap) {
 function RecommendScreenV2() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answers, setAnswers] = useState({})
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState(null)
   const isCompleted = currentIndex >= RF_QUESTIONS.length
   const currentQuestion = RF_QUESTIONS[currentIndex]
   const progress = Math.round((currentIndex / RF_QUESTIONS.length) * 100)
 
   const result = useMemo(() => (isCompleted ? rfComputeResult(answers) : null), [answers, isCompleted])
   const currentText = currentQuestion?.type === 'free_text' ? answers[currentQuestion.code]?.text || '' : ''
+
+  useEffect(() => {
+    if (!result?.topCategories?.length) {
+      setSelectedCategoryKey(null)
+      return
+    }
+    setSelectedCategoryKey((prev) => prev || result.topCategories[0].key)
+  }, [result])
+
+  const selectedCategory = useMemo(() => {
+    if (!result?.topCategories?.length) return null
+    return result.topCategories.find((item) => item.key === selectedCategoryKey) || result.topCategories[0]
+  }, [result, selectedCategoryKey])
+
+  const selectedActionPlan = useMemo(() => {
+    if (!result || !selectedCategory) return null
+    return rfBuildActionPlanForCategory(
+      selectedCategory.key,
+      selectedCategory.label,
+      result.dominantStyleKey,
+      result.dominantProductionKey,
+      result.adjustedScores.monetizationScores,
+    )
+  }, [result, selectedCategory])
+
+  const selectedTitles = useMemo(() => {
+    if (!selectedCategory) return []
+    return rfBuildTitles(selectedCategory.key)
+  }, [selectedCategory])
+
+  const selectedCategoryNarrative = useMemo(() => {
+    if (!selectedCategory) return ''
+    return RF_CATEGORY_MARKET_NARRATIVE[selectedCategory.key]
+      || `${selectedCategory.label} 카테고리는 현재 성향과 시장 흐름 모두에서 유리한 포지션입니다.`
+  }, [selectedCategory])
 
   const saveLikert = (code, value) => {
     setAnswers((prev) => ({ ...prev, [code]: { value } }))
@@ -1657,6 +1746,7 @@ function RecommendScreenV2() {
   const restart = () => {
     setAnswers({})
     setCurrentIndex(0)
+    setSelectedCategoryKey(null)
   }
 
   return (
@@ -1747,8 +1837,14 @@ function RecommendScreenV2() {
           <section className="mt-12 grid gap-8">
             <div className="rounded-[36px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.38)] md:p-10">
               <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">Recommendation Result</div>
-              <h1 className="mt-5 text-[42px] font-bold leading-[1.15] tracking-[-0.03em] text-[#F8FAFC]">#1 추천: {result.topCategories[0].label}</h1>
-              <p className="mt-4 max-w-[840px] text-base leading-8 text-[#9CA3AF]">선택형 점수 + 자연어 보정을 합산한 결과, 현재 성향과 가장 잘 맞는 카테고리는 <span className="font-semibold text-[#F8FAFC]">{result.topCategories[0].label}</span> 입니다.</p>
+              <h1 className="mt-5 text-[42px] font-bold leading-[1.15] tracking-[-0.03em] text-[#F8FAFC]">{selectedCategory ? `추천 카테고리: ${selectedCategory.label}` : '추천 결과'}</h1>
+              <p className="mt-4 max-w-[840px] text-base leading-8 text-[#9CA3AF]">
+                선택형 점수 + 자연어 보정을 합산한 결과입니다.
+                {' '}
+                <span className="font-semibold text-[#F8FAFC]">#1 / #2 / #3 카테고리 카드를 클릭하면</span>
+                {' '}
+                해당 카테고리 기준으로 실행 방향과 수익 루트가 즉시 변경됩니다.
+              </p>
               <div className="mt-3 text-xs text-[#94A3B8]">{result.sourceNote}</div>
             </div>
 
@@ -1757,7 +1853,16 @@ function RecommendScreenV2() {
                 <div className="text-sm font-semibold uppercase tracking-[0.16em] text-[#CBD5E1]">Top Categories</div>
                 <div className="mt-5 space-y-4">
                   {result.topCategories.map((item, index) => (
-                    <div key={item.key} className={`rounded-2xl border p-4 ${index === 0 ? 'border-[#93C5FD] bg-[#162033]' : 'border-[#2F3543] bg-[#171B24]'}`}>
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setSelectedCategoryKey(item.key)}
+                      className={`w-full rounded-2xl border p-4 text-left transition ${
+                        selectedCategory?.key === item.key
+                          ? 'border-[#93C5FD] bg-[#162033] shadow-[0_0_0_1px_rgba(147,197,253,0.28)]'
+                          : 'border-[#2F3543] bg-[#171B24] hover:border-[#4B5563] hover:bg-[#1C2230]'
+                      }`}
+                    >
                       <div className="flex items-center justify-between gap-4">
                         <div><div className="text-xs font-semibold text-[#CBD5E1]">#{index + 1} 추천</div><div className="mt-1 text-xl font-bold text-[#F8FAFC]">{item.label}</div></div>
                         <div className="rounded-full border border-[#374151] bg-[#12151D] px-3 py-1 text-sm font-bold text-[#F8FAFC]">{item.score}점</div>
@@ -1770,16 +1875,16 @@ function RecommendScreenV2() {
                         <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">경쟁 {item.competition}</div>
                         <div className="rounded-lg border border-[#2F3543] bg-[#12151D] px-2 py-2">수익화 {item.monetizationSpeed}</div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </article>
 
               <article className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
                 <div className="text-sm font-semibold uppercase tracking-[0.16em] text-[#CBD5E1]">Action Plan</div>
-                <h2 className="mt-4 text-[24px] font-bold text-[#F8FAFC]">콘텐츠 방향 + 수익 루트</h2>
+                <h2 className="mt-4 text-[24px] font-bold text-[#F8FAFC]">{selectedCategory ? `${selectedCategory.label} 콘텐츠 방향 + 수익 루트` : '콘텐츠 방향 + 수익 루트'}</h2>
                 <div className="mt-5 space-y-3">
-                  {result.contentDirections.map((direction, index) => (
+                  {selectedActionPlan?.directions.map((direction, index) => (
                     <div key={`${direction.label}-${index}`} className="rounded-xl border border-[#2F3543] bg-[#171B24] p-4">
                       <div className="text-sm font-semibold text-[#F8FAFC]">{direction.label}</div>
                       <div className="mt-1 text-xs leading-6 text-[#AEB6C5]">{direction.reason}</div>
@@ -1787,7 +1892,7 @@ function RecommendScreenV2() {
                   ))}
                 </div>
                 <div className="mt-6 space-y-3">
-                  {result.monetizationRoutes.map((route) => (
+                  {selectedActionPlan?.monetizationRoutes.map((route) => (
                     <div key={route.key} className="rounded-xl border border-[#2F3543] bg-[#171B24] p-4">
                       <div className="text-sm font-semibold text-[#F8FAFC]">{route.label}</div>
                       <div className="mt-1 text-xs leading-6 text-[#AEB6C5]">{route.reason}</div>
@@ -1798,15 +1903,30 @@ function RecommendScreenV2() {
                   <div className="text-sm font-semibold text-[#F8FAFC]">페르소나 요약</div>
                   <div className="mt-2 text-xs leading-6 text-[#AEB6C5]">노출 성향: {result.personaSummary.visibilityStyle}</div>
                   <div className="text-xs leading-6 text-[#AEB6C5]">콘텐츠 타입: {result.personaSummary.contentStyle}</div>
-                  <div className="text-xs leading-6 text-[#AEB6C5]">강점: {result.personaSummary.strength}</div>
+                  <div className="text-xs leading-6 text-[#AEB6C5]">강점: {selectedCategory ? `${selectedCategory.label} 카테고리 설득력` : result.personaSummary.strength}</div>
                 </div>
               </article>
             </div>
 
             <article className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
+              <div className="text-sm font-semibold uppercase tracking-[0.16em] text-[#CBD5E1]">Why Start Now</div>
+              <h2 className="mt-4 text-[24px] font-bold text-[#F8FAFC]">지금 바로 인스타를 시작해야 하는 이유</h2>
+              <div className="mt-4 space-y-2">
+                {RF_INSTAGRAM_WHY_NOW.map((line, index) => (
+                  <p key={`why-now-${index}`} className="text-sm leading-7 text-[#AEB6C5]">{line}</p>
+                ))}
+              </div>
+              <div className="mt-7 rounded-2xl border border-[#2F3543] bg-[#171B24] p-5">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#CBD5E1]">선택 카테고리 시장성</div>
+                <h3 className="mt-2 text-lg font-bold text-[#F8FAFC]">{selectedCategory?.label} 카테고리가 유리한 이유</h3>
+                <p className="mt-3 text-sm leading-7 text-[#AEB6C5]">{selectedCategoryNarrative}</p>
+              </div>
+            </article>
+
+            <article className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
               <div className="text-sm font-semibold uppercase tracking-[0.16em] text-[#CBD5E1]">추천 제목 5개</div>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {result.titles.map((title, index) => (
+                {selectedTitles.map((title, index) => (
                   <div key={`${title}-${index}`} className="rounded-xl border border-[#2F3543] bg-[#171B24] px-4 py-3 text-sm text-[#E5E7EB]">{title}</div>
                 ))}
               </div>
