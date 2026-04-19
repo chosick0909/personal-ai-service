@@ -93,27 +93,31 @@ export default function ChatPanel({ entering = false, embedded = false }) {
       </div>
 
       <div className={`${embedded ? 'min-h-0 overflow-hidden' : 'mt-4 min-h-0 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
-        <div className={`h-full min-h-0 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
-          {pendingSuggestion ? (
-            <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
-              최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
-            </div>
-          ) : null}
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          <div className={`min-h-0 flex-1 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
+            <div className="space-y-3">
+              {pendingSuggestion ? (
+                <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+                  최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
+                </div>
+              ) : null}
 
-          {chatMessages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              onApply={applySuggestion}
-              onApplyFeedback={applyFeedback}
-              isApplyingFeedback={isApplyingFeedback}
-            />
-          ))}
-          {isChatLoading ? (
-            <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
-              AI가 수정안을 정리하고 있습니다...
+              {chatMessages.map((message) => (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  onApply={applySuggestion}
+                  onApplyFeedback={applyFeedback}
+                  isApplyingFeedback={isApplyingFeedback}
+                />
+              ))}
+              {isChatLoading ? (
+                <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
+                  AI가 수정안을 정리하고 있습니다...
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
         </div>
       </div>
 
