@@ -47,7 +47,6 @@ export default function Editor({ transitioning = false, entering = false, embedd
     feedback,
     goBackToResults,
     exportCurrentScriptPdf,
-    copilotLimits,
     copilotRemaining,
   } = useAppState()
   const totalLength =
@@ -137,13 +136,10 @@ export default function Editor({ transitioning = false, entering = false, embedd
                   ? '피드백 생성 중...'
                   : isFeedbackLimitReached
                     ? '피드백 한도 도달'
-                    : `피드백 받기 (남은 ${copilotRemaining.feedback}회)`}
+                    : `피드백 (${copilotRemaining.feedback}회)`}
               </button>
             </div>
-            <p className="mt-3 text-xs leading-5 text-[#94A3B8]">
-              초안당 피드백은 최대 {copilotLimits.feedback}회입니다. 현재 남은 피드백 {copilotRemaining.feedback}회
-              / 남은 수정 요청 {copilotRemaining.chat}회
-            </p>
+            <p className="mt-3 text-xs leading-5 text-[#94A3B8]">남은 횟수: 피드백 {copilotRemaining.feedback}회 · 수정 {copilotRemaining.chat}회</p>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

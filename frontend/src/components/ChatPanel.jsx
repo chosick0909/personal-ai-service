@@ -70,7 +70,6 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
     isApplyingFeedback,
     pendingSuggestion,
     applySuggestion,
-    copilotLimits,
     copilotRemaining,
   } = useAppState()
   const isChatLimitReached = copilotRemaining.chat <= 0
@@ -93,10 +92,9 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
         <p className="mt-2 text-sm leading-6 text-[#8E97A6]">
           훅 조정, 문장 압축, CTA 교체 같은 편집 요청을 바로 보낼 수 있습니다.
         </p>
-        <p className="mt-2 text-xs leading-5 text-[#94A3B8]">
-          비용 최적화를 위해 초안당 수정 요청 {copilotLimits.chat}회, 피드백 {copilotLimits.feedback}회로 제한됩니다.
-          현재 남은 수정 요청 {copilotRemaining.chat}회 / 피드백 {copilotRemaining.feedback}회
-        </p>
+        <div className="mt-2 text-xs text-[#94A3B8]">
+          수정 {copilotRemaining.chat}회 · 피드백 {copilotRemaining.feedback}회 남음
+        </div>
       </div>
 
       <div className={`${embedded ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
@@ -128,7 +126,7 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
             <div className="rounded-[24px] border border-[#2F3543] bg-[#161B24] p-3">
               {isChatLimitReached ? (
                 <div className="mb-3 rounded-xl border border-[#7F1D1D] bg-[#2A1515] px-3 py-2 text-xs leading-5 text-[#FECACA]">
-                  이번 초안의 수정 요청 한도를 모두 사용했습니다. 에디터에서 직접 수정하거나 새 초안을 선택해 주세요.
+                  수정 요청 한도 도달
                 </div>
               ) : null}
               <textarea
@@ -146,7 +144,7 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
               >
                 {isChatLimitReached
                   ? '수정 요청 한도 도달'
-                  : `수정 요청 보내기 (남은 ${copilotRemaining.chat}회)`}
+                  : `수정 요청 (${copilotRemaining.chat}회)`}
               </button>
             </div>
           </div>
