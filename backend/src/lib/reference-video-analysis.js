@@ -508,7 +508,7 @@ async function buildStructureBlueprint({
       {
         role: 'system',
         content:
-          '너는 레퍼런스에서 논리 구조만 추출하는 분석기다. 주제/업종/키워드는 제거하고 추상 구조만 JSON으로 반환한다.',
+          '너는 레퍼런스에서 논리 구조만 추출하는 분석기다. 주제/업종/키워드는 제거하고 추상 구조만 JSON으로 반환한다. 특히 hookSentencePattern에는 훅의 시작 방식, 문장 리듬, 긴장 형성 순서만 추상적으로 적고 원문 단어는 넣지 마라.',
       },
       {
         role: 'user',
@@ -517,7 +517,7 @@ async function buildStructureBlueprint({
           `구조 분석:\n${analysisResult?.structureAnalysis || '-'}\n\n` +
           `후킹 분석:\n${analysisResult?.hookAnalysis || '-'}\n\n` +
           `심리 분석:\n${analysisResult?.psychologyAnalysis || '-'}\n\n` +
-          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[]}',
+          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[],"hookSentencePattern":[]}',
       },
     ],
   })
@@ -526,7 +526,8 @@ async function buildStructureBlueprint({
   const logicFlow = normalizeStringList(parsed?.logicFlow, 4)
   const persuasionPattern = normalizeStringList(parsed?.persuasionPattern, 4)
   const messageStructure = normalizeStringList(parsed?.messageStructure, 4)
-  return { logicFlow, persuasionPattern, messageStructure }
+  const hookSentencePattern = normalizeStringList(parsed?.hookSentencePattern, 4)
+  return { logicFlow, persuasionPattern, messageStructure, hookSentencePattern }
 }
 
 function normalizeVariationDraft(parsed, fallback, guides = {}) {
@@ -689,6 +690,11 @@ async function regenerateVariationWithGPT({
               ? structureBlueprint.messageStructure.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
               : '- 없음'
           }\n\n` +
+          `HOOK 문장 구조 참고:\n${
+            structureBlueprint?.hookSentencePattern?.length
+              ? structureBlueprint.hookSentencePattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
           `핵심 인사이트:\n${
             generationGuides.keyInsights.length
               ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -703,6 +709,9 @@ async function regenerateVariationWithGPT({
           '작성 조건:\n' +
           '- 레퍼런스 표면 주제/키워드/문장 변형 사용 금지(패러프레이즈 포함)\n' +
           '- 레퍼런스는 논리 구조만 참고하고 내용은 현재 계정 도메인으로 완전 재창조\n' +
+          '- HOOK만 레퍼런스의 시작 방식, 문장 호흡, 긴장 형성 순서를 참고해 비슷한 구조로 작성 가능\n' +
+          '- 단, HOOK에서도 레퍼런스 원문 단어/주제/상황/고유명사 복사 금지\n' +
+          '- BODY/CTA는 HOOK 이후 흐름만 자연스럽게 이어가고, 문장 구조는 현재 계정 도메인에 맞게 새로 작성\n' +
           '- 분석 메타 표현(첫 3초, 프레임, 클로즈업, 화면, 자막, 연출) 금지\n' +
           '- 사람 말투로 자연스럽게 작성\n' +
           '- HOOK/BODY/CTA 흐름을 분명히 연결\n' +
@@ -1301,6 +1310,7 @@ export async function analyzeReferenceVideo({
             '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
             '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
             'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
+            'HOOK은 레퍼런스의 문장 구조와 리듬을 가장 강하게 참고하되, BODY/CTA는 계정 도메인 기준으로 새로 전개하라.',
             'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
             '아래 인사이트/체크포인트는 필요한 만큼 자연스럽게 반영하고, usedInsights/usedCheckpoints에는 실제로 참고한 항목만 기록하라.',
             '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
@@ -1338,12 +1348,20 @@ export async function analyzeReferenceVideo({
                 ? structureBlueprint.messageStructure.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
                 : '- 없음'
             }\n\n` +
+            `HOOK 문장 구조 참고(가장 중요):\n${
+              structureBlueprint.hookSentencePattern.length
+                ? structureBlueprint.hookSentencePattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
             '작성 강제 조건:\n' +
             '- 1단계: 논리 구조만 사용\n' +
             '- 2단계: 현재 계정 도메인으로 완전 변환\n' +
             '- 3단계: 완전히 새로운 주장(thesis) 생성\n' +
             '- 4단계: thesis 기반으로 HOOK/BODY/CTA 작성\n' +
             '- 레퍼런스 표면 단어/문장 변형/원문 주제 복사 금지\n' +
+            '- HOOK은 위의 HOOK 문장 구조 참고를 따라 시작 방식과 문장 호흡을 최대한 비슷하게 맞춘다\n' +
+            '- 단, HOOK도 원문 단어/원문 상황/고유명사는 절대 사용 금지\n' +
+            '- BODY/CTA는 레퍼런스 문장 구조를 따라 쓰지 말고 현재 계정 맥락으로 자연스럽게 새로 쓴다\n' +
             '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 작성\n' +
             '- 키워드를 억지로 끼워 넣지 말고, 자연스러운 주장과 흐름을 우선\n\n' +
             `핵심 인사이트(우선 참고):\n${
