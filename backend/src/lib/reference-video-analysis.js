@@ -571,6 +571,12 @@ function buildForbiddenTermsForGuard(guard = {}) {
   return normalizeStringList(base, 30)
 }
 
+function pickSettingCue(guard = {}, offset = 0) {
+  const cues = Array.isArray(guard.settingCues) ? guard.settingCues : []
+  if (!cues.length) return ''
+  return cues[Math.abs(offset) % cues.length] || cues[0]
+}
+
 function buildFallbackVariation(config, guard = {}, guides = {}) {
   const keyword1 = guard.anchors?.[0] || guard.category || '콘텐츠'
   const keyword2 = guard.anchors?.[1] || guard.anchors?.[0] || '핵심 포인트'
@@ -581,28 +587,109 @@ function buildFallbackVariation(config, guard = {}, guides = {}) {
     (guides.checkpoints || []).find((item) => !forbiddenTerms.some((term) => containsTerm(item, term))) || ''
   const insight1 = safeInsight1 || '첫 문장에서 긴장감을 만듭니다.'
   const insight2 = safeInsight2 || '핵심 포인트를 짧게 압축합니다.'
-  const cue = guard.settingCues?.[0] || guard.accountGoal || ''
+  const cue = pickSettingCue(guard, 0) || guard.accountGoal || ''
+  const cue2 = pickSettingCue(guard, 1) || cue
+  const hardCue =
+    Array.isArray(guard.hardSettingCues) && guard.hardSettingCues.length ? guard.hardSettingCues[0] : ''
+
+  if (config?.label === 'A안') {
+    return {
+      label: config.label,
+      angle: config.angle,
+      coreMessage: `${keyword1}에서 자주 하는 실수 교정`,
+      hookIntent: '문제 체감',
+      bodyLogic: '실수 원인 -> 바로 적용',
+      ctaReason: '손해 회피',
+      hook: `${keyword1} 하시는 분들, 이 실수 하나면 전체 인상이 바로 무너집니다.`,
+      body:
+        `많이 놓치는 지점은 ${keyword2}입니다. ${insight1} ${cue ? `${cue} 기준으로` : ''} 지금 바로 한 단계씩 바꿔보세요. ` +
+        `${hardCue ? `${hardCue} 원칙으로` : ''} ${insight2}`,
+      cta: `오늘 영상 저장해 두고 ${keyword1} 체크리스트 1번부터 바로 적용해 보세요.`,
+      usedInsights: normalizeStringList(guides.keyInsights, 2),
+      usedCheckpoints: normalizeStringList(guides.checkpoints, 2),
+      usedChunkIds: [],
+      usedKnowledge: [],
+      alignment: { ok: true, reason: 'fallback-generated' },
+    }
+  }
+
+  if (config?.label === 'B안') {
+    return {
+      label: config.label,
+      angle: config.angle,
+      coreMessage: `${keyword1} 실행 순서 압축`,
+      hookIntent: '즉시 이해',
+      bodyLogic: '3단계 정리',
+      ctaReason: '즉시 실행',
+      hook: `${keyword1}, 복잡하게 하지 말고 지금부터 3단계만 기억하세요.`,
+      body:
+        `1단계는 ${keyword2} 정리, 2단계는 바로 적용, 3단계는 점검입니다. ${cue ? `${cue} 목적이면` : ''} ` +
+        `순서를 지키는 게 성과를 만듭니다. ${hardCue ? `${hardCue}도 함께 체크하세요.` : ''} ${insight2}`,
+      cta: `이 순서 저장해 두고 오늘 바로 10분만 실전 적용해 보세요.`,
+      usedInsights: normalizeStringList(guides.keyInsights, 2),
+      usedCheckpoints: normalizeStringList(guides.checkpoints, 2),
+      usedChunkIds: [],
+      usedKnowledge: [],
+      alignment: { ok: true, reason: 'fallback-generated' },
+    }
+  }
 
   return {
     label: config.label,
     angle: config.angle,
-    coreMessage: `${keyword1} 콘텐츠를 ${config.angle} 방식으로 전달`,
-    hookIntent: '초반 후킹 강화',
-    bodyLogic: '문제-해결 흐름',
-    ctaReason: '즉시 행동 유도',
-    hook: `${keyword1} 하시는 분들, 이 한 가지 놓치면 바로 티 납니다.`,
+    coreMessage: `${keyword1} 고민 공감 + 실행 전환`,
+    hookIntent: '공감 형성',
+    bodyLogic: '현실 공감 -> 작은 성공',
+    ctaReason: '심리적 저항 완화',
+    hook: `${keyword1} 하면서 “왜 나만 안 되지?” 느끼셨다면 지금 내용이 딱 맞습니다.`,
     body:
-      `${keyword1}에서 가장 먼저 봐야 할 건 ${keyword2}입니다. ` +
-      `${insight1} ` +
-      `${cue ? `${cue} 목적이라면` : '실전이라면'} 지금부터 순서대로 적용해 보세요. ` +
-      `${insight2}`,
-    cta: `오늘 영상 저장해 두고 ${keyword1} 체크리스트부터 바로 실행해 보세요.`,
+      `막히는 이유는 대개 ${keyword2}에서 시작됩니다. ${cue2 ? `${cue2}을(를) 목표로` : ''} 너무 크게 바꾸지 말고 한 가지부터 고정해 보세요. ` +
+      `${hardCue ? `${hardCue} 기준만 지켜도` : '작은 변화만으로도'} 흐름이 달라집니다. ${insight1}`,
+    cta: `공감되셨다면 저장하고, 오늘 한 가지 바꾼 결과를 내일 바로 확인해 보세요.`,
     usedInsights: normalizeStringList(guides.keyInsights, 2),
     usedCheckpoints: normalizeStringList(guides.checkpoints, 2),
     usedChunkIds: [],
     usedKnowledge: [],
     alignment: { ok: true, reason: 'fallback-generated' },
   }
+}
+
+function enforceVariationDiversity(variations = [], guard = {}) {
+  const seen = new Map()
+  return variations.map((item, index) => {
+    const normalized = {
+      ...item,
+      hook: String(item?.hook || '').trim(),
+      body: String(item?.body || '').trim(),
+      cta: String(item?.cta || '').trim(),
+    }
+    const fingerprint = [normalized.hook, normalized.body, normalized.cta]
+      .join('|')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const seenCount = seen.get(fingerprint) || 0
+    seen.set(fingerprint, seenCount + 1)
+    if (seenCount === 0) {
+      return normalized
+    }
+
+    const keyword = guard.anchors?.[index % Math.max(guard.anchors?.length || 1, 1)] || guard.category || '콘텐츠'
+    const cue = pickSettingCue(guard, index)
+    const label = String(normalized.label || '')
+
+    if (label === 'A안') {
+      normalized.hook = `${keyword}에서 가장 많이 망가지는 포인트, 지금 바로 짚어드릴게요.`
+      normalized.cta = `${keyword} 실수 방지 포인트 저장하고 오늘 바로 한 번 적용해 보세요.`
+    } else if (label === 'B안') {
+      normalized.hook = `${keyword}, 헷갈리지 않게 순서만 딱 정리해드릴게요.`
+      normalized.cta = `${cue ? `${cue} 기준으로` : ''} 체크리스트 저장해 두고 그대로 실행해 보세요.`
+    } else {
+      normalized.hook = `${keyword} 하면서 답답했던 분들, 여기서부터 흐름을 바꿔봅시다.`
+      normalized.cta = '공감되셨다면 저장하고 오늘 한 가지부터 가볍게 시작해 보세요.'
+    }
+    return normalized
+  })
 }
 
 function normalizeVariationForValidation(rawVariation, index = 0) {
@@ -1107,7 +1194,7 @@ export async function analyzeReferenceVideo({
       .filter(Boolean)
       .join('\n')
 
-    const generatedVariations = await Promise.all(
+    const generatedVariationsRaw = await Promise.all(
       VARIATION_CONFIGS.map((config) =>
         runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
           const variationKnowledge = await retrieveGlobalKnowledgeContext({
@@ -1280,6 +1367,7 @@ export async function analyzeReferenceVideo({
         }),
       ),
     )
+    const generatedVariations = enforceVariationDiversity(generatedVariationsRaw, categoryGuard)
 
     const { data: row, error } = await runStage('save-reference-video', baseContext, async () => {
       const insertPayload = {
