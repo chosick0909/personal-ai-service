@@ -124,6 +124,7 @@ export default function Sidebar() {
     renameReferenceHistoryItem,
     moveReferenceToProject,
     deleteReferenceHistoryItem,
+    startNewProject,
   } = useAppState()
 
   const normalizedQuery = query.trim().toLowerCase()
@@ -268,6 +269,19 @@ export default function Sidebar() {
     }
   }
 
+  const handleNewReferenceAnalysis = () => {
+    startNewProject()
+
+    if (window.location.pathname === '/analyze') {
+      if (window.location.hash !== '#upload') {
+        window.history.replaceState(null, '', '/analyze#upload')
+      }
+      return
+    }
+
+    window.location.assign('/analyze#upload')
+  }
+
   const handleAccountSelect = (account) => {
     if (accounts.length) {
       selectAccount(account.id)
@@ -311,6 +325,13 @@ export default function Sidebar() {
               className="w-full bg-transparent text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
             />
           </label>
+
+          <div className="mt-2">
+            <Row onClick={handleNewReferenceAnalysis}>
+              <IconPencil />
+              새 레퍼런스 분석하기
+            </Row>
+          </div>
         </div>
       </div>
 
