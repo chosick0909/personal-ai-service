@@ -1414,16 +1414,71 @@ const RF_CATEGORY_ACTION_BLUEPRINT = {
 }
 
 const RF_CATEGORY_MARKET_NARRATIVE = {
-  beauty: '뷰티는 글로벌 약 6,500억 달러, 국내 약 8조 원 이상의 검증된 시장입니다. 전후 변화·루틴 제안이 숏폼에서 바로 반응을 만들기 쉽고, 반복 구매 제품이 많아 공동구매/제휴 전환이 빠른 구조입니다.',
-  fashion: '패션은 글로벌 약 1조 5천억 달러, 국내 약 50조 원 규모의 대형 시장입니다. 시각적 변화가 즉시 전달되어 저장/공유가 높고, 코디 기준을 명확히 잡으면 높은 경쟁 속에서도 빠르게 차별화할 수 있습니다.',
-  self_growth: '자기계발은 글로벌 약 4,200억 달러, 국내 약 6조 원 규모이며 연평균 약 9.1% 성장으로 확장성이 큽니다. 짧은 인사이트를 전자책·템플릿·강의로 연결하기 좋은 고부가가치 카테고리입니다.',
-  finance: '재테크는 글로벌 약 4,500억 달러, 국내 약 15조 원 규모와 연평균 약 12.5% 성장률을 보입니다. 구조화된 정보형 콘텐츠의 저장/재방문이 높고, 신뢰 기반으로 디지털 상품·상담 전환이 가능한 시장입니다.',
-  ai_tech: 'AI는 글로벌 약 1,200억 달러, 국내 약 2조 원 규모에 연평균 약 31% 성장으로 가장 빠른 상승 구간입니다. 화면 녹화 중심 운영이 가능해 얼굴 비노출 계정도 시작이 쉽고, 템플릿·자동화 상품으로 확장성이 큽니다.',
-  home_living: '살림/리빙은 글로벌 약 2,800억 달러, 국내 약 12조 원 규모의 실전형 시장입니다. 정리 전후·청소 전후처럼 즉각적 변화가 강해 저장률이 높고, 생활용품 반복 구매 구조로 수익 전환이 안정적입니다.',
-  cooking: '요리는 글로벌 약 4,000억 달러, 국내 약 10조 원 규모로 연평균 약 7.4% 성장합니다. 짧고 따라하기 쉬운 레시피는 저장/재시청이 높고, 식재료·도구·밀키트 제휴로 수익 구조를 만들기 쉽습니다.',
-  pet: '반려동물은 글로벌 약 3,000억 달러, 국내 약 4~6조 원 규모에 연평균 약 6.7% 성장 중입니다. 감성 도달력과 제품 전환이 동시에 강하고, 사료·간식·위생용품 등 반복 소비 덕분에 안정적인 매출 구조가 가능합니다.',
-  travel: '여행은 글로벌 약 9,500억 달러, 국내 약 25조 원 규모로 연평균 약 10.2% 성장합니다. 감성 콘텐츠에 일정·예산 정보를 결합하면 저장/클릭 전환이 높고, 항공·숙소·액티비티 제휴 확장성이 큽니다.',
-  professional_brand: '전문직/회사홍보는 글로벌 약 1,500억 달러, 국내 약 7조 원 규모에 연평균 약 11.8% 성장하는 고단가 리드 시장입니다. 조회수보다 신뢰형 콘텐츠가 중요하며, 상담·서비스 전환 단가가 높은 구조입니다.',
+  beauty: `뷰티 카테고리는 인스타그램 수익화 관점에서 가장 검증된 분야 중 하나입니다. 글로벌 약 6,500억 달러, 국내 약 8조 원 이상의 시장 규모를 형성하고 있으며, 스킨케어·색조를 중심으로 꾸준한 성장세가 이어지고 있습니다.
+
+인스타그램에서는 제품 자체보다 사용감, 전후 변화, 루틴 제안이 콘텐츠로 전환되기 쉬워 초기 계정도 빠르게 반응을 얻기 유리합니다. 특히 피부 고민 해결, 성분 비교, 실제 후기 신뢰도가 전환에 직결되어 작은 계정도 설득력 있는 콘텐츠만 있으면 구매 연결 가능성이 높습니다.
+
+또한 선크림·클렌징·앰플 같은 반복 구매 제품군이 많아 공동구매와 제휴 마케팅 전환 구조가 빠르게 형성됩니다.`,
+  fashion: `패션 카테고리는 인스타그램과 가장 자연스럽게 맞닿아 있는 분야로, 대중성·확장성·수익화 가능성을 동시에 갖춘 시장입니다. 글로벌 약 1조 5천억 달러, 국내 약 50조 원 규모이며 트렌드 순환 덕분에 꾸준한 수요가 유지됩니다.
+
+인스타그램에서는 체형 보정, 출근룩, 가격대별 코디처럼 실용 기준이 분명할수록 저장과 공유가 활발하게 발생합니다. 팔로워 규모가 크지 않아도 구매 의사결정에 직접 도움이 되는 포맷이면 전환으로 연결되기 쉽습니다.
+
+경쟁이 높은 만큼 단순 코디보다 체형·예산·직업군·상황 같은 니치 기준을 선명하게 잡을수록 빠른 차별화가 가능합니다.`,
+  self_growth: `자기계발 카테고리는 단순 조회를 넘어 지식·프레임 자체를 판매할 수 있는 고부가가치 시장입니다. 글로벌 약 4,200억 달러, 국내 약 6조 원 규모이며 연평균 약 9.1% 성장으로 확장성이 큽니다.
+
+인스타그램에서는 긴 강의보다 짧고 바로 적용 가능한 인사이트 콘텐츠가 강하게 작동합니다. 이 분야는 저장·재시청·링크 클릭 같은 행동 지표가 높아 실제 수익화로 이어지기 좋은 특징이 있습니다.
+
+전자책·템플릿·강의·코칭으로 확장하기 쉬워 팔로워 수가 크지 않아도 문제 해결 능력과 구조화된 콘텐츠만 갖추면 높은 객단가 매출을 만들 수 있습니다.`,
+  finance: `재테크 카테고리는 높은 관심도와 실질적 수익 연결 가능성을 동시에 갖춘 분야입니다. 글로벌 약 4,500억 달러, 국내 약 15조 원 규모이며 연평균 약 12.5% 성장률을 보입니다.
+
+인스타그램에서는 복잡한 이론보다 지출 구조, 관리 순서, 체크리스트처럼 즉시 실행 가능한 정보형 콘텐츠가 높은 반응을 얻습니다. 저장과 재방문이 높아 신뢰 형성에 유리하고, 신뢰는 곧 전환으로 이어집니다.
+
+자산관리 앱·금융 플랫폼 제휴, 예산 템플릿·입문 가이드 판매, 상담형 전환까지 확장 가능한 구조라 중장기 수익화에도 강점이 있습니다.`,
+  ai_tech: `AI/테크 카테고리는 2026년 기준 가장 빠르게 성장하는 지식형 시장 중 하나입니다. 글로벌 약 1,200억 달러, 국내 약 2조 원 규모이며 연평균 약 31% 성장으로 상승 탄력이 매우 큽니다.
+
+인스타그램에서는 이론보다 실전 활용 사례가 더 잘 작동합니다. 직장인 자동화, 콘텐츠 제작, 업무 효율화처럼 구체적인 사용 장면을 보여주면 반응과 저장을 동시에 확보하기 쉽습니다.
+
+화면 녹화 중심으로 운영할 수 있어 얼굴 비노출 계정도 진입이 쉽고, 프롬프트 템플릿·자동화 상품·강의·컨설팅으로 고부가가치 확장이 가능합니다.`,
+  home_living: `홈/리빙 카테고리는 화려함보다 실전 전환이 강한 시장입니다. 글로벌 약 2,800억 달러, 국내 약 12조 원 규모이며 연평균 약 5.2%의 안정적인 성장세를 보입니다.
+
+정리 전후·청소 전후처럼 눈에 보이는 변화가 즉각적 만족을 만들어 저장·공유가 활발합니다. 얼굴 노출 없이 손·공간·도구 중심으로도 충분히 제작 가능해 운영 부담이 낮습니다.
+
+수납용품·청소도구·주방용품 등 반복 구매 제품이 많고 시즌 수요도 뚜렷해 공동구매·제휴 전환이 안정적으로 형성됩니다.`,
+  cooking: `요리 카테고리는 일상성과 소비가 직접 연결되는 분야입니다. 글로벌 약 4,000억 달러, 국내 약 10조 원 규모이며 연평균 약 7.4% 성장으로 안정적인 수요가 유지됩니다.
+
+완성 비주얼과 짧은 조리 과정을 결합한 숏폼은 도달과 저장을 동시에 만들기 좋습니다. 특히 재료가 적고 따라 하기 쉬운 레시피일수록 재시청과 공유가 높아집니다.
+
+식재료·밀키트·주방도구 등 연계 제품군이 넓어 공동구매·제휴 전환에 유리하고, 레시피북·식단표 같은 디지털 확장도 가능합니다.`,
+  fitness: `피트니스 카테고리는 루틴 기반 재방문이 강한 분야입니다. 운동·식단은 단발성보다 반복 소비 성격이 강해, 계정 충성도와 장기 전환을 만들기 좋습니다.
+
+인스타그램에서는 전후 비교, 초보 루틴, 자세 교정, 식단 실전 팁처럼 즉시 적용 가능한 콘텐츠가 저장률을 끌어올립니다. 특히 짧은 체크리스트형 포맷은 입문자 유입에 강합니다.
+
+보충제·홈트 도구·디지털 루틴 플랜·코칭 상품까지 수익 경로를 다층적으로 설계할 수 있어 LTV 관점에서도 경쟁력이 있습니다.`,
+  relationship: `관계/연애 카테고리는 공감 밀도가 높은 커뮤니티형 시장입니다. 댓글·DM 기반 상호작용이 활발해 신뢰를 빠르게 쌓기 좋고, 상담형 전환으로 이어지기 유리합니다.
+
+인스타그램에서는 상황별 대화법, 갈등 해결 프레임, 감정 정리 루틴처럼 현실 문제를 바로 다루는 포맷이 높은 체류와 저장을 만듭니다. 스토리텔링과 문제 해결형을 함께 쓰면 반응 폭이 커집니다.
+
+디지털 가이드·체크리스트·코칭형 상품으로 확장 가능해 조회수 중심이 아니라 신뢰 중심 수익화를 노리기 좋은 분야입니다.`,
+  daily_life: `일상/브이로그 카테고리는 도달 확장과 팬덤 축적에 강한 분야입니다. 캐릭터성과 루틴이 쌓일수록 협업·광고 연결 가능성이 커지는 구조입니다.
+
+인스타그램에서 일상 콘텐츠는 정보와 공감을 섞을수록 반응이 좋아집니다. 단순 기록보다 효율 팁, 경험 기반 인사이트를 함께 제시하면 저장·재방문이 빠르게 올라갑니다.
+
+브랜드 협업, 제휴, 자체 상품 연결까지 단계적으로 확장하기 쉬워 초기엔 성장, 중기엔 수익화로 전환하는 운영 전략에 적합합니다.`,
+  pet: `반려동물 카테고리는 감성 도달력과 커머스 전환이 동시에 강한 분야입니다. 글로벌 약 3,000억 달러, 국내 약 4~6조 원 규모이며 연평균 약 6.7% 성장 중입니다.
+
+보호자들은 실사용 후기와 경험 기반 정보를 중요하게 보기 때문에 팔로워 규모가 작아도 공감과 신뢰 중심 콘텐츠는 높은 반응과 전환으로 이어질 수 있습니다.
+
+사료·간식·위생용품 같은 반복 구매 제품군이 중심이라 공동구매·제휴 구조가 강하고, 관리 가이드·체크리스트 같은 지식형 확장도 가능합니다.`,
+  travel: `여행 카테고리는 감성 도달과 제휴 수익화를 동시에 노릴 수 있는 시장입니다. 글로벌 약 9,500억 달러, 국내 약 25조 원 규모이며 연평균 약 10.2% 성장세를 보입니다.
+
+풍경 위주의 콘텐츠보다 일정·예산·동선 정보를 결합한 실용형 포맷이 저장과 클릭 전환을 더 잘 만듭니다. 특히 초보 여행자용 체크리스트형 콘텐츠가 반응이 높습니다.
+
+항공·숙소·액티비티·보험 등 제휴 포인트가 다양해 어필리에이트 확장성이 크고, 일정표·가이드맵 같은 디지털 상품 연결도 용이합니다.`,
+  professional_brand: `전문직 브랜딩 카테고리는 조회수보다 신뢰와 매출 전환에 강한 고단가 시장입니다. 글로벌 약 1,500억 달러, 국내 약 7조 원 규모이며 연평균 약 11.8% 성장 흐름을 보입니다.
+
+인스타그램에서는 사례 기반 문제 해결, 자주 묻는 질문, 숫자 중심 성과 설명 포맷이 상담 문의로 이어지기 쉽습니다. 적은 팔로워여도 타깃 정확도가 높으면 성과가 나오는 구조입니다.
+
+컨설팅·교육·대행·리드 수수료 등 고부가가치 수익모델로 확장 가능해 장기 브랜딩과 매출 전환을 동시에 만들기 좋습니다.`,
 }
 
 function rfStyleLabel(styleKey) {
@@ -1448,6 +1503,21 @@ function rfProductionLabel(productionKey) {
   }[productionKey] || '부분 노출 진행'
 }
 
+function rfBuildComprehensiveSummary(result, selectedCategory) {
+  if (!result || !selectedCategory) return ''
+  const style = rfStyleLabel(result.dominantStyleKey)
+  const production = rfProductionLabel(result.dominantProductionKey)
+  const second = result.topCategories?.[1]?.label
+  const third = result.topCategories?.[2]?.label
+  const compareText = [second, third].filter(Boolean).join(', ')
+
+  return [
+    `응답 패턴을 종합하면 현재 성향은 ${style} 전달을 중심으로 ${production} 방식에서 강점이 뚜렷합니다.`,
+    `그 결과 ${selectedCategory.label} 카테고리가 1순위로 도출됐고, 실행 우선순위는 ${selectedCategory.label}${compareText ? ` → ${compareText}` : ''} 순입니다.`,
+    `즉 지금은 범위를 넓히기보다 1순위 카테고리에 집중해 초기 반응과 전환 데이터를 먼저 확보하는 전략이 가장 유리합니다.`,
+  ].join(' ')
+}
+
 const RF_LIKERT_OPTIONS = [
   { value: 2, label: '매우 그렇다' },
   { value: 1, label: '그렇다' },
@@ -1457,21 +1527,21 @@ const RF_LIKERT_OPTIONS = [
 ]
 
 const RF_QUESTIONS = [
-  { code: 'Q1_INFO_ORGANIZE', type: 'likert', title: '나는 정보를 쉽게 정리해서 전달하는 편이다.', subtitle: '정보형 전달력과 문제해결형 기초 성향을 봅니다.', effects: { styleScores: { informative: 2, problem_solving: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1 } } },
-  { code: 'Q2_EMPATHY', type: 'likert', title: '나는 감정이나 공감 포인트를 말로 풀어내는 편이다.', subtitle: '공감형/스토리형 콘텐츠 적합도를 측정합니다.', effects: { styleScores: { empathetic: 2, storytelling: 1 }, categoryScores: { relationship: 1, daily_life: 1 } } },
-  { code: 'Q3_PROBLEM_SOLVING', type: 'likert', title: '나는 다른 사람의 문제를 듣고 해결책을 제시하는 게 익숙하다.', subtitle: '문제 해결형 콘텐츠와 컨설팅형 수익 적합도를 봅니다.', effects: { styleScores: { problem_solving: 2 }, monetizationScores: { consulting: 1 }, categoryScores: { self_growth: 1, finance: 1, professional_brand: 1 } } },
-  { code: 'Q4_REVIEW_PREFERENCE', type: 'likert', title: '제품이나 도구를 직접 써보고 비교해보는 걸 좋아한다.', subtitle: '리뷰형 콘텐츠와 제품 전환 구조 적합도를 봅니다.', effects: { styleScores: { review: 2 }, monetizationScores: { affiliate: 1, group_buy: 1 }, categoryScores: { beauty: 1, fashion: 1, ai_tech: 1, home_living: 1, pet: 1 } } },
+  { code: 'Q1_INFO_ORGANIZE', type: 'likert', title: '나는 정보를 쉽게 정리해서 전달하는 편이다.', subtitle: '정보형 전달력과 문제해결형 기초 성향을 봅니다.', effects: { styleScores: { informative: 2, problem_solving: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1, professional_brand: 1 } } },
+  { code: 'Q2_EMPATHY', type: 'likert', title: '나는 감정이나 공감 포인트를 말로 풀어내는 편이다.', subtitle: '공감형/스토리형 콘텐츠 적합도를 측정합니다.', effects: { styleScores: { empathetic: 2, storytelling: 1 }, categoryScores: { relationship: 2, daily_life: 1, travel: 1 } } },
+  { code: 'Q3_PROBLEM_SOLVING', type: 'likert', title: '나는 다른 사람의 문제를 듣고 해결책을 제시하는 게 익숙하다.', subtitle: '문제 해결형 콘텐츠와 컨설팅형 수익 적합도를 봅니다.', effects: { styleScores: { problem_solving: 2 }, monetizationScores: { consulting: 1 }, categoryScores: { self_growth: 1, finance: 1, professional_brand: 1, fitness: 1, home_living: 1 } } },
+  { code: 'Q4_REVIEW_PREFERENCE', type: 'likert', title: '제품이나 도구를 직접 써보고 비교해보는 걸 좋아한다.', subtitle: '리뷰형 콘텐츠와 제품 전환 구조 적합도를 봅니다.', effects: { styleScores: { review: 2 }, monetizationScores: { affiliate: 1, group_buy: 1 }, categoryScores: { beauty: 1, fashion: 1, ai_tech: 1, home_living: 1, pet: 1, fitness: 1, cooking: 1 } } },
   { code: 'Q5_FACE_COMFORT', type: 'likert', title: '카메라 앞에서 내 얼굴이나 목소리를 드러내는 게 편하다.', subtitle: '노출 성향과 제작 방식 추천에 반영됩니다.', effects: { productionScores: { face_on: 2, voice_over: 1 } }, special: 'face_comfort' },
-  { code: 'Q6_DEEP_TOPIC', type: 'likert', title: '한 가지 주제를 반복해서 깊게 파는 게 편하다.', subtitle: '지속형 콘텐츠 운영 적합도를 측정합니다.', effects: { styleScores: { informative: 1, problem_solving: 1 }, monetizationScores: { digital_product: 1, consulting: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1, professional_brand: 1 } } },
+  { code: 'Q6_DEEP_TOPIC', type: 'likert', title: '한 가지 주제를 반복해서 깊게 파는 게 편하다.', subtitle: '지속형 콘텐츠 운영 적합도를 측정합니다.', effects: { styleScores: { informative: 1, problem_solving: 1 }, monetizationScores: { digital_product: 1, consulting: 1 }, categoryScores: { self_growth: 1, ai_tech: 1, finance: 1, professional_brand: 1, fitness: 1 } } },
   {
     code: 'Q7_IMPRESSION',
     type: 'single_choice',
     title: '사람들이 내 콘텐츠를 보고 가장 먼저 느꼈으면 하는 건?',
     subtitle: '콘텐츠 첫인상 목표를 정합니다.',
     options: [
-      { code: 'USEFUL', label: '유용하다', description: '정리되어 있고 바로 써먹을 수 있다', effects: { styleScores: { informative: 4, problem_solving: 3 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2 } } },
-      { code: 'TRUST', label: '믿음 간다', description: '검증된 기준과 경험이 느껴진다', effects: { styleScores: { problem_solving: 3, review: 2 }, categoryScores: { beauty: 2, professional_brand: 2, finance: 2 } } },
-      { code: 'FUN', label: '재밌다 / 표현력이 좋다', description: '몰입감 있고 계속 보게 된다', effects: { styleScores: { storytelling: 3, empathetic: 2 }, categoryScores: { daily_life: 2, relationship: 2, fashion: 1 } } },
+      { code: 'USEFUL', label: '유용하다', description: '정리되어 있고 바로 써먹을 수 있다', effects: { styleScores: { informative: 4, problem_solving: 3 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2, home_living: 1, fitness: 1 } } },
+      { code: 'TRUST', label: '믿음 간다', description: '검증된 기준과 경험이 느껴진다', effects: { styleScores: { problem_solving: 3, review: 2 }, categoryScores: { beauty: 2, professional_brand: 2, finance: 1, pet: 1, cooking: 1 } } },
+      { code: 'FUN', label: '재밌다 / 표현력이 좋다', description: '몰입감 있고 계속 보게 된다', effects: { styleScores: { storytelling: 3, empathetic: 2 }, categoryScores: { daily_life: 2, relationship: 2, fashion: 1, travel: 1 } } },
     ],
   },
   {
@@ -1480,9 +1550,9 @@ const RF_QUESTIONS = [
     title: '가장 빨리 수익으로 연결하고 싶은 방식은?',
     subtitle: '초기 수익화 루트 가중치를 강하게 반영합니다.',
     options: [
-      { code: 'PRODUCT', label: '제품 추천/판매', description: '리뷰/추천 기반 전환', effects: { monetizationScores: { group_buy: 5, affiliate: 4 }, categoryScores: { beauty: 2, fashion: 2, home_living: 2, cooking: 2, pet: 2 } } },
+      { code: 'PRODUCT', label: '제품 추천/판매', description: '리뷰/추천 기반 전환', effects: { monetizationScores: { group_buy: 5, affiliate: 4 }, categoryScores: { beauty: 2, fashion: 2, home_living: 2, cooking: 2, pet: 2, fitness: 1 } } },
       { code: 'KNOWLEDGE', label: '지식/노하우 판매', description: '전자책/강의/컨설팅', effects: { monetizationScores: { digital_product: 5, consulting: 3 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2, professional_brand: 2 } } },
-      { code: 'BRAND_COLLAB', label: '광고/브랜드 협업', description: '도달 기반 협업', effects: { monetizationScores: { ad_collab: 5 }, categoryScores: { daily_life: 2, beauty: 2, fashion: 2, travel: 2 } } },
+      { code: 'BRAND_COLLAB', label: '광고/브랜드 협업', description: '도달 기반 협업', effects: { monetizationScores: { ad_collab: 5 }, categoryScores: { daily_life: 2, beauty: 1, fashion: 2, travel: 2, relationship: 1 } } },
     ],
   },
   {
@@ -1491,9 +1561,9 @@ const RF_QUESTIONS = [
     title: '가장 자신 있는 제작 방식은?',
     subtitle: '실행 난이도와 꾸준함을 동시에 반영합니다.',
     options: [
-      { code: 'HAND_PRODUCT', label: '손/제품 시연', description: '제품 보여주며 설명하기', effects: { productionScores: { hand_product: 4 }, styleScores: { review: 2 }, categoryScores: { beauty: 2, cooking: 2, home_living: 2, pet: 1 } } },
+      { code: 'HAND_PRODUCT', label: '손/제품 시연', description: '제품 보여주며 설명하기', effects: { productionScores: { hand_product: 4 }, styleScores: { review: 2 }, categoryScores: { beauty: 2, cooking: 2, home_living: 2, pet: 1, fitness: 1 } } },
       { code: 'SCREEN_RECORDING', label: '화면 녹화/자료 정리', description: '툴 사용법, 정보형 정리', effects: { productionScores: { screen_recording: 4, text_slide: 1 }, styleScores: { informative: 2 }, categoryScores: { ai_tech: 3, finance: 2, professional_brand: 2 } } },
-      { code: 'TALK_STORY', label: '말하기/경험 공유', description: '스토리텔링 중심 진행', effects: { productionScores: { face_on: 2, voice_over: 2 }, styleScores: { storytelling: 2, empathetic: 2 }, categoryScores: { daily_life: 2, self_growth: 1 } } },
+      { code: 'TALK_STORY', label: '말하기/경험 공유', description: '스토리텔링 중심 진행', effects: { productionScores: { face_on: 2, voice_over: 2 }, styleScores: { storytelling: 2, empathetic: 2 }, categoryScores: { daily_life: 2, self_growth: 1, relationship: 1, travel: 1 } } },
     ],
   },
   {
@@ -1502,13 +1572,57 @@ const RF_QUESTIONS = [
     title: '초기 3개월 목표에 가장 가까운 건?',
     subtitle: '성장 우선순위를 최종 고정합니다.',
     options: [
-      { code: 'FIRST_REVENUE', label: '빠르게 첫 매출 만들기', description: '전환 중심 실험 우선', effects: { monetizationScores: { group_buy: 3, affiliate: 3 }, styleScores: { review: 2 }, categoryScores: { beauty: 1, home_living: 1, pet: 1, cooking: 1 } } },
+      { code: 'FIRST_REVENUE', label: '빠르게 첫 매출 만들기', description: '전환 중심 실험 우선', effects: { monetizationScores: { group_buy: 3, affiliate: 3 }, styleScores: { review: 2 }, categoryScores: { beauty: 1, home_living: 1, pet: 1, cooking: 1, fitness: 1 } } },
       { code: 'POSITIONING', label: '전문성 포지션 만들기', description: '신뢰 기반 브랜딩 축적', effects: { monetizationScores: { digital_product: 3, consulting: 2 }, styleScores: { informative: 2 }, categoryScores: { self_growth: 2, ai_tech: 2, finance: 2, professional_brand: 2 } } },
       { code: 'REACH_SCALE', label: '팔로워/도달 빠르게 키우기', description: '조회수/반응 지표 우선', effects: { monetizationScores: { ad_collab: 2 }, styleScores: { storytelling: 2, empathetic: 2 }, categoryScores: { daily_life: 2, fashion: 1, travel: 1 } } },
     ],
   },
-  { code: 'Q11_FREQUENT_QUESTION', type: 'free_text', title: '사람들이 나한테 자주 묻는 질문은?', subtitle: '키워드 기반으로 카테고리/콘텐츠 타입을 보정합니다.', placeholder: '예: 피부 뭐 써요? / 돈 관리는 어떻게 해요? / AI 자동화 어떻게 시작해요?' },
-  { code: 'Q12_PAY_50K', type: 'free_text', title: '지금 당장 5만원 받고 해결해줄 수 있는 것은?', subtitle: '수익 모델과 카테고리에 강한 보정이 들어갑니다.', placeholder: '예: 트러블 피부 루틴 정리 / AI 업무 자동화 템플릿 / 살림 동선 체크리스트' },
+  {
+    code: 'Q11_FITNESS_FOCUS',
+    type: 'single_choice',
+    title: '운동/건강 콘텐츠를 만든다면 가장 자신 있는 포맷은?',
+    subtitle: '피트니스 적합도를 별도 분리합니다.',
+    options: [
+      { code: 'FITNESS_ROUTINE', label: '초보 루틴 설계/체크형', description: '운동 순서, 루틴, 습관화 중심', effects: { categoryScores: { fitness: 4, self_growth: 1 }, styleScores: { problem_solving: 2 }, monetizationScores: { digital_product: 1 } } },
+      { code: 'FITNESS_FORM', label: '자세 교정/문제 해결형', description: '실수 교정과 개선 중심', effects: { categoryScores: { fitness: 4 }, styleScores: { informative: 1, problem_solving: 2 }, monetizationScores: { consulting: 1 } } },
+      { code: 'FITNESS_NOPE', label: '운동/건강은 비중 낮게', description: '다른 카테고리에 집중', effects: { categoryScores: { daily_life: 1, relationship: 1 } } },
+    ],
+  },
+  {
+    code: 'Q12_TRAVEL_FOCUS',
+    type: 'single_choice',
+    title: '여행 콘텐츠라면 어떤 강점이 더 크나요?',
+    subtitle: '여행 카테고리 전용 가중치를 분리합니다.',
+    options: [
+      { code: 'TRAVEL_ROUTE', label: '동선/예산 최적화 정보', description: '일정·비용·루트 설계', effects: { categoryScores: { travel: 4 }, styleScores: { informative: 2 }, monetizationScores: { affiliate: 1 } } },
+      { code: 'TRAVEL_STORY', label: '경험/감성 스토리 전달', description: '분위기 + 공감형 콘텐츠', effects: { categoryScores: { travel: 3, daily_life: 1 }, styleScores: { storytelling: 2, empathetic: 1 }, monetizationScores: { ad_collab: 1 } } },
+      { code: 'TRAVEL_NOPE', label: '여행은 우선순위 낮음', description: '다른 카테고리에 집중', effects: { categoryScores: { self_growth: 1, home_living: 1 } } },
+    ],
+  },
+  {
+    code: 'Q13_PET_FOCUS',
+    type: 'single_choice',
+    title: '반려동물 콘텐츠라면 어떤 쪽이 더 맞나요?',
+    subtitle: '반려동물 카테고리 적합도를 분리합니다.',
+    options: [
+      { code: 'PET_PROBLEM', label: '행동/건강 문제 해결형', description: '실전 팁·루틴 중심', effects: { categoryScores: { pet: 4 }, styleScores: { problem_solving: 2 }, monetizationScores: { group_buy: 1, affiliate: 1 } } },
+      { code: 'PET_REVIEW', label: '사료/간식/용품 리뷰형', description: '실사용 후기·비교형', effects: { categoryScores: { pet: 4 }, styleScores: { review: 2 }, monetizationScores: { group_buy: 1, affiliate: 1 } } },
+      { code: 'PET_NOPE', label: '반려동물은 우선순위 낮음', description: '다른 카테고리에 집중', effects: { categoryScores: { fashion: 1, relationship: 1 } } },
+    ],
+  },
+  {
+    code: 'Q14_RELATIONSHIP_FOCUS',
+    type: 'single_choice',
+    title: '관계/연애 콘텐츠라면 어떤 강점이 더 큰가요?',
+    subtitle: '관계/연애 카테고리 적합도를 분리합니다.',
+    options: [
+      { code: 'RELATIONSHIP_GUIDE', label: '상황별 대화/해결 가이드', description: '문제 해결 중심', effects: { categoryScores: { relationship: 4 }, styleScores: { empathetic: 1, problem_solving: 2 }, monetizationScores: { consulting: 1 } } },
+      { code: 'RELATIONSHIP_STORY', label: '경험/공감 스토리형', description: '공감·몰입 중심', effects: { categoryScores: { relationship: 4, daily_life: 1 }, styleScores: { storytelling: 2, empathetic: 2 }, monetizationScores: { digital_product: 1 } } },
+      { code: 'RELATIONSHIP_NOPE', label: '관계/연애는 우선순위 낮음', description: '다른 카테고리에 집중', effects: { categoryScores: { ai_tech: 1, professional_brand: 1 } } },
+    ],
+  },
+  { code: 'Q15_FREQUENT_QUESTION', type: 'free_text', title: '사람들이 나한테 자주 묻는 질문은?', subtitle: '키워드 기반으로 카테고리/콘텐츠 타입을 미세 보정합니다.', placeholder: '예: 피부 뭐 써요? / 돈 관리는 어떻게 해요? / AI 자동화 어떻게 시작해요?' },
+  { code: 'Q16_PAY_50K', type: 'free_text', title: '지금 당장 5만원 받고 해결해줄 수 있는 것은?', subtitle: '수익 모델과 카테고리를 상위 후보 내에서 보정합니다.', placeholder: '예: 트러블 피부 루틴 정리 / AI 업무 자동화 템플릿 / 살림 동선 체크리스트' },
 ]
 
 function rfEmptyMap(keys) {
@@ -1573,40 +1687,64 @@ function rfObjectiveScore(answerMap) {
 function rfFreeTextAdjust(rawScores, answerMap) {
   const adjusted = rfCloneScores(rawScores)
   const notes = []
-  const text = `${answerMap.Q11_FREQUENT_QUESTION?.text || ''}\n${answerMap.Q12_PAY_50K?.text || ''}`.toLowerCase()
+  const baseTopCategoryKeys = new Set(rfTopEntries(rawScores.categoryScores, 3).map(([key]) => key))
+  const boostCategoryInTop3 = (key, amount, note) => {
+    if (!baseTopCategoryKeys.has(key)) return
+    adjusted.categoryScores[key] += amount
+    if (note) notes.push(note)
+  }
+
+  const text = `${answerMap.Q15_FREQUENT_QUESTION?.text || ''}\n${answerMap.Q16_PAY_50K?.text || ''}`.toLowerCase()
   const hasAny = (keywords) => keywords.some((word) => text.includes(word))
 
   if (hasAny(['피부', '트러블', '화장품', '메이크업', '올리브영'])) {
-    adjusted.categoryScores.beauty += 5
-    adjusted.styleScores.review += 2
-    adjusted.monetizationScores.group_buy += 2
-    adjusted.monetizationScores.affiliate += 2
-    notes.push('뷰티 키워드 보정')
+    boostCategoryInTop3('beauty', 3, '뷰티 키워드 보정')
+    adjusted.styleScores.review += 1
+    adjusted.monetizationScores.group_buy += 1
+    adjusted.monetizationScores.affiliate += 1
   }
   if (hasAny(['정리', '수납', '청소', '주방', '살림'])) {
-    adjusted.categoryScores.home_living += 5
-    adjusted.styleScores.problem_solving += 2
-    adjusted.monetizationScores.group_buy += 2
-    notes.push('리빙 키워드 보정')
+    boostCategoryInTop3('home_living', 3, '리빙 키워드 보정')
+    adjusted.styleScores.problem_solving += 1
+    adjusted.monetizationScores.group_buy += 1
   }
   if (hasAny(['ai', '자동화', '업무', '챗gpt', '프롬프트', 'gpt'])) {
-    adjusted.categoryScores.ai_tech += 5
-    adjusted.styleScores.informative += 2
-    adjusted.monetizationScores.digital_product += 3
-    adjusted.monetizationScores.affiliate += 2
-    notes.push('AI/자동화 키워드 보정')
+    boostCategoryInTop3('ai_tech', 3, 'AI/자동화 키워드 보정')
+    adjusted.styleScores.informative += 1
+    adjusted.monetizationScores.digital_product += 2
+    adjusted.monetizationScores.affiliate += 1
   }
   if (hasAny(['재무', 'etf', '월급', '지출', '가계부', '투자'])) {
-    adjusted.categoryScores.finance += 5
-    adjusted.styleScores.informative += 2
-    adjusted.monetizationScores.digital_product += 2
-    adjusted.monetizationScores.consulting += 2
-    notes.push('재무 키워드 보정')
+    boostCategoryInTop3('finance', 3, '재무 키워드 보정')
+    adjusted.styleScores.informative += 1
+    adjusted.monetizationScores.digital_product += 1
+    adjusted.monetizationScores.consulting += 1
+  }
+  if (hasAny(['운동', '헬스', '다이어트', '근력', '홈트', '체지방', '식단'])) {
+    boostCategoryInTop3('fitness', 3, '피트니스 키워드 보정')
+    adjusted.styleScores.problem_solving += 1
+    adjusted.monetizationScores.digital_product += 1
+  }
+  if (hasAny(['여행', '항공', '숙소', '호텔', '동선', '투어', '예산'])) {
+    boostCategoryInTop3('travel', 3, '여행 키워드 보정')
+    adjusted.styleScores.storytelling += 1
+    adjusted.monetizationScores.affiliate += 1
+    adjusted.monetizationScores.ad_collab += 1
+  }
+  if (hasAny(['반려', '강아지', '고양이', '집사', '사료', '산책', '훈련'])) {
+    boostCategoryInTop3('pet', 3, '반려동물 키워드 보정')
+    adjusted.styleScores.review += 1
+    adjusted.monetizationScores.group_buy += 1
+    adjusted.monetizationScores.affiliate += 1
+  }
+  if (hasAny(['연애', '썸', '이별', '커플', '대화', '갈등', '관계'])) {
+    boostCategoryInTop3('relationship', 3, '관계/연애 키워드 보정')
+    adjusted.styleScores.empathetic += 1
+    adjusted.monetizationScores.consulting += 1
   }
   if (hasAny(['컨설팅', '코칭', '상담', '진단', '멘토링'])) {
-    adjusted.monetizationScores.consulting += 3
-    adjusted.categoryScores.professional_brand += 2
-    notes.push('상담/코칭 키워드 보정')
+    adjusted.monetizationScores.consulting += 2
+    boostCategoryInTop3('professional_brand', 2, '상담/코칭 키워드 보정')
   }
 
   return { adjusted, notes }
@@ -1652,6 +1790,9 @@ function rfBuildTitles(topCategoryKey) {
     cooking: ['요리 초보가 실패하는 이유, 순서가 틀렸어요', '10분 저녁, 이 조합이면 충분합니다', '자취생 식비 줄이는 레시피 루틴', '다이어트 식단, 맛없게 먹지 마세요', '주방 동선만 바꿔도 요리 속도가 달라집니다'],
     travel: ['2박3일 여행, 이 동선이면 손해 안 봅니다', '여행 예산 새는 포인트를 막는 법', '현지에서 후회 안 하는 준비 체크리스트', '항공/숙소 예약 타이밍 이렇게 잡으세요', '초보 여행자일수록 이 루트를 추천합니다'],
     self_growth: ['계획만 세우고 실패하는 이유는 이것', '꾸준함이 안 되는 사람의 공통 패턴', '작심삼일 끊는 1주 루틴 설계법', '목표 달성률을 올리는 체크포인트', '자기계발, 이 순서부터 바꾸면 됩니다'],
+    fitness: ['운동 초보가 3주 안에 포기하는 진짜 이유', '체지방보다 먼저 바꿔야 하는 습관 1개', '홈트는 이 루틴부터 시작해야 오래 갑니다', '식단 실패를 줄이는 현실적인 순서', '운동 효과 안 나는 사람은 이 체크부터'],
+    relationship: ['연애가 꼬일 때 대부분 여기서 틀립니다', '썸이 끊기는 사람의 대화 패턴', '갈등이 줄어드는 한 문장 습관', '관계가 멀어지기 전에 확인할 신호', '이 대화법 하나로 분위기가 달라집니다'],
+    daily_life: ['하루가 계속 꼬이는 사람의 공통 루틴', '일상 생산성 올리는 현실적인 3단계', '시간이 부족한 사람일수록 먼저 바꿀 것', '지치는 일상을 가볍게 만드는 구조', '매일 반복되는 문제, 이 방식이면 줄어듭니다'],
   }
   return map[topCategoryKey] || ['초보가 가장 먼저 바꿔야 할 1가지', '전환 잘 나오는 포맷', '이 순서로 만들면 편합니다', '시작할 때 놓치면 안 되는 포인트', '수익화 속도 올리는 실전 루틴']
 }
@@ -1732,6 +1873,10 @@ function RecommendScreenV2() {
       || `${selectedCategory.label} 카테고리는 현재 성향과 시장 흐름 모두에서 유리한 포지션입니다.`
   }, [selectedCategory])
 
+  const comprehensiveSummary = useMemo(() => {
+    return rfBuildComprehensiveSummary(result, selectedCategory)
+  }, [result, selectedCategory])
+
   const saveLikert = (code, value) => {
     setAnswers((prev) => ({ ...prev, [code]: { value } }))
     setCurrentIndex((prev) => prev + 1)
@@ -1773,13 +1918,13 @@ function RecommendScreenV2() {
             <aside className="rounded-[32px] border border-[#2F3543] bg-[#12151D]/95 p-8 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl">
               <div className="text-sm font-semibold text-[#CBD5E1]">Q{currentIndex + 1} / {RF_QUESTIONS.length}</div>
               <h1 className="mt-4 text-[34px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F8FAFC]">내 콘텐츠 방향 추천받기</h1>
-              <p className="mt-4 text-sm leading-7 text-[#9CA3AF]">12문항 하이브리드 진단으로 카테고리·콘텐츠 타입·수익 루트를 점수 기반으로 추천합니다.</p>
+              <p className="mt-4 text-sm leading-7 text-[#9CA3AF]">{RF_QUESTIONS.length}문항 하이브리드 진단으로 카테고리·콘텐츠 타입·수익 루트를 점수 기반으로 추천합니다.</p>
               <div className="mt-8">
                 <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF]"><span>진행률</span><span>{progress}%</span></div>
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1E2432]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#CBD5E1_0%,#F8FAFC_100%)] transition-all duration-300" style={{ width: `${progress}%` }} /></div>
               </div>
               <div className="mt-8 rounded-2xl border border-[#2F3543] bg-[#171B24] px-4 py-4 text-xs leading-6 text-[#AEB6C5]">
-                Q11, Q12는 자연어 보정 질문입니다.
+                Q15, Q16은 자연어 보정 질문입니다.
                 <br />
                 선택형 점수를 뒤집지 않고 상위 후보를 보정하는 방식으로 적용됩니다.
               </div>
@@ -1838,14 +1983,7 @@ function RecommendScreenV2() {
             <div className="rounded-[36px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.38)] md:p-10">
               <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">Recommendation Result</div>
               <h1 className="mt-5 text-[42px] font-bold leading-[1.15] tracking-[-0.03em] text-[#F8FAFC]">{selectedCategory ? `추천 카테고리: ${selectedCategory.label}` : '추천 결과'}</h1>
-              <p className="mt-4 max-w-[840px] text-base leading-8 text-[#9CA3AF]">
-                선택형 점수 + 자연어 보정을 합산한 결과입니다.
-                {' '}
-                <span className="font-semibold text-[#F8FAFC]">#1 / #2 / #3 카테고리 카드를 클릭하면</span>
-                {' '}
-                해당 카테고리 기준으로 실행 방향과 수익 루트가 즉시 변경됩니다.
-              </p>
-              <div className="mt-3 text-xs text-[#94A3B8]">{result.sourceNote}</div>
+              <p className="mt-4 max-w-[840px] text-base leading-8 text-[#9CA3AF]">{comprehensiveSummary}</p>
             </div>
 
             <div className="grid gap-8 lg:grid-cols-[1fr_1fr]">
@@ -1919,7 +2057,7 @@ function RecommendScreenV2() {
               <div className="mt-7 rounded-2xl border border-[#2F3543] bg-[#171B24] p-5">
                 <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#CBD5E1]">선택 카테고리 시장성</div>
                 <h3 className="mt-2 text-lg font-bold text-[#F8FAFC]">{selectedCategory?.label} 카테고리가 유리한 이유</h3>
-                <p className="mt-3 text-sm leading-7 text-[#AEB6C5]">{selectedCategoryNarrative}</p>
+                <p className="mt-3 whitespace-pre-line text-sm leading-7 text-[#AEB6C5]">{selectedCategoryNarrative}</p>
               </div>
             </article>
 
