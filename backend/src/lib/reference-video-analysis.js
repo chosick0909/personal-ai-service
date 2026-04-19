@@ -429,7 +429,10 @@ function buildGenerationGuides({ analysisResult }) {
       insights.filter((line) => isUsableScriptGuideLine(line)),
       4,
     ),
-    checkpoints: normalizeStringList(checkpoints, 4),
+    checkpoints: normalizeStringList(
+      checkpoints.filter((line) => isUsableScriptGuideLine(line)),
+      4,
+    ),
   }
 }
 
@@ -438,7 +441,7 @@ function isUsableScriptGuideLine(line = '') {
   if (!text) return false
   // Script generation guides should avoid visual/meta-analysis jargon.
   const bannedMetaPattern =
-    /(첫\s*\d+초|클로즈업|화면|자막|컷\s*전환|프레임|장면|시선\s*집중|문구|도입부에서는|전개에서는|결론에서는)/i
+    /(첫\s*\d+초|클로즈업|화면|자막|컷\s*전환|프레임|장면|시선\s*집중|문구|도입부에서는|전개에서는|결론에서는|영상|편집|연출)/i
   return !bannedMetaPattern.test(text)
 }
 
@@ -558,75 +561,64 @@ function pickSettingCue(guard = {}, offset = 0) {
   return cues[Math.abs(offset) % cues.length] || cues[0]
 }
 
-function buildFallbackVariation(config, guard = {}, guides = {}) {
-  const keyword1 = guard.anchors?.[0] || guard.category || '콘텐츠'
-  const keyword2 = guard.anchors?.[1] || guard.anchors?.[0] || '핵심 포인트'
-  const insight1 = guides.keyInsights?.[0] || '첫 문장에서 긴장감을 만듭니다.'
-  const insight2 = guides.checkpoints?.[0] || '핵심 포인트를 짧게 압축합니다.'
-  const cue = pickSettingCue(guard, 0) || guard.accountGoal || ''
-  const cue2 = pickSettingCue(guard, 1) || cue
-  const hardCue =
-    Array.isArray(guard.hardSettingCues) && guard.hardSettingCues.length ? guard.hardSettingCues[0] : ''
+async function regenerateVariationWithGPT({
+  openai,
+  chatModel,
+  config,
+  categoryGuard,
+  guardPromptSummary,
+  characterSystemPrompt,
+  generationGuides,
+  retryReason = '',
+}) {
+  const response = await openai.chat.completions.create({
+    model: chatModel,
+    temperature: 0.35,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '당신은 숏폼 스크립트 재생성 편집자다. 계정 세팅을 최우선으로 자연스러운 HOOK/BODY/CTA를 새로 작성한다. 출력은 JSON만 반환한다.',
+      },
+      {
+        role: 'user',
+        content:
+          `전략 라벨: ${config.label}\n전략 방향: ${config.angle}\n` +
+          `카테고리: ${categoryGuard.category}\n` +
+          `세팅 신호(최소 1개 이상 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
+          `${retryReason ? `재생성 사유: ${retryReason}\n` : ''}\n` +
+          `핵심 인사이트:\n${
+            generationGuides.keyInsights.length
+              ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `실행 포인트:\n${
+            generationGuides.checkpoints.length
+              ? generationGuides.checkpoints.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `캐릭터 세팅:\n${characterSystemPrompt || '없음'}\n\n` +
+          '작성 조건:\n' +
+          '- 분석 메타 표현(첫 3초, 프레임, 클로즈업, 화면, 자막, 연출) 금지\n' +
+          '- 사람 말투로 자연스럽게 작성\n' +
+          '- HOOK/BODY/CTA 흐름을 분명히 연결\n\n' +
+          '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
+      },
+    ],
+  })
 
-  if (config?.label === 'A안') {
-    return {
-      label: config.label,
-      angle: config.angle,
-      coreMessage: `${keyword1}에서 자주 하는 실수 교정`,
-      hookIntent: '문제 체감',
-      bodyLogic: '실수 원인 -> 바로 적용',
-      ctaReason: '손해 회피',
-      hook: `${keyword1} 하시는 분들, 이 실수 하나면 전체 인상이 바로 무너집니다.`,
-      body:
-        `많이 놓치는 지점은 ${keyword2}입니다. ${insight1} ${cue ? `${cue} 기준으로` : ''} 지금 바로 한 단계씩 바꿔보세요. ` +
-        `${hardCue ? `${hardCue} 원칙으로` : ''} ${insight2}`,
-      cta: `오늘 영상 저장해 두고 ${keyword1} 체크리스트 1번부터 바로 적용해 보세요.`,
-      usedInsights: normalizeStringList(guides.keyInsights, 2),
-      usedCheckpoints: normalizeStringList(guides.checkpoints, 2),
-      usedChunkIds: [],
-      usedKnowledge: [],
-      alignment: { ok: true, reason: 'fallback-generated' },
-    }
-  }
-
-  if (config?.label === 'B안') {
-    return {
-      label: config.label,
-      angle: config.angle,
-      coreMessage: `${keyword1} 실행 순서 압축`,
-      hookIntent: '즉시 이해',
-      bodyLogic: '3단계 정리',
-      ctaReason: '즉시 실행',
-      hook: `${keyword1}, 복잡하게 하지 말고 지금부터 3단계만 기억하세요.`,
-      body:
-        `1단계는 ${keyword2} 정리, 2단계는 바로 적용, 3단계는 점검입니다. ${cue ? `${cue} 목적이면` : ''} ` +
-        `순서를 지키는 게 성과를 만듭니다. ${hardCue ? `${hardCue}도 함께 체크하세요.` : ''} ${insight2}`,
-      cta: `이 순서 저장해 두고 오늘 바로 10분만 실전 적용해 보세요.`,
-      usedInsights: normalizeStringList(guides.keyInsights, 2),
-      usedCheckpoints: normalizeStringList(guides.checkpoints, 2),
-      usedChunkIds: [],
-      usedKnowledge: [],
-      alignment: { ok: true, reason: 'fallback-generated' },
-    }
-  }
-
+  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
   return {
     label: config.label,
     angle: config.angle,
-    coreMessage: `${keyword1} 고민 공감 + 실행 전환`,
-    hookIntent: '공감 형성',
-    bodyLogic: '현실 공감 -> 작은 성공',
-    ctaReason: '심리적 저항 완화',
-    hook: `${keyword1} 하면서 “왜 나만 안 되지?” 느끼셨다면 지금 내용이 딱 맞습니다.`,
-    body:
-      `막히는 이유는 대개 ${keyword2}에서 시작됩니다. ${cue2 ? `${cue2}을(를) 목표로` : ''} 너무 크게 바꾸지 말고 한 가지부터 고정해 보세요. ` +
-      `${hardCue ? `${hardCue} 기준만 지켜도` : '작은 변화만으로도'} 흐름이 달라집니다. ${insight1}`,
-    cta: `공감되셨다면 저장하고, 오늘 한 가지 바꾼 결과를 내일 바로 확인해 보세요.`,
-    usedInsights: normalizeStringList(guides.keyInsights, 2),
-    usedCheckpoints: normalizeStringList(guides.checkpoints, 2),
+    hook: String(parsed?.hook || '').trim(),
+    body: String(parsed?.body || '').trim(),
+    cta: String(parsed?.cta || '').trim(),
+    usedInsights: normalizeStringList(generationGuides.keyInsights, 2),
+    usedCheckpoints: normalizeStringList(generationGuides.checkpoints, 2),
     usedChunkIds: [],
     usedKnowledge: [],
-    alignment: { ok: true, reason: 'fallback-generated' },
+    alignment: { ok: true, reason: 'fallback-regenerated' },
   }
 }
 
@@ -676,7 +668,7 @@ function needsFlowPolish(variation = {}) {
   if (!text) return false
 
   const awkwardPattern =
-    /(첫\s*\d+초|클로즈업|화면|자막|문구|프레임|장면|시선\s*집중|도입부에서는|전개에서는|결론에서는|저\s*원래부터|즉각\s*사로잡)/i
+    /(첫\s*\d+초|클로즈업|화면|자막|문구|프레임|장면|시선\s*집중|도입부에서는|전개에서는|결론에서는|영상|편집|연출|저\s*원래부터|즉각\s*사로잡)/i
   return awkwardPattern.test(text)
 }
 
@@ -712,7 +704,7 @@ function normalizeVariationForValidation(rawVariation, index = 0) {
 
 function validateVariationAlignment(variation, guard) {
   if (!guard?.category || guard.category === '기타') {
-    return { ok: true, reason: '카테고리 가드 없음' }
+    return { ok: true, reason: '카테고리 가드 없음', warnings: [] }
   }
 
   const text = [variation?.hook, variation?.body, variation?.cta]
@@ -721,16 +713,13 @@ function validateVariationAlignment(variation, guard) {
     .join('\n')
 
   if (!text) {
-    return { ok: false, reason: '본문이 비어 있음' }
+    return { ok: false, reason: '본문이 비어 있음', warnings: ['본문이 비어 있음'] }
   }
 
+  const warnings = []
   const anchorHits = (guard.anchors || []).filter((term) => containsTerm(text, term))
-  const minAnchorHits = guard.anchors?.length >= 4 ? 2 : 1
-  if (guard.anchors?.length && anchorHits.length < minAnchorHits) {
-    return {
-      ok: false,
-      reason: `카테고리(${guard.category}) 핵심 키워드 반영 부족(현재 ${anchorHits.length}개, 최소 ${minAnchorHits}개): ${guard.anchors.slice(0, 4).join(', ')}`,
-    }
+  if (guard.anchors?.length && anchorHits.length < 1) {
+    warnings.push(`카테고리 키워드 반영이 약함: ${guard.anchors.slice(0, 4).join(', ')}`)
   }
 
   const hookText = String(variation?.hook || '').trim()
@@ -740,10 +729,7 @@ function validateVariationAlignment(variation, guard) {
       guard.anchors.some((term) => containsTerm(sectionText, term)),
     )
     if (!sectionAnchorHit) {
-      return {
-        ok: false,
-        reason: `카테고리(${guard.category}) 키워드가 HOOK/BODY 핵심 구간에 없음`,
-      }
+      warnings.push(`카테고리 키워드가 HOOK/BODY 핵심 구간에 없음`)
     }
   }
 
@@ -751,10 +737,7 @@ function validateVariationAlignment(variation, guard) {
   if (settingCues.length) {
     const cueHit = settingCues.some((cue) => containsTerm(text, cue))
     if (!cueHit) {
-      return {
-        ok: false,
-        reason: `계정 설정 신호(목표/전략/상품) 미반영: ${settingCues.slice(0, 3).join(', ')}`,
-      }
+      warnings.push(`계정 설정 신호 반영이 약함: ${settingCues.slice(0, 3).join(', ')}`)
     }
   }
 
@@ -764,10 +747,7 @@ function validateVariationAlignment(variation, guard) {
       (cue) => containsTerm(hookText, cue) || containsTerm(bodyText, cue),
     )
     if (!coreCueHit) {
-      return {
-        ok: false,
-        reason: `세팅 신호가 HOOK/BODY 핵심 구간에 없음: ${settingCues.slice(0, 2).join(', ')}`,
-      }
+      warnings.push(`세팅 신호가 HOOK/BODY 핵심 구간에 없음: ${settingCues.slice(0, 2).join(', ')}`)
     }
   }
 
@@ -775,14 +755,11 @@ function validateVariationAlignment(variation, guard) {
   if (hardSettingCues.length) {
     const hardCueHit = hardSettingCues.some((cue) => containsTerm(text, cue))
     if (!hardCueHit) {
-      return {
-        ok: false,
-        reason: `핵심 세팅 신호(캐릭터/AI추가정보) 미반영: ${hardSettingCues.slice(0, 2).join(', ')}`,
-      }
+      warnings.push(`핵심 세팅 신호 미반영: ${hardSettingCues.slice(0, 2).join(', ')}`)
     }
   }
 
-  return { ok: true, reason: '카테고리 정합 통과' }
+  return { ok: true, reason: '카테고리 정합 통과', warnings }
 }
 
 async function runStage(stage, context, task) {
@@ -1222,7 +1199,6 @@ export async function analyzeReferenceVideo({
             `세팅 신호(최소 1개 이상 직접 반영): ${
               guardPromptSummary.settingCues.join(', ') || '없음'
             }\n\n` +
-            `공통 분석 요약:\n구조: ${analysisResult.structureAnalysis || '-'}\n후킹: ${analysisResult.hookAnalysis || '-'}\n심리: ${analysisResult.psychologyAnalysis || '-'}\n\n` +
             `참고 글로벌 지식(요약본):\n${compactKnowledgeContext || '검색된 지식 없음'}\n\n` +
             '분량 규칙(중요): 1분 릴스 기준으로 충분히 길게 작성하세요.\n' +
             '- 목표 길이: 약 50~70초\n' +
@@ -1305,22 +1281,54 @@ export async function analyzeReferenceVideo({
           }
 
           if (normalized && !alignment.ok) {
-            normalized = buildFallbackVariation(config, categoryGuard, generationGuides)
+            normalized = await regenerateVariationWithGPT({
+              openai,
+              chatModel,
+              config,
+              categoryGuard,
+              guardPromptSummary,
+              characterSystemPrompt,
+              generationGuides,
+              retryReason: alignment.reason,
+            })
             alignment = validateVariationAlignment(normalized, categoryGuard)
           }
 
           if (!normalized) {
-            normalized = buildFallbackVariation(config, categoryGuard, generationGuides)
+            normalized = await regenerateVariationWithGPT({
+              openai,
+              chatModel,
+              config,
+              categoryGuard,
+              guardPromptSummary,
+              characterSystemPrompt,
+              generationGuides,
+              retryReason: '초안 생성 결과가 비어 있음',
+            })
+            alignment = validateVariationAlignment(normalized, categoryGuard)
           }
 
           const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
 
           if (!alignment.ok) {
-            normalized = buildFallbackVariation(config, categoryGuard, {})
+            normalized = await regenerateVariationWithGPT({
+              openai,
+              chatModel,
+              config,
+              categoryGuard,
+              guardPromptSummary,
+              characterSystemPrompt,
+              generationGuides,
+              retryReason: alignment.reason,
+            })
             alignment = validateVariationAlignment(normalized, categoryGuard)
           }
 
-          if (normalized && alignment.ok && needsFlowPolish(normalized)) {
+          if (
+            normalized &&
+            alignment.ok &&
+            (needsFlowPolish(normalized) || (Array.isArray(alignment.warnings) && alignment.warnings.length > 0))
+          ) {
             try {
               const polishResponse = await openai.chat.completions.create({
                 model: chatModel,
