@@ -59,7 +59,7 @@ function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }
   )
 }
 
-export default function ChatPanel({ entering = false, embedded = false }) {
+export default function ChatPanel({ entering = false, embedded = false, fixedHeight = null }) {
   const {
     chatMessages,
     draftMessage,
@@ -79,9 +79,14 @@ export default function ChatPanel({ entering = false, embedded = false }) {
     <div
       className={`grid min-h-0 overflow-hidden ${
         embedded
-          ? 'h-full grid-rows-[auto_minmax(0,1fr)_auto] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
+          ? 'grid-rows-[auto_minmax(0,1fr)_auto] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
           : 'h-full bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'
       }`}
+      style={
+        embedded && Number.isFinite(fixedHeight) && fixedHeight > 0
+          ? { height: `${fixedHeight}px`, maxHeight: `${fixedHeight}px` }
+          : undefined
+      }
     >
       <div className={`${embedded ? 'shrink-0 border-b border-[#2F3543] px-5 py-3' : 'shrink-0 rounded-[24px] border border-[#2F3543] bg-[#121821] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className="flex items-center justify-between gap-3">
