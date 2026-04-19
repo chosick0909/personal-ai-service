@@ -37,7 +37,7 @@ function InsightStatCard({ title, subtitle, value }) {
   )
 }
 
-function InsightPanel({ title, subtitle, body, stats }) {
+function InsightPanel({ title, body, stats }) {
   return (
     <article className="rounded-[20px] border border-[#2F3543] bg-[#131720] p-6">
       <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">Key Insight</div>
@@ -48,7 +48,6 @@ function InsightPanel({ title, subtitle, body, stats }) {
           <InsightStatCard key={item.title} title={item.title} subtitle={item.subtitle} value={item.value} />
         ))}
       </div>
-      <div className="mt-4 text-xs font-medium text-[#AEB6C5]">{subtitle}</div>
     </article>
   )
 }
@@ -74,7 +73,9 @@ export default function ResultCards({ transitioning = false, entering = false })
     saveVersion,
   } = useAppState()
   const editorSectionRef = useRef(null)
+  const editorPanelRef = useRef(null)
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
+  const [editorPanelHeight, setEditorPanelHeight] = useState(null)
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
@@ -103,7 +104,6 @@ export default function ResultCards({ transitioning = false, entering = false })
       {
         title: '3단 구조: 문제 제기 → 구체 사례 → 직접적 CTA',
         body: referenceData?.structureAnalysis || '첫 문장 문제 제기 후 사례를 압축하고 명확한 CTA로 마무리되는 구조입니다.',
-        subtitle: '자세히 보기',
         stats: [
           { title: '후킹 시간', value: '1-2초' },
           { title: '본문 밀도', value: '높음' },
@@ -113,7 +113,6 @@ export default function ResultCards({ transitioning = false, entering = false })
       {
         title: '첫 1~2초 결과 암시 + 강한 문제 제기',
         body: referenceData?.hookAnalysis || '초반에 결과를 암시하고 문제를 직접 제기해 스크롤을 멈추게 만드는 패턴입니다.',
-        subtitle: '자세히 보기',
         stats: [
           { title: '주목도', value: '89%' },
           { title: '완주율', value: '76%' },
@@ -123,9 +122,8 @@ export default function ResultCards({ transitioning = false, entering = false })
       {
         title: '손해 회피 + 즉시 적용 + 자기 효능감',
         body: referenceData?.psychologyAnalysis || '손실 회피 심리와 즉시 적용 가능성을 결합해 행동 전환을 유도하는 타입입니다.',
-        subtitle: '자세히 보기',
         stats: [
-          { title: '설득력', value: '84점' },
+          { title: '설득력', value: '높음' },
           { title: '공감도', value: '높음' },
           { title: '행동 유도', value: '강함' },
         ],
@@ -133,7 +131,6 @@ export default function ResultCards({ transitioning = false, entering = false })
       {
         title: '텍스트 우선 노출 + 빠른 컷 전환',
         body: referenceData?.frameInsight || '텍스트 포인트가 먼저 보이고 컷 전환이 빨라 메시지 긴장감을 유지합니다.',
-        subtitle: '자세히 보기',
         stats: [
           { title: '시각 집중도', value: '92%' },
           { title: '컷 속도', value: '2-3초' },
@@ -159,6 +156,33 @@ export default function ResultCards({ transitioning = false, entering = false })
 
     return () => window.clearTimeout(timer)
   }, [shouldScrollToEditor, currentStep, selectedScript])
+
+  useEffect(() => {
+    if (currentStep !== 'editor' || !selectedScript || !editorPanelRef.current) {
+      return
+    }
+
+    const updateHeight = () => {
+      const nextHeight = editorPanelRef.current?.getBoundingClientRect().height
+      if (Number.isFinite(nextHeight) && nextHeight > 0) {
+        setEditorPanelHeight(Math.round(nextHeight))
+      }
+    }
+
+    updateHeight()
+
+    const observer = new ResizeObserver(() => {
+      updateHeight()
+    })
+
+    observer.observe(editorPanelRef.current)
+    window.addEventListener('resize', updateHeight)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateHeight)
+    }
+  }, [currentStep, selectedScript])
 
   return (
     <div
@@ -270,11 +294,11 @@ export default function ResultCards({ transitioning = false, entering = false })
               </div>
             </div>
             <div className="mt-8 grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="min-w-0">
+              <div ref={editorPanelRef} className="min-w-0">
                 <Editor embedded entering={false} transitioning={false} />
               </div>
               <div className="min-w-0 h-full">
-                <ChatPanel embedded entering={false} />
+                <ChatPanel embedded entering={false} fixedHeight={editorPanelHeight} />
               </div>
             </div>
           </section>
