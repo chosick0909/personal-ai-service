@@ -176,6 +176,7 @@ function normalizeHistoryCacheItem(item = {}) {
     id: String(item.id),
     title: typeof item.title === 'string' ? item.title : '',
     topic: typeof item.topic === 'string' ? item.topic : '',
+    transcript: typeof item.transcript === 'string' ? item.transcript : '',
     fileName: typeof item.fileName === 'string' ? item.fileName : '',
     createdAt: item.createdAt || item.created_at || null,
     updatedAt: item.updatedAt || item.updated_at || null,
@@ -213,6 +214,7 @@ function mergeHistoryItem(serverItem, localItem) {
     selectedScriptId: normalizedLocal.selectedScriptId || normalizedServer.selectedScriptId,
     activeScriptId: normalizedLocal.activeScriptId || normalizedServer.activeScriptId,
     editorContent: normalizedLocal.editorContent || normalizedServer.editorContent,
+    transcript: normalizedLocal.transcript || normalizedServer.transcript || '',
     versions: normalizedLocal.versions?.length ? normalizedLocal.versions : normalizedServer.versions,
     feedback: normalizedLocal.feedback || normalizedServer.feedback,
     generatedScripts:

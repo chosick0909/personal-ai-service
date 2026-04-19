@@ -172,6 +172,7 @@ export async function listReferenceVideoHistory() {
     id: item.id,
     title: item.title,
     topic: item.topic,
+    transcript: item.transcript || '',
     createdAt: item.created_at,
     status: item.processing_status || 'ready',
     projectId: item.project_id || null,

@@ -128,6 +128,14 @@ export default function Sidebar() {
   } = useAppState()
 
   const normalizedQuery = query.trim().toLowerCase()
+  const matchesReferenceSearch = (item) => {
+    if (!normalizedQuery) {
+      return true
+    }
+    const title = String(item.title || '').toLowerCase()
+    const transcript = String(item.transcript || '').toLowerCase()
+    return title.includes(normalizedQuery) || transcript.includes(normalizedQuery)
+  }
 
   const projectRows = useMemo(() => {
     const dynamic = projects.slice(0, 20).map((project) => ({
@@ -152,6 +160,7 @@ export default function Sidebar() {
     const dynamic = scopedHistory.slice(0, 30).map((item) => ({
       id: item.id,
       title: item.title,
+      transcript: item.transcript || '',
       projectId: item.projectId || null,
       active: referenceData?.id === item.id,
       isProcessing:
@@ -174,7 +183,7 @@ export default function Sidebar() {
       return dynamic
     }
 
-    return dynamic.filter((item) => item.title.toLowerCase().includes(normalizedQuery))
+    return dynamic.filter((item) => matchesReferenceSearch(item))
   }, [
     currentProjectId,
     currentStep,

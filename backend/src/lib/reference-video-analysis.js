@@ -430,7 +430,7 @@ function isMissingProjectColumnError(error) {
 function selectReferenceVideoColumns({ includeProjectId = true, detail = false } = {}) {
   const base = detail
     ? 'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at'
-    : 'id, title, topic, original_filename, duration_seconds, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, created_at'
+    : 'id, title, topic, original_filename, duration_seconds, transcript, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, created_at'
 
   return includeProjectId ? `${base}, project_id` : base
 }
