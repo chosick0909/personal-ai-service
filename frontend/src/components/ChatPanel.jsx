@@ -1,7 +1,5 @@
 import { useAppState } from '../store/AppState'
 
-const QUICK_PROMPTS = ['HOOK 더 세게', 'CTA 상담형으로', '문장 짧게 압축']
-
 function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }) {
   const isUser = message.role === 'user'
   const feedback = message.feedback
@@ -76,13 +74,12 @@ export default function ChatPanel({ entering = false, embedded = false }) {
   } = useAppState()
   const isChatLimitReached = copilotRemaining.chat <= 0
   const isSendDisabled = isChatLoading || isChatLimitReached
-  const hasMessages = chatMessages.length > 0 || pendingSuggestion || isChatLoading
 
   return (
     <div
       className={`grid min-h-0 overflow-hidden ${
         embedded
-          ? 'h-[640px] max-h-[640px] grid-rows-[auto_minmax(0,1fr)_auto] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
+          ? 'h-full grid-rows-[auto_minmax(0,1fr)_auto] rounded-[32px] border border-[#2F3543] bg-[#0F131B]'
           : 'h-full bg-[linear-gradient(180deg,#0F131B_0%,#131720_100%)] px-4 py-4'
       }`}
     >
@@ -97,24 +94,6 @@ export default function ChatPanel({ entering = false, embedded = false }) {
 
       <div className={`${embedded ? 'min-h-0 overflow-hidden' : 'mt-4 min-h-0 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className={`h-full min-h-0 space-y-3 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
-          {!hasMessages ? (
-            <div className="flex h-full min-h-[220px] flex-col justify-center rounded-[24px] border border-dashed border-[#2F3543] bg-[#121821] px-4 py-5">
-              <div className="text-sm font-semibold text-[#E5E7EB]">수정하고 싶은 부분을 바로 요청해보세요</div>
-              <div className="mt-2 text-xs leading-5 text-[#8E97A6]">빠르게 시작할 수 있는 요청 예시입니다.</div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {QUICK_PROMPTS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    onClick={() => setDraftMessage(prompt)}
-                    className="rounded-full border border-[#374151] bg-[#171B24] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#202636]"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
           {pendingSuggestion ? (
             <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
               최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.

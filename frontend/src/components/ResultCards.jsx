@@ -280,11 +280,11 @@ export default function ResultCards({ transitioning = false, entering = false })
                 </button>
               </div>
             </div>
-            <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="mt-8 grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className="min-w-0">
                 <Editor embedded entering={false} transitioning={false} />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 h-full">
                 <ChatPanel embedded entering={false} />
               </div>
             </div>
