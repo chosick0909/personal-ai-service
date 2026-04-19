@@ -144,7 +144,9 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
                 disabled={isSendDisabled}
                 className="btn-solid-contrast mt-3 w-full rounded-full px-4 py-3 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isChatLimitReached ? '수정 요청 한도 도달' : '수정 요청 보내기'}
+                {isChatLimitReached
+                  ? '수정 요청 한도 도달'
+                  : `수정 요청 보내기 (남은 ${copilotRemaining.chat}회)`}
               </button>
             </div>
           </div>

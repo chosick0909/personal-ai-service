@@ -137,7 +137,7 @@ export default function Editor({ transitioning = false, entering = false, embedd
                   ? '피드백 생성 중...'
                   : isFeedbackLimitReached
                     ? '피드백 한도 도달'
-                    : '피드백 받기'}
+                    : `피드백 받기 (남은 ${copilotRemaining.feedback}회)`}
               </button>
             </div>
             <p className="mt-3 text-xs leading-5 text-[#94A3B8]">
