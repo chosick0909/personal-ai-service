@@ -890,7 +890,7 @@ export default function Sidebar() {
                       setSearchQuery('')
                       handleNewReferenceAnalysis()
                     }}
-                    className="flex h-[74px] w-full items-center gap-3 rounded-[20px] bg-[#464646] px-6 text-left text-[18px] font-semibold text-[#F3F4F6] transition hover:bg-[#515151]"
+                    className="flex h-[58px] w-full items-center gap-3 rounded-[18px] bg-[#464646] px-5 text-left text-[16px] font-semibold text-[#F3F4F6] transition hover:bg-[#515151]"
                   >
                     <IconPencil />
                     새 채팅
