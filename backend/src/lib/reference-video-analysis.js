@@ -85,6 +85,36 @@ const ACCOUNT_GOAL_LABELS = {
   'community-growth': '커뮤니티 성장',
 }
 
+const VOICE_TONE_LABELS = {
+  expert: '전문가형',
+  friendly: '친근한 언니형',
+  coach: '코치형',
+  storyteller: '스토리텔러형',
+  trendy: '트렌디한 MZ 톤',
+}
+
+const SETTING_STOPWORDS = new Set([
+  '그리고',
+  '또는',
+  '중심',
+  '강조',
+  '가능',
+  '반드시',
+  '항상',
+  '절대',
+  '위주',
+  '기준',
+  '구조',
+  '설명',
+  '답변',
+  '콘텐츠',
+  '생성',
+  '정보',
+  '방법',
+  '현실적',
+  '효율',
+])
+
 const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
 
 function cacheLog(stage, details = {}) {
@@ -233,6 +263,25 @@ function clampText(text = '', maxLength = 800) {
   return `${normalized.slice(0, maxLength)}...`
 }
 
+function extractCueKeywords(text = '', max = 4) {
+  const tokens = String(text || '')
+    .toLowerCase()
+    .split(/[\s,./!?|()[\]{}:;"'`~<>+=_*&^%$#@\-–—→\n\r\t]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => token.length >= 2 && token.length <= 18)
+    .filter((token) => !SETTING_STOPWORDS.has(token))
+    .filter((token) => !/^\d+$/.test(token))
+
+  const deduped = []
+  for (const token of tokens) {
+    if (deduped.includes(token)) continue
+    deduped.push(token)
+    if (deduped.length >= max) break
+  }
+  return deduped
+}
+
 function containsTerm(text = '', term = '') {
   const normalizedText = String(text || '').toLowerCase()
   const normalizedTerm = String(term || '').toLowerCase()
@@ -249,6 +298,13 @@ function normalizeSettingCue(value = '') {
 }
 
 function buildSettingCues(accountSettings = {}) {
+  const persona = accountSettings?.persona && typeof accountSettings.persona === 'object'
+    ? accountSettings.persona
+    : {}
+  const characterPrompt = normalizeSettingCue(accountSettings?.characterPrompt)
+  const aiAdditionalInfo = normalizeSettingCue(accountSettings?.aiAdditionalInfo)
+  const voiceToneRaw = String(accountSettings?.voiceTone || '').trim()
+  const voiceToneLabel = normalizeSettingCue(VOICE_TONE_LABELS[voiceToneRaw] || voiceToneRaw)
   const cues = []
   const goal = normalizeSettingCue(
     ACCOUNT_GOAL_LABELS[String(accountSettings?.accountGoal || '').trim()] ||
@@ -270,20 +326,57 @@ function buildSettingCues(accountSettings = {}) {
   for (const product of products) {
     const name = normalizeSettingCue(product?.name)
     if (name) cues.push(name)
+    const description = normalizeSettingCue(product?.description)
+    for (const keyword of extractCueKeywords(description, 2)) {
+      cues.push(keyword)
+    }
   }
 
-  const voiceTone = normalizeSettingCue(accountSettings?.voiceTone)
-  if (voiceTone) {
-    cues.push(voiceTone)
+  if (voiceToneLabel) {
+    cues.push(voiceToneLabel)
+  }
+
+  const personaSignals = [
+    normalizeSettingCue(persona?.job),
+    normalizeSettingCue(persona?.interests),
+    normalizeSettingCue(persona?.painPoints),
+    normalizeSettingCue(persona?.desiredChange),
+  ].filter(Boolean)
+  for (const signal of personaSignals) {
+    cues.push(signal)
+    for (const keyword of extractCueKeywords(signal, 2)) {
+      cues.push(keyword)
+    }
+  }
+
+  const hardCues = []
+  for (const keyword of extractCueKeywords(characterPrompt, 3)) {
+    hardCues.push(keyword)
+    cues.push(keyword)
+  }
+  for (const keyword of extractCueKeywords(aiAdditionalInfo, 3)) {
+    hardCues.push(keyword)
+    cues.push(keyword)
   }
 
   const deduped = []
   for (const cue of cues) {
     if (deduped.includes(cue)) continue
     deduped.push(cue)
-    if (deduped.length >= 6) break
+    if (deduped.length >= 12) break
   }
-  return deduped
+
+  const dedupedHard = []
+  for (const cue of hardCues) {
+    if (!cue || dedupedHard.includes(cue)) continue
+    dedupedHard.push(cue)
+    if (dedupedHard.length >= 4) break
+  }
+
+  return {
+    all: deduped,
+    hard: dedupedHard,
+  }
 }
 
 function normalizeOptionalProjectId(value) {
@@ -450,7 +543,8 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
     voiceTone,
     strategyPreferences,
     accountGoal,
-    settingCues,
+    settingCues: settingCues.all,
+    hardSettingCues: settingCues.hard,
   }
 }
 
@@ -556,6 +650,17 @@ function validateVariationAlignment(variation, guard) {
       return {
         ok: false,
         reason: `세팅 신호가 HOOK/BODY 핵심 구간에 없음: ${settingCues.slice(0, 2).join(', ')}`,
+      }
+    }
+  }
+
+  const hardSettingCues = Array.isArray(guard.hardSettingCues) ? guard.hardSettingCues : []
+  if (hardSettingCues.length) {
+    const hardCueHit = hardSettingCues.some((cue) => containsTerm(text, cue))
+    if (!hardCueHit) {
+      return {
+        ok: false,
+        reason: `핵심 세팅 신호(캐릭터/AI추가정보) 미반영: ${hardSettingCues.slice(0, 2).join(', ')}`,
       }
     }
   }
@@ -915,6 +1020,9 @@ export async function analyzeReferenceVideo({
         : null,
       guardPromptSummary.settingCues.length
         ? `설정 신호(최소 1개 이상 반드시 반영): ${guardPromptSummary.settingCues.join(', ')}`
+        : null,
+      Array.isArray(categoryGuard.hardSettingCues) && categoryGuard.hardSettingCues.length
+        ? `핵심 세팅 신호(가급적 반영): ${categoryGuard.hardSettingCues.slice(0, 2).join(', ')}`
         : null,
       categoryGuard.voiceTone ? `브랜드 톤: ${categoryGuard.voiceTone}` : null,
       categoryGuard.strategyPreferences.length
