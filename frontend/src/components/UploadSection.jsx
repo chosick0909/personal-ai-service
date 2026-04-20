@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppState } from '../store/AppState'
 
 function UploadIcon() {
@@ -22,7 +22,46 @@ export default function UploadSection() {
     setUploadTitle,
   } = useAppState()
   const [dragActive, setDragActive] = useState(false)
+  const [analyzeProgress, setAnalyzeProgress] = useState(0)
   const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
+    if (!isAnalysisStep) {
+      setAnalyzeProgress(0)
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      setAnalyzeProgress((current) => {
+        if (current >= 95) {
+          return current
+        }
+
+        if (current < 28) {
+          return Math.min(95, current + 6)
+        }
+        if (current < 62) {
+          return Math.min(95, current + 4)
+        }
+        if (current < 84) {
+          return Math.min(95, current + 2)
+        }
+        return Math.min(95, current + 1)
+      })
+    }, 520)
+
+    return () => window.clearInterval(timer)
+  }, [currentStep, isAnalyzing])
+
+  const analyzeStageText = useMemo(() => {
+    if (analyzeProgress < 20) return '레퍼런스 영상 음성 추출중'
+    if (analyzeProgress < 40) return '전사 텍스트 정리중'
+    if (analyzeProgress < 60) return '후킹 포인트 분석중'
+    if (analyzeProgress < 80) return '구조화 분석중'
+    if (analyzeProgress < 95) return 'A/B/C 초안 생성중'
+    return '결과 마무리중'
+  }, [analyzeProgress])
 
   const handleFile = async (file) => {
     if (!file || isAnalyzing) {
@@ -86,14 +125,23 @@ export default function UploadSection() {
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2A2F3C_0%,#1F2430_100%)] shadow-[0_1px_3px_rgba(0,0,0,0.30)]">
               {currentStep === 'analyzing' ? (
-                <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[#E9D5FF] border-t-[#7C3AED]" />
+                <div
+                  className="flex h-14 w-14 items-center justify-center rounded-full"
+                  style={{
+                    background: `conic-gradient(#7C3AED ${analyzeProgress * 3.6}deg, #2F3543 ${analyzeProgress * 3.6}deg 360deg)`,
+                  }}
+                >
+                  <div className="flex h-[50px] w-[50px] items-center justify-center rounded-full bg-[#141923] text-xs font-semibold text-[#E5E7EB]">
+                    {analyzeProgress}%
+                  </div>
+                </div>
               ) : (
                 <UploadIcon />
               )}
             </div>
 
             <div className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
-              {currentStep === 'analyzing' ? 'Analyzing...' : 'Drag & Drop'}
+              {currentStep === 'analyzing' ? `Analyzing ${analyzeProgress}%` : 'Drag & Drop'}
             </div>
 
             <h2 className="mt-4 text-2xl font-bold leading-8 text-[#F3F4F6]">
@@ -113,6 +161,9 @@ export default function UploadSection() {
                 ? '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
                 : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다.'}
             </p>
+            {currentStep === 'analyzing' ? (
+              <p className="mt-1 text-xs text-[#9CA3AF]">{analyzeStageText}</p>
+            ) : null}
 
             {analyzeError ? (
               <div className="mt-4 rounded-2xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-2 text-sm text-[#B91C1C]">
