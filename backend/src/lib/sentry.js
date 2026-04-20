@@ -7,6 +7,35 @@ const ignoredPatterns = [
   'socket hang up',
 ]
 
+const SENSITIVE_KEY_PATTERN = /password|token|authorization|secret|api[-_]?key|cookie|session/i
+
+function sanitizeContextPayload(value, depth = 0) {
+  if (depth > 3) {
+    return '[TRUNCATED]'
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((item) => sanitizeContextPayload(item, depth + 1))
+  }
+
+  if (!value || typeof value !== 'object') {
+    if (typeof value === 'string' && value.length > 600) {
+      return `${value.slice(0, 600)}…`
+    }
+    return value
+  }
+
+  const next = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      next[key] = '[REDACTED]'
+      continue
+    }
+    next[key] = sanitizeContextPayload(item, depth + 1)
+  }
+  return next
+}
+
 function getSentryConfig() {
   const environment = process.env.NODE_ENV || 'development'
   const dsn = process.env.SENTRY_DSN
@@ -90,12 +119,9 @@ export function captureExceptionWithRequest(error, req, _res, next) {
     scope.setContext('request', {
       method: req.method,
       path: req.originalUrl,
-      params: req.params,
-      query: req.query,
-      body:
-        req.body && typeof req.body === 'object'
-          ? JSON.stringify(req.body).slice(0, 500)
-          : req.body,
+      params: sanitizeContextPayload(req.params),
+      query: sanitizeContextPayload(req.query),
+      body: sanitizeContextPayload(req.body),
     })
 
     Sentry.captureException(error)

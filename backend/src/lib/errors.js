@@ -18,6 +18,29 @@ export class AppError extends Error {
   }
 }
 
+const SENSITIVE_KEY_PATTERN = /password|token|authorization|secret|api[-_]?key|cookie|session/i
+
+function sanitizeLogPayload(value, depth = 0) {
+  if (depth > 3) return '[TRUNCATED]'
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => sanitizeLogPayload(item, depth + 1))
+  if (!value || typeof value !== 'object') {
+    if (typeof value === 'string' && value.length > 600) {
+      return `${value.slice(0, 600)}…`
+    }
+    return value
+  }
+
+  const next = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      next[key] = '[REDACTED]'
+      continue
+    }
+    next[key] = sanitizeLogPayload(item, depth + 1)
+  }
+  return next
+}
+
 export function asyncHandler(handler) {
   return async function wrappedHandler(req, res, next) {
     try {
@@ -62,7 +85,7 @@ export function errorHandler(error, req, res, _next) {
     statusCode,
     code,
     message: error.message || 'Request failed',
-    details,
+    details: sanitizeLogPayload(details),
     cause: error.cause?.message || null,
   })
 

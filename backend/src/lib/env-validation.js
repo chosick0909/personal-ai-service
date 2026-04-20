@@ -29,6 +29,10 @@ export function assertBackendEnv() {
   const invalid = required.filter((key) => isPlaceholder(process.env[key]))
   const supabaseUrl = String(process.env.SUPABASE_URL || '').trim()
   const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  const environment = String(process.env.NODE_ENV || 'development').trim().toLowerCase()
+  const isProduction = environment === 'production'
+  const supabaseTlsInsecure = String(process.env.SUPABASE_TLS_INSECURE || '').trim().toLowerCase() === 'true'
+  const openaiTlsInsecure = String(process.env.OPENAI_TLS_INSECURE || '').trim().toLowerCase() === 'true'
 
   if (supabaseUrl && !/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(supabaseUrl)) {
     invalid.push('SUPABASE_URL(format)')
@@ -43,5 +47,12 @@ export function assertBackendEnv() {
       `[env] Invalid backend env: ${invalid.join(', ')}. ` +
       'Set real production values in Railway Variables.'
     console.error(message)
+  }
+
+  if (isProduction && (supabaseTlsInsecure || openaiTlsInsecure)) {
+    throw new Error(
+      '[env] Refusing to start with *_TLS_INSECURE=true in production. ' +
+        'Enable proper CA trust instead of disabling certificate verification.',
+    )
   }
 }

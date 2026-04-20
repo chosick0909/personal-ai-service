@@ -265,18 +265,26 @@ app.get('/health', (_req, res) => {
 })
 
 app.get('/api/health', (_req, res) => {
-  const { chatModel, embeddingModel } = getOpenAIModels()
+  if (!isProduction) {
+    const { chatModel, embeddingModel } = getOpenAIModels()
+    res.json({
+      status: 'ok',
+      message: 'Express API is running',
+      openaiConfigured: hasOpenAIConfig(),
+      openaiModels: {
+        chatModel,
+        embeddingModel,
+      },
+      supabaseAdminConfigured: hasSupabaseAdminConfig(),
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString(),
+    })
+    return
+  }
 
   res.json({
     status: 'ok',
-    message: 'Express API is running',
-    openaiConfigured: hasOpenAIConfig(),
-    openaiModels: {
-      chatModel,
-      embeddingModel,
-    },
-    supabaseAdminConfigured: hasSupabaseAdminConfig(),
-    environment: process.env.NODE_ENV || 'development',
+    message: 'healthy',
     timestamp: new Date().toISOString(),
   })
 })
