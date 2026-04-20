@@ -1,6 +1,6 @@
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg'
 import ffprobeInstaller from '@ffprobe-installer/ffprobe'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import os from 'node:os'
 import { basename, extname, join } from 'node:path'
@@ -50,7 +50,16 @@ function buildFrameTimestamps(durationSeconds) {
 export async function createVideoWorkspace(file) {
   const workspace = await mkdtemp(join(os.tmpdir(), 'personal-ai-video-'))
   const videoPath = join(workspace, `${sanitizeBaseName(file.originalname)}${extname(file.originalname) || '.mp4'}`)
-  await writeFile(videoPath, file.buffer)
+  if (Buffer.isBuffer(file?.buffer) && file.buffer.length > 0) {
+    await writeFile(videoPath, file.buffer)
+  } else if (typeof file?.path === 'string' && file.path) {
+    await copyFile(file.path, videoPath)
+  } else {
+    throw new AppError('Uploaded video payload is empty', {
+      code: 'VIDEO_UPLOAD_EMPTY',
+      statusCode: 400,
+    })
+  }
 
   return {
     workspace,

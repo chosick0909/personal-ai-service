@@ -2,6 +2,9 @@ import dotenv from 'dotenv'
 import cors from 'cors'
 import express from 'express'
 import multer from 'multer'
+import os from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAccount, deleteAccount, listAccounts, resolveRequestAccount } from './lib/accounts.js'
@@ -89,10 +92,25 @@ const configuredOrigins = [process.env.CLIENT_ORIGINS, clientOrigin, ...defaultA
   .filter(Boolean)
 
 const clientOrigins = Array.from(new Set(configuredOrigins))
-const upload = multer({
+const uploadPdf = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 100 * 1024 * 1024,
+  },
+})
+const uploadVideo = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => {
+      callback(null, os.tmpdir())
+    },
+    filename: (_req, file, callback) => {
+      const extensionMatch = String(file.originalname || '').match(/(\.[a-z0-9]+)$/i)
+      const extension = extensionMatch ? extensionMatch[1].toLowerCase() : '.mp4'
+      callback(null, `hookai-video-${Date.now()}-${randomUUID()}${extension}`)
+    },
+  }),
+  limits: {
+    fileSize: 300 * 1024 * 1024,
   },
 })
 const isProduction = (process.env.NODE_ENV || 'development') === 'production'
@@ -245,7 +263,43 @@ function isVideoByMagicBytes(buffer) {
   return isAvi
 }
 
-function validateUploadedFile(file, {
+async function readMagicBytesFromUpload(file, size = 64) {
+  if (!file) {
+    return Buffer.alloc(0)
+  }
+
+  if (Buffer.isBuffer(file.buffer) && file.buffer.length > 0) {
+    return file.buffer.subarray(0, size)
+  }
+
+  if (typeof file.path === 'string' && file.path) {
+    const fsModule = await import('node:fs/promises')
+    const handle = await fsModule.open(file.path, 'r')
+    try {
+      const buffer = Buffer.alloc(size)
+      const { bytesRead } = await handle.read(buffer, 0, size, 0)
+      return buffer.subarray(0, bytesRead)
+    } finally {
+      await handle.close()
+    }
+  }
+
+  return Buffer.alloc(0)
+}
+
+async function removeUploadedTempFile(file) {
+  if (!file?.path) {
+    return
+  }
+
+  try {
+    await rm(file.path, { force: true })
+  } catch {
+    // ignore cleanup failures for temp files
+  }
+}
+
+async function validateUploadedFile(file, {
   fieldName,
   allowedMimePrefixes = [],
   allowedMimeTypes = [],
@@ -280,7 +334,9 @@ function validateUploadedFile(file, {
     })
   }
 
-  if (magicType === 'pdf' && !isPdfByMagicBytes(file.buffer)) {
+  const magicBytes = magicType ? await readMagicBytesFromUpload(file, 64) : null
+
+  if (magicType === 'pdf' && !isPdfByMagicBytes(magicBytes)) {
     throw new AppError(`Unsupported ${fieldName} file signature`, {
       code: 'INVALID_FILE_SIGNATURE',
       statusCode: 400,
@@ -288,7 +344,7 @@ function validateUploadedFile(file, {
     })
   }
 
-  if (magicType === 'video' && !isVideoByMagicBytes(file.buffer)) {
+  if (magicType === 'video' && !isVideoByMagicBytes(magicBytes)) {
     throw new AppError(`Unsupported ${fieldName} file signature`, {
       code: 'INVALID_FILE_SIGNATURE',
       statusCode: 400,
@@ -552,9 +608,9 @@ app.post(
 
 app.post(
   '/api/documents/ingest-pdf',
-  upload.single('pdf'),
+  uploadPdf.single('pdf'),
   asyncHandler(async (req, res) => {
-    validateUploadedFile(req.file, {
+    await validateUploadedFile(req.file, {
       fieldName: 'pdf',
       allowedMimeTypes: ['application/pdf'],
       allowedExtensions: ['pdf'],
@@ -679,33 +735,37 @@ app.delete(
 app.post(
   '/api/reference-videos/analyze',
   analyzeRateLimiter,
-  upload.single('video'),
+  uploadVideo.single('video'),
   asyncHandler(async (req, res) => {
-    validateUploadedFile(req.file, {
+    await validateUploadedFile(req.file, {
       fieldName: 'video',
       allowedMimePrefixes: ['video/'],
       allowedExtensions: ['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'],
       magicType: 'video',
     })
-    const account = await resolveRequestAccount(req)
-    const character = await getAccountCharacterContext(account.id)
-    const result = await analyzeReferenceVideo({
-      accountId: account.id,
-      file: req.file,
-      topic: req.body?.topic,
-      title: req.body?.title,
-      projectId: req.body?.projectId || null,
-      characterSystemPrompt: character.systemPrompt,
-      accountSettings:
-        character?.profile?.settings && typeof character.profile.settings === 'object'
-          ? character.profile.settings
-          : {},
-    })
+    try {
+      const account = await resolveRequestAccount(req)
+      const character = await getAccountCharacterContext(account.id)
+      const result = await analyzeReferenceVideo({
+        accountId: account.id,
+        file: req.file,
+        topic: req.body?.topic,
+        title: req.body?.title,
+        projectId: req.body?.projectId || null,
+        characterSystemPrompt: character.systemPrompt,
+        accountSettings:
+          character?.profile?.settings && typeof character.profile.settings === 'object'
+            ? character.profile.settings
+            : {},
+      })
 
-    res.status(201).json({
-      message: 'Reference video analyzed successfully',
-      analysis: result,
-    })
+      res.status(201).json({
+        message: 'Reference video analyzed successfully',
+        analysis: result,
+      })
+    } finally {
+      await removeUploadedTempFile(req.file)
+    }
   }),
 )
 

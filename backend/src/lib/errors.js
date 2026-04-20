@@ -61,6 +61,21 @@ export function notFoundHandler(req, _res, next) {
 }
 
 export function errorHandler(error, req, res, _next) {
+  const isMulterLimitError = String(error?.code || '').trim() === 'LIMIT_FILE_SIZE'
+  if (isMulterLimitError) {
+    const message =
+      '파일 용량이 너무 큽니다. PDF는 최대 100MB, 영상은 최대 300MB까지 업로드할 수 있습니다.'
+    res.status(413).json({
+      error: {
+        code: 'FILE_TOO_LARGE',
+        message,
+        details: null,
+        requestId: req.requestId,
+      },
+    })
+    return
+  }
+
   const statusCode = error.statusCode || 500
   const code = error.code || 'INTERNAL_SERVER_ERROR'
   const isDevelopment = (process.env.NODE_ENV || 'development') === 'development'
