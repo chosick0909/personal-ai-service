@@ -97,27 +97,96 @@ const upload = multer({
 })
 const isProduction = (process.env.NODE_ENV || 'development') === 'production'
 const enableTestRoutes = process.env.ENABLE_TEST_ROUTES === 'true'
+const enableRedisRateLimit = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.ENABLE_REDIS_RATE_LIMIT || 'true').trim().toLowerCase(),
+)
+const redisRateLimitUrl = String(process.env.REDIS_URL || '').trim()
+const REDIS_RATE_LIMIT_DISABLED = { value: false, reason: '' }
+let redisRateLimitClientPromise = null
 
 function securityHeaders(_req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('X-Frame-Options', 'DENY')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  )
   if (isProduction) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload')
   }
   next()
 }
 
+async function getRedisRateLimitClient() {
+  if (!enableRedisRateLimit || !redisRateLimitUrl || REDIS_RATE_LIMIT_DISABLED.value) {
+    return null
+  }
+
+  if (!redisRateLimitClientPromise) {
+    redisRateLimitClientPromise = (async () => {
+      try {
+        const redisModule = await import('redis')
+        const client = redisModule.createClient({ url: redisRateLimitUrl })
+        client.on('error', (error) => {
+          if (!REDIS_RATE_LIMIT_DISABLED.value) {
+            REDIS_RATE_LIMIT_DISABLED.value = true
+            REDIS_RATE_LIMIT_DISABLED.reason = error?.message || 'redis-client-error'
+            console.warn('[rate-limit] redis disabled:', REDIS_RATE_LIMIT_DISABLED.reason)
+          }
+        })
+        await client.connect()
+        return client
+      } catch (error) {
+        REDIS_RATE_LIMIT_DISABLED.value = true
+        REDIS_RATE_LIMIT_DISABLED.reason = error?.message || 'redis-init-failed'
+        console.warn('[rate-limit] redis disabled:', REDIS_RATE_LIMIT_DISABLED.reason)
+        return null
+      }
+    })()
+  }
+
+  return redisRateLimitClientPromise
+}
+
 function createRateLimiter({ windowMs, max, keyPrefix = 'global' }) {
   const counters = new Map()
 
-  return function rateLimiter(req, _res, next) {
+  return async function rateLimiter(req, _res, next) {
     const now = Date.now()
     const ip = String(req.ip || req.headers['x-forwarded-for'] || 'unknown')
       .split(',')[0]
       .trim()
     const key = `${keyPrefix}:${ip}`
+
+    const redisClient = await getRedisRateLimitClient()
+    if (redisClient) {
+      try {
+        const count = await redisClient.incr(key)
+        if (count === 1) {
+          await redisClient.pExpire(key, windowMs)
+        }
+        if (count > max) {
+          const ttlMs = await redisClient.pTTL(key)
+          next(
+            new AppError('Too many requests. Please try again later.', {
+              code: 'RATE_LIMITED',
+              statusCode: 429,
+              details: {
+                retryAfterMs: ttlMs > 0 ? ttlMs : windowMs,
+              },
+            }),
+          )
+          return
+        }
+        next()
+        return
+      } catch (error) {
+        console.warn('[rate-limit] redis check failed, fallback to memory:', error?.message || error)
+      }
+    }
+
     const current = counters.get(key)
 
     if (!current || now >= current.resetAt) {
@@ -148,7 +217,41 @@ function createRateLimiter({ windowMs, max, keyPrefix = 'global' }) {
   }
 }
 
-function validateUploadedFile(file, { fieldName, allowedMimePrefixes = [], allowedMimeTypes = [], allowedExtensions = [] }) {
+function bytesAt(buffer, offset, bytes) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < offset + bytes.length) {
+    return false
+  }
+  return bytes.every((value, index) => buffer[offset + index] === value)
+}
+
+function isPdfByMagicBytes(buffer) {
+  return bytesAt(buffer, 0, [0x25, 0x50, 0x44, 0x46, 0x2d]) // %PDF-
+}
+
+function isVideoByMagicBytes(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) {
+    return false
+  }
+
+  const isIsoBmffFamily = String(buffer.subarray(4, 8)) === 'ftyp' // mp4/mov/m4v
+  if (isIsoBmffFamily) return true
+
+  const isMatroskaFamily = bytesAt(buffer, 0, [0x1a, 0x45, 0xdf, 0xa3]) // webm/mkv
+  if (isMatroskaFamily) return true
+
+  const isAvi =
+    String(buffer.subarray(0, 4)) === 'RIFF' &&
+    String(buffer.subarray(8, 12)) === 'AVI ' // avi
+  return isAvi
+}
+
+function validateUploadedFile(file, {
+  fieldName,
+  allowedMimePrefixes = [],
+  allowedMimeTypes = [],
+  allowedExtensions = [],
+  magicType = null,
+}) {
   if (!file) {
     throw new AppError(`${fieldName} file is required`, {
       code: 'FILE_REQUIRED',
@@ -174,6 +277,22 @@ function validateUploadedFile(file, { fieldName, allowedMimePrefixes = [], allow
         mimeType,
         extension,
       },
+    })
+  }
+
+  if (magicType === 'pdf' && !isPdfByMagicBytes(file.buffer)) {
+    throw new AppError(`Unsupported ${fieldName} file signature`, {
+      code: 'INVALID_FILE_SIGNATURE',
+      statusCode: 400,
+      details: { fieldName, expected: 'pdf' },
+    })
+  }
+
+  if (magicType === 'video' && !isVideoByMagicBytes(file.buffer)) {
+    throw new AppError(`Unsupported ${fieldName} file signature`, {
+      code: 'INVALID_FILE_SIGNATURE',
+      statusCode: 400,
+      details: { fieldName, expected: 'video-container' },
     })
   }
 }
@@ -439,6 +558,7 @@ app.post(
       fieldName: 'pdf',
       allowedMimeTypes: ['application/pdf'],
       allowedExtensions: ['pdf'],
+      magicType: 'pdf',
     })
     const account = await resolveRequestAccount(req)
     const { title, source } = req.body ?? {}
@@ -565,6 +685,7 @@ app.post(
       fieldName: 'video',
       allowedMimePrefixes: ['video/'],
       allowedExtensions: ['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'],
+      magicType: 'video',
     })
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id)
