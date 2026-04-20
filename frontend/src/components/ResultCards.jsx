@@ -202,7 +202,7 @@ export default function ResultCards({ transitioning = false, entering = false })
   return (
     <div
       ref={scrollContainerRef}
-      className="h-full overflow-y-auto px-6 py-10 md:px-12"
+      className="h-full overflow-y-auto px-4 py-6 md:px-12 md:py-10"
       style={{
         backgroundImage:
           'radial-gradient(ellipse 97.8% 156.47% at 20% 10%, rgba(84,89,102,0.18) 0%, rgba(84,89,102,0) 50%), radial-gradient(ellipse 94.34% 150.94% at 80% 80%, rgba(140,146,160,0.12) 0%, rgba(140,146,160,0) 50%), linear-gradient(180deg, #0D0F14 0%, #11151D 100%)',
@@ -220,16 +220,16 @@ export default function ResultCards({ transitioning = false, entering = false })
 
         <div className="mt-6">
           <SmallBadge>Analysis Results</SmallBadge>
-          <h1 className="mt-5 text-5xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6]">분석 완료</h1>
-          <p className="mt-3 text-base leading-7 text-[#8E97A6]">
+          <h1 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-5xl">분석 완료</h1>
+          <p className="mt-3 text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">
             레퍼런스 영상을 다각도로 분석했습니다. 구조, 후킹 포인트, 심리 기제, 시각적 연출까지 세밀하게 파악했으며,
             이를 바탕으로 A/B/C 세 가지 초안을 준비했습니다.
           </p>
         </div>
 
-        <section className="mt-10 rounded-[32px] border border-[#2F3543] bg-[#0F131B] p-10 shadow-[0px_1px_3px_rgba(0,0,0,0.30)]">
+        <section className="mt-8 rounded-[24px] border border-[#2F3543] bg-[#0F131B] p-5 shadow-[0px_1px_3px_rgba(0,0,0,0.30)] md:mt-10 md:rounded-[32px] md:p-10">
           <SmallBadge>Reference Script</SmallBadge>
-          <h2 className="mt-6 text-[32px] font-bold leading-10 text-[#F3F4F6]">레퍼런스 스크립트</h2>
+          <h2 className="mt-4 text-2xl font-bold leading-8 text-[#F3F4F6] md:mt-6 md:text-[32px] md:leading-10">레퍼런스 스크립트</h2>
           <p className="mt-2 text-sm text-[#8E97A6]">분석된 레퍼런스 영상의 전체 스크립트와 심리 장치입니다.</p>
 
           <div className="mt-8 overflow-hidden rounded-[14px] border border-[#2F3543] bg-[#131720]">
@@ -242,31 +242,31 @@ export default function ResultCards({ transitioning = false, entering = false })
           </div>
         </section>
 
-        <section className="mt-12 rounded-[32px] border border-[#2F3543] bg-[#0F131B] p-10 shadow-[0px_1px_3px_rgba(0,0,0,0.30)]">
+        <section className="mt-8 rounded-[24px] border border-[#2F3543] bg-[#0F131B] p-5 shadow-[0px_1px_3px_rgba(0,0,0,0.30)] md:mt-12 md:rounded-[32px] md:p-10">
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#AEB6C5]">Key Insights</div>
-          <h2 className="mt-3 text-[32px] font-bold text-[#F3F4F6]">핵심 인사이트</h2>
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
+          <h2 className="mt-3 text-2xl font-bold text-[#F3F4F6] md:text-[32px]">핵심 인사이트</h2>
+          <div className="mt-6 grid gap-4 md:mt-8 md:grid-cols-2">
             {panels.map((panel) => (
               <InsightPanel key={panel.title} {...panel} />
             ))}
           </div>
         </section>
 
-        <section className="mt-10 rounded-[32px] border border-[#2F3543] bg-[#0F131B] p-10">
+        <section className="mt-8 rounded-[24px] border border-[#2F3543] bg-[#0F131B] p-5 md:mt-10 md:rounded-[32px] md:p-10">
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#AEB6C5]">Key Insights</div>
-          <h2 className="mt-3 text-[32px] font-bold text-[#F3F4F6]">바로 써먹을 체크포인트</h2>
-          <div className="mt-8 grid gap-3">
+          <h2 className="mt-3 text-2xl font-bold text-[#F3F4F6] md:text-[32px]">바로 써먹을 체크포인트</h2>
+          <div className="mt-6 grid gap-3 md:mt-8">
             {keyPoints.map((point) => (
               <CheckpointRow key={point}>{point}</CheckpointRow>
             ))}
           </div>
         </section>
 
-        <section className="mt-12">
+        <section className="mt-10 md:mt-12">
           <SmallBadge tone="pink">Select Draft</SmallBadge>
-          <h2 className="mt-5 text-4xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6]">A/B/C 초안 선택</h2>
+          <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-4xl">A/B/C 초안 선택</h2>
           <p className="mt-2 text-sm text-[#8E97A6]">원하는 스타일을 선택하여 에디터로 이동하세요</p>
-          <div className="mt-8 grid gap-6 xl:grid-cols-3">
+          <div className="mt-6 grid gap-5 md:mt-8 md:gap-6 xl:grid-cols-3">
             {generatedScripts.map((script) => (
               <ScriptCard
                 key={script.id}
@@ -283,11 +283,11 @@ export default function ResultCards({ transitioning = false, entering = false })
         </section>
 
         {currentStep === 'editor' && selectedScript ? (
-          <section ref={editorSectionRef} className="mt-14">
+          <section ref={editorSectionRef} className="mt-10 md:mt-14">
             <SmallBadge tone="pink">Editor</SmallBadge>
-            <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
+            <div className="mt-4 flex flex-wrap items-start justify-between gap-4 md:mt-5">
               <div>
-                <h2 className="text-4xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6]">스크립트 에디터</h2>
+                <h2 className="text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:text-4xl">스크립트 에디터</h2>
                 <p className="mt-2 text-sm text-[#8E97A6]">
                   선택한 {selectedScript.label}을 자유롭게 수정하고 AI 코파일럿으로 피드백을 적용하세요.
                 </p>
@@ -309,7 +309,7 @@ export default function ResultCards({ transitioning = false, entering = false })
                 </button>
               </div>
             </div>
-            <div className="mt-8 grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="mt-6 grid items-stretch gap-6 md:mt-8 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div ref={editorPanelRef} className="min-w-0">
                 <Editor embedded entering={false} transitioning={false} />
               </div>
