@@ -74,6 +74,7 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
   } = useAppState()
   const isChatLimitReached = copilotRemaining.chat <= 0
   const isSendDisabled = isChatLoading || isChatLimitReached
+  const shouldShowWelcomePrompt = !pendingSuggestion && !isChatLoading && chatMessages.length === 0
 
   return (
     <div
@@ -100,7 +101,18 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
       <div className={`${embedded ? 'min-h-0 overflow-hidden' : 'mt-4 min-h-0 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#121821] shadow-[0_18px_40px_rgba(0,0,0,0.25)]'}`}>
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <div className={`min-h-0 flex-1 overflow-y-auto ${embedded ? 'px-5 py-4' : 'px-4 py-4'}`}>
-            <div className="space-y-3">
+            <div className={shouldShowWelcomePrompt ? 'flex min-h-full items-center justify-center' : 'space-y-3'}>
+              {shouldShowWelcomePrompt ? (
+                <div className="px-2 text-center">
+                  <p className="text-[29px] font-medium leading-[1.25] tracking-[-0.02em] text-[#E5E7EB]">
+                    지금 무엇을 바꾸고 싶으세요?
+                  </p>
+                  <p className="mt-3 text-sm text-[#8E97A6]">
+                    수정 요청을 보내면 대화가 시작됩니다.
+                  </p>
+                </div>
+              ) : null}
+
               {pendingSuggestion ? (
                 <div className="rounded-2xl border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
                   최근 AI 제안이 준비되어 있습니다. 말풍선의 “이 수정 적용”으로 반영할 수 있습니다.
