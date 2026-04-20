@@ -117,7 +117,7 @@ function normalizeSearchText(value = '') {
     .trim()
 }
 
-export default function Sidebar() {
+export default function Sidebar({ onRequestClose = () => {} }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isAccountSwitchOpen, setIsAccountSwitchOpen] = useState(false)
@@ -205,7 +205,10 @@ export default function Sidebar() {
       isEditing:
         referenceData?.id === item.id &&
         (currentStep === 'editor' || item.lastStep === 'editor'),
-      onClick: () => openReference(item.id),
+      onClick: () => {
+        openReference(item.id)
+        onRequestClose()
+      },
       onDelete: async () => {
         const ok = window.confirm(`"${item.title}" 대화내역을 삭제할까요?`)
         if (!ok) {
@@ -225,6 +228,7 @@ export default function Sidebar() {
     openReference,
     referenceData?.id,
     referenceHistory,
+    onRequestClose,
   ])
 
   const searchRows = useMemo(() => {
@@ -241,11 +245,12 @@ export default function Sidebar() {
           openReference(item.id)
           setIsSearchOpen(false)
           setSearchQuery('')
+          onRequestClose()
         },
       }))
       .filter((item) => matchesReferenceSearch(item))
       .slice(0, 40)
-  }, [matchesReferenceSearch, openReference, referenceData?.id, referenceHistory])
+  }, [matchesReferenceSearch, onRequestClose, openReference, referenceData?.id, referenceHistory])
 
   const groupedSearchRows = useMemo(() => {
     const formatter = new Intl.DateTimeFormat('ko-KR', {
@@ -392,6 +397,7 @@ export default function Sidebar() {
 
   const handleNewReferenceAnalysis = () => {
     startNewProject()
+    onRequestClose()
 
     if (window.location.pathname === '/analyze') {
       if (window.location.hash !== '#upload') {

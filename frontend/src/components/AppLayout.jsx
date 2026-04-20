@@ -1,7 +1,12 @@
-import { useState } from 'react'
+import { cloneElement, isValidElement, useState } from 'react'
 
 export default function AppLayout({ sidebar, main, panel, children }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const mobileSidebar = isValidElement(sidebar)
+    ? cloneElement(sidebar, {
+        onRequestClose: () => setMobileSidebarOpen(false),
+      })
+    : sidebar
 
   return (
     <main className="h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]">
@@ -69,7 +74,7 @@ export default function AppLayout({ sidebar, main, panel, children }) {
                 닫기
               </button>
             </div>
-            <div className="h-[calc(82vh-48px)] overflow-y-auto">{sidebar}</div>
+            <div className="h-[calc(82vh-48px)] overflow-y-auto">{mobileSidebar}</div>
           </div>
         </div>
       ) : null}
