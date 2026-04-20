@@ -6,8 +6,7 @@ export default function AppLayout({ sidebar, main, panel, children }) {
   return (
     <main className="h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]">
       <div className="flex h-full flex-col md:hidden">
-        <header className="flex h-14 items-center justify-between border-b border-[#2C313C] bg-[#12151D] px-4">
-          <div className="text-sm font-semibold tracking-[0.02em] text-[#E5E7EB]">HookAI Studio</div>
+        <header className="flex h-14 items-center border-b border-[#2C313C] bg-[#12151D] px-4">
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(true)}
