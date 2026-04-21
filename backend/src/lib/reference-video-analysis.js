@@ -2,6 +2,12 @@ import { AppError } from './errors.js'
 import { buildCacheKey, cacheConfig, getCacheJson, hashText, setCacheJson } from './cache.js'
 import { createHash } from 'node:crypto'
 import { open, stat } from 'node:fs/promises'
+import {
+  CATEGORY_ANCHOR_TERMS,
+  CREATOR_BUSINESS_PROOF_PATTERN,
+  DOMAIN_EVIDENCE_PROFILES,
+  VARIATION_CONFIGS,
+} from '../config/reference-analysis-config.js'
 import { ingestDocument } from './document-ingest.js'
 import { chunkText } from './chunking.js'
 import { createEmbeddings } from './embeddings.js'
@@ -22,117 +28,6 @@ import {
   hasAudioStream,
   transcribeVideoAudio,
 } from './video-processing.js'
-
-const VARIATION_CONFIGS = [
-  {
-    label: 'A안',
-    angle: '문제 제기형',
-    retrievalHint:
-      '문제 제기, 손실 회피, 실수 경고, 잘못된 습관 반전, 위험 신호, 즉시 행동 유도',
-  },
-  {
-    label: 'B안',
-    angle: '정보 압축형',
-    retrievalHint:
-      '핵심 요약, 단계별 설명, 프레임워크, 체크리스트, 실행 순서, 빠른 이해',
-  },
-  {
-    label: 'C안',
-    angle: '공감 유도형',
-    retrievalHint:
-      '감정 공감, 실제 경험, 관계 중심 톤, 심리적 저항 완화, 친근한 설득, 참여 유도',
-  },
-]
-
-const CATEGORY_ANCHOR_TERMS = {
-  뷰티: ['피부', '스킨케어', '메이크업', '화장', '제품', '루틴'],
-  육아: ['육아', '아이', '부모', '월령', '아기', '양육'],
-  반려동물: ['반려동물', '강아지', '고양이', '보호자', '사료', '간식'],
-  살림: ['살림', '정리', '수납', '청소', '주방', '생활'],
-  자기계발: ['자기계발', '습관', '생산성', '성장', '목표', '실행'],
-  패션: ['패션', '코디', '스타일', '의류', '착장', '핏'],
-  AI: ['AI', '자동화', '프롬프트', '업무', '툴', '생산성'],
-  '전문직(회사홍보)': ['전문성', '상담', '고객', '사례', '브랜딩', '서비스'],
-  재테크: ['재테크', '지출', '예산', '투자', '자산', '가계부'],
-  여행: ['여행', '일정', '코스', '숙소', '항공', '예산'],
-  요리: ['요리', '레시피', '재료', '식단', '조리', '주방'],
-  '테크 가젯': ['가젯', '디바이스', '리뷰', '비교', '사용성', '기능'],
-  멘탈케어: ['멘탈', '감정', '스트레스', '회복', '루틴', '심리'],
-  교육: ['교육', '학습', '강의', '개념', '설명', '이해'],
-  기타: [],
-}
-
-const CREATOR_BUSINESS_PROOF_PATTERN =
-  /(팔로워|수강생|강의|무료\s*강의|알고리즘|노출|계정\s*구조|AI\s*자동화|잠재\s*고객|리드|문의\s*전환|매출|수익화\s*모델|월\s*\d+[^\s]{0,4}(?:원|만원|억))/i
-
-const DOMAIN_EVIDENCE_PROFILES = {
-  health_fitness: {
-    preferred:
-      '루틴 지속 가능성, 수행 변화, 자세/자극 체감, 초보자 실수 교정, before-after 과정, 습관 변화, 체력/컨디션 개선',
-    avoid:
-      '팔로워 성장, 수강생 매출, 강의 전환, AI 자동화, 알고리즘/노출 구조 같은 크리에이터 비즈니스 근거',
-  },
-  뷰티: {
-    preferred: '피부 고민 변화, 사용감, 전후 차이, 성분/루틴 체감, 지속력, 들뜸/트러블 개선 과정',
-    avoid: '수강생·강의·매출·팔로워 성장 같은 사업형 사례',
-  },
-  육아: {
-    preferred: '양육 과정의 편의성, 아이 반응, 부모의 불안 해소, 실제 사용 경험, 반복 사용 만족감',
-    avoid: '계정 성장, 강의 판매, 수강생 수익 사례',
-  },
-  반려동물: {
-    preferred: '반려동물 반응, 행동 변화, 보호자 편의, 건강/위생 체감, 실제 급여/사용 경험',
-    avoid: '크리에이터 강의·수강생·팔로워·매출형 사례',
-  },
-  살림: {
-    preferred: '정리 전후 차이, 시간 절약, 공간 효율, 생활 편의, 반복 사용성, 계절성 문제 해결',
-    avoid: '강의/수강생/노출/계정 구조형 근거',
-  },
-  자기계발: {
-    preferred: '실행 습관 변화, 몰입도, 체크리스트 적용, 생산성 체감, 꾸준함 유지, 목표 달성 과정',
-    avoid: '뜬금없는 팔로워·수강생·월매출 서사',
-  },
-  패션: {
-    preferred: '핏 변화, 체형 보정, 코디 편의, 상황별 스타일링 효과, 착용감, 전후 인상 차이',
-    avoid: '강의 판매/수강생 매출/알고리즘 서사',
-  },
-  AI: {
-    preferred: '시간 절약, 자동화, 실무 효율, 정확도 향상, 도구 비교, 반복 업무 절감',
-    avoid: '사용자 도메인과 무관한 화장품/운동/육아 식 사례',
-  },
-  '전문직(회사홍보)': {
-    preferred: '상담 전환, 실제 사례, 신뢰 형성, 전문성, 문의 맥락, 고객 문제 해결 과정',
-    avoid: '뜬금없는 뷰티/육아/여행형 체험담',
-  },
-  재테크: {
-    preferred: '지출 구조, 원칙, 리스크 관리, 절세/예산 체감, 실행 순서, 돈이 새는 포인트',
-    avoid: '뷰티/운동/수강생 매출형 크리에이터 사례',
-  },
-  여행: {
-    preferred: '일정 편의, 비용 절약, 동선 최적화, 장소 만족감, 실제 코스 체감, 시행착오 절감',
-    avoid: '강의/수강생/노출 알고리즘형 근거',
-  },
-  요리: {
-    preferred: '조리 편의, 맛/식감 체감, 재료 절약, 실패 감소, 시간 단축, 따라 하기 쉬움',
-    avoid: '크리에이터 비즈니스 성과형 근거',
-  },
-  '테크 가젯': {
-    preferred: '실사용 편의, 기능 차이, 생산성 개선, 세팅 간결함, 비교 리뷰, 작업 흐름 개선',
-    avoid: '화장품/수강생/월수익형 서사',
-  },
-  멘탈케어: {
-    preferred: '감정 안정, 스트레스 완화, 수면/회복 체감, 작은 습관 변화, 공감과 안도감',
-    avoid: '강의 판매나 월매출 같은 과한 사업형 증거',
-  },
-  교육: {
-    preferred: '이해도 상승, 학습 효율, 설명력, 사례 기반 학습, 수업/강의 맥락, 개념 적용',
-    avoid: '도메인과 무관한 화장품/운동/살림 체험담',
-  },
-  기타: {
-    preferred: '현재 계정의 타겟 문제, 사용 경험, 적용 전후 차이, 신뢰를 주는 현실적 사례',
-    avoid: '레퍼런스 원문의 팔로워/수강생/강의/월매출 같은 그대로의 사업형 사례',
-  },
-}
 
 const VARIATION_CONTEXT_TEXT_MAX = 800
 const MAX_PROMPT_SETTING_CUES = 3
@@ -461,31 +356,35 @@ async function findRecentDuplicateReference({
     return null
   }
 
-  if (idempotencyKey) {
-    try {
-      const duplicate = await fetchDuplicateByColumn('idempotency_key', idempotencyKey)
-      if (duplicate) {
-        return duplicate
-      }
-    } catch (error) {
-      console.warn('[reference-video-analysis] duplicate idempotency lookup failed', {
-        accountId,
-        message: error instanceof Error ? error.message : String(error),
-      })
-    }
+  const duplicateChecks = [
+    { key: 'idempotency_key', value: idempotencyKey, warning: 'duplicate idempotency lookup failed' },
+    {
+      key: 'analysis_fingerprint',
+      value: analysisFingerprint,
+      warning: 'duplicate fingerprint lookup failed',
+    },
+  ].filter((item) => item.value)
+
+  if (!duplicateChecks.length) {
+    return null
   }
 
-  if (analysisFingerprint) {
-    try {
-      const duplicate = await fetchDuplicateByColumn('analysis_fingerprint', analysisFingerprint)
-      if (duplicate) {
-        return duplicate
-      }
-    } catch (error) {
-      console.warn('[reference-video-analysis] duplicate fingerprint lookup failed', {
+  const settledResults = await Promise.allSettled(
+    duplicateChecks.map((item) => fetchDuplicateByColumn(item.key, item.value)),
+  )
+
+  for (const [index, result] of settledResults.entries()) {
+    const check = duplicateChecks[index]
+    if (result.status === 'rejected') {
+      console.warn(`[reference-video-analysis] ${check.warning}`, {
         accountId,
-        message: error instanceof Error ? error.message : String(error),
+        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
       })
+      continue
+    }
+
+    if (result.value) {
+      return result.value
     }
   }
 
@@ -1135,6 +1034,24 @@ function pickSettingCue(guard = {}, offset = 0) {
   return cues[Math.abs(offset) % cues.length] || cues[0]
 }
 
+function buildTopicFocusPrompt(topic = '', title = '') {
+  const normalizedTopic = String(topic || '').trim()
+  const normalizedTitle = String(title || '').trim()
+  const topicOnly = normalizedTopic && normalizedTopic !== normalizedTitle ? normalizedTopic : ''
+
+  if (!normalizedTopic) {
+    return ''
+  }
+
+  return [
+    `이번 릴스 주제(반드시 반영): ${normalizedTopic}`,
+    topicOnly
+      ? `중요: 계정의 큰 카테고리는 유지하되, 이번 결과물의 실제 소재/상품/상황은 "${topicOnly}" 기준으로 구체화하세요.`
+      : '중요: 계정의 큰 카테고리는 유지하되, 이번 결과물의 실제 소재/상품/상황은 위 주제를 기준으로 구체화하세요.',
+    '이번 릴스 주제는 분위기 참고용이 아니라 실제 주장, 예시, 표현, CTA가 모여야 하는 중심 소재입니다.',
+  ].join('\n')
+}
+
 async function regenerateVariationWithGPT({
   openai,
   chatModel,
@@ -1145,9 +1062,12 @@ async function regenerateVariationWithGPT({
   generationGuides,
   structureBlueprint,
   referenceSurfaceTerms,
+  focusTopic = '',
+  referenceTitle = '',
   retryReason = '',
   usageContext = {},
 }) {
+  const topicFocusPrompt = buildTopicFocusPrompt(focusTopic, referenceTitle)
   const response = await openai.chat.completions.create({
     model: chatModel,
     temperature: 0.35,
@@ -1162,6 +1082,7 @@ async function regenerateVariationWithGPT({
         content:
           `전략 라벨: ${config.label}\n전략 방향: ${config.angle}\n` +
           `카테고리: ${categoryGuard.category}\n` +
+          `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
           `세팅 신호(우선 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
           `레퍼런스 금지 표면 단어(절대 사용 금지): ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
           `${buildEvidenceTranslationGuide(categoryGuard)}\n\n` +
@@ -1203,6 +1124,7 @@ async function regenerateVariationWithGPT({
           }\n\n` +
           `캐릭터 세팅:\n${characterSystemPrompt || '없음'}\n\n` +
           '작성 조건:\n' +
+          '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 함\n' +
           '- 레퍼런스 표면 주제/키워드/문장 변형 사용 금지(패러프레이즈 포함)\n' +
           '- 레퍼런스는 논리 구조만 참고하고 내용은 현재 계정 도메인으로 완전 재창조\n' +
           '- HOOK만 레퍼런스의 시작 방식, 문장 호흡, 긴장 형성 순서를 참고해 비슷한 구조로 작성 가능\n' +
@@ -1664,6 +1586,7 @@ export async function analyzeReferenceVideo({
   const { chatModel } = getOpenAIModels()
   const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey)
   const analysisFingerprint = await computeUploadedFileFingerprint(file)
+  const topicFocusPrompt = buildTopicFocusPrompt(normalizedTopic, normalizedTitle)
   const analysisReuseCacheKey = buildAnalysisReuseCacheKey({
     accountId,
     topic: normalizedTopic,
@@ -2083,7 +2006,7 @@ export async function analyzeReferenceVideo({
         runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
           const variationKnowledge = await retrieveGlobalKnowledgeContext({
             title: '',
-            topic: `카테고리: ${categoryGuard.category}\n전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
+            topic: `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}카테고리: ${categoryGuard.category}\n전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
             transcript: '',
             frameSummary: '',
             topK: 4,
@@ -2095,7 +2018,7 @@ export async function analyzeReferenceVideo({
 
           const systemContent = [
             '당신은 숏폼 콘텐츠 작가다. 지정된 전략에 맞는 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
-            '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 계정/타겟/상품 맥락 > 전략 라벨/전략 의도 > 레퍼런스 전사.',
+            '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 전략 라벨/전략 의도 > 레퍼런스 전사.',
             '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
             '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
             '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
@@ -2121,6 +2044,7 @@ export async function analyzeReferenceVideo({
             `전략 라벨: ${config.label}\n` +
             `전략 방향: ${config.angle}\n` +
             `전략 의도: ${config.retrievalHint}\n\n` +
+            `${topicFocusPrompt ? `${topicFocusPrompt}\n\n` : ''}` +
             `카테고리 강제 가드(절대 준수):\n${categoryGuardText}\n\n` +
             `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
             `레퍼런스 금지 표면 단어(절대 사용 금지): ${referenceGuard.surfaceTerms.join(', ') || '없음'}\n\n` +
@@ -2151,8 +2075,11 @@ export async function analyzeReferenceVideo({
                 : '- 없음'
             }\n\n` +
             '작성 강제 조건:\n' +
+            '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 한다\n' +
+            '- 계정 카테고리는 큰 방향이고, 이번 릴스 주제는 실제 소재/상품/상황을 결정하는 우선값이다\n' +
             '- 1단계: 논리 구조만 사용\n' +
             '- 2단계: 현재 계정 도메인으로 완전 변환\n' +
+            '- 2.5단계: 이번 릴스 주제에 맞게 구체 소재를 좁힌다\n' +
             '- 3단계: 완전히 새로운 주장(thesis) 생성\n' +
             '- 4단계: thesis 기반으로 HOOK/BODY/CTA 작성\n' +
             '- 레퍼런스 표면 단어/문장 변형/원문 주제 복사 금지\n' +
@@ -2226,11 +2153,13 @@ export async function analyzeReferenceVideo({
               chatModel,
               config,
               categoryGuard,
-              guardPromptSummary,
+                guardPromptSummary,
                 characterSystemPrompt,
                 generationGuides,
                 structureBlueprint,
                 referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                focusTopic: normalizedTopic,
+                referenceTitle: normalizedTitle,
                 retryReason: structureState.reason,
                 usageContext: {
                   accountId,
@@ -2258,6 +2187,8 @@ export async function analyzeReferenceVideo({
                 generationGuides,
                 structureBlueprint,
                 referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                focusTopic: normalizedTopic,
+                referenceTitle: normalizedTitle,
                 retryReason: `품질 점수 기준 미달: avg=${qualityScore.average.toFixed(2)}`,
                 usageContext: {
                   accountId,
@@ -2286,6 +2217,8 @@ export async function analyzeReferenceVideo({
                 generationGuides,
                 structureBlueprint,
                 referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                focusTopic: normalizedTopic,
+                referenceTitle: normalizedTitle,
                 retryReason: alignment.reason,
                 usageContext: {
                   accountId,
@@ -2314,6 +2247,8 @@ export async function analyzeReferenceVideo({
               generationGuides,
               structureBlueprint,
               referenceSurfaceTerms: referenceGuard.surfaceTerms,
+              focusTopic: normalizedTopic,
+              referenceTitle: normalizedTitle,
               retryReason: '초안 생성 결과가 비어 있음',
               usageContext: {
                 accountId,
@@ -2349,9 +2284,11 @@ export async function analyzeReferenceVideo({
                     content:
                       `전략 라벨: ${config.label}\n전략 방향: ${config.angle}\n` +
                       `카테고리: ${categoryGuard.category}\n` +
+                      `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
                       `세팅 신호(최소 1개 유지): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n\n` +
                       `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
                       '수정 조건:\n' +
+                      '- 이번 릴스 주제는 유지하고 더 또렷하게\n' +
                       '- 훅/바디/CTA 연결 흐름 유지\n' +
                       '- 의미는 유지하고 문장만 자연스럽게\n' +
                       '- 설명문 말투보다 실제 말하는 톤으로\n' +

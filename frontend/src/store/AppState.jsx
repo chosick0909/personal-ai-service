@@ -1471,8 +1471,10 @@ export function AppStateProvider({ children }) {
     return updated
   }
 
-  const analyzeReference = async (file) => {
-    const normalizedTopic = uploadTopic.trim()
+  const analyzeReference = async (file, options = {}) => {
+    const normalizedTopic = typeof options.topic === 'string'
+      ? options.topic.trim()
+      : uploadTopic.trim()
     const fallbackTopic = uploadTitle.trim() || file.name.replace(/\.[^.]+$/, '') || '일반'
     const effectiveTopic = normalizedTopic || fallbackTopic
 

@@ -3,11 +3,20 @@ import { useAppState } from '../store/AppState'
 
 function UploadIcon() {
   return (
-    <svg viewBox="0 0 40 40" aria-hidden="true" className="h-10 w-10 text-[#7C3AED]">
-      <path
-        d="M20 6.67c.5 0 1 .19 1.38.57l10 10-2.36 2.36-5.69-5.69V27.5h-3.33V13.9l-5.69 5.7-2.36-2.36 10-10c.38-.38.88-.57 1.38-.57Zm-12.5 22.5h25c2.77 0 5 2.23 5 5v.83c0 2.77-2.23 5-5 5h-25c-2.77 0-5-2.23-5-5v-.83c0-2.77 2.23-5 5-5Zm0 3.33c-.92 0-1.67.75-1.67 1.67v.83c0 .92.75 1.67 1.67 1.67h25c.92 0 1.67-.75 1.67-1.67v-.83c0-.92-.75-1.67-1.67-1.67h-25Z"
-        fill="currentColor"
-      />
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="h-10 w-10 text-[#7C3AED]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 15.5V5.5" />
+      <path d="M8.5 9L12 5.5 15.5 9" />
+      <path d="M5 16.5v1.25A2.25 2.25 0 0 0 7.25 20h9.5A2.25 2.25 0 0 0 19 17.75V16.5" />
+      <path d="M8.25 16.5h7.5" />
     </svg>
   )
 }
@@ -19,6 +28,8 @@ export default function UploadSection() {
     isAnalyzing,
     analyzeError,
     analyzeErrorType,
+    uploadTopic,
+    setUploadTopic,
     uploadTitle,
     setUploadTitle,
   } = useAppState()
@@ -107,7 +118,7 @@ export default function UploadSection() {
       return
     }
 
-    await analyzeReference(file)
+    await analyzeReference(file, { topic: uploadTopic })
   }
 
   return (
@@ -133,6 +144,29 @@ export default function UploadSection() {
               placeholder="비우면 파일명 사용"
               className="h-11 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
             />
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <label className="block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
+                이번 릴스 주제 (선택)
+              </label>
+              {uploadTopic ? (
+                <button
+                  type="button"
+                  onClick={() => setUploadTopic('')}
+                  className="text-[11px] font-medium text-[#94A3B8] transition hover:text-[#E5E7EB]"
+                >
+                  세팅대로 진행
+                </button>
+              ) : null}
+            </div>
+            <input
+              value={uploadTopic}
+              onChange={(event) => setUploadTopic(event.target.value)}
+              placeholder="예: 물광토너 제품소개"
+              className="mt-2 h-11 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
+            />
+            <p className="mt-2 text-left text-xs leading-5 text-[#8E97A6]">
+              계정 사전세팅은 그대로 참고하고, 이번 영상에서 밀 소주제가 있으면 여기에 적어주세요.
+            </p>
           </div>
         ) : null}
 
@@ -158,7 +192,10 @@ export default function UploadSection() {
             type="file"
             accept="video/*"
             className="hidden"
-            onChange={(event) => handleFile(event.target.files?.[0] || null)}
+            onChange={(event) => {
+              handleFile(event.target.files?.[0] || null)
+              event.target.value = ''
+            }}
           />
 
           <div className="flex min-h-[420px] flex-col items-center justify-center text-center md:h-full md:min-h-0">
