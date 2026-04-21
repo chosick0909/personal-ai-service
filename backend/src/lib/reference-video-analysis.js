@@ -169,8 +169,131 @@ function buildAnalysisReuseCacheKey({
 
 function extractMissingColumnName(error) {
   const text = String(error?.message || '')
-  const match = text.match(/column ['"]?([a-z0-9_]+)['"]?/i)
-  return match?.[1] || ''
+  const patterns = [
+    /Could not find the ['"]([a-z0-9_]+)['"] column/i,
+    /column ['"]?([a-z0-9_]+)['"]?/i,
+    /['"]([a-z0-9_]+)['"] column/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match?.[1]) {
+      return match[1]
+    }
+  }
+
+  return ''
+}
+
+function getReferenceVideoSelectColumnList({ includeProjectId = true, detail = false } = {}) {
+  const base = detail
+    ? [
+        'id',
+        'title',
+        'topic',
+        'original_filename',
+        'duration_seconds',
+        'transcript',
+        'transcript_segments',
+        'frame_timestamps',
+        'frame_notes',
+        'structure_analysis',
+        'hook_analysis',
+        'psychology_analysis',
+        'variations',
+        'ai_feedback',
+        'document_id',
+        'processing_status',
+        'error_message',
+        'created_at',
+      ]
+    : [
+        'id',
+        'title',
+        'topic',
+        'original_filename',
+        'duration_seconds',
+        'transcript',
+        'structure_analysis',
+        'hook_analysis',
+        'psychology_analysis',
+        'variations',
+        'ai_feedback',
+        'processing_status',
+        'error_message',
+        'created_at',
+      ]
+
+  return includeProjectId ? [...base, 'project_id'] : base
+}
+
+async function persistReferenceVideoRowWithFallback({
+  supabaseAdmin,
+  mode,
+  accountId,
+  referenceId = null,
+  payload,
+  removableColumns = [],
+  detail = true,
+}) {
+  const workingPayload = { ...payload }
+  const removable = new Set(removableColumns)
+  const selectedColumns = getReferenceVideoSelectColumnList({
+    includeProjectId: Object.prototype.hasOwnProperty.call(workingPayload, 'project_id'),
+    detail,
+  })
+
+  for (let attempt = 0; attempt < removable.size + selectedColumns.length + 2; attempt += 1) {
+    const includeProjectId = selectedColumns.includes('project_id')
+    const baseQuery =
+      mode === 'insert'
+        ? supabaseAdmin.from('reference_videos').insert({
+            ...workingPayload,
+            account_id: accountId,
+          })
+        : supabaseAdmin
+            .from('reference_videos')
+            .update(workingPayload)
+            .eq('id', referenceId)
+            .eq('account_id', accountId)
+
+    const result = await baseQuery
+      .select(selectedColumns.join(', '))
+      .single()
+
+    if (!result.error) {
+      if (!includeProjectId && result.data) {
+        result.data.project_id = null
+      }
+      return result
+    }
+
+    const missingColumn = extractMissingColumnName(result.error)
+    if (!missingColumn) {
+      return result
+    }
+
+    if (removable.has(missingColumn) && missingColumn in workingPayload) {
+      delete workingPayload[missingColumn]
+      continue
+    }
+
+    const selectIndex = selectedColumns.indexOf(missingColumn)
+    if (selectIndex !== -1) {
+      selectedColumns.splice(selectIndex, 1)
+      continue
+    }
+
+    return result
+  }
+
+  return {
+    data: null,
+    error: new AppError('Failed to persist reference video row', {
+      code: 'REFERENCE_VIDEO_PERSIST_FAILED',
+      statusCode: 500,
+    }),
+  }
 }
 
 async function computeUploadedFileFingerprint(file) {
@@ -281,7 +404,6 @@ async function createProcessingReferenceVideo({
   analysisFingerprint,
 }) {
   const basePayload = {
-    account_id: accountId,
     project_id: projectId || null,
     title,
     topic,
@@ -295,38 +417,27 @@ async function createProcessingReferenceVideo({
     analysis_fingerprint: analysisFingerprint || null,
   }
 
-  const removableColumns = new Set([
-    'project_id',
-    'current_stage',
-    'processing_started_at',
-    'last_heartbeat_at',
-    'idempotency_key',
-    'analysis_fingerprint',
-  ])
-  const payload = { ...basePayload }
+  const { data, error } = await persistReferenceVideoRowWithFallback({
+    supabaseAdmin,
+    mode: 'insert',
+    accountId,
+    payload: basePayload,
+    removableColumns: [
+      'project_id',
+      'current_stage',
+      'processing_started_at',
+      'last_heartbeat_at',
+      'idempotency_key',
+      'analysis_fingerprint',
+    ],
+    detail: true,
+  })
 
-  for (let attempt = 0; attempt < removableColumns.size + 1; attempt += 1) {
-    const { data, error } = await supabaseAdmin
-      .from('reference_videos')
-      .insert(payload)
-      .select(selectReferenceVideoColumns({ includeProjectId: 'project_id' in payload, detail: true }))
-      .single()
-
-    if (!error) {
-      return data
-    }
-
-    const missingColumn = extractMissingColumnName(error)
-    if (!missingColumn || !removableColumns.has(missingColumn) || !(missingColumn in payload)) {
-      throw error
-    }
-    delete payload[missingColumn]
+  if (error) {
+    throw error
   }
 
-  throw new AppError('Failed to create processing reference row', {
-    code: 'REFERENCE_PROCESSING_ROW_CREATE_FAILED',
-    statusCode: 500,
-  })
+  return data
 }
 
 async function updateReferenceLifecycleState({
@@ -673,11 +784,7 @@ function isMissingProjectColumnError(error) {
 }
 
 function selectReferenceVideoColumns({ includeProjectId = true, detail = false } = {}) {
-  const base = detail
-    ? 'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, processing_status, error_message, created_at'
-    : 'id, title, topic, original_filename, duration_seconds, transcript, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, processing_status, error_message, created_at'
-
-  return includeProjectId ? `${base}, project_id` : base
+  return getReferenceVideoSelectColumnList({ includeProjectId, detail }).join(', ')
 }
 
 function buildGenerationGuides({ analysisResult }) {
@@ -1332,36 +1439,22 @@ async function persistReusedReferenceVideo({
     processing_completed_at: new Date().toISOString(),
     document_id: cachedAnalysis.document_id || null,
   }
-  const runPersist = async (includeProjectId) => {
-    const baseQuery = referenceId
-      ? supabaseAdmin
-          .from('reference_videos')
-          .update(payload)
-          .eq('id', referenceId)
-          .eq('account_id', accountId)
-      : supabaseAdmin
-          .from('reference_videos')
-          .insert({
-            ...payload,
-            account_id: accountId,
-          })
-
-    return baseQuery
-      .select(selectReferenceVideoColumns({ includeProjectId, detail: true }))
-      .single()
-  }
-
-  let { data, error } = await runPersist(true)
-
-  if (isMissingProjectColumnError(error)) {
-    delete payload.project_id
-    const fallback = await runPersist(false)
-    data = fallback.data
-    error = fallback.error
-    if (data) {
-      data.project_id = null
-    }
-  }
+  const { data, error } = await persistReferenceVideoRowWithFallback({
+    supabaseAdmin,
+    mode: referenceId ? 'update' : 'insert',
+    accountId,
+    referenceId,
+    payload,
+    removableColumns: [
+      'project_id',
+      'current_stage',
+      'failure_stage',
+      'failure_code',
+      'failure_message',
+      'processing_completed_at',
+    ],
+    detail: true,
+  })
 
   if (error) {
     throw new AppError('Failed to persist reused reference analysis', {
@@ -2113,29 +2206,22 @@ export async function analyzeReferenceVideo({
           document_id: ingestedDocument.document.id,
         }
 
-        let updateResult = await supabaseAdmin
-          .from('reference_videos')
-          .update(updatePayload)
-          .eq('id', processingReference.id)
-          .eq('account_id', accountId)
-          .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
-          .single()
-
-        if (isMissingProjectColumnError(updateResult.error)) {
-          delete updatePayload.project_id
-          updateResult = await supabaseAdmin
-            .from('reference_videos')
-            .update(updatePayload)
-            .eq('id', processingReference.id)
-            .eq('account_id', accountId)
-            .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
-            .single()
-          if (updateResult.data) {
-            updateResult.data.project_id = null
-          }
-        }
-
-        return updateResult
+        return persistReferenceVideoRowWithFallback({
+          supabaseAdmin,
+          mode: 'update',
+          accountId,
+          referenceId: processingReference.id,
+          payload: updatePayload,
+          removableColumns: [
+            'project_id',
+            'current_stage',
+            'failure_stage',
+            'failure_code',
+            'failure_message',
+            'processing_completed_at',
+          ],
+          detail: true,
+        })
       },
       stageHooks,
     )

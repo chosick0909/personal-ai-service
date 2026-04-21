@@ -56,25 +56,25 @@ export default function AppLayout({ sidebar, main, panel, children, mobileVarian
     <main className="h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]">
       <div className="flex h-full flex-col md:hidden">
         {mobileVariant === 'upload' ? (
-          <header className="grid grid-cols-[56px_minmax(0,1fr)_96px] items-center gap-3 bg-[#0D0F14] px-4 pb-3 pt-4">
+          <header className="grid grid-cols-[46px_minmax(0,1fr)_84px] items-center gap-2.5 bg-[#0D0F14] px-4 pb-2.5 pt-3">
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(true)}
-              className="inline-flex h-14 w-14 items-center justify-center rounded-[22px] border border-[#2F3543] bg-[#171B24] text-[#F3F4F6] shadow-[0_10px_24px_rgba(0,0,0,0.24)]"
+              className="inline-flex h-[46px] w-[46px] items-center justify-center rounded-[18px] border border-[#2F3543] bg-[#171B24] text-[#F3F4F6] shadow-[0_8px_20px_rgba(0,0,0,0.22)]"
               aria-label="메뉴 열기"
             >
               <IconMenu />
             </button>
 
-            <div className="inline-flex h-14 min-w-0 items-center justify-center rounded-[22px] border border-[#2F3543] bg-[#171B24] px-5 text-center text-[20px] font-bold tracking-[-0.035em] text-[#F8FAFC] shadow-[0_10px_24px_rgba(0,0,0,0.24)]">
+            <div className="inline-flex h-[46px] min-w-0 items-center justify-center rounded-[18px] border border-[#2F3543] bg-[#171B24] px-4 text-center text-[17px] font-bold tracking-[-0.03em] text-[#F8FAFC] shadow-[0_8px_20px_rgba(0,0,0,0.22)]">
               <span className="translate-y-[-0.5px]">HookAI</span>
             </div>
 
-            <div className="ml-auto inline-flex h-14 items-center gap-1 rounded-[22px] border border-[#2F3543] bg-[#171B24] px-2 text-[#F3F4F6] shadow-[0_10px_24px_rgba(0,0,0,0.24)]">
+            <div className="ml-auto inline-flex h-[46px] items-center gap-0.5 rounded-[18px] border border-[#2F3543] bg-[#171B24] px-1.5 text-[#F3F4F6] shadow-[0_8px_20px_rgba(0,0,0,0.22)]">
               <button
                 type="button"
                 onClick={() => window.location.assign('/settings')}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#232833]"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-[#232833]"
                 aria-label="설정"
               >
                 <IconSettings />
@@ -82,7 +82,7 @@ export default function AppLayout({ sidebar, main, panel, children, mobileVarian
               <button
                 type="button"
                 onClick={() => setMobileSidebarOpen(true)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#232833]"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-[#232833]"
                 aria-label="최근 분석"
               >
                 <IconClock />
