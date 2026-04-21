@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react'
 import { getStoredAccountId, setStoredAccountId } from '../lib/api'
-import { createAccount, deleteAccountById, listAccounts } from '../lib/accountApi'
+import { createAccount, deleteAccountById, listAccounts, loadAccountProfile } from '../lib/accountApi'
 import { supabase } from '../lib/supabase'
 import {
   analyzeReferenceVideo,
@@ -143,6 +143,46 @@ function setStoredAccountSetupMap(map) {
   }
 
   window.localStorage.setItem(ACCOUNT_SETUP_KEY, JSON.stringify(map))
+}
+
+function hasNonEmptyText(value) {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function hasConfiguredProducts(products) {
+  if (!Array.isArray(products)) {
+    return false
+  }
+
+  return products.some((product) =>
+    hasNonEmptyText(product?.name) ||
+    hasNonEmptyText(product?.price) ||
+    hasNonEmptyText(product?.description),
+  )
+}
+
+function hasMeaningfulAccountSettings(profile) {
+  const settings = profile?.settings && typeof profile.settings === 'object' ? profile.settings : {}
+  const persona = settings.persona && typeof settings.persona === 'object' ? settings.persona : {}
+  const strategyPreferences = Array.isArray(settings.strategyPreferences)
+    ? settings.strategyPreferences.filter((item) => hasNonEmptyText(String(item || '')))
+    : []
+
+  return (
+    hasNonEmptyText(settings.category) ||
+    hasNonEmptyText(settings.accountGoal) ||
+    hasNonEmptyText(settings.voiceTone) ||
+    hasNonEmptyText(settings.characterPrompt) ||
+    hasNonEmptyText(settings.aiAdditionalInfo) ||
+    hasConfiguredProducts(settings.products) ||
+    strategyPreferences.length > 0 ||
+    hasNonEmptyText(persona.age) ||
+    (hasNonEmptyText(persona.gender) && String(persona.gender).trim() !== '선택') ||
+    hasNonEmptyText(persona.job) ||
+    hasNonEmptyText(persona.interests) ||
+    hasNonEmptyText(persona.painPoints) ||
+    hasNonEmptyText(persona.desiredChange)
+  )
 }
 
 function normalizeHistoryCacheItem(item = {}) {
@@ -563,6 +603,31 @@ function isAnalyzePage() {
   return window.location.pathname === '/analyze'
 }
 
+function classifyAnalyzeFailure(error) {
+  const code = String(error?.code || '').trim().toUpperCase()
+  const name = String(error?.name || '').trim()
+  const message = String(error?.message || '')
+
+  if (code === 'FILE_TOO_LARGE' || code === 'LIMIT_FILE_SIZE') {
+    return {
+      type: 'file-too-large',
+      message: '용량 초과: 영상은 최대 300MB까지 업로드할 수 있습니다. 파일 용량을 줄여 다시 시도해주세요.',
+    }
+  }
+
+  if (name === 'AbortError' || /timeout/i.test(message)) {
+    return {
+      type: 'timeout',
+      message: '타임아웃: 분석 요청 시간이 초과됐습니다(최대 8분). 네트워크 상태나 영상 길이/용량을 확인 후 다시 시도해주세요.',
+    }
+  }
+
+  return {
+    type: 'general',
+    message: message || '영상 분석에 실패했습니다. 잠시 후 다시 시도해주세요.',
+  }
+}
+
 export function AppStateProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialState.isLoggedIn)
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -587,6 +652,7 @@ export function AppStateProvider({ children }) {
   const [uploadTopic, setUploadTopic] = useState('')
   const [uploadTitle, setUploadTitle] = useState('')
   const [analyzeError, setAnalyzeError] = useState('')
+  const [analyzeErrorType, setAnalyzeErrorType] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
@@ -895,6 +961,33 @@ export function AppStateProvider({ children }) {
         }
 
         setCurrentAccount(nextCurrentAccount)
+
+        const setupEntries = await Promise.allSettled(
+          nextAccounts.map(async (account) => {
+            const payload = await loadAccountProfile({ accountId: account.id })
+            return [account.id, hasMeaningfulAccountSettings(payload?.profile)] 
+          }),
+        )
+
+        if (canceled) {
+          return
+        }
+
+        setAccountSetupMap((current) => {
+          const next = { ...current }
+
+          setupEntries.forEach((entry) => {
+            if (entry.status !== 'fulfilled') {
+              return
+            }
+
+            const [accountId, configured] = entry.value
+            next[accountId] = Boolean(configured)
+          })
+
+          setStoredAccountSetupMap(next)
+          return next
+        })
       } catch (_error) {
         if (!cachedAccounts.length) {
           setAccounts([])
@@ -1404,6 +1497,7 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections())
     setPendingSuggestion(null)
     setAnalyzeError('')
+    setAnalyzeErrorType('')
     setChatMessages([])
     setCopilotUsage(createInitialCopilotUsage())
     setReferenceHistory((current) => [localReference, ...current])
@@ -1460,8 +1554,10 @@ export function AppStateProvider({ children }) {
       console.error('requestId:', error.requestId || null)
       console.error(error)
       console.groupEnd()
+      const analyzedFailure = classifyAnalyzeFailure(error)
       setCurrentStep('upload')
-      setAnalyzeError(error.message)
+      setAnalyzeError(analyzedFailure.message)
+      setAnalyzeErrorType(analyzedFailure.type)
       setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
     } finally {
       setIsAnalyzing(false)
@@ -1542,6 +1638,19 @@ export function AppStateProvider({ children }) {
         setIsResultEntering(false)
       }, 420)
     }, 320)
+  }
+
+  const clearScriptSelection = () => {
+    setSelectedScript(null)
+    setCurrentStep('result')
+    setViewTransition('idle')
+    setIsEditorEntering(false)
+    setIsResultEntering(false)
+
+    syncHistory(activeReferenceIdRef.current, {
+      selectedScriptId: null,
+      lastStep: 'result',
+    })
   }
 
   const goBackToUpload = () => {
@@ -2086,6 +2195,7 @@ export function AppStateProvider({ children }) {
       uploadTopic,
       uploadTitle,
       analyzeError,
+      analyzeErrorType,
       pendingSuggestion,
       activeScriptId,
       toast,
@@ -2108,6 +2218,7 @@ export function AppStateProvider({ children }) {
       isResultEntering,
       goBackToUpload,
       goBackToResults,
+      clearScriptSelection,
       loadReferenceHistory,
       selectAccount,
       addAccount,
@@ -2148,6 +2259,7 @@ export function AppStateProvider({ children }) {
       currentStep,
       draftMessage,
       analyzeError,
+      analyzeErrorType,
       accounts,
       currentAccount,
       accountSetupMap,
@@ -2180,6 +2292,7 @@ export function AppStateProvider({ children }) {
       viewTransition,
       versions,
       createProject,
+      clearScriptSelection,
       selectProject,
       deleteProject,
       renameReferenceHistoryItem,

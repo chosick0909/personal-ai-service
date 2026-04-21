@@ -752,6 +752,7 @@ app.post(
         topic: req.body?.topic,
         title: req.body?.title,
         projectId: req.body?.projectId || null,
+        idempotencyKey: req.headers['x-idempotency-key'] || req.body?.idempotencyKey || '',
         characterSystemPrompt: character.systemPrompt,
         accountSettings:
           character?.profile?.settings && typeof character.profile.settings === 'object'

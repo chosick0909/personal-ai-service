@@ -67,12 +67,14 @@ export default function ResultCards({ transitioning = false, entering = false })
     referenceData,
     selectedScript,
     selectScript,
+    clearScriptSelection,
     goBackToUpload,
     currentStep,
     setIsVersionModalOpen,
     saveVersion,
   } = useAppState()
   const editorSectionRef = useRef(null)
+  const draftSectionRef = useRef(null)
   const scrollContainerRef = useRef(null)
   const editorPanelRef = useRef(null)
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
@@ -199,6 +201,38 @@ export default function ResultCards({ transitioning = false, entering = false })
     }
   }, [currentStep, selectedScript])
 
+  useEffect(() => {
+    if (currentStep !== 'editor' || !selectedScript) {
+      return
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        clearScriptSelection()
+      }
+    }
+
+    const handlePointerDown = (event) => {
+      const target = event.target
+      const isInsideDrafts = draftSectionRef.current?.contains(target)
+      const isInsideEditor = editorSectionRef.current?.contains(target)
+
+      if (isInsideDrafts || isInsideEditor) {
+        return
+      }
+
+      clearScriptSelection()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('pointerdown', handlePointerDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('pointerdown', handlePointerDown)
+    }
+  }, [currentStep, selectedScript, clearScriptSelection])
+
   return (
     <div
       ref={scrollContainerRef}
@@ -262,7 +296,7 @@ export default function ResultCards({ transitioning = false, entering = false })
           </div>
         </section>
 
-        <section className="mt-10 md:mt-12">
+        <section ref={draftSectionRef} className="mt-10 md:mt-12">
           <SmallBadge tone="pink">Select Draft</SmallBadge>
           <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-4xl">A/B/C 초안 선택</h2>
           <p className="mt-2 text-sm text-[#8E97A6]">원하는 스타일을 선택하여 에디터로 이동하세요</p>

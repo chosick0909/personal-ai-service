@@ -18,11 +18,13 @@ export default function UploadSection() {
     analyzeReference,
     isAnalyzing,
     analyzeError,
+    analyzeErrorType,
     uploadTitle,
     setUploadTitle,
   } = useAppState()
   const [dragActive, setDragActive] = useState(false)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
+  const [analyzeElapsedSec, setAnalyzeElapsedSec] = useState(0)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -54,6 +56,20 @@ export default function UploadSection() {
     return () => window.clearInterval(timer)
   }, [currentStep, isAnalyzing])
 
+  useEffect(() => {
+    const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
+    if (!isAnalysisStep) {
+      setAnalyzeElapsedSec(0)
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      setAnalyzeElapsedSec((current) => current + 1)
+    }, 1000)
+
+    return () => window.clearInterval(timer)
+  }, [currentStep, isAnalyzing])
+
   const analyzeStageText = useMemo(() => {
     if (analyzeProgress < 20) return '레퍼런스 영상 음성 추출중'
     if (analyzeProgress < 40) return '전사 텍스트 정리중'
@@ -62,6 +78,29 @@ export default function UploadSection() {
     if (analyzeProgress < 95) return 'A/B/C 초안 생성중'
     return '결과 마무리중'
   }, [analyzeProgress])
+
+  const analyzeDelayNotice = useMemo(() => {
+    if (!(currentStep === 'analyzing' || isAnalyzing)) {
+      return ''
+    }
+    if (analyzeElapsedSec >= 180) {
+      return '분석 지연: 처리 시간이 길어지고 있습니다. 잠시만 더 기다려주세요. 오래 지속되면 영상 길이/용량을 줄여 다시 시도해주세요.'
+    }
+    if (analyzeElapsedSec >= 90) {
+      return '분석 지연: 현재 서버에서 구조 분석을 계속 진행 중입니다.'
+    }
+    return ''
+  }, [currentStep, isAnalyzing, analyzeElapsedSec])
+
+  const analyzeErrorLabel = useMemo(() => {
+    if (analyzeErrorType === 'file-too-large') {
+      return '용량 초과'
+    }
+    if (analyzeErrorType === 'timeout') {
+      return '타임아웃'
+    }
+    return '분석 실패'
+  }, [analyzeErrorType])
 
   const handleFile = async (file) => {
     if (!file || isAnalyzing) {
@@ -159,15 +198,20 @@ export default function UploadSection() {
             <p className="mt-3 text-sm leading-6 text-[#8E97A6]">
               {currentStep === 'analyzing'
                 ? '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
-                : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다.'}
+                : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다. (긴 영상은 앞부분 중심으로 분석)'}
             </p>
             {currentStep === 'analyzing' ? (
               <p className="mt-1 text-xs text-[#9CA3AF]">{analyzeStageText}</p>
             ) : null}
+            {analyzeDelayNotice ? (
+              <div className="mt-3 rounded-2xl border border-[#FDE68A] bg-[#2A2111] px-4 py-2 text-xs text-[#FDE68A]">
+                {analyzeDelayNotice}
+              </div>
+            ) : null}
 
             {analyzeError ? (
               <div className="mt-4 rounded-2xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-2 text-sm text-[#B91C1C]">
-                {analyzeError}
+                <span className="font-semibold">{analyzeErrorLabel}:</span> {analyzeError}
               </div>
             ) : null}
 

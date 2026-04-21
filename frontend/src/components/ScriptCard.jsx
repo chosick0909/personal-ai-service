@@ -8,18 +8,31 @@ function SectionPreview({ label, value, tone }) {
 }
 
 export default function ScriptCard({ script, onSelect, isSelected = false, hasSelection = false }) {
+  const handleSelect = () => {
+    onSelect(script.id)
+  }
+
   return (
     <article
-      className={`rounded-[28px] border p-5 shadow-[0_20px_50px_rgba(0,0,0,0.36)] transition ${
+      role="button"
+      tabIndex={0}
+      onClick={handleSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          handleSelect()
+        }
+      }}
+      className={`flex h-full flex-col rounded-[28px] border p-5 shadow-[0_20px_50px_rgba(0,0,0,0.36)] transition ${
         isSelected
           ? 'border-[#A5B4FC] bg-[#161C28] ring-2 ring-[#A5B4FC] shadow-[0_24px_60px_rgba(99,102,241,0.18)]'
           : hasSelection
             ? 'border-[#2A303B] bg-[#11151D] grayscale-[0.55] opacity-55'
-            : 'border-[#2F3543] bg-[#12151D]'
+            : 'border-[#2F3543] bg-[#12151D] hover:border-[#495164] hover:bg-[#151B25]'
       }`}
     >
-      <div>
-        <div>
+      <div className="min-h-[150px]">
+        <div className="flex h-full flex-col">
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-full border border-[#3A4252] bg-[#171B24] px-3 py-1 text-xs font-semibold text-[#D1D5DB]">
               {script.label}
@@ -34,7 +47,7 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3">
+      <div className="mt-5 grid flex-1 content-start gap-3">
         <SectionPreview
           label="Hook"
           value={script.hook}
@@ -54,7 +67,10 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
 
       <button
         type="button"
-        onClick={() => onSelect(script.id)}
+        onClick={(event) => {
+          event.stopPropagation()
+          handleSelect()
+        }}
         className="btn-solid-contrast mt-5 flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold transition hover:bg-white"
       >
         {isSelected ? '선택됨' : '사용하기'}

@@ -14,6 +14,8 @@ import { logAIError } from './ai-error-logger.js'
 const execFile = promisify(execFileCallback)
 const ffmpegPath = ffmpegInstaller.path
 const ffprobePath = ffprobeInstaller.path
+const VISION_FRAME_COUNT = Number.parseInt(process.env.VISION_FRAME_COUNT || '3', 10)
+const VISION_FRAME_MAX_WIDTH = Number.parseInt(process.env.VISION_FRAME_MAX_WIDTH || '720', 10)
 
 function summarizeStderr(stderr) {
   const text = stderr?.toString() || ''
@@ -39,7 +41,13 @@ function sanitizeBaseName(filename) {
 
 function buildFrameTimestamps(durationSeconds) {
   const cappedDuration = Math.max(0.5, Math.min(durationSeconds || 3, 3))
-  const raw = [0, cappedDuration * 0.33, cappedDuration * 0.66, cappedDuration - 0.05]
+  const frameCount = Number.isFinite(VISION_FRAME_COUNT) ? Math.max(2, Math.min(VISION_FRAME_COUNT, 6)) : 3
+  const raw = Array.from({ length: frameCount }, (_, index) => {
+    if (index === 0) return 0
+    if (index === frameCount - 1) return cappedDuration - 0.05
+    const ratio = index / (frameCount - 1)
+    return cappedDuration * ratio
+  })
   const normalized = raw
     .map((value) => Number(Math.max(0, value).toFixed(2)))
     .filter((value, index, array) => array.indexOf(value) === index)
@@ -135,14 +143,17 @@ export async function hasAudioStream(videoPath) {
   }
 }
 
-export async function extractAudioTrack(videoPath, workspace) {
+export async function extractAudioTrack(videoPath, workspace, options = {}) {
   const audioPath = join(workspace, 'audio.wav')
+  const maxDurationSeconds = Number(options.maxDurationSeconds || 0)
+  const shouldLimitDuration = Number.isFinite(maxDurationSeconds) && maxDurationSeconds > 0
 
   try {
-    await execFile(ffmpegPath, [
+    const args = [
       '-y',
       '-i',
       videoPath,
+      ...(shouldLimitDuration ? ['-t', String(Math.floor(maxDurationSeconds))] : []),
       '-vn',
       '-ac',
       '1',
@@ -151,13 +162,15 @@ export async function extractAudioTrack(videoPath, workspace) {
       '-c:a',
       'pcm_s16le',
       audioPath,
-    ])
+    ]
+    await execFile(ffmpegPath, args)
   } catch (error) {
     throw new AppError('Failed to extract audio track from video', {
       code: 'AUDIO_EXTRACTION_FAILED',
       statusCode: 500,
       details: {
         stage: 'extract-audio',
+        maxDurationSeconds: shouldLimitDuration ? Math.floor(maxDurationSeconds) : null,
         stderr: summarizeStderr(error.stderr),
       },
       cause: error,
@@ -172,6 +185,9 @@ export async function extractFrames(videoPath, workspace, durationSeconds) {
   await mkdir(framesDir, { recursive: true })
 
   const timestamps = buildFrameTimestamps(durationSeconds)
+  const maxWidth = Number.isFinite(VISION_FRAME_MAX_WIDTH)
+    ? Math.max(256, Math.min(VISION_FRAME_MAX_WIDTH, 1920))
+    : 720
   const frames = []
 
   for (const [index, timestamp] of timestamps.entries()) {
@@ -184,6 +200,8 @@ export async function extractFrames(videoPath, workspace, durationSeconds) {
         `${timestamp}`,
         '-i',
         videoPath,
+        '-vf',
+        `scale='min(${maxWidth},iw)':-2`,
         '-frames:v',
         '1',
         '-q:v',

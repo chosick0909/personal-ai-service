@@ -156,7 +156,7 @@ function LandingScreen() {
       <div className="mx-auto w-full max-w-[1920px] px-6 pb-28 pt-24 md:pt-[154px]">
         <section className="mx-auto max-w-[1024px] text-center">
           <div className="inline-flex h-9 items-center justify-center rounded-full border border-[#3A4252] bg-[#171B24] px-5 text-xs font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
-            Verified Workflow
+            베타서비스
           </div>
           <h1 className="mt-7 text-[40px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F8FAFC] md:text-[72px] md:leading-[79.2px]">
             검증 가능한 기준으로
@@ -2349,6 +2349,7 @@ function StudioShell() {
       sidebar={<Sidebar />}
       main={<MainPanel />}
       panel={null}
+      mobileVariant={currentStep === 'upload' || currentStep === 'analyzing' ? 'upload' : 'default'}
     >
       {toast ? (
         <div className="pointer-events-none fixed left-1/2 top-6 z-[60] -translate-x-1/2">

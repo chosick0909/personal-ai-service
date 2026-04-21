@@ -1,6 +1,11 @@
 import { AppError } from './errors.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 
+const SCRIPT_CREATE_DEDUPE_WINDOW_SECONDS = Number.parseInt(
+  String(process.env.SCRIPT_CREATE_DEDUPE_WINDOW_SECONDS || '120'),
+  10,
+)
+
 function requireSupabaseAdmin() {
   if (!hasSupabaseAdminConfig()) {
     throw new AppError('Supabase admin client is not configured', {
@@ -10,6 +15,15 @@ function requireSupabaseAdmin() {
   }
 
   return getSupabaseAdmin()
+}
+
+function isMissingColumnError(error, columnName) {
+  const code = String(error?.code || '').trim()
+  const message = String(error?.message || '').toLowerCase()
+  if (code === '42703' && message.includes(String(columnName || '').toLowerCase())) {
+    return true
+  }
+  return message.includes(String(columnName || '').toLowerCase()) && message.includes('schema cache')
 }
 
 function normalizeSections(sections = {}) {
@@ -37,6 +51,92 @@ function mapVersion(version) {
   }
 }
 
+async function getOwnedReferenceOrThrow(supabaseAdmin, accountId, referenceId) {
+  if (!referenceId) {
+    throw new AppError('referenceId is required', {
+      code: 'REFERENCE_ID_REQUIRED',
+      statusCode: 400,
+    })
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('reference_videos')
+    .select('id, title, topic')
+    .eq('account_id', accountId)
+    .eq('id', referenceId)
+    .single()
+
+  if (error) {
+    const statusCode = error.code === 'PGRST116' ? 404 : 500
+    throw new AppError(statusCode === 404 ? 'Reference not found' : 'Failed to load reference', {
+      code: statusCode === 404 ? 'REFERENCE_NOT_FOUND' : 'REFERENCE_FETCH_FAILED',
+      statusCode,
+      cause: error,
+    })
+  }
+
+  return data
+}
+
+async function getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId) {
+  const { data, error } = await supabaseAdmin
+    .from('scripts')
+    .select('id, title, category, tone, current_content, metadata, created_at, updated_at, current_score')
+    .eq('account_id', accountId)
+    .eq('id', scriptId)
+    .single()
+
+  if (error) {
+    const statusCode = error.code === 'PGRST116' ? 404 : 500
+    throw new AppError(statusCode === 404 ? 'Script not found' : 'Failed to load script', {
+      code: statusCode === 404 ? 'SCRIPT_NOT_FOUND' : 'SCRIPT_FETCH_FAILED',
+      statusCode,
+      cause: error,
+    })
+  }
+
+  return data
+}
+
+async function findRecentDuplicateScript({
+  supabaseAdmin,
+  accountId,
+  referenceId,
+  selectedLabel,
+  title,
+  content,
+}) {
+  const windowSeconds = Number.isFinite(SCRIPT_CREATE_DEDUPE_WINDOW_SECONDS)
+    ? Math.max(30, Math.min(600, SCRIPT_CREATE_DEDUPE_WINDOW_SECONDS))
+    : 120
+  const since = new Date(Date.now() - windowSeconds * 1000).toISOString()
+
+  const { data, error } = await supabaseAdmin
+    .from('scripts')
+    .select('id, title, current_content, current_score, category, tone, metadata, created_at, updated_at')
+    .eq('account_id', accountId)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (error || !Array.isArray(data)) {
+    return null
+  }
+
+  return (
+    data.find((item) => {
+      const metadataReferenceId = String(item?.metadata?.referenceId || '').trim()
+      const sameReference = metadataReferenceId === String(referenceId || '').trim()
+      if (!sameReference) return false
+      const sameTitle = String(item.title || '').trim() === String(title || '').trim()
+      const sameContent = String(item.current_content || '').trim() === String(content || '').trim()
+      const metadataLabel = String(item?.metadata?.selectedLabel || '').trim()
+      const sameLabel = metadataLabel === String(selectedLabel || '').trim()
+      return sameTitle && sameContent && sameLabel
+    }) || null
+  )
+}
+
 export async function createScriptFromSelection({
   accountId,
   referenceId,
@@ -49,26 +149,68 @@ export async function createScriptFromSelection({
   const normalizedSections = normalizeSections(sections)
   const content = serializeSections(normalizedSections)
   const scriptTitle = title?.trim() || `${selectedLabel || '스크립트'} 초안`
+  await getOwnedReferenceOrThrow(supabaseAdmin, accountId, referenceId)
+  const duplicateScript = await findRecentDuplicateScript({
+    supabaseAdmin,
+    accountId,
+    referenceId,
+    selectedLabel,
+    title: scriptTitle,
+    content,
+  })
 
-  const { data: script, error: scriptError } = await supabaseAdmin
-    .from('scripts')
-    .insert({
-      account_id: accountId,
-      title: scriptTitle,
-      category: 'reference-video-script',
-      tone: null,
-      current_content: content,
-      autosave_content: content,
-      current_score: score,
-      status: 'active',
-      metadata: {
-        referenceId,
-        selectedLabel,
-        sections: normalizedSections,
+  if (duplicateScript?.id) {
+    const versions = await listScriptVersions(accountId, duplicateScript.id)
+    return {
+      script: {
+        id: duplicateScript.id,
+        title: duplicateScript.title,
+        currentContent: duplicateScript.current_content,
+        currentScore: duplicateScript.current_score,
+        category: duplicateScript.category,
+        tone: duplicateScript.tone,
+        metadata: duplicateScript.metadata,
+        createdAt: duplicateScript.created_at,
+        updatedAt: duplicateScript.updated_at,
       },
-    })
+      versions,
+      deduplicated: true,
+    }
+  }
+
+  const scriptPayload = {
+    account_id: accountId,
+    reference_video_id: referenceId,
+    title: scriptTitle,
+    category: 'reference-video-script',
+    tone: null,
+    current_content: content,
+    autosave_content: content,
+    current_score: score,
+    status: 'active',
+    metadata: {
+      referenceId,
+      selectedLabel,
+      sections: normalizedSections,
+    },
+  }
+
+  let { data: script, error: scriptError } = await supabaseAdmin
+    .from('scripts')
+    .insert(scriptPayload)
     .select('id, title, category, tone, current_content, current_score, metadata, created_at, updated_at')
     .single()
+
+  if (isMissingColumnError(scriptError, 'reference_video_id')) {
+    delete scriptPayload.reference_video_id
+    const fallback = await supabaseAdmin
+      .from('scripts')
+      .insert(scriptPayload)
+      .select('id, title, category, tone, current_content, current_score, metadata, created_at, updated_at')
+      .single()
+    script = fallback.data
+    scriptError = fallback.error
+  }
 
   if (scriptError) {
     throw new AppError('Failed to create script', {
@@ -126,6 +268,7 @@ export async function createScriptFromSelection({
 
 export async function listScriptVersions(accountId, scriptId) {
   const supabaseAdmin = requireSupabaseAdmin()
+  await getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId)
   const { data, error } = await supabaseAdmin
     .from('script_versions')
     .select('id, version_number, version_type, title, content, score, created_at')
@@ -157,25 +300,7 @@ export async function saveScriptVersion({
   const normalizedSections = normalizeSections(sections)
   const content = serializeSections(normalizedSections)
 
-  const { data: script, error: scriptError } = await supabaseAdmin
-    .from('scripts')
-    .select('id, title, category, tone')
-    .eq('account_id', accountId)
-    .eq('id', scriptId)
-    .single()
-
-  if (scriptError) {
-    const statusCode = scriptError.code === 'PGRST116' ? 404 : 500
-
-    throw new AppError(
-      statusCode === 404 ? 'Script not found' : 'Failed to load script',
-      {
-        code: statusCode === 404 ? 'SCRIPT_NOT_FOUND' : 'SCRIPT_FETCH_FAILED',
-        statusCode,
-        cause: scriptError,
-      },
-    )
-  }
+  const script = await getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId)
 
   const { count, error: countError } = await supabaseAdmin
     .from('script_versions')
@@ -193,6 +318,25 @@ export async function saveScriptVersion({
 
   const versionNumber = (count || 0) + 1
   const nextTitle = title?.trim() || script.title
+
+  const { data: latestVersionRows } = await supabaseAdmin
+    .from('script_versions')
+    .select('id, version_number, version_type, title, content, score, created_at')
+    .eq('account_id', accountId)
+    .eq('script_id', scriptId)
+    .order('version_number', { ascending: false })
+    .limit(1)
+  const latestVersion = Array.isArray(latestVersionRows) ? latestVersionRows[0] : null
+  if (
+    latestVersion &&
+    String(latestVersion.content || '').trim() === String(content || '').trim() &&
+    String(latestVersion.version_type || '').trim() === String(versionType || '').trim()
+  ) {
+    return {
+      version: mapVersion(latestVersion),
+      deduplicated: true,
+    }
+  }
 
   const { data: version, error: versionError } = await supabaseAdmin
     .from('script_versions')
@@ -258,6 +402,7 @@ export async function restoreScriptVersion({
   versionId,
 }) {
   const supabaseAdmin = requireSupabaseAdmin()
+  await getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId)
 
   const { data: version, error: versionError } = await supabaseAdmin
     .from('script_versions')
@@ -314,6 +459,7 @@ export async function saveFeedbackRecord({
   metadata = {},
 }) {
   const supabaseAdmin = requireSupabaseAdmin()
+  await getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId)
   const normalizedContent = content?.trim()
 
   if (!normalizedContent) {

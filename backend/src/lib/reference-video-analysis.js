@@ -1,5 +1,7 @@
 import { AppError } from './errors.js'
 import { buildCacheKey, cacheConfig, getCacheJson, hashText, setCacheJson } from './cache.js'
+import { createHash } from 'node:crypto'
+import { open, stat } from 'node:fs/promises'
 import { ingestDocument } from './document-ingest.js'
 import { chunkText } from './chunking.js'
 import { createEmbeddings } from './embeddings.js'
@@ -59,9 +61,16 @@ const CATEGORY_ANCHOR_TERMS = {
   기타: [],
 }
 
-const MAX_VARIATION_RETRIES = 2
 const VARIATION_CONTEXT_TEXT_MAX = 800
 const MAX_PROMPT_SETTING_CUES = 3
+const ENABLE_COST_GUARD = String(process.env.FEATURE_COST_GUARD || 'true') !== 'false'
+const QUALITY_REGEN_AVERAGE_THRESHOLD = Number.parseFloat(
+  String(process.env.QUALITY_REGEN_AVERAGE_THRESHOLD || '3.2'),
+)
+const DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS = Number.parseInt(
+  process.env.REFERENCE_ANALYSIS_AUDIO_MAX_SECONDS || '90',
+  10,
+)
 
 const ACCOUNT_GOAL_LABELS = {
   'personal-influencer': '퍼스널 인플루언싱',
@@ -124,6 +133,11 @@ const REFERENCE_SURFACE_STOPWORDS = new Set([
 const MAX_REFERENCE_SURFACE_TERMS = 16
 
 const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
+const ANALYZE_DEDUPE_WINDOW_MINUTES = Number.parseInt(
+  String(process.env.ANALYZE_DEDUPE_WINDOW_MINUTES || '30'),
+  10,
+)
+const ANALYZE_IN_FLIGHT = new Map()
 
 function cacheLog(stage, details = {}) {
   const safe = Object.fromEntries(
@@ -137,10 +151,10 @@ function buildAnalysisReuseCacheKey({
   topic,
   title,
   originalFilename,
-  fileBuffer,
+  fileFingerprint,
   characterSystemPrompt,
 }) {
-  const fileHash = hashText(fileBuffer || '')
+  const fileHash = String(fileFingerprint || '').trim() || hashText('')
   const promptHash = hashText(characterSystemPrompt || '')
   return buildCacheKey('analysis:reference-video', {
     accountId,
@@ -151,6 +165,237 @@ function buildAnalysisReuseCacheKey({
     promptVersion: ANALYSIS_PROMPT_VERSION,
     promptHash,
   })
+}
+
+function extractMissingColumnName(error) {
+  const text = String(error?.message || '')
+  const match = text.match(/column ['"]?([a-z0-9_]+)['"]?/i)
+  return match?.[1] || ''
+}
+
+async function computeUploadedFileFingerprint(file) {
+  if (Buffer.isBuffer(file?.buffer) && file.buffer.length > 0) {
+    return hashText(file.buffer)
+  }
+
+  const filePath = String(file?.path || '').trim()
+  if (!filePath) {
+    return hashText(
+      JSON.stringify({
+        originalname: file?.originalname || '',
+        mimetype: file?.mimetype || '',
+        size: Number(file?.size || 0),
+      }),
+    )
+  }
+
+  const fileStat = await stat(filePath)
+  const totalSize = Number(fileStat?.size || 0)
+  const handle = await open(filePath, 'r')
+
+  try {
+    const headSize = Math.min(256 * 1024, Math.max(0, totalSize))
+    const headBuffer = Buffer.alloc(headSize)
+    const headRead = headSize > 0 ? await handle.read(headBuffer, 0, headSize, 0) : { bytesRead: 0 }
+
+    const tailSize = Math.min(256 * 1024, Math.max(0, totalSize - headRead.bytesRead))
+    const tailBuffer = Buffer.alloc(tailSize)
+    const tailPosition = Math.max(0, totalSize - tailSize)
+    const tailRead =
+      tailSize > 0 ? await handle.read(tailBuffer, 0, tailSize, tailPosition) : { bytesRead: 0 }
+
+    const digest = createHash('sha256')
+    digest.update(Buffer.from(String(totalSize)))
+    digest.update(headBuffer.subarray(0, headRead.bytesRead))
+    digest.update(tailBuffer.subarray(0, tailRead.bytesRead))
+    return digest.digest('hex')
+  } finally {
+    await handle.close()
+  }
+}
+
+function normalizeIdempotencyKey(value) {
+  const text = String(value || '').trim()
+  if (!text) {
+    return ''
+  }
+
+  return text.slice(0, 128)
+}
+
+async function findRecentDuplicateReference({
+  supabaseAdmin,
+  accountId,
+  idempotencyKey,
+  analysisFingerprint,
+  dedupeWindowMinutes = ANALYZE_DEDUPE_WINDOW_MINUTES,
+}) {
+  const normalizedWindow = Number.isFinite(dedupeWindowMinutes) && dedupeWindowMinutes > 0
+    ? dedupeWindowMinutes
+    : 30
+  const since = new Date(Date.now() - normalizedWindow * 60 * 1000).toISOString()
+  const columns = 'id, processing_status, created_at'
+
+  if (idempotencyKey) {
+    const { data } = await supabaseAdmin
+      .from('reference_videos')
+      .select(columns)
+      .eq('account_id', accountId)
+      .eq('idempotency_key', idempotencyKey)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (Array.isArray(data) && data.length) {
+      return data[0]
+    }
+  }
+
+  if (analysisFingerprint) {
+    const { data } = await supabaseAdmin
+      .from('reference_videos')
+      .select(columns)
+      .eq('account_id', accountId)
+      .eq('analysis_fingerprint', analysisFingerprint)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (Array.isArray(data) && data.length) {
+      return data[0]
+    }
+  }
+
+  return null
+}
+
+async function createProcessingReferenceVideo({
+  supabaseAdmin,
+  accountId,
+  projectId,
+  title,
+  topic,
+  originalFilename,
+  mimeType,
+  idempotencyKey,
+  analysisFingerprint,
+}) {
+  const basePayload = {
+    account_id: accountId,
+    project_id: projectId || null,
+    title,
+    topic,
+    original_filename: originalFilename,
+    mime_type: mimeType || 'video/mp4',
+    processing_status: 'processing',
+    current_stage: 'queued',
+    processing_started_at: new Date().toISOString(),
+    last_heartbeat_at: new Date().toISOString(),
+    idempotency_key: idempotencyKey || null,
+    analysis_fingerprint: analysisFingerprint || null,
+  }
+
+  const removableColumns = new Set([
+    'project_id',
+    'current_stage',
+    'processing_started_at',
+    'last_heartbeat_at',
+    'idempotency_key',
+    'analysis_fingerprint',
+  ])
+  const payload = { ...basePayload }
+
+  for (let attempt = 0; attempt < removableColumns.size + 1; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('reference_videos')
+      .insert(payload)
+      .select(selectReferenceVideoColumns({ includeProjectId: 'project_id' in payload, detail: true }))
+      .single()
+
+    if (!error) {
+      return data
+    }
+
+    const missingColumn = extractMissingColumnName(error)
+    if (!missingColumn || !removableColumns.has(missingColumn) || !(missingColumn in payload)) {
+      throw error
+    }
+    delete payload[missingColumn]
+  }
+
+  throw new AppError('Failed to create processing reference row', {
+    code: 'REFERENCE_PROCESSING_ROW_CREATE_FAILED',
+    statusCode: 500,
+  })
+}
+
+async function updateReferenceLifecycleState({
+  supabaseAdmin,
+  referenceId,
+  accountId,
+  patch = {},
+}) {
+  if (!referenceId || !accountId) {
+    return
+  }
+
+  const payload = {
+    ...patch,
+    last_heartbeat_at: new Date().toISOString(),
+  }
+  const fallback = {}
+  if (payload.processing_status !== undefined) {
+    fallback.processing_status = payload.processing_status
+  }
+  if (payload.failure_message !== undefined) {
+    fallback.error_message = payload.failure_message
+  }
+  if (payload.failure_message === null) {
+    fallback.error_message = null
+  }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { error } = await supabaseAdmin
+      .from('reference_videos')
+      .update(payload)
+      .eq('id', referenceId)
+      .eq('account_id', accountId)
+
+    if (!error) {
+      return
+    }
+
+    const missingColumn = extractMissingColumnName(error)
+    if (!missingColumn) {
+      console.warn('[reference-video-analysis] lifecycle update failed', {
+        referenceId,
+        accountId,
+        code: error.code || null,
+        message: error.message,
+      })
+      return
+    }
+
+    if (!(missingColumn in payload)) {
+      console.warn('[reference-video-analysis] lifecycle update missing column fallback exhausted', {
+        referenceId,
+        accountId,
+        missingColumn,
+      })
+      return
+    }
+
+    delete payload[missingColumn]
+
+    if (!Object.keys(payload).length && Object.keys(fallback).length) {
+      payload.processing_status = fallback.processing_status
+      payload.error_message = fallback.error_message
+    }
+
+    if (!Object.keys(payload).length) {
+      return
+    }
+  }
 }
 
 function logStage(level, stage, context = {}) {
@@ -429,8 +674,8 @@ function isMissingProjectColumnError(error) {
 
 function selectReferenceVideoColumns({ includeProjectId = true, detail = false } = {}) {
   const base = detail
-    ? 'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, created_at'
-    : 'id, title, topic, original_filename, duration_seconds, transcript, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, created_at'
+    ? 'id, title, topic, original_filename, duration_seconds, transcript, transcript_segments, frame_timestamps, frame_notes, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, document_id, processing_status, error_message, created_at'
+    : 'id, title, topic, original_filename, duration_seconds, transcript, structure_analysis, hook_analysis, psychology_analysis, variations, ai_feedback, processing_status, error_message, created_at'
 
   return includeProjectId ? `${base}, project_id` : base
 }
@@ -793,6 +1038,111 @@ function needsFlowPolish(variation = {}) {
   return awkwardPattern.test(text)
 }
 
+function isVariationStructureBroken(variation = {}, alignment = {}, guard = {}) {
+  const hook = String(variation?.hook || '').trim()
+  const body = String(variation?.body || '').trim()
+  const cta = String(variation?.cta || '').trim()
+
+  if (!hook || !body || !cta) {
+    return { broken: true, reason: 'HOOK/BODY/CTA 비어 있음' }
+  }
+  if (!alignment?.ok) {
+    return { broken: true, reason: alignment?.reason || '정합성 실패' }
+  }
+
+  const coreText = `${hook}\n${body}`
+  if (guard?.category && guard.category !== '기타' && Array.isArray(guard.anchors) && guard.anchors.length) {
+    const anchorHit = guard.anchors.some((term) => containsTerm(coreText, term))
+    if (!anchorHit) {
+      return { broken: true, reason: '주제 완전 이탈(핵심 구간 카테고리 미반영)' }
+    }
+  }
+
+  return { broken: false, reason: '구조 통과' }
+}
+
+function scoreVariationQuality(variation = {}, config = {}, guard = {}) {
+  const hook = String(variation?.hook || '').trim()
+  const body = String(variation?.body || '').trim()
+  const cta = String(variation?.cta || '').trim()
+  const fullText = [hook, body, cta].filter(Boolean).join('\n')
+
+  const sentenceSplit = (text) =>
+    String(text || '')
+      .split(/[.!?。！？\n]+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+  const hookSentences = sentenceSplit(hook)
+  const bodySentences = sentenceSplit(body)
+  const ctaSentences = sentenceSplit(cta)
+  const words = fullText.split(/\s+/).filter(Boolean)
+  const averageSentenceLength = (() => {
+    const all = [...hookSentences, ...bodySentences, ...ctaSentences]
+    if (!all.length) return 999
+    return all.reduce((sum, sentence) => sum + sentence.length, 0) / all.length
+  })()
+
+  let hookStrength = 3
+  if (hook.length < 18 || hook.length > 120) hookStrength -= 1
+  if (/(무너|손해|실수|놓치|바로|지금|절대|반전|왜)/.test(hook)) hookStrength += 1
+  if (/하시나요\?/.test(hook)) hookStrength -= 1
+  hookStrength = Math.max(1, Math.min(5, hookStrength))
+
+  let clarity = 3
+  if (averageSentenceLength > 55) clarity -= 1
+  if (averageSentenceLength > 75) clarity -= 1
+  if (bodySentences.length >= 2) clarity += 1
+  if (words.length < 25) clarity -= 1
+  clarity = Math.max(1, Math.min(5, clarity))
+
+  let flow = 3
+  if (hook && body && cta) flow += 1
+  if (/(그래서|결국|이제|바로|먼저|다음)/.test(body)) flow += 1
+  if (/(또한|한편|한편으로|그리고|그리고요)\s*(그리고|또한)/.test(body)) flow -= 1
+  flow = Math.max(1, Math.min(5, flow))
+
+  let ctaPower = 3
+  if (/(지금|오늘|바로|저장|적용|실행|시작)/.test(cta)) ctaPower += 1
+  if (cta.length < 18) ctaPower -= 1
+  if (/(좋아요|팔로우)/.test(cta)) ctaPower -= 1
+  ctaPower = Math.max(1, Math.min(5, ctaPower))
+
+  let toneMatch = 3
+  const angle = String(config?.angle || '')
+  if (angle.includes('문제 제기') && /(문제|손해|실수|위험|무너)/.test(fullText)) toneMatch += 1
+  if (angle.includes('정보 압축') && /(단계|기준|정리|체크|순서)/.test(fullText)) toneMatch += 1
+  if (angle.includes('공감 유도') && /(저도|나도|공감|답답|겪어|이랬)/.test(fullText)) toneMatch += 1
+  if (Array.isArray(guard?.settingCues) && guard.settingCues.length) {
+    const cueHit = guard.settingCues.some((cue) => containsTerm(fullText, cue))
+    if (!cueHit) toneMatch -= 1
+  }
+  toneMatch = Math.max(1, Math.min(5, toneMatch))
+
+  const average = (hookStrength + clarity + flow + ctaPower + toneMatch) / 5
+  return {
+    hook_strength: hookStrength,
+    clarity,
+    flow,
+    cta_power: ctaPower,
+    tone_match: toneMatch,
+    average,
+  }
+}
+
+function shouldRegenerateByQuality(score = {}) {
+  const averageThreshold = Number.isFinite(QUALITY_REGEN_AVERAGE_THRESHOLD)
+    ? QUALITY_REGEN_AVERAGE_THRESHOLD
+    : 3.2
+
+  if ((score.average || 0) < averageThreshold) return true
+  if ((score.hook_strength || 0) <= 2) return true
+  if ((score.clarity || 0) <= 2) return true
+  if ((score.tone_match || 0) <= 2) return true
+  if ((score.cta_power || 0) <= 2) return true
+  return false
+}
+
 function normalizeVariationForValidation(rawVariation, index = 0) {
   if (rawVariation && typeof rawVariation === 'object' && !Array.isArray(rawVariation)) {
     return {
@@ -893,16 +1243,26 @@ function validateVariationAlignment(variation, guard, referenceGuard = {}) {
   return { ok: true, reason: '카테고리 정합 통과', warnings }
 }
 
-async function runStage(stage, context, task) {
+async function runStage(stage, context, task, hooks = {}) {
+  const startedAt = Date.now()
   logStage('info', `${stage}:start`, context)
+  if (typeof hooks.onStart === 'function') {
+    await hooks.onStart(stage, context)
+  }
 
   try {
     const result = await task()
-    logStage('info', `${stage}:success`, context)
+    const elapsedMs = Date.now() - startedAt
+    logStage('info', `${stage}:success`, { ...context, elapsedMs })
+    if (typeof hooks.onSuccess === 'function') {
+      await hooks.onSuccess(stage, { ...context, elapsedMs })
+    }
     return result
   } catch (error) {
+    const elapsedMs = Date.now() - startedAt
     const details = {
       stage,
+      elapsedMs,
       ...context,
       ...(error instanceof AppError && error.details && typeof error.details === 'object'
         ? error.details
@@ -915,6 +1275,13 @@ async function runStage(stage, context, task) {
       message: error.message,
       cause: error.cause?.message || null,
     })
+    if (typeof hooks.onFailed === 'function') {
+      await hooks.onFailed(stage, {
+        ...details,
+        code: error.code || null,
+        message: error.message,
+      })
+    }
 
     if (error instanceof AppError) {
       error.details = details
@@ -933,6 +1300,7 @@ async function runStage(stage, context, task) {
 async function persistReusedReferenceVideo({
   supabaseAdmin,
   accountId,
+  referenceId = null,
   projectId,
   title,
   topic,
@@ -940,8 +1308,7 @@ async function persistReusedReferenceVideo({
   mimeType,
   cachedAnalysis,
 }) {
-  const insertPayload = {
-    account_id: accountId,
+  const payload = {
     project_id: projectId || null,
     title,
     topic,
@@ -958,22 +1325,37 @@ async function persistReusedReferenceVideo({
     variations: cachedAnalysis.variations || [],
     ai_feedback: cachedAnalysis.ai_feedback || '',
     processing_status: 'completed',
+    current_stage: 'cache-reuse',
+    failure_stage: null,
+    failure_code: null,
+    failure_message: null,
+    processing_completed_at: new Date().toISOString(),
     document_id: cachedAnalysis.document_id || null,
   }
+  const runPersist = async (includeProjectId) => {
+    const baseQuery = referenceId
+      ? supabaseAdmin
+          .from('reference_videos')
+          .update(payload)
+          .eq('id', referenceId)
+          .eq('account_id', accountId)
+      : supabaseAdmin
+          .from('reference_videos')
+          .insert({
+            ...payload,
+            account_id: accountId,
+          })
 
-  let { data, error } = await supabaseAdmin
-    .from('reference_videos')
-    .insert(insertPayload)
-    .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
-    .single()
+    return baseQuery
+      .select(selectReferenceVideoColumns({ includeProjectId, detail: true }))
+      .single()
+  }
+
+  let { data, error } = await runPersist(true)
 
   if (isMissingProjectColumnError(error)) {
-    delete insertPayload.project_id
-    const fallback = await supabaseAdmin
-      .from('reference_videos')
-      .insert(insertPayload)
-      .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
-      .single()
+    delete payload.project_id
+    const fallback = await runPersist(false)
     data = fallback.data
     error = fallback.error
     if (data) {
@@ -998,6 +1380,7 @@ export async function analyzeReferenceVideo({
   title,
   accountId,
   projectId = null,
+  idempotencyKey = '',
   characterSystemPrompt = '',
   accountSettings = {},
 }) {
@@ -1029,14 +1412,79 @@ export async function analyzeReferenceVideo({
   const supabaseAdmin = getSupabaseAdmin()
   const openai = getOpenAIClient()
   const { chatModel } = getOpenAIModels()
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey)
+  const analysisFingerprint = await computeUploadedFileFingerprint(file)
   const analysisReuseCacheKey = buildAnalysisReuseCacheKey({
     accountId,
     topic: normalizedTopic,
     title: normalizedTitle,
     originalFilename: normalizedOriginalName,
-    fileBuffer: file.buffer,
+    fileFingerprint: analysisFingerprint,
     characterSystemPrompt,
   })
+  const inFlightKey = [accountId, normalizedIdempotencyKey || analysisFingerprint].join(':')
+  if (ANALYZE_IN_FLIGHT.has(inFlightKey)) {
+    const inFlightReferenceId = ANALYZE_IN_FLIGHT.get(inFlightKey)
+    if (inFlightReferenceId) {
+      const inFlightReference = await getReferenceVideo(inFlightReferenceId, accountId)
+      return inFlightReference
+    }
+  }
+
+  const duplicateReference = await findRecentDuplicateReference({
+    supabaseAdmin,
+    accountId,
+    idempotencyKey: normalizedIdempotencyKey,
+    analysisFingerprint,
+  })
+  if (duplicateReference?.id) {
+    if (duplicateReference.processing_status === 'processing') {
+      let { data: inProgress, error: inProgressError } = await supabaseAdmin
+        .from('reference_videos')
+        .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
+        .eq('id', duplicateReference.id)
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (isMissingProjectColumnError(inProgressError)) {
+        const fallback = await supabaseAdmin
+          .from('reference_videos')
+          .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
+          .eq('id', duplicateReference.id)
+          .eq('account_id', accountId)
+          .maybeSingle()
+        inProgress = fallback.data ? { ...fallback.data, project_id: null } : fallback.data
+        inProgressError = fallback.error
+      }
+      if (inProgress) {
+        return {
+          ...inProgress,
+          global_knowledge_debug: [],
+          global_knowledge_categories: [],
+        }
+      }
+      if (inProgressError) {
+        console.warn('[reference-video-analysis] duplicate in-progress fetch failed', {
+          accountId,
+          referenceId: duplicateReference.id,
+          message: inProgressError.message,
+        })
+      }
+    }
+    return getReferenceVideo(duplicateReference.id, accountId)
+  }
+
+  const processingReference = await createProcessingReferenceVideo({
+    supabaseAdmin,
+    accountId,
+    projectId: normalizedProjectId,
+    title: normalizedTitle,
+    topic: normalizedTopic,
+    originalFilename: normalizedOriginalName,
+    mimeType: file.mimetype,
+    idempotencyKey: normalizedIdempotencyKey,
+    analysisFingerprint,
+  })
+  ANALYZE_IN_FLIGHT.set(inFlightKey, processingReference.id)
 
   if (cacheConfig.enableAnalysisResultReuse) {
     try {
@@ -1087,6 +1535,7 @@ export async function analyzeReferenceVideo({
         const reused = await persistReusedReferenceVideo({
           supabaseAdmin,
           accountId,
+          referenceId: processingReference.id,
           projectId: normalizedProjectId,
           title: normalizedTitle,
           topic: normalizedTopic,
@@ -1095,6 +1544,7 @@ export async function analyzeReferenceVideo({
           cachedAnalysis,
         })
 
+        ANALYZE_IN_FLIGHT.delete(inFlightKey)
         return {
           ...reused,
           global_knowledge_debug: Array.isArray(cachedAnalysis.global_knowledge_debug)
@@ -1125,30 +1575,92 @@ export async function analyzeReferenceVideo({
       topic: normalizedTopic,
       filename: normalizedOriginalName,
       accountId,
+      referenceId: processingReference.id,
+    }
+    const stageMetrics = {}
+    const stageHooks = {
+      onStart: async (stage) => {
+        await updateReferenceLifecycleState({
+          supabaseAdmin,
+          referenceId: processingReference.id,
+          accountId,
+          patch: {
+            processing_status: 'processing',
+            current_stage: stage,
+            failure_stage: null,
+            failure_code: null,
+            failure_message: null,
+          },
+        })
+      },
+      onSuccess: async (stage, meta = {}) => {
+        stageMetrics[stage] = Number(meta.elapsedMs || 0)
+        await updateReferenceLifecycleState({
+          supabaseAdmin,
+          referenceId: processingReference.id,
+          accountId,
+          patch: {
+            current_stage: stage,
+          },
+        })
+      },
+      onFailed: async (stage, meta = {}) => {
+        await updateReferenceLifecycleState({
+          supabaseAdmin,
+          referenceId: processingReference.id,
+          accountId,
+          patch: {
+            processing_status: 'failed',
+            current_stage: stage,
+            failure_stage: stage,
+            failure_code: meta.code || 'ANALYSIS_STAGE_FAILED',
+            failure_message: meta.message || '분석 단계 실패',
+          },
+        })
+      },
     }
 
-    const created = await runStage('workspace', baseContext, async () =>
-      createVideoWorkspace(file),
-    )
+    const created = await runStage('workspace', baseContext, async () => createVideoWorkspace(file), stageHooks)
     workspace = created.workspace
 
-    const durationSeconds = await runStage('probe-duration', baseContext, async () =>
-      getVideoDuration(created.videoPath),
+    const durationSeconds = await runStage(
+      'probe-duration',
+      baseContext,
+      async () => getVideoDuration(created.videoPath),
+      stageHooks,
     )
-    const hasAudio = await runStage('probe-audio-stream', baseContext, async () =>
-      hasAudioStream(created.videoPath),
+    const cappedAudioSeconds =
+      Number.isFinite(DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS) && DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS > 0
+        ? Math.max(30, Math.min(180, DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS))
+        : 90
+    const transcriptCapped = durationSeconds > cappedAudioSeconds
+    const hasAudio = await runStage(
+      'probe-audio-stream',
+      baseContext,
+      async () => hasAudioStream(created.videoPath),
+      stageHooks,
     )
     const audioPath = hasAudio
-      ? await runStage('extract-audio', baseContext, async () =>
-          extractAudioTrack(created.videoPath, workspace),
+      ? await runStage(
+          'extract-audio',
+          baseContext,
+          async () =>
+            extractAudioTrack(created.videoPath, workspace, {
+              maxDurationSeconds: cappedAudioSeconds,
+            }),
+          stageHooks,
         )
       : null
     const transcript = hasAudio
-      ? await runStage('transcription', baseContext, async () =>
-          transcribeVideoAudio(audioPath, {
-            title: normalizedTitle,
-            topic: normalizedTopic,
-          }),
+      ? await runStage(
+          'transcription',
+          baseContext,
+          async () =>
+            transcribeVideoAudio(audioPath, {
+              title: normalizedTitle,
+              topic: normalizedTopic,
+            }),
+          stageHooks,
         )
       : {
           text: '',
@@ -1156,14 +1668,21 @@ export async function analyzeReferenceVideo({
           duration: null,
           model: null,
         }
-    const frames = await runStage('extract-frames', { ...baseContext, durationSeconds }, async () =>
-      extractFrames(created.videoPath, workspace, durationSeconds),
+    const frames = await runStage(
+      'extract-frames',
+      { ...baseContext, durationSeconds },
+      async () => extractFrames(created.videoPath, workspace, durationSeconds),
+      stageHooks,
     )
-    const frameAnalysis = await runStage('vision', { ...baseContext, frameCount: frames.length }, async () =>
-      analyzeVideoFrames(frames, {
-        title: normalizedTitle,
-        topic: normalizedTopic,
-      }),
+    const frameAnalysis = await runStage(
+      'vision',
+      { ...baseContext, frameCount: frames.length },
+      async () =>
+        analyzeVideoFrames(frames, {
+          title: normalizedTitle,
+          topic: normalizedTopic,
+        }),
+      stageHooks,
     )
     const normalizedTranscript = transcript.text?.trim()
     const frameSummary = [
@@ -1191,9 +1710,12 @@ export async function analyzeReferenceVideo({
             originalFilename: normalizedOriginalName,
             transcriptEmpty: !normalizedTranscript,
             hasAudio,
+            transcriptCapped,
+            transcriptCapSeconds: cappedAudioSeconds,
             category: 'reference-video',
           },
         }),
+      stageHooks,
     )
 
     const globalKnowledge = await runStage(
@@ -1207,10 +1729,14 @@ export async function analyzeReferenceVideo({
           frameSummary,
           topK: 4,
         }),
+      stageHooks,
     )
 
-    const analysisResponse = await runStage('analysis-gpt', baseContext, async () =>
-      openai.chat.completions.create({
+    const analysisResponse = await runStage(
+      'analysis-gpt',
+      baseContext,
+      async () =>
+        openai.chat.completions.create({
         model: chatModel,
         temperature: 0.5,
         messages: [
@@ -1244,11 +1770,15 @@ export async function analyzeReferenceVideo({
               '{"structureAnalysis":"","hookAnalysis":"","psychologyAnalysis":"","aiFeedback":""}',
           },
         ],
-      }),
+        }),
+      stageHooks,
     )
 
-    const analysisResult = await runStage('parse-analysis-json', baseContext, async () =>
-      parseModelJson(analysisResponse.choices[0]?.message?.content || ''),
+    const analysisResult = await runStage(
+      'parse-analysis-json',
+      baseContext,
+      async () => parseModelJson(analysisResponse.choices[0]?.message?.content || ''),
+      stageHooks,
     )
     const generationGuides = buildGenerationGuides({ analysisResult })
     const referenceGuard = {
@@ -1258,13 +1788,17 @@ export async function analyzeReferenceVideo({
         transcript: normalizedTranscript || '',
       }),
     }
-    const structureBlueprint = await runStage('extract-structure-blueprint', baseContext, async () =>
-      buildStructureBlueprint({
-        openai,
-        chatModel,
-        analysisResult,
-        transcript: normalizedTranscript || '',
-      }),
+    const structureBlueprint = await runStage(
+      'extract-structure-blueprint',
+      baseContext,
+      async () =>
+        buildStructureBlueprint({
+          openai,
+          chatModel,
+          analysisResult,
+          transcript: normalizedTranscript || '',
+        }),
+      stageHooks,
     )
 
     const categoryGuard = buildCategoryGuard({
@@ -1401,77 +1935,30 @@ export async function analyzeReferenceVideo({
 
           let normalized = null
           let alignment = { ok: false, reason: '초기 상태' }
-          let retryHint = ''
+          let didRegenerate = false
 
-          for (let attempt = 0; attempt < MAX_VARIATION_RETRIES; attempt += 1) {
-            const variationResponse = await openai.chat.completions.create({
-              model: chatModel,
-              temperature: 0.6,
-              messages: [
-                {
-                  role: 'system',
-                  content: systemContent,
-                },
-                {
-                  role: 'user',
-                  content:
-                    baseUserContent +
-                    (retryHint
-                      ? `\n\n[재작성 지시]\n직전 응답이 실패했습니다.\n실패 사유: ${retryHint}\n` +
-                        '같은 전략을 유지하되, 계정 설정 신호는 자연스럽게 살리고 문장은 더 유연하게 다시 작성하세요.'
-                      : ''),
-                },
-              ],
-            })
+          const variationResponse = await openai.chat.completions.create({
+            model: chatModel,
+            temperature: 0.6,
+            messages: [
+              {
+                role: 'system',
+                content: systemContent,
+              },
+              {
+                role: 'user',
+                content: baseUserContent,
+              },
+            ],
+          })
 
-            const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
-            normalized = normalizeVariationDraft(parsed, config, generationGuides)
-            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
-            if (alignment.ok) {
-              break
-            }
-            retryHint = alignment.reason
-          }
+          const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
+          normalized = normalizeVariationDraft(parsed, config, generationGuides)
+          alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
 
-          if (normalized && !alignment.ok && categoryGuard.category !== '기타') {
-            const repairResponse = await openai.chat.completions.create({
-              model: chatModel,
-              temperature: 0.3,
-              messages: [
-                {
-                  role: 'system',
-                  content:
-                    '당신은 카테고리 정합 복구기다. 주어진 스크립트의 구조(HOOK/BODY/CTA)는 유지하되, 이질 도메인만 제거하고 현재 카테고리에 맞게 자연스럽게 다시 쓴다. 출력은 JSON만 반환.',
-                },
-                {
-                  role: 'user',
-                  content:
-                    `카테고리: ${categoryGuard.category}\n` +
-                    `참고 카테고리 키워드: ${categoryGuard.anchors.join(', ') || '없음'}\n` +
-                    `참고 설정 신호: ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
-                    `실패 사유: ${alignment.reason}\n\n` +
-                    `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
-                    '반드시 유지할 조건:\n' +
-                    '- 문체/전략 라벨은 유지\n' +
-                    '- 이질 도메인 단어는 제거\n' +
-                    '- 설정 신호와 카테고리 힌트는 자연스럽게만 반영\n' +
-                    '- 키워드 개수보다 문장 자연스러움을 우선\n\n' +
-                    '다음 JSON 형식으로만 답하세요: ' +
-                    '{"hook":"","body":"","cta":""}',
-                },
-              ],
-            })
-            const repaired = parseModelJson(repairResponse.choices[0]?.message?.content || '')
-            normalized = {
-              ...normalized,
-              hook: String(repaired?.hook || normalized.hook || '').trim(),
-              body: String(repaired?.body || normalized.body || '').trim(),
-              cta: String(repaired?.cta || normalized.cta || '').trim(),
-            }
-            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
-          }
+          const structureState = isVariationStructureBroken(normalized, alignment, categoryGuard)
 
-          if (normalized && !alignment.ok) {
+          if (ENABLE_COST_GUARD && structureState.broken) {
             normalized = await regenerateVariationWithGPT({
               openai,
               chatModel,
@@ -1482,9 +1969,46 @@ export async function analyzeReferenceVideo({
               generationGuides,
               structureBlueprint,
               referenceSurfaceTerms: referenceGuard.surfaceTerms,
-              retryReason: alignment.reason,
+              retryReason: structureState.reason,
             })
             alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+            didRegenerate = true
+          } else if (ENABLE_COST_GUARD) {
+            const qualityScore = scoreVariationQuality(normalized, config, categoryGuard)
+            if (shouldRegenerateByQuality(qualityScore)) {
+              normalized = await regenerateVariationWithGPT({
+                openai,
+                chatModel,
+                config,
+                categoryGuard,
+                guardPromptSummary,
+                characterSystemPrompt,
+                generationGuides,
+                structureBlueprint,
+                referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                retryReason: `품질 점수 기준 미달: avg=${qualityScore.average.toFixed(2)}`,
+              })
+              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+              didRegenerate = true
+            }
+          } else {
+            // Legacy path: if cost guard is off, keep a single fallback regenerate for hard misalignment only.
+            if (normalized && !alignment.ok) {
+              normalized = await regenerateVariationWithGPT({
+                openai,
+                chatModel,
+                config,
+                categoryGuard,
+                guardPromptSummary,
+                characterSystemPrompt,
+                generationGuides,
+                structureBlueprint,
+                referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                retryReason: alignment.reason,
+              })
+              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+              didRegenerate = true
+            }
           }
 
           if (!normalized) {
@@ -1501,31 +2025,15 @@ export async function analyzeReferenceVideo({
               retryReason: '초안 생성 결과가 비어 있음',
             })
             alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+            didRegenerate = true
           }
 
-          const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
-
-          if (!alignment.ok) {
-            normalized = await regenerateVariationWithGPT({
-              openai,
-              chatModel,
-              config,
-              categoryGuard,
-              guardPromptSummary,
-              characterSystemPrompt,
-              generationGuides,
-              structureBlueprint,
-              referenceSurfaceTerms: referenceGuard.surfaceTerms,
-              retryReason: alignment.reason,
-            })
-            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
-          }
-
-          if (normalized && alignment.ok && needsFlowPolish(normalized)) {
+          // Guard mode: regenerate와 polish를 동시 실행하지 않는다.
+          if (normalized && alignment.ok && !didRegenerate && needsFlowPolish(normalized)) {
             try {
               const polishResponse = await openai.chat.completions.create({
                 model: chatModel,
-                temperature: 0.3,
+                temperature: 0.2,
                 messages: [
                   {
                     role: 'system',
@@ -1563,59 +2071,74 @@ export async function analyzeReferenceVideo({
             }
           }
 
+          const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
+
           return {
             ...normalized,
             alignment,
             usedChunkIds: knowledgeItems.map((item) => item.id),
             usedKnowledge: knowledgeItems,
           }
-        }),
+        }, stageHooks),
       ),
     )
     const generatedVariations = enforceVariationDiversity(generatedVariationsRaw, categoryGuard)
 
-    const { data: row, error } = await runStage('save-reference-video', baseContext, async () => {
-      const insertPayload = {
-        account_id: accountId,
-        project_id: normalizedProjectId,
-        title: normalizedTitle,
-        topic: normalizedTopic,
-        original_filename: normalizedOriginalName,
-        mime_type: file.mimetype,
-        duration_seconds: durationSeconds,
-        transcript: normalizedTranscript || '',
-        transcript_segments: transcript.segments,
-        frame_timestamps: frames.map((frame) => frame.timestamp),
-        frame_notes: frameAnalysis.frames || [],
-        structure_analysis: analysisResult.structureAnalysis || '',
-        hook_analysis: analysisResult.hookAnalysis || frameAnalysis.summary || '',
-        psychology_analysis: analysisResult.psychologyAnalysis || '',
-        variations: generatedVariations,
-        ai_feedback: analysisResult.aiFeedback || '',
-        processing_status: 'completed',
-        document_id: ingestedDocument.document.id,
-      }
-
-      let insertResult = await supabaseAdmin
-        .from('reference_videos')
-        .insert(insertPayload)
-        .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
-        .single()
-
-      if (isMissingProjectColumnError(insertResult.error)) {
-        delete insertPayload.project_id
-        insertResult = await supabaseAdmin
-          .from('reference_videos')
-          .insert(insertPayload)
-          .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
-          .single()
-        if (insertResult.data) {
-          insertResult.data.project_id = null
+    const { data: row, error } = await runStage(
+      'save-reference-video',
+      baseContext,
+      async () => {
+        const updatePayload = {
+          project_id: normalizedProjectId,
+          title: normalizedTitle,
+          topic: normalizedTopic,
+          original_filename: normalizedOriginalName,
+          mime_type: file.mimetype,
+          duration_seconds: durationSeconds,
+          transcript: normalizedTranscript || '',
+          transcript_segments: transcript.segments,
+          frame_timestamps: frames.map((frame) => frame.timestamp),
+          frame_notes: frameAnalysis.frames || [],
+          structure_analysis: analysisResult.structureAnalysis || '',
+          hook_analysis: analysisResult.hookAnalysis || frameAnalysis.summary || '',
+          psychology_analysis: analysisResult.psychologyAnalysis || '',
+          variations: generatedVariations,
+          ai_feedback: analysisResult.aiFeedback || '',
+          processing_status: 'completed',
+          current_stage: 'save-reference-video',
+          failure_stage: null,
+          failure_code: null,
+          failure_message: null,
+          processing_completed_at: new Date().toISOString(),
+          document_id: ingestedDocument.document.id,
         }
-      }
 
-      return insertResult
-    })
+        let updateResult = await supabaseAdmin
+          .from('reference_videos')
+          .update(updatePayload)
+          .eq('id', processingReference.id)
+          .eq('account_id', accountId)
+          .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
+          .single()
+
+        if (isMissingProjectColumnError(updateResult.error)) {
+          delete updatePayload.project_id
+          updateResult = await supabaseAdmin
+            .from('reference_videos')
+            .update(updatePayload)
+            .eq('id', processingReference.id)
+            .eq('account_id', accountId)
+            .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
+            .single()
+          if (updateResult.data) {
+            updateResult.data.project_id = null
+          }
+        }
+
+        return updateResult
+      },
+      stageHooks,
+    )
 
     if (error) {
       logAIError('db', error, {
@@ -1631,21 +2154,26 @@ export async function analyzeReferenceVideo({
       })
     }
 
-    await runStage('sync-reference-analysis', baseContext, async () =>
-      syncReferenceAnalysis({
-        supabaseAdmin,
-        accountId,
-        legacyReferenceVideo: row,
-        transcriptDocumentContent,
-        topic: normalizedTopic,
-        source: normalizedOriginalName,
-      }),
+    await runStage(
+      'sync-reference-analysis',
+      baseContext,
+      async () =>
+        syncReferenceAnalysis({
+          supabaseAdmin,
+          accountId,
+          legacyReferenceVideo: row,
+          transcriptDocumentContent,
+          topic: normalizedTopic,
+          source: normalizedOriginalName,
+        }),
+      stageHooks,
     )
 
     const output = {
       ...row,
       global_knowledge_debug: mapGlobalKnowledgeDebug(globalKnowledge.items || []),
       global_knowledge_categories: globalKnowledge.categories || [],
+      analysis_stage_metrics: stageMetrics,
     }
 
     if (cacheConfig.enableAnalysisResultReuse) {
@@ -1661,6 +2189,19 @@ export async function analyzeReferenceVideo({
 
     return output
   } catch (error) {
+    await updateReferenceLifecycleState({
+      supabaseAdmin,
+      referenceId: processingReference.id,
+      accountId,
+      patch: {
+        processing_status: 'failed',
+        current_stage: error?.details?.stage || 'unknown',
+        failure_stage: error?.details?.stage || 'unknown',
+        failure_code: error?.code || 'REFERENCE_VIDEO_ANALYSIS_FAILED',
+        failure_message: error?.message || 'Reference video analysis failed',
+      },
+    })
+
     if (error instanceof AppError) {
       throw error
     }
@@ -1685,6 +2226,7 @@ export async function analyzeReferenceVideo({
       cause: error,
     })
   } finally {
+    ANALYZE_IN_FLIGHT.delete(inFlightKey)
     await cleanupVideoWorkspace(workspace)
   }
 }
@@ -1930,7 +2472,72 @@ export async function deleteReferenceVideo(referenceVideoId, accountId) {
   }
 
   const supabaseAdmin = getSupabaseAdmin()
-  const { data, error } = await supabaseAdmin
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('reference_videos')
+    .select('id, title, document_id')
+    .eq('id', referenceVideoId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (existingError) {
+    throw new AppError('Failed to load reference video analysis', {
+      code: 'REFERENCE_VIDEO_FETCH_FAILED',
+      statusCode: 500,
+      cause: existingError,
+    })
+  }
+
+  if (!existing) {
+    throw new AppError('Reference video analysis not found', {
+      code: 'REFERENCE_VIDEO_NOT_FOUND',
+      statusCode: 404,
+    })
+  }
+
+  try {
+    const { data: analyses } = await supabaseAdmin
+      .from('reference_analyses')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('legacy_reference_video_id', referenceVideoId)
+
+    const analysisIds = Array.isArray(analyses) ? analyses.map((item) => item.id).filter(Boolean) : []
+    if (analysisIds.length) {
+      await supabaseAdmin
+        .from('reference_analysis_chunks')
+        .delete()
+        .eq('account_id', accountId)
+        .in('reference_analysis_id', analysisIds)
+
+      await supabaseAdmin
+        .from('reference_analyses')
+        .delete()
+        .eq('account_id', accountId)
+        .in('id', analysisIds)
+    }
+
+    if (existing.document_id) {
+      await supabaseAdmin
+        .from('chunks')
+        .delete()
+        .eq('account_id', accountId)
+        .eq('document_id', existing.document_id)
+
+      await supabaseAdmin
+        .from('documents')
+        .delete()
+        .eq('account_id', accountId)
+        .eq('id', existing.document_id)
+    }
+  } catch (cleanupError) {
+    console.warn('[reference-video-analysis] delete cleanup warning', {
+      referenceVideoId,
+      accountId,
+      message: cleanupError?.message || 'unknown',
+    })
+  }
+
+  const { data: deleted, error } = await supabaseAdmin
     .from('reference_videos')
     .delete()
     .eq('id', referenceVideoId)
@@ -1946,14 +2553,14 @@ export async function deleteReferenceVideo(referenceVideoId, accountId) {
     })
   }
 
-  if (!data) {
+  if (!deleted) {
     throw new AppError('Reference video analysis not found', {
       code: 'REFERENCE_VIDEO_NOT_FOUND',
       statusCode: 404,
     })
   }
 
-  return data
+  return deleted
 }
 
 export async function updateReferenceVideo(referenceVideoId, accountId, { title, projectId } = {}) {

@@ -51,6 +51,9 @@ export default function Editor({ transitioning = false, entering = false, embedd
   } = useAppState()
   const totalLength =
     editorSections.hook.length + editorSections.body.length + editorSections.cta.length
+  const totalSpeechSeconds = estimateSpeechSeconds(
+    `${editorSections.hook} ${editorSections.body} ${editorSections.cta}`.trim(),
+  )
   const isFeedbackLimitReached = copilotRemaining.feedback <= 0
   const isFeedbackButtonDisabled = isFeedbackLoading || isFeedbackLimitReached
 
@@ -119,7 +122,10 @@ export default function Editor({ transitioning = false, entering = false, embedd
           <div className="mt-5 rounded-[22px] border border-[#2F3543] bg-[#131720] px-4 py-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-[#8E97A6]">
-                현재 총 분량 <span className="font-semibold text-[#E5E7EB]">{totalLength.toLocaleString()} 글자</span>
+                현재 총 분량{' '}
+                <span className="font-semibold text-[#E5E7EB]">
+                  {totalLength.toLocaleString()} 글자 · 약 {totalSpeechSeconds}초
+                </span>
                 {feedback ? (
                   <>
                     {' '}· 최근 피드백 <span className="font-semibold text-[#D1D5DB]">{feedback.score}점</span>
