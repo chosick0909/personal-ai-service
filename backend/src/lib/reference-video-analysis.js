@@ -358,34 +358,61 @@ async function findRecentDuplicateReference({
     : 30
   const since = new Date(Date.now() - normalizedWindow * 60 * 1000).toISOString()
   const columns = 'id, processing_status, created_at'
+  const fetchDuplicateByColumn = async (columnName, value) => {
+    if (!value) {
+      return null
+    }
 
-  if (idempotencyKey) {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('reference_videos')
       .select(columns)
       .eq('account_id', accountId)
-      .eq('idempotency_key', idempotencyKey)
+      .eq(columnName, value)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(1)
+
+    const missingColumn = extractMissingColumnName(error)
+    if (missingColumn && missingColumn === columnName) {
+      return null
+    }
+
+    if (error) {
+      throw error
+    }
 
     if (Array.isArray(data) && data.length) {
       return data[0]
     }
+
+    return null
+  }
+
+  if (idempotencyKey) {
+    try {
+      const duplicate = await fetchDuplicateByColumn('idempotency_key', idempotencyKey)
+      if (duplicate) {
+        return duplicate
+      }
+    } catch (error) {
+      console.warn('[reference-video-analysis] duplicate idempotency lookup failed', {
+        accountId,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   if (analysisFingerprint) {
-    const { data } = await supabaseAdmin
-      .from('reference_videos')
-      .select(columns)
-      .eq('account_id', accountId)
-      .eq('analysis_fingerprint', analysisFingerprint)
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (Array.isArray(data) && data.length) {
-      return data[0]
+    try {
+      const duplicate = await fetchDuplicateByColumn('analysis_fingerprint', analysisFingerprint)
+      if (duplicate) {
+        return duplicate
+      }
+    } catch (error) {
+      console.warn('[reference-video-analysis] duplicate fingerprint lookup failed', {
+        accountId,
+        message: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
