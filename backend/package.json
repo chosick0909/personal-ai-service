@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "summarize-ai-usage": "node scripts/summarize-ai-usage.js"
   },
   "license": "ISC",
   "description": "Express API backend for the personal AI service",

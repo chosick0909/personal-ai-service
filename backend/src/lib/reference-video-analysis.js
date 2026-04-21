@@ -6,6 +6,7 @@ import { ingestDocument } from './document-ingest.js'
 import { chunkText } from './chunking.js'
 import { createEmbeddings } from './embeddings.js'
 import { logAIError } from './ai-error-logger.js'
+import { logAIUsage, sumAIUsage } from './ai-usage-logger.js'
 import { parseModelJson } from './model-json.js'
 import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
@@ -59,6 +60,78 @@ const CATEGORY_ANCHOR_TERMS = {
   멘탈케어: ['멘탈', '감정', '스트레스', '회복', '루틴', '심리'],
   교육: ['교육', '학습', '강의', '개념', '설명', '이해'],
   기타: [],
+}
+
+const CREATOR_BUSINESS_PROOF_PATTERN =
+  /(팔로워|수강생|강의|무료\s*강의|알고리즘|노출|계정\s*구조|AI\s*자동화|잠재\s*고객|리드|문의\s*전환|매출|수익화\s*모델|월\s*\d+[^\s]{0,4}(?:원|만원|억))/i
+
+const DOMAIN_EVIDENCE_PROFILES = {
+  health_fitness: {
+    preferred:
+      '루틴 지속 가능성, 수행 변화, 자세/자극 체감, 초보자 실수 교정, before-after 과정, 습관 변화, 체력/컨디션 개선',
+    avoid:
+      '팔로워 성장, 수강생 매출, 강의 전환, AI 자동화, 알고리즘/노출 구조 같은 크리에이터 비즈니스 근거',
+  },
+  뷰티: {
+    preferred: '피부 고민 변화, 사용감, 전후 차이, 성분/루틴 체감, 지속력, 들뜸/트러블 개선 과정',
+    avoid: '수강생·강의·매출·팔로워 성장 같은 사업형 사례',
+  },
+  육아: {
+    preferred: '양육 과정의 편의성, 아이 반응, 부모의 불안 해소, 실제 사용 경험, 반복 사용 만족감',
+    avoid: '계정 성장, 강의 판매, 수강생 수익 사례',
+  },
+  반려동물: {
+    preferred: '반려동물 반응, 행동 변화, 보호자 편의, 건강/위생 체감, 실제 급여/사용 경험',
+    avoid: '크리에이터 강의·수강생·팔로워·매출형 사례',
+  },
+  살림: {
+    preferred: '정리 전후 차이, 시간 절약, 공간 효율, 생활 편의, 반복 사용성, 계절성 문제 해결',
+    avoid: '강의/수강생/노출/계정 구조형 근거',
+  },
+  자기계발: {
+    preferred: '실행 습관 변화, 몰입도, 체크리스트 적용, 생산성 체감, 꾸준함 유지, 목표 달성 과정',
+    avoid: '뜬금없는 팔로워·수강생·월매출 서사',
+  },
+  패션: {
+    preferred: '핏 변화, 체형 보정, 코디 편의, 상황별 스타일링 효과, 착용감, 전후 인상 차이',
+    avoid: '강의 판매/수강생 매출/알고리즘 서사',
+  },
+  AI: {
+    preferred: '시간 절약, 자동화, 실무 효율, 정확도 향상, 도구 비교, 반복 업무 절감',
+    avoid: '사용자 도메인과 무관한 화장품/운동/육아 식 사례',
+  },
+  '전문직(회사홍보)': {
+    preferred: '상담 전환, 실제 사례, 신뢰 형성, 전문성, 문의 맥락, 고객 문제 해결 과정',
+    avoid: '뜬금없는 뷰티/육아/여행형 체험담',
+  },
+  재테크: {
+    preferred: '지출 구조, 원칙, 리스크 관리, 절세/예산 체감, 실행 순서, 돈이 새는 포인트',
+    avoid: '뷰티/운동/수강생 매출형 크리에이터 사례',
+  },
+  여행: {
+    preferred: '일정 편의, 비용 절약, 동선 최적화, 장소 만족감, 실제 코스 체감, 시행착오 절감',
+    avoid: '강의/수강생/노출 알고리즘형 근거',
+  },
+  요리: {
+    preferred: '조리 편의, 맛/식감 체감, 재료 절약, 실패 감소, 시간 단축, 따라 하기 쉬움',
+    avoid: '크리에이터 비즈니스 성과형 근거',
+  },
+  '테크 가젯': {
+    preferred: '실사용 편의, 기능 차이, 생산성 개선, 세팅 간결함, 비교 리뷰, 작업 흐름 개선',
+    avoid: '화장품/수강생/월수익형 서사',
+  },
+  멘탈케어: {
+    preferred: '감정 안정, 스트레스 완화, 수면/회복 체감, 작은 습관 변화, 공감과 안도감',
+    avoid: '강의 판매나 월매출 같은 과한 사업형 증거',
+  },
+  교육: {
+    preferred: '이해도 상승, 학습 효율, 설명력, 사례 기반 학습, 수업/강의 맥락, 개념 적용',
+    avoid: '도메인과 무관한 화장품/운동/살림 체험담',
+  },
+  기타: {
+    preferred: '현재 계정의 타겟 문제, 사용 경험, 적용 전후 차이, 신뢰를 주는 현실적 사례',
+    avoid: '레퍼런스 원문의 팔로워/수강생/강의/월매출 같은 그대로의 사업형 사례',
+  },
 }
 
 const VARIATION_CONTEXT_TEXT_MAX = 800
@@ -1020,6 +1093,42 @@ function buildPromptGuardSummary(guard = {}) {
   return { settingCues }
 }
 
+function inferEvidenceProfile(guard = {}) {
+  const source = [
+    guard.rawCategory,
+    guard.category,
+    ...(Array.isArray(guard.settingCues) ? guard.settingCues : []),
+    ...(Array.isArray(guard.hardSettingCues) ? guard.hardSettingCues : []),
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  if (/(운동|헬스|피트니스|체형|자세|근력|다이어트|영양|건강|루틴)/i.test(source)) {
+    return 'health_fitness'
+  }
+
+  return DOMAIN_EVIDENCE_PROFILES[guard.category] ? guard.category : '기타'
+}
+
+function buildEvidenceTranslationGuide(guard = {}) {
+  const profileKey = inferEvidenceProfile(guard)
+  const profile = DOMAIN_EVIDENCE_PROFILES[profileKey] || DOMAIN_EVIDENCE_PROFILES.기타
+  const settingHints = normalizeStringList(
+    [...(Array.isArray(guard.hardSettingCues) ? guard.hardSettingCues : []), ...(Array.isArray(guard.settingCues) ? guard.settingCues : [])],
+    3,
+  )
+
+  return (
+    '도메인별 근거 변환 규칙(반드시 준수):\n' +
+    `- 현재 계정의 실제 도메인은 "${guard.rawCategory || guard.category || '기타'}" 입니다.\n` +
+    `- 반드시 이 도메인에서 자연스러운 근거만 사용하세요: ${profile.preferred}\n` +
+    `- 특히 이런 근거는 현재 도메인에 그대로 들고 오면 안 됩니다: ${profile.avoid}\n` +
+    '- 레퍼런스의 성과 숫자, 수강생 사례, 팔로워/노출 구조, 강의/신청/AI 자동화 같은 요소는 "사실"이 아니라 참고용 설득 방식입니다.\n' +
+    '- 따라서 레퍼런스의 사업형 증거를 복사하지 말고, 현재 계정 도메인에 맞는 사용 경험/변화 과정/문제 해결 근거로 번역하세요.\n' +
+    `- 자연스럽게 반영할 세팅 힌트: ${settingHints.join(', ') || '없음'}`
+  )
+}
+
 function pickSettingCue(guard = {}, offset = 0) {
   const cues = Array.isArray(guard.settingCues) ? guard.settingCues : []
   if (!cues.length) return ''
@@ -1037,6 +1146,7 @@ async function regenerateVariationWithGPT({
   structureBlueprint,
   referenceSurfaceTerms,
   retryReason = '',
+  usageContext = {},
 }) {
   const response = await openai.chat.completions.create({
     model: chatModel,
@@ -1054,6 +1164,7 @@ async function regenerateVariationWithGPT({
           `카테고리: ${categoryGuard.category}\n` +
           `세팅 신호(우선 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
           `레퍼런스 금지 표면 단어(절대 사용 금지): ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
+          `${buildEvidenceTranslationGuide(categoryGuard)}\n\n` +
           `${retryReason ? `재생성 사유: ${retryReason}\n` : ''}\n` +
           `논리 구조 청사진:\n${
             structureBlueprint?.logicFlow?.length
@@ -1106,6 +1217,11 @@ async function regenerateVariationWithGPT({
       },
     ],
   })
+  const usage = logAIUsage('abc-regenerate', response, {
+    model: chatModel,
+    ...usageContext,
+    retryReason,
+  })
 
   const parsed = parseModelJson(response.choices[0]?.message?.content || '')
   return {
@@ -1119,6 +1235,7 @@ async function regenerateVariationWithGPT({
     usedChunkIds: [],
     usedKnowledge: [],
     alignment: { ok: true, reason: 'fallback-regenerated' },
+    usage,
   }
 }
 
@@ -1329,6 +1446,19 @@ function validateVariationAlignment(variation, guard, referenceGuard = {}) {
   const metaLeakPattern = /(첫\s*\d+초|프레임|장면|클로즈업|화면|자막|영상|편집|연출|컷\s*전환)/i
   if (metaLeakPattern.test(text)) {
     return { ok: false, reason: '분석 메타 표현 누출', warnings: [] }
+  }
+
+  const evidenceProfile = inferEvidenceProfile(guard)
+  const allowCreatorBusinessProof = ['AI', '전문직(회사홍보)', '교육', '재테크'].includes(evidenceProfile)
+  if (!allowCreatorBusinessProof) {
+    const mismatchedProof = text.match(CREATOR_BUSINESS_PROOF_PATTERN)?.[0]
+    if (mismatchedProof) {
+      return {
+        ok: false,
+        reason: `현재 도메인과 맞지 않는 사업형 근거 누출: ${mismatchedProof}`,
+        warnings: [],
+      }
+    }
   }
 
   const warnings = []
@@ -1994,6 +2124,7 @@ export async function analyzeReferenceVideo({
             `카테고리 강제 가드(절대 준수):\n${categoryGuardText}\n\n` +
             `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
             `레퍼런스 금지 표면 단어(절대 사용 금지): ${referenceGuard.surfaceTerms.join(', ') || '없음'}\n\n` +
+            `${buildEvidenceTranslationGuide(categoryGuard)}\n\n` +
             `논리 구조 청사진:\n${
               structureBlueprint.logicFlow.length
                 ? structureBlueprint.logicFlow.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -2056,6 +2187,7 @@ export async function analyzeReferenceVideo({
           let normalized = null
           let alignment = { ok: false, reason: '초기 상태' }
           let didRegenerate = false
+          let variationUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
           const variationResponse = await openai.chat.completions.create({
             model: chatModel,
@@ -2071,6 +2203,16 @@ export async function analyzeReferenceVideo({
               },
             ],
           })
+          variationUsage = sumAIUsage(
+            variationUsage,
+            logAIUsage('abc-generate', variationResponse, {
+              model: chatModel,
+              accountId,
+              referenceId: processingReference.id,
+              label: config.label,
+              angle: config.angle,
+            }),
+          )
 
           const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
           normalized = normalizeVariationDraft(parsed, config, generationGuides)
@@ -2085,12 +2227,22 @@ export async function analyzeReferenceVideo({
               config,
               categoryGuard,
               guardPromptSummary,
-              characterSystemPrompt,
-              generationGuides,
-              structureBlueprint,
-              referenceSurfaceTerms: referenceGuard.surfaceTerms,
-              retryReason: structureState.reason,
-            })
+                characterSystemPrompt,
+                generationGuides,
+                structureBlueprint,
+                referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                retryReason: structureState.reason,
+                usageContext: {
+                  accountId,
+                  referenceId: processingReference.id,
+                  label: config.label,
+                  angle: config.angle,
+                },
+              })
+            variationUsage = sumAIUsage(variationUsage, normalized?.usage)
+            if (normalized?.usage) {
+              delete normalized.usage
+            }
             alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
             didRegenerate = true
           } else if (ENABLE_COST_GUARD) {
@@ -2107,7 +2259,17 @@ export async function analyzeReferenceVideo({
                 structureBlueprint,
                 referenceSurfaceTerms: referenceGuard.surfaceTerms,
                 retryReason: `품질 점수 기준 미달: avg=${qualityScore.average.toFixed(2)}`,
+                usageContext: {
+                  accountId,
+                  referenceId: processingReference.id,
+                  label: config.label,
+                  angle: config.angle,
+                },
               })
+              variationUsage = sumAIUsage(variationUsage, normalized?.usage)
+              if (normalized?.usage) {
+                delete normalized.usage
+              }
               alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
               didRegenerate = true
             }
@@ -2125,7 +2287,17 @@ export async function analyzeReferenceVideo({
                 structureBlueprint,
                 referenceSurfaceTerms: referenceGuard.surfaceTerms,
                 retryReason: alignment.reason,
+                usageContext: {
+                  accountId,
+                  referenceId: processingReference.id,
+                  label: config.label,
+                  angle: config.angle,
+                },
               })
+              variationUsage = sumAIUsage(variationUsage, normalized?.usage)
+              if (normalized?.usage) {
+                delete normalized.usage
+              }
               alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
               didRegenerate = true
             }
@@ -2143,7 +2315,17 @@ export async function analyzeReferenceVideo({
               structureBlueprint,
               referenceSurfaceTerms: referenceGuard.surfaceTerms,
               retryReason: '초안 생성 결과가 비어 있음',
+              usageContext: {
+                accountId,
+                referenceId: processingReference.id,
+                label: config.label,
+                angle: config.angle,
+              },
             })
+            variationUsage = sumAIUsage(variationUsage, normalized?.usage)
+            if (normalized?.usage) {
+              delete normalized.usage
+            }
             alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
             didRegenerate = true
           }
@@ -2178,6 +2360,16 @@ export async function analyzeReferenceVideo({
                   },
                 ],
               })
+              variationUsage = sumAIUsage(
+                variationUsage,
+                logAIUsage('abc-polish', polishResponse, {
+                  model: chatModel,
+                  accountId,
+                  referenceId: processingReference.id,
+                  label: config.label,
+                  angle: config.angle,
+                }),
+              )
               const polished = parseModelJson(polishResponse.choices[0]?.message?.content || '')
               normalized = {
                 ...normalized,
@@ -2192,6 +2384,13 @@ export async function analyzeReferenceVideo({
           }
 
           const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
+          logAIUsage('abc-total', variationUsage, {
+            model: chatModel,
+            accountId,
+            referenceId: processingReference.id,
+            label: config.label,
+            angle: config.angle,
+          })
 
           return {
             ...normalized,

@@ -212,24 +212,10 @@ export default function ResultCards({ transitioning = false, entering = false })
       }
     }
 
-    const handlePointerDown = (event) => {
-      const target = event.target
-      const isInsideDrafts = draftSectionRef.current?.contains(target)
-      const isInsideEditor = editorSectionRef.current?.contains(target)
-
-      if (isInsideDrafts || isInsideEditor) {
-        return
-      }
-
-      clearScriptSelection()
-    }
-
     window.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('pointerdown', handlePointerDown)
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('pointerdown', handlePointerDown)
     }
   }, [currentStep, selectedScript, clearScriptSelection])
 

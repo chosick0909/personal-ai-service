@@ -1,5 +1,6 @@
 import { AppError } from './errors.js'
 import { logAIError } from './ai-error-logger.js'
+import { logAIUsage } from './ai-usage-logger.js'
 import { parseModelJson } from './model-json.js'
 import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
@@ -179,6 +180,12 @@ export async function refineScriptWithAI({
         },
       ],
     })
+    logAIUsage('copilot-refine', response, {
+      model: models.chatModel,
+      accountId,
+      referenceId,
+      selectedLabel: selectedLabel || '',
+    })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
     const nextSections = normalizeSections(parsed.sections)
@@ -260,6 +267,12 @@ export async function generateScriptFeedback({
             '{"score":82,"summary":"","detail":"","suggestedSections":{"hook":"","body":"","cta":""}}',
         },
       ],
+    })
+    logAIUsage('copilot-feedback', response, {
+      model: models.chatModel,
+      accountId,
+      referenceId,
+      selectedLabel: selectedLabel || '',
     })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
