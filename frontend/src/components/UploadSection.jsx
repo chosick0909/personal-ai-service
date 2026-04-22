@@ -122,19 +122,19 @@ export default function UploadSection() {
   }
 
   return (
-    <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-[linear-gradient(180deg,#0D0F14_0%,#141821_100%)] px-4 pb-8 pt-4 md:px-8 md:pb-16 md:pt-20">
+    <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-[linear-gradient(180deg,#0D0F14_0%,#141821_100%)] px-4 pb-6 pt-2 md:px-8 md:pb-16 md:pt-20">
       <div className="w-full max-w-[1024px]">
         <div className="mx-auto hidden h-[42px] items-center justify-center rounded-full border border-[#3A414F] bg-[#1B202A] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:inline-flex">
           {currentStep === 'analyzing' ? 'Step 2: Analyzing Reference' : 'Step 2: Upload Reference'}
         </div>
 
-        <h1 className="mt-2 text-center text-[34px] font-bold leading-[1.15] tracking-[-0.03em] text-[#F3F4F6] md:mt-6 md:text-[42px] md:leading-[63px]">
+        <h1 className="mt-1 text-center text-[28px] font-bold leading-[1.1] tracking-[-0.03em] text-[#F3F4F6] md:mt-6 md:text-[42px] md:leading-[63px]">
           레퍼런스 업로드
         </h1>
-        <p className="mt-2 text-center text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">분석할 영상 레퍼런스를 업로드하세요</p>
+        <p className="mt-1.5 text-center text-[13px] leading-5 text-[#8E97A6] md:text-base md:leading-7">분석할 영상 레퍼런스를 업로드하세요</p>
 
         {!isAnalyzing && currentStep !== 'analyzing' ? (
-          <div className="mx-auto mt-5 w-full max-w-[680px] md:mt-8">
+          <div className="mx-auto mt-4 w-full max-w-[680px] md:mt-8">
             <label className="mb-2 block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
               레퍼런스 제목 (선택)
             </label>
@@ -142,9 +142,9 @@ export default function UploadSection() {
               value={uploadTitle}
               onChange={(event) => setUploadTitle(event.target.value)}
               placeholder="비우면 파일명 사용"
-              className="h-11 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
+              className="h-10 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
             />
-            <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="mt-3 flex items-center justify-between gap-3">
               <label className="block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
                 이번 릴스 주제 (선택)
               </label>
@@ -162,10 +162,10 @@ export default function UploadSection() {
               value={uploadTopic}
               onChange={(event) => setUploadTopic(event.target.value)}
               placeholder="예: 물광토너 제품소개"
-              className="mt-2 h-11 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
+              className="mt-2 h-10 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
             />
-            <p className="mt-2 text-left text-xs leading-5 text-[#8E97A6]">
-              계정 사전세팅은 그대로 참고하고, 이번 영상에서 밀 소주제가 있으면 여기에 적어주세요.
+            <p className="mt-1.5 text-left text-[11px] leading-4.5 text-[#8E97A6] md:mt-2 md:text-xs md:leading-5">
+              계정 사전세팅은 그대로 참고하고, 이번 영상에서 다룰 소주제가 있으면 여기에 적어주세요.
             </p>
           </div>
         ) : null}
@@ -181,7 +181,7 @@ export default function UploadSection() {
             setDragActive(false)
             handleFile(event.dataTransfer.files?.[0] || null)
           }}
-          className={`mt-5 rounded-3xl border-2 px-4 py-6 transition md:mt-8 md:h-[434px] md:px-6 md:py-10 ${
+          className={`mt-4 rounded-[26px] border-2 px-4 py-5 transition md:mt-8 md:h-[434px] md:rounded-3xl md:px-6 md:py-10 ${
             dragActive
               ? 'border-[#8B95A7] bg-[#181C25]'
               : 'border-[#2F3543] bg-[#131720]'
@@ -198,16 +198,16 @@ export default function UploadSection() {
             }}
           />
 
-          <div className="flex min-h-[420px] flex-col items-center justify-center text-center md:h-full md:min-h-0">
-            <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2A2F3C_0%,#1F2430_100%)] shadow-[0_1px_3px_rgba(0,0,0,0.30)] md:h-20 md:w-20">
+          <div className="flex min-h-[280px] flex-col items-center justify-center text-center md:h-full md:min-h-0">
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2A2F3C_0%,#1F2430_100%)] shadow-[0_1px_3px_rgba(0,0,0,0.30)] md:h-20 md:w-20">
               {currentStep === 'analyzing' ? (
                 <div
-                  className="flex h-12 w-12 items-center justify-center rounded-full md:h-14 md:w-14"
+                  className="flex h-11 w-11 items-center justify-center rounded-full md:h-14 md:w-14"
                   style={{
                     background: `conic-gradient(#7C3AED ${analyzeProgress * 3.6}deg, #2F3543 ${analyzeProgress * 3.6}deg 360deg)`,
                   }}
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#141923] text-[11px] font-semibold text-[#E5E7EB] md:h-[50px] md:w-[50px] md:text-xs">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#141923] text-[10px] font-semibold text-[#E5E7EB] md:h-[50px] md:w-[50px] md:text-xs">
                     {analyzeProgress}%
                   </div>
                 </div>
@@ -216,11 +216,11 @@ export default function UploadSection() {
               )}
             </div>
 
-            <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:mt-8 md:text-xs">
+            <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:mt-8 md:text-xs">
               {currentStep === 'analyzing' ? `Analyzing ${analyzeProgress}%` : 'Drag & Drop'}
             </div>
 
-            <h2 className="mt-3 text-[32px] font-bold leading-[1.22] tracking-[-0.03em] text-[#F3F4F6] md:mt-4 md:text-2xl md:leading-8">
+            <h2 className="mt-2.5 text-[23px] font-bold leading-[1.14] tracking-[-0.03em] text-[#F3F4F6] md:mt-4 md:text-2xl md:leading-8">
               {currentStep === 'analyzing'
                 ? 'AI가 레퍼런스 구조를 분석하고 있습니다'
                 : (
@@ -235,7 +235,7 @@ export default function UploadSection() {
                 )}
             </h2>
 
-            <p className="mt-3 text-xs leading-5 text-[#8E97A6] md:text-sm md:leading-6">
+            <p className="mt-2 text-[11px] leading-4.5 text-[#8E97A6] md:text-sm md:leading-6">
               {currentStep === 'analyzing'
                 ? '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
                 : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다. (긴 영상은 앞부분 중심으로 분석)'}
@@ -259,7 +259,7 @@ export default function UploadSection() {
               type="button"
               disabled={isAnalyzing}
               onClick={() => fileInputRef.current?.click()}
-              className="btn-solid-contrast mt-5 inline-flex h-12 items-center justify-center rounded-full px-7 text-sm font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:mt-8 md:h-14 md:px-8 md:text-base"
+              className="btn-solid-contrast mt-4 inline-flex h-11 items-center justify-center rounded-full px-6 text-sm font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:mt-8 md:h-14 md:px-8 md:text-base"
             >
               {isAnalyzing ? '분석 중...' : '파일 업로드'}
             </button>
