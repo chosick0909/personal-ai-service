@@ -137,29 +137,40 @@ export default function AppLayout({ sidebar, main, panel, children, mobileVarian
         ) : null}
       </div>
 
-      {mobileSidebarOpen ? (
-        <div className="fixed inset-0 z-50 bg-black/55 md:hidden">
+      <div
+        className={`fixed inset-0 z-50 md:hidden ${mobileSidebarOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
+        aria-hidden={mobileSidebarOpen ? 'false' : 'true'}
+      >
+        <div
+          className={`absolute inset-0 bg-black/55 transition-opacity duration-300 ${
+            mobileSidebarOpen ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
           <button
             type="button"
             aria-label="close recent panel"
-            className="absolute inset-0"
+            className="h-full w-full"
             onClick={() => setMobileSidebarOpen(false)}
           />
-          <div className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-hidden rounded-t-[28px] border border-[#2F3543] bg-[#12151D] shadow-[0_-20px_60px_rgba(0,0,0,0.45)]">
-            <div className="flex h-12 items-center justify-between border-b border-[#2C313C] px-4">
-              <div className="text-sm font-semibold text-[#E5E7EB]">최근 분석</div>
-              <button
-                type="button"
-                className="rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1 text-xs font-semibold text-[#D1D5DB]"
-                onClick={() => setMobileSidebarOpen(false)}
-              >
-                닫기
-              </button>
-            </div>
-            <div className="h-[calc(82vh-48px)] overflow-y-auto">{mobileSidebar}</div>
-          </div>
         </div>
-      ) : null}
+        <div
+          className={`absolute inset-y-0 left-0 w-[88vw] max-w-[360px] overflow-hidden border-r border-[#2F3543] bg-[#12151D] shadow-[18px_0_48px_rgba(0,0,0,0.42)] transition-transform duration-300 ease-out ${
+            mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <div className="flex h-14 items-center justify-between border-b border-[#2C313C] px-4">
+            <div className="text-sm font-semibold text-[#E5E7EB]">최근 분석</div>
+            <button
+              type="button"
+              className="rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1 text-xs font-semibold text-[#D1D5DB]"
+              onClick={() => setMobileSidebarOpen(false)}
+            >
+              닫기
+            </button>
+          </div>
+          <div className="h-[calc(100%-56px)] overflow-y-auto">{mobileSidebar}</div>
+        </div>
+      </div>
 
       {children}
     </main>
