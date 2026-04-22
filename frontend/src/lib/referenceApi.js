@@ -124,6 +124,15 @@ export function mapReferenceAnalysisToUi(analysis) {
       globalKnowledgeCategories: Array.isArray(analysis.global_knowledge_categories)
         ? analysis.global_knowledge_categories
         : [],
+      categoryPlaybook:
+        analysis.category_playbook && typeof analysis.category_playbook === 'object'
+          ? {
+              category: analysis.category_playbook.category || '',
+              label: analysis.category_playbook.label || '',
+              insight: analysis.category_playbook.insight || '',
+              hookAiRule: analysis.category_playbook.hookai_rule || '',
+            }
+          : null,
     },
     generatedScripts: variations.map((variation, index) => createScriptFromVariation(variation, index)),
   }

@@ -32,7 +32,6 @@ import {
 } from '../lib/scriptApi'
 
 const AppStateContext = createContext(null)
-const ACCOUNT_SETUP_KEY = 'personal-ai-service:account-setup-map'
 const REFERENCE_HISTORY_CACHE_KEY = 'personal-ai-service:reference-history-cache:v1'
 const REFERENCE_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 24
 const ACCOUNTS_CACHE_KEY = 'personal-ai-service:accounts-cache:v1'
@@ -117,32 +116,6 @@ function hasOAuthTokenHash() {
 
   const hashParams = new URLSearchParams(rawHash)
   return hashParams.has('access_token') || hashParams.has('refresh_token') || hashParams.has('provider_token')
-}
-
-function getStoredAccountSetupMap() {
-  if (typeof window === 'undefined') {
-    return {}
-  }
-
-  const raw = window.localStorage.getItem(ACCOUNT_SETUP_KEY)
-  if (!raw) {
-    return {}
-  }
-
-  try {
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-function setStoredAccountSetupMap(map) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  window.localStorage.setItem(ACCOUNT_SETUP_KEY, JSON.stringify(map))
 }
 
 function hasNonEmptyText(value) {
@@ -263,6 +236,27 @@ function mergeHistoryItem(serverItem, localItem) {
       normalizedLocal.chatMessages?.length ? normalizedLocal.chatMessages : normalizedServer.chatMessages,
     lastStep: normalizedLocal.lastStep || normalizedServer.lastStep,
   }
+}
+
+function pickPreferredAccount(accounts = [], {
+  preferredAccountId = '',
+  currentAccountId = '',
+  configuredMap = {},
+} = {}) {
+  if (!Array.isArray(accounts) || !accounts.length) {
+    return null
+  }
+
+  const normalizedPreferred = String(preferredAccountId || '').trim()
+  const normalizedCurrent = String(currentAccountId || '').trim()
+  const configuredAccount = accounts.find((account) => Boolean(configuredMap?.[account.id]))
+
+  return (
+    accounts.find((account) => account.id === normalizedPreferred) ||
+    accounts.find((account) => account.id === normalizedCurrent) ||
+    configuredAccount ||
+    accounts[0]
+  )
 }
 
 function getStoredReferenceHistoryCacheMap() {
@@ -645,7 +639,7 @@ export function AppStateProvider({ children }) {
   const [pendingSuggestion, setPendingSuggestion] = useState(null)
   const [accounts, setAccounts] = useState(initialState.accounts)
   const [currentAccount, setCurrentAccount] = useState(initialState.currentAccount)
-  const [accountSetupMap, setAccountSetupMap] = useState(() => getStoredAccountSetupMap())
+  const [accountSetupMap, setAccountSetupMap] = useState({})
   const [projects, setProjects] = useState(initialState.projects)
   const [currentProjectId, setCurrentProjectId] = useState(initialState.currentProjectId)
   const [activeScriptId, setActiveScriptId] = useState(null)
@@ -923,8 +917,11 @@ export function AppStateProvider({ children }) {
       if (cachedAccounts.length) {
         setAccounts(cachedAccounts)
         const storedAccountId = getStoredAccountId()
-        const cachedCurrentAccount =
-          cachedAccounts.find((item) => item.id === storedAccountId) || cachedAccounts[0] || null
+        const cachedCurrentAccount = pickPreferredAccount(cachedAccounts, {
+          preferredAccountId: storedAccountId,
+          currentAccountId: currentAccount?.id,
+          configuredMap: accountSetupMap,
+        })
         if (cachedCurrentAccount) {
           setStoredAccountId(cachedCurrentAccount.id)
         }
@@ -947,25 +944,10 @@ export function AppStateProvider({ children }) {
           return
         }
 
-        setAccounts(nextAccounts)
-        if (ownerCacheKey) {
-          setCachedAccounts(currentUser, nextAccounts)
-        }
-
-        const storedAccountId = getStoredAccountId()
-        const nextCurrentAccount =
-          nextAccounts.find((item) => item.id === storedAccountId) || nextAccounts[0] || null
-
-        if (nextCurrentAccount) {
-          setStoredAccountId(nextCurrentAccount.id)
-        }
-
-        setCurrentAccount(nextCurrentAccount)
-
         const setupEntries = await Promise.allSettled(
           nextAccounts.map(async (account) => {
             const payload = await loadAccountProfile({ accountId: account.id })
-            return [account.id, hasMeaningfulAccountSettings(payload?.profile)] 
+            return [account.id, hasMeaningfulAccountSettings(payload?.profile)]
           }),
         )
 
@@ -973,21 +955,34 @@ export function AppStateProvider({ children }) {
           return
         }
 
-        setAccountSetupMap((current) => {
-          const next = { ...current }
+        const nextSetupMap = {}
+        setupEntries.forEach((entry) => {
+          if (entry.status !== 'fulfilled') {
+            return
+          }
 
-          setupEntries.forEach((entry) => {
-            if (entry.status !== 'fulfilled') {
-              return
-            }
-
-            const [accountId, configured] = entry.value
-            next[accountId] = Boolean(configured)
-          })
-
-          setStoredAccountSetupMap(next)
-          return next
+          const [accountId, configured] = entry.value
+          nextSetupMap[accountId] = Boolean(configured)
         })
+
+        setAccounts(nextAccounts)
+        if (ownerCacheKey) {
+          setCachedAccounts(currentUser, nextAccounts)
+        }
+
+        const storedAccountId = getStoredAccountId()
+        const nextCurrentAccount = pickPreferredAccount(nextAccounts, {
+          preferredAccountId: storedAccountId,
+          currentAccountId: currentAccount?.id,
+          configuredMap: nextSetupMap,
+        })
+
+        if (nextCurrentAccount) {
+          setStoredAccountId(nextCurrentAccount.id)
+        }
+
+        setCurrentAccount(nextCurrentAccount)
+        setAccountSetupMap(nextSetupMap)
       } catch (_error) {
         if (!cachedAccounts.length) {
           setAccounts([])
@@ -1201,12 +1196,10 @@ export function AppStateProvider({ children }) {
     const nextAccounts = [...accounts, created]
     setAccounts(nextAccounts)
     setAccountSetupMap((current) => {
-      const next = {
+      return {
         ...current,
         [created.id]: false,
       }
-      setStoredAccountSetupMap(next)
-      return next
     })
     setStoredAccountId(created.id)
     setCurrentAccount(created)
@@ -1239,12 +1232,15 @@ export function AppStateProvider({ children }) {
     setAccountSetupMap((current) => {
       const next = { ...current }
       delete next[normalizedAccountId]
-      setStoredAccountSetupMap(next)
       return next
     })
 
     if (currentAccount?.id === normalizedAccountId) {
-      const nextCurrentAccount = remainingAccounts[0] || null
+      const nextConfiguredMap = { ...accountSetupMap }
+      delete nextConfiguredMap[normalizedAccountId]
+      const nextCurrentAccount = pickPreferredAccount(remainingAccounts, {
+        configuredMap: nextConfiguredMap,
+      })
       setCurrentAccount(nextCurrentAccount)
       setStoredAccountId(nextCurrentAccount?.id || '')
       resetStudioForAccount()
@@ -1318,12 +1314,10 @@ export function AppStateProvider({ children }) {
     }
 
     setAccountSetupMap((current) => {
-      const next = {
+      return {
         ...current,
         [accountId]: Boolean(configured),
       }
-      setStoredAccountSetupMap(next)
-      return next
     })
   }
 

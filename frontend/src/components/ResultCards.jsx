@@ -61,6 +61,20 @@ function CheckpointRow({ children }) {
   )
 }
 
+function PlaybookNoticeCard({ title, body, tone = 'default' }) {
+  const toneClass =
+    tone === 'rule'
+      ? 'border-[#2A3345] bg-[linear-gradient(180deg,#101724_0%,#0D1320_100%)]'
+      : 'border-[#2F3543] bg-[linear-gradient(180deg,#121722_0%,#0F141D_100%)]'
+
+  return (
+    <article className={`rounded-[20px] border p-5 ${toneClass}`}>
+      <div className="text-base font-bold tracking-[-0.01em] text-[#F3F4F6] md:text-[18px]">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-[#D1D5DB]">{body}</p>
+    </article>
+  )
+}
+
 export default function ResultCards({ transitioning = false, entering = false }) {
   const {
     generatedScripts,
@@ -86,6 +100,7 @@ export default function ResultCards({ transitioning = false, entering = false })
     }
     return '전사 텍스트가 없습니다. (오디오가 없거나 전사 추출에 실패한 파일일 수 있습니다.)'
   }, [referenceData?.transcript])
+  const categoryPlaybook = referenceData?.categoryPlaybook || null
 
   const keyPoints = useMemo(() => {
     const points = referenceData?.keyPoints || []
@@ -286,6 +301,19 @@ export default function ResultCards({ transitioning = false, entering = false })
           <SmallBadge tone="pink">Select Draft</SmallBadge>
           <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-4xl">A/B/C 초안 선택</h2>
           <p className="mt-2 text-sm text-[#8E97A6]">원하는 스타일을 선택하여 에디터로 이동하세요</p>
+          {categoryPlaybook?.insight || categoryPlaybook?.hookAiRule ? (
+            <div className="mt-6 grid gap-4 md:mt-7">
+              {categoryPlaybook?.insight ? (
+                <PlaybookNoticeCard
+                  title={categoryPlaybook.label ? `${categoryPlaybook.label} 업종 인사이트` : '업종 인사이트'}
+                  body={categoryPlaybook.insight}
+                />
+              ) : null}
+              {categoryPlaybook?.hookAiRule ? (
+                <PlaybookNoticeCard title="HookAI의 팁" body={categoryPlaybook.hookAiRule} tone="rule" />
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-6 grid gap-5 md:mt-8 md:gap-6 xl:grid-cols-3">
             {generatedScripts.map((script) => (
               <ScriptCard

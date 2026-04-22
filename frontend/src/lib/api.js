@@ -3,7 +3,28 @@ import { supabase } from './supabase'
 const ACCOUNT_STORAGE_KEY = 'studio:selected-account-id'
 const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim()
 const DEFAULT_API_BASE_URL = 'https://api.hookai.kr'
-const API_BASE_URL = (RAW_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '')
+
+function getDefaultApiBaseUrl() {
+  if (RAW_API_BASE_URL) {
+    return RAW_API_BASE_URL
+  }
+
+  if (typeof window !== 'undefined') {
+    const { hostname, protocol } = window.location
+    const isLocalHost =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '0.0.0.0'
+
+    if (isLocalHost) {
+      return `${protocol}//${hostname}:3001`
+    }
+  }
+
+  return DEFAULT_API_BASE_URL
+}
+
+const API_BASE_URL = getDefaultApiBaseUrl().replace(/\/$/, '')
 
 function resolveApiUrl(input) {
   if (!API_BASE_URL || typeof input !== 'string') {

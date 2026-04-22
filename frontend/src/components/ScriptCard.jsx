@@ -1,8 +1,8 @@
-function SectionPreview({ label, value, tone }) {
+function SectionPreview({ label, value, tone, sizeClass = '' }) {
   return (
-    <div className={`rounded-2xl border px-4 py-3 ${tone}`}>
+    <div className={`flex flex-col rounded-2xl border px-4 py-3 ${tone} ${sizeClass}`}>
       <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">{label}</div>
-      <div className="mt-2 line-clamp-3 text-sm leading-6 text-[#E5E7EB]">{value || '-'}</div>
+      <div className="mt-2 line-clamp-4 text-sm leading-6 text-[#E5E7EB]">{value || '-'}</div>
     </div>
   )
 }
@@ -31,7 +31,7 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
             : 'border-[#2F3543] bg-[#12151D] hover:border-[#495164] hover:bg-[#151B25]'
       }`}
     >
-      <div className="min-h-[150px]">
+      <div className="min-h-[96px]">
         <div className="flex h-full flex-col">
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-full border border-[#3A4252] bg-[#171B24] px-3 py-1 text-xs font-semibold text-[#D1D5DB]">
@@ -52,16 +52,19 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
           label="Hook"
           value={script.hook}
           tone="border-[#4A3338] bg-[#181316] text-[#FCA5A5]"
+          sizeClass="min-h-[188px]"
         />
         <SectionPreview
           label="Body"
           value={script.body}
           tone="border-[#31435A] bg-[#141A23] text-[#93C5FD]"
+          sizeClass="min-h-[222px]"
         />
         <SectionPreview
           label="CTA"
           value={script.cta}
           tone="border-[#314A3D] bg-[#131A16] text-[#86EFAC]"
+          sizeClass="min-h-[168px]"
         />
       </div>
 

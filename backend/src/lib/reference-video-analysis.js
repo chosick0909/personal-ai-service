@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { open, stat } from 'node:fs/promises'
 import {
   CATEGORY_ANCHOR_TERMS,
+  CATEGORY_PLAYBOOKS,
   CREATOR_BUSINESS_PROOF_PATTERN,
   DOMAIN_EVIDENCE_PROFILES,
   VARIATION_CONFIGS,
@@ -11,6 +12,7 @@ import {
 import { ingestDocument } from './document-ingest.js'
 import { chunkText } from './chunking.js'
 import { createEmbeddings } from './embeddings.js'
+import { getAccountProfile } from './account-profile.js'
 import { logAIError } from './ai-error-logger.js'
 import { logAIUsage, sumAIUsage } from './ai-usage-logger.js'
 import { parseModelJson } from './model-json.js'
@@ -987,6 +989,19 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
   }
 }
 
+function buildCategoryPlaybookPayload(category, playbook) {
+  if (!category || !playbook) {
+    return null
+  }
+
+  return {
+    category,
+    label: category,
+    insight: playbook.uiCopy?.insight || '',
+    hookai_rule: playbook.uiCopy?.hookAiRule || '',
+  }
+}
+
 function buildPromptGuardSummary(guard = {}) {
   const settingCues = normalizeStringList(guard.settingCues || [], MAX_PROMPT_SETTING_CUES)
   return { settingCues }
@@ -1032,6 +1047,44 @@ function pickSettingCue(guard = {}, offset = 0) {
   const cues = Array.isArray(guard.settingCues) ? guard.settingCues : []
   if (!cues.length) return ''
   return cues[Math.abs(offset) % cues.length] || cues[0]
+}
+
+function getCategoryPlaybook(category = '') {
+  const normalized = String(category || '').trim()
+  if (!normalized || normalized === '기타') {
+    return null
+  }
+  return CATEGORY_PLAYBOOKS[normalized] || null
+}
+
+function buildPlaybookPrompt(playbook) {
+  if (!playbook) {
+    return ''
+  }
+
+  const hardRules = Array.isArray(playbook.promptRules?.hard) ? playbook.promptRules.hard.slice(0, 3) : []
+  const softRules = Array.isArray(playbook.promptRules?.soft) ? playbook.promptRules.soft.slice(0, 3) : []
+  const hookTypes = Array.isArray(playbook.generationHints?.hookTypes)
+    ? playbook.generationHints.hookTypes.slice(0, 3)
+    : []
+  const ctaTypes = Array.isArray(playbook.generationHints?.ctaTypes)
+    ? playbook.generationHints.ctaTypes.slice(0, 4)
+    : []
+  const tones = Array.isArray(playbook.generationHints?.tones)
+    ? playbook.generationHints.tones.slice(0, 3)
+    : []
+
+  return [
+    '카테고리 실행 참고 규칙(설정과 충돌하면 계정 설정을 우선하고, 아래는 보조 참고로만 사용):',
+    playbook.uiCopy?.insight ? `- 업종 인사이트: ${playbook.uiCopy.insight}` : '',
+    hardRules.length ? `- 반드시 피할 것: ${hardRules.join(', ')}` : '',
+    softRules.length ? `- 우선 반영할 것: ${softRules.join(', ')}` : '',
+    hookTypes.length ? `- 잘 먹히는 훅 유형 참고: ${hookTypes.join(', ')}` : '',
+    ctaTypes.length ? `- 자연스러운 CTA 방향 참고: ${ctaTypes.join(', ')}` : '',
+    tones.length ? `- 톤 참고: ${tones.join(', ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function buildTopicFocusPrompt(topic = '', title = '') {
@@ -1978,6 +2031,8 @@ export async function analyzeReferenceVideo({
       accountSettings,
       characterSystemPrompt,
     })
+    const categoryPlaybook = getCategoryPlaybook(categoryGuard.category)
+    const playbookPrompt = buildPlaybookPrompt(categoryPlaybook)
     const guardPromptSummary = buildPromptGuardSummary(categoryGuard)
     const categoryGuardText = [
       `카테고리: ${categoryGuard.category}`,
@@ -2045,6 +2100,7 @@ export async function analyzeReferenceVideo({
             `전략 방향: ${config.angle}\n` +
             `전략 의도: ${config.retrievalHint}\n\n` +
             `${topicFocusPrompt ? `${topicFocusPrompt}\n\n` : ''}` +
+            `${playbookPrompt ? `${playbookPrompt}\n\n` : ''}` +
             `카테고리 강제 가드(절대 준수):\n${categoryGuardText}\n\n` +
             `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
             `레퍼런스 금지 표면 단어(절대 사용 금지): ${referenceGuard.surfaceTerms.join(', ') || '없음'}\n\n` +
@@ -2422,6 +2478,7 @@ export async function analyzeReferenceVideo({
       ...row,
       global_knowledge_debug: mapGlobalKnowledgeDebug(globalKnowledge.items || []),
       global_knowledge_categories: globalKnowledge.categories || [],
+      category_playbook: buildCategoryPlaybookPayload(categoryGuard.category, categoryPlaybook),
       analysis_stage_metrics: stageMetrics,
     }
 
@@ -2652,6 +2709,24 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
   let globalKnowledgeDebug = []
   let globalKnowledgeCategories = []
   let enrichedVariations = Array.isArray(data.variations) ? data.variations : []
+  let resolvedCategory = ''
+  let categoryPlaybook = null
+
+  try {
+    const profile = await getAccountProfile(accountId)
+    const settings =
+      profile?.settings && typeof profile.settings === 'object'
+        ? profile.settings
+        : {}
+    resolvedCategory = normalizeCategoryLabel(settings.category || '')
+    categoryPlaybook = getCategoryPlaybook(resolvedCategory)
+  } catch (error) {
+    logAIError('analysis', error, {
+      stage: 'reference-detail-account-profile',
+      referenceVideoId,
+      accountId,
+    })
+  }
 
   try {
     const globalKnowledge = await retrieveGlobalKnowledgeContext({
@@ -2709,6 +2784,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
     variations: enrichedVariations,
     global_knowledge_debug: globalKnowledgeDebug,
     global_knowledge_categories: globalKnowledgeCategories,
+    category_playbook: buildCategoryPlaybookPayload(resolvedCategory, categoryPlaybook),
   }
 }
 
