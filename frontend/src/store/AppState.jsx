@@ -659,7 +659,7 @@ export function AppStateProvider({ children }) {
   const [copilotUsage, setCopilotUsage] = useState(createInitialCopilotUsage())
   const [currentUser, setCurrentUser] = useState(null)
   const [entitlementStatus, setEntitlementStatus] = useState(null)
-  const [isEntitlementReady, setIsEntitlementReady] = useState(false)
+  const [isEntitlementReady, setIsEntitlementReady] = useState(true)
   const activeReferenceIdRef = useRef(null)
   const toastTimerRef = useRef(null)
   const historyStepRef = useRef(null)
@@ -721,20 +721,6 @@ export function AppStateProvider({ children }) {
     }
   }, [])
 
-  useEffect(() => {
-    if (!isAuthReady) {
-      return
-    }
-
-    if (!isLoggedIn) {
-      setEntitlementStatus(null)
-      setIsEntitlementReady(true)
-      return
-    }
-
-    void refreshEntitlement({ referenceId: activeReferenceIdRef.current })
-  }, [isAuthReady, isLoggedIn, currentUser?.id])
-
   const showToast = (message, tone = 'success') => {
     if (toastTimerRef.current) {
       window.clearTimeout(toastTimerRef.current)
@@ -772,25 +758,6 @@ export function AppStateProvider({ children }) {
         error: error.message || '이용권 정보를 불러오지 못했습니다.',
       })
       return null
-    } finally {
-      setIsEntitlementReady(true)
-    }
-  }
-
-  const resolvePostAuthPath = async ({ referenceId } = {}) => {
-    setIsEntitlementReady(false)
-    try {
-      const status = await loadMyEntitlement({ referenceId })
-      setEntitlementStatus(status)
-      return status?.hasAccess ? '/analyze' : '/purchase'
-    } catch (error) {
-      setEntitlementStatus({
-        hasAccess: false,
-        entitlement: null,
-        usage: null,
-        error: error.message || '이용권 정보를 불러오지 못했습니다.',
-      })
-      return '/purchase'
     } finally {
       setIsEntitlementReady(true)
     }
@@ -908,11 +875,12 @@ export function AppStateProvider({ children }) {
 
     setCurrentUser(data?.user || null)
     setIsLoggedIn(true)
+    setEntitlementStatus(null)
+    setIsEntitlementReady(true)
     setCurrentStep('upload')
-    const nextPath = await resolvePostAuthPath()
     return {
       user: data?.user || null,
-      nextPath,
+      nextPath: '/analyze',
     }
   }
 
@@ -971,13 +939,14 @@ export function AppStateProvider({ children }) {
     setCurrentAccount(created)
     setCurrentUser(data.user)
     setIsLoggedIn(true)
+    setEntitlementStatus(null)
+    setIsEntitlementReady(true)
     setCurrentStep('upload')
-    const nextPath = await resolvePostAuthPath()
 
     return {
       user: data.user,
       requiresEmailConfirmation: false,
-      nextPath,
+      nextPath: '/analyze',
     }
   }
 

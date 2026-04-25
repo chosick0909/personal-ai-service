@@ -23,7 +23,7 @@ function getAuthRedirectUrl() {
     return configuredRedirectUrl
   }
 
-  return `${window.location.origin}/purchase`
+  return `${window.location.origin}/analyze`
 }
 
 function FabricBackgroundOverlay() {
@@ -2268,13 +2268,13 @@ function RecommendScreenV2() {
 }
 
 function LoginScreen() {
-  const { login, isLoggedIn, isAuthReady, entitlementStatus, isEntitlementReady } = useAppState()
+  const { login, isLoggedIn, isAuthReady } = useAppState()
 
   useEffect(() => {
-    if (isAuthReady && isLoggedIn && isEntitlementReady) {
-      window.location.replace(entitlementStatus?.hasAccess ? '/analyze' : '/purchase')
+    if (isAuthReady && isLoggedIn) {
+      window.location.replace('/analyze')
     }
-  }, [entitlementStatus?.hasAccess, isAuthReady, isEntitlementReady, isLoggedIn])
+  }, [isAuthReady, isLoggedIn])
 
   if (isAuthReady && isLoggedIn) {
     return null
@@ -2294,13 +2294,13 @@ function LoginScreen() {
 }
 
 function SignupScreen() {
-  const { signup, isLoggedIn, isAuthReady, entitlementStatus, isEntitlementReady } = useAppState()
+  const { signup, isLoggedIn, isAuthReady } = useAppState()
 
   useEffect(() => {
-    if (isAuthReady && isLoggedIn && isEntitlementReady) {
-      window.location.replace(entitlementStatus?.hasAccess ? '/analyze' : '/purchase')
+    if (isAuthReady && isLoggedIn) {
+      window.location.replace('/analyze')
     }
-  }, [entitlementStatus?.hasAccess, isAuthReady, isEntitlementReady, isLoggedIn])
+  }, [isAuthReady, isLoggedIn])
 
   if (isAuthReady && isLoggedIn) {
     return null
@@ -2340,6 +2340,7 @@ function PurchaseScreen() {
     isAuthReady,
     entitlementStatus,
     isEntitlementReady,
+    refreshEntitlement,
     applyCoupon,
   } = useAppState()
   const [couponCode, setCouponCode] = useState('')
@@ -2359,12 +2360,18 @@ function PurchaseScreen() {
   }, [isAuthReady, isLoggedIn])
 
   useEffect(() => {
+    if (isAuthReady && isLoggedIn && isEntitlementReady && !entitlementStatus) {
+      void refreshEntitlement()
+    }
+  }, [entitlementStatus, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
+
+  useEffect(() => {
     if (isAuthReady && isEntitlementReady && entitlementStatus?.hasAccess && !success) {
       window.location.replace('/analyze')
     }
   }, [entitlementStatus?.hasAccess, isAuthReady, isEntitlementReady, success])
 
-  if (!isAuthReady || !isLoggedIn || !isEntitlementReady) {
+  if (!isAuthReady || !isLoggedIn || !isEntitlementReady || !entitlementStatus) {
     return (
       <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
         <FabricBackgroundOverlay />
@@ -2774,9 +2781,16 @@ function StudioShell() {
     isAuthReady,
     entitlementStatus,
     isEntitlementReady,
+    refreshEntitlement,
   } = useAppState()
 
-  if (!isAuthReady || !isEntitlementReady) {
+  useEffect(() => {
+    if (isAuthReady && isLoggedIn && isEntitlementReady && !entitlementStatus) {
+      void refreshEntitlement()
+    }
+  }, [entitlementStatus, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
+
+  if (!isAuthReady || !isEntitlementReady || (isLoggedIn && !entitlementStatus)) {
     return (
       <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
         <div className="rounded-[24px] border border-[#2F3543] bg-[#121722] px-6 py-5 text-sm text-[#AEB6C5] shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
