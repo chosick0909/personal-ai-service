@@ -9,7 +9,9 @@ export default defineConfig({
   envDir: '..',
   plugins: [tailwindcss(), react()],
   server: {
+    host: true,
     port: 5173,
+    allowedHosts: ['hookai.kr', 'www.hookai.kr'],
     proxy: {
       '/api': {
         target: apiProxyTarget,
