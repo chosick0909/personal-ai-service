@@ -1,5 +1,3 @@
-import { jsPDF } from 'jspdf'
-import html2canvas from 'html2canvas'
 import { apiFetch, createApiError, parseApiResponse } from './api'
 
 export async function createScriptSelection({
@@ -90,6 +88,10 @@ export async function restoreScriptVersionRecord({ scriptId, versionId }) {
 }
 
 export async function downloadScriptPdf({ title, sections }) {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import('html2canvas'),
+    import('jspdf'),
+  ])
   const container = document.createElement('div')
   container.style.position = 'fixed'
   container.style.left = '-99999px'

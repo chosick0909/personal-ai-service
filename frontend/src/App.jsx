@@ -2777,7 +2777,13 @@ function StudioShell() {
   } = useAppState()
 
   if (!isAuthReady || !isEntitlementReady) {
-    return null
+    return (
+      <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
+        <div className="rounded-[24px] border border-[#2F3543] bg-[#121722] px-6 py-5 text-sm text-[#AEB6C5] shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
+          이용권 확인 중...
+        </div>
+      </main>
+    )
   }
 
   if (!isLoggedIn) {
