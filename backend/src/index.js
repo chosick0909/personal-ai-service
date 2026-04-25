@@ -54,6 +54,12 @@ import {
 } from './lib/sentry.js'
 import { logAIError } from './lib/ai-error-logger.js'
 import { assertBackendEnv } from './lib/env-validation.js'
+import {
+  applyCouponToUser,
+  assertUsageAllowed,
+  getUserEntitlementStatus,
+  recordUsageEvent,
+} from './lib/entitlements.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // Deploy trigger: backend touchpoint.
@@ -468,6 +474,33 @@ app.use('/api', requireAuth)
 app.use('/api/admin', requireAdmin)
 
 app.get(
+  '/api/entitlements/me',
+  asyncHandler(async (req, res) => {
+    const status = await getUserEntitlementStatus({
+      userId: req.auth?.userId,
+      referenceId: req.query?.referenceId || null,
+    })
+
+    res.json(status)
+  }),
+)
+
+app.post(
+  '/api/coupons/apply',
+  asyncHandler(async (req, res) => {
+    const status = await applyCouponToUser({
+      userId: req.auth?.userId,
+      couponCode: req.body?.couponCode || req.body?.coupon_code,
+    })
+
+    res.status(201).json({
+      message: '이용권이 활성화되었습니다.',
+      ...status,
+    })
+  }),
+)
+
+app.get(
   '/api/accounts',
   asyncHandler(async (_req, res) => {
     const accounts = await listAccounts(_req.auth?.userId, _req.auth?.email)
@@ -745,6 +778,10 @@ app.post(
     })
     try {
       const account = await resolveRequestAccount(req)
+      const usageStatus = await assertUsageAllowed({
+        userId: req.auth?.userId,
+        eventType: 'reference_analysis',
+      })
       const character = await getAccountCharacterContext(account.id)
       const result = await analyzeReferenceVideo({
         accountId: account.id,
@@ -758,6 +795,12 @@ app.post(
           character?.profile?.settings && typeof character.profile.settings === 'object'
             ? character.profile.settings
             : {},
+      })
+      await recordUsageEvent({
+        userId: req.auth?.userId,
+        entitlementId: usageStatus.entitlement.id,
+        eventType: 'reference_analysis',
+        referenceId: result?.id || null,
       })
 
       res.status(201).json({
@@ -945,6 +988,11 @@ app.post(
   refineRateLimiter,
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
+    const usageStatus = await assertUsageAllowed({
+      userId: req.auth?.userId,
+      eventType: 'copilot_message',
+      referenceId: req.body?.referenceId,
+    })
     const character = await getAccountCharacterContext(account.id)
     const sessionId =
       req.body?.sessionId ||
@@ -985,6 +1033,12 @@ app.post(
       assistantOutput: assistantOutputSummary,
       fallbackSession: `refine:${req.body?.referenceId || account.id}`,
     })
+    await recordUsageEvent({
+      userId: req.auth?.userId,
+      entitlementId: usageStatus.entitlement.id,
+      eventType: 'copilot_message',
+      referenceId: req.body?.referenceId,
+    })
 
     res.json({
       message: result.message,
@@ -1003,6 +1057,11 @@ app.post(
   feedbackRateLimiter,
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
+    const usageStatus = await assertUsageAllowed({
+      userId: req.auth?.userId,
+      eventType: 'feedback_request',
+      referenceId: req.body?.referenceId,
+    })
     const character = await getAccountCharacterContext(account.id)
     const sessionId =
       req.body?.sessionId ||
@@ -1038,6 +1097,12 @@ app.post(
         },
       })
     }
+    await recordUsageEvent({
+      userId: req.auth?.userId,
+      entitlementId: usageStatus.entitlement.id,
+      eventType: 'feedback_request',
+      referenceId: req.body?.referenceId,
+    })
 
     res.json({
       feedback: result,

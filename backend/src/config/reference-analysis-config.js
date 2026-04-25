@@ -21,6 +21,7 @@ export const VARIATION_CONFIGS = [
 
 export const CATEGORY_ANCHOR_TERMS = {
   뷰티: ['피부', '스킨케어', '메이크업', '화장', '제품', '루틴'],
+  '운동/헬스': ['운동', '헬스', '피트니스', '자세', '근력', '루틴'],
   육아: ['육아', '아이', '부모', '월령', '아기', '양육'],
   반려동물: ['반려동물', '강아지', '고양이', '보호자', '사료', '간식'],
   살림: ['살림', '정리', '수납', '청소', '주방', '생활'],
@@ -110,7 +111,44 @@ export const DOMAIN_EVIDENCE_PROFILES = {
 }
 
 export const CATEGORY_PLAYBOOKS = {
+  '운동/헬스': {
+    meta: {
+      label: '운동/헬스',
+      aliases: ['운동', '헬스', '피트니스', 'fitness', '자세', '필라테스', '홈트'],
+    },
+    uiCopy: {
+      insight: '운동 콘텐츠는 일반 정보보다 “내가 지금 뭘 잘못하고 있는지”를 먼저 보여줄 때 몰입이 더 잘 붙습니다.',
+      hookAiRule: '실수 지적 뒤에 바로 고칠 수 있는 한 가지 동작을 주고, 바뀌는 체감까지 짧게 연결하는 편이 좋습니다.',
+    },
+    promptRules: {
+      hard: ['일반론만 길게 설명하지 마라', '근거 없이 공포를 조장하지 마라', '몸을 비하하는 표현을 쓰지 마라'],
+      soft: ['잘못된 동작이나 실수 포인트를 먼저 짚어라', '바로 따라 할 수 있는 교정 1개를 줘라', '교정 뒤 달라지는 체감을 짧게 보여줘라'],
+    },
+    generationHints: {
+      hookTypes: ['실수 지적형', '자세 교정형', '전후 체감형'],
+      winningStructures: ['실수 지적 → 교정 → 체감 → 저장/상담'],
+      ctaTypes: ['저장', '댓글', 'DM', '체험권', '상담 예약'],
+      tones: ['코치형', '단호형', '근거형'],
+      visualOpeners: ['잘못된 자세', '통증 부위 표시', '전후 동작 비교'],
+    },
+    modes: {
+      awareness: {
+        emphasis: ['실수 자각', '자기진단', '저장 가치'],
+      },
+      conversion: {
+        emphasis: ['교정 체감', '상담 연결', '체험/프로그램 안내'],
+      },
+    },
+    validation: {
+      forbiddenStarts: ['몸매가 별로', '이거 안 하면 망가집니다', '무조건 아프게 됩니다'],
+      requiredConversionElements: ['다음 행동', '저장/DM/상담 연결'],
+    },
+  },
   육아: {
+    meta: {
+      label: '육아',
+      aliases: ['육아', '엄마', '맘', '월령', '아기', '부모'],
+    },
     uiCopy: {
       insight: '육아 콘텐츠는 불안을 세게 찌르기보다 공감 뒤에 안심을 주는 흐름이 더 자연스럽습니다.',
       hookAiRule: '훈계보다 “나도 그랬다 → 괜찮다 → 이렇게 해보자” 흐름으로 시작하면 신뢰가 높아집니다.',
@@ -121,11 +159,29 @@ export const CATEGORY_PLAYBOOKS = {
     },
     generationHints: {
       hookTypes: ['공감형', '불안해소형', '월령/상황형'],
+      winningStructures: ['공감 → 상황 → 안심 → 해결 → 저장/DM'],
       ctaTypes: ['저장', '댓글', 'DM', '자료 링크'],
       tones: ['엄마 친구형', '안심형', '부드러운 전문가형'],
+      visualOpeners: ['아이 행동 장면', '엄마 표정', '육아 난장판'],
+    },
+    modes: {
+      awareness: {
+        emphasis: ['공감', '현실감', '정서 진입'],
+      },
+      conversion: {
+        emphasis: ['월령별 문제 해결', '자료/제품 연결', '안심 후 행동 유도'],
+      },
+    },
+    validation: {
+      forbiddenStarts: ['엄마가 잘못', '이거 안 하면 큰일', '지금 당장 안 하면'],
+      requiredConversionElements: ['다음 행동', '저장/DM/자료 연결'],
     },
   },
   살림: {
+    meta: {
+      label: '살림',
+      aliases: ['살림', '정리', '수납', '청소', '생활'],
+    },
     uiCopy: {
       insight: '살림 콘텐츠는 정리 원리보다 전후 변화와 시간 절약이 먼저 보여야 반응이 잘 붙는 편입니다.',
       hookAiRule: '첫 장면에서 “이렇게 하면 더 편해진다”는 결과를 보여주고, 설명은 뒤로 미루는 편이 좋습니다.',
@@ -136,11 +192,29 @@ export const CATEGORY_PLAYBOOKS = {
     },
     generationHints: {
       hookTypes: ['시간절약형', '전후비교형', '꿀팁형'],
+      winningStructures: ['불편 상황 → 해결 도구 → 전후 차이 → CTA'],
       ctaTypes: ['저장', '제품 링크', '댓글 키워드', '구매'],
       tones: ['친근형', '실용형', '빠른 설명형'],
+      visualOpeners: ['전후 비교', '지저분한 장면', '정리된 결과 컷'],
+    },
+    modes: {
+      awareness: {
+        emphasis: ['불편 공감', '전후 차이', '저장 가치'],
+      },
+      conversion: {
+        emphasis: ['시간 절약', '제품 효용', '짧은 CTA'],
+      },
+    },
+    validation: {
+      forbiddenStarts: ['정리의 철학은', '오늘은 원리부터', '이 제품 무조건 사세요'],
+      requiredConversionElements: ['해결 결과', '댓글/링크/구매 CTA'],
     },
   },
   재테크: {
+    meta: {
+      label: '재테크',
+      aliases: ['재테크', '투자', '자산', '부업', '돈관리'],
+    },
     uiCopy: {
       insight: '재테크 콘텐츠는 자극보다 신뢰가 우선입니다. 손실 회피와 판단 기준을 짚는 흐름이 더 안전하고 설득력 있습니다.',
       hookAiRule: '수익 약속 대신 “이 실수 때문에 돈이 샌다”처럼 판단 기준과 리스크 회피 중심으로 전개하는 편이 좋습니다.',
@@ -151,11 +225,29 @@ export const CATEGORY_PLAYBOOKS = {
     },
     generationHints: {
       hookTypes: ['손실회피형', '실수 지적형', '체크리스트형'],
+      winningStructures: ['실수 → 손해 포인트 → 기준 제시 → 자료/상담 CTA'],
       ctaTypes: ['저장', '무료자료', '댓글 키워드', '뉴스레터', '상담'],
       tones: ['차분한 전문가형', '현실조언형'],
+      visualOpeners: ['숫자 오버레이', '가계부/통장 화면', '체크리스트'],
+    },
+    modes: {
+      awareness: {
+        emphasis: ['실수 자각', '손실 회피', '저장 가치'],
+      },
+      conversion: {
+        emphasis: ['무료자료', '진단 연결', '낮은 허들 CTA'],
+      },
+    },
+    validation: {
+      forbiddenStarts: ['월 300 자동수익', '무조건 돈 벌어요', '원금 보장'],
+      requiredConversionElements: ['판단 기준', '자료/상담/다음 행동'],
     },
   },
   자기계발: {
+    meta: {
+      label: '자기계발',
+      aliases: ['자기계발', '생산성', '습관', '루틴'],
+    },
     uiCopy: {
       insight: '자기계발 콘텐츠는 큰 다짐보다 오늘 바로 할 수 있는 작은 실행으로 끝날 때 저장 가치가 높아집니다.',
       hookAiRule: '실패 원인 진단 후, 부담 없는 한 가지 행동으로 마무리하면 실행감이 살아납니다.',
@@ -166,11 +258,29 @@ export const CATEGORY_PLAYBOOKS = {
     },
     generationHints: {
       hookTypes: ['자기진단형', '실패 원인형', '작은 실행형'],
+      winningStructures: ['문제 진단 → 오해 깨기 → 작은 실행 → 저장'],
       ctaTypes: ['저장', '댓글', '템플릿', '체크리스트', '뉴스레터'],
       tones: ['친구형', '코치형', '담백한 동기부여'],
+      visualOpeners: ['체크리스트', '루틴 장면', '책상/노트 화면'],
+    },
+    modes: {
+      awareness: {
+        emphasis: ['자기반성', '공감', '저장 가치'],
+      },
+      conversion: {
+        emphasis: ['템플릿', '체크리스트', '뉴스레터/강의 연결'],
+      },
+    },
+    validation: {
+      forbiddenStarts: ['의지가 약해서', '게으르니까', '당장 인생 바꿔'],
+      requiredConversionElements: ['작은 실행', '저장/템플릿/다음 행동'],
     },
   },
   '전문직(회사홍보)': {
+    meta: {
+      label: '전문직(회사홍보)',
+      aliases: ['전문직', '회사홍보', '브랜드', '서비스', '상담'],
+    },
     uiCopy: {
       insight: '전문직 콘텐츠는 전문용어보다 고객이 이미 궁금해하는 문제를 쉽게 풀어줄 때 신뢰가 더 빨리 생깁니다.',
       hookAiRule: '전문성을 앞세우기보다 “내 상황도 해당되나?” 싶은 질문을 먼저 건 뒤, 쉬운 설명과 문의 흐름으로 이어가세요.',
@@ -181,11 +291,29 @@ export const CATEGORY_PLAYBOOKS = {
     },
     generationHints: {
       hookTypes: ['불안 해소형', '오해 교정형', 'FAQ형'],
+      winningStructures: ['고민 제시 → 쉬운 설명 → 신뢰 근거 → 문의 CTA'],
       ctaTypes: ['상담 예약', 'DM', '전화', '프로필 링크', '체크리스트'],
       tones: ['신뢰형', '쉽게 설명하는 전문가형'],
+      visualOpeners: ['전문가 얼굴', '설명 장면', '상담/사례 보드'],
+    },
+    modes: {
+      awareness: {
+        emphasis: ['오해 교정', '신뢰 형성', '질문 유도'],
+      },
+      conversion: {
+        emphasis: ['문의 연결', '상담 CTA', '체크리스트'],
+      },
+    },
+    validation: {
+      forbiddenStarts: ['무조건 치료', '결과 보장', '겁부터 주는 표현'],
+      requiredConversionElements: ['쉬운 설명', '문의/상담/다음 행동'],
     },
   },
   반려동물: {
+    meta: {
+      label: '반려동물',
+      aliases: ['반려동물', '강아지', '고양이', '펫', '보호자'],
+    },
     uiCopy: {
       insight: '반려동물 콘텐츠는 정보 설명보다 귀여움·공감·걱정을 먼저 만들고 들어갈 때 감정 반응이 더 큽니다.',
       hookAiRule: '“우리 애도 이러는데 이유가 뭐지?” 같은 보호자 공감으로 시작한 뒤 팁이나 제품으로 넘어가는 편이 자연스럽습니다.',
@@ -196,8 +324,22 @@ export const CATEGORY_PLAYBOOKS = {
     },
     generationHints: {
       hookTypes: ['공감형', '귀여움→정보형', '행동 이유형'],
+      winningStructures: ['행동/감정 장면 → 이유 설명 → 팁/제품 → 저장/공유'],
       ctaTypes: ['저장', '공유', '제품 링크', '훈련 상담', '댓글'],
       tones: ['보호자형', '따뜻한 전문가형', '유머형'],
+      visualOpeners: ['귀여운 장면', '이상 행동 장면', '보호자 리액션'],
+    },
+    modes: {
+      awareness: {
+        emphasis: ['귀여움', '공감', '행동 이유'],
+      },
+      conversion: {
+        emphasis: ['행동 해결', '제품/상담 연결', '쉬운 다음 행동'],
+      },
+    },
+    validation: {
+      forbiddenStarts: ['방치하면 큰일', '너무 위험', '무조건 문제 행동'],
+      requiredConversionElements: ['공감 진입', '팁/제품/상담 연결'],
     },
   },
 }

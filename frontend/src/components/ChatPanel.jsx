@@ -72,7 +72,9 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
     applySuggestion,
     copilotRemaining,
   } = useAppState()
-  const isChatLimitReached = copilotRemaining.chat <= 0
+  const chatRemainingLabel = Number.isFinite(copilotRemaining.chat) ? `${copilotRemaining.chat}회` : '무제한'
+  const feedbackRemainingLabel = Number.isFinite(copilotRemaining.feedback) ? `${copilotRemaining.feedback}회` : '무제한'
+  const isChatLimitReached = Number.isFinite(copilotRemaining.chat) && copilotRemaining.chat <= 0
   const isSendDisabled = isChatLoading || isChatLimitReached
   const shouldShowWelcomePrompt = !pendingSuggestion && !isChatLoading && chatMessages.length === 0
 
@@ -93,7 +95,7 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-semibold text-[#F3F4F6]">AI 코파일럿</div>
           <div className="text-[11px] text-[#94A3B8]">
-            수정 {copilotRemaining.chat}회 · 피드백 {copilotRemaining.feedback}회
+            수정 {chatRemainingLabel} · 피드백 {feedbackRemainingLabel}
           </div>
         </div>
       </div>
@@ -160,7 +162,7 @@ export default function ChatPanel({ entering = false, embedded = false, fixedHei
               disabled={isSendDisabled}
               className="btn-solid-contrast rounded-full px-4 py-2.5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isChatLimitReached ? '한도 도달' : `보내기 (${copilotRemaining.chat})`}
+              {isChatLimitReached ? '한도 도달' : `보내기 (${chatRemainingLabel})`}
             </button>
           </div>
         </div>

@@ -928,22 +928,21 @@ function normalizeCategoryLabel(value) {
   }
 
   const compact = raw.replace(/\s+/g, '').toLowerCase()
+  const playbookAliases = Object.values(CATEGORY_PLAYBOOKS).map((playbook) => ({
+    category: playbook?.meta?.label || '',
+    aliases: Array.isArray(playbook?.meta?.aliases) ? playbook.meta.aliases : [],
+  }))
   const categoryAliases = [
+    ...playbookAliases,
     { category: '패션', aliases: ['패션', 'fashion', '인플루언서', '패션인플루언서', '스타일'] },
     { category: '뷰티', aliases: ['뷰티', 'beauty', '메이크업', '화장', '스킨케어'] },
     { category: 'AI', aliases: ['ai', 'it', '창업', '스타트업', '개발', '테크'] },
-    { category: '육아', aliases: ['육아', '아기', '부모'] },
-    { category: '반려동물', aliases: ['반려', '반려동물', '강아지', '고양이', '펫'] },
-    { category: '자기계발', aliases: ['자기계발', '생산성', '습관'] },
-    { category: '재테크', aliases: ['재테크', '투자', '자산'] },
     { category: '여행', aliases: ['여행', '트립'] },
     { category: '요리', aliases: ['요리', '레시피', '쿠킹'] },
     { category: '교육', aliases: ['교육', '학습', '강의'] },
     { category: '멘탈케어', aliases: ['멘탈', '심리', '감정'] },
     { category: '테크 가젯', aliases: ['가젯', '디바이스', '리뷰'] },
-    { category: '살림', aliases: ['살림', '정리', '수납', '청소'] },
-    { category: '전문직(회사홍보)', aliases: ['전문직', '회사홍보', '브랜드', '서비스'] },
-  ]
+  ].filter((item) => item.category)
 
   const matched = categoryAliases.find((item) =>
     item.aliases.some((alias) => compact.includes(alias.toLowerCase())),
@@ -989,22 +988,31 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
   }
 }
 
-function buildCategoryPlaybookPayload(category, playbook) {
+function buildCategoryPlaybookPayload(category, playbook, mode = '') {
   if (!category || !playbook) {
     return null
   }
 
   return {
     category,
-    label: category,
+    label: playbook.meta?.label || category,
     insight: playbook.uiCopy?.insight || '',
     hookai_rule: playbook.uiCopy?.hookAiRule || '',
+    mode: mode || '',
   }
 }
 
 function buildPromptGuardSummary(guard = {}) {
   const settingCues = normalizeStringList(guard.settingCues || [], MAX_PROMPT_SETTING_CUES)
   return { settingCues }
+}
+
+function resolvePlaybookMode(accountGoal = '') {
+  const normalized = String(accountGoal || '').trim()
+  if (normalized === 'brand-marketing' || normalized === 'consulting-lead') {
+    return 'conversion'
+  }
+  return 'awareness'
 }
 
 function inferEvidenceProfile(guard = {}) {
@@ -1057,7 +1065,7 @@ function getCategoryPlaybook(category = '') {
   return CATEGORY_PLAYBOOKS[normalized] || null
 }
 
-function buildPlaybookPrompt(playbook) {
+function buildPlaybookPrompt(playbook, mode = '') {
   if (!playbook) {
     return ''
   }
@@ -1073,6 +1081,9 @@ function buildPlaybookPrompt(playbook) {
   const tones = Array.isArray(playbook.generationHints?.tones)
     ? playbook.generationHints.tones.slice(0, 3)
     : []
+  const modeHints = Array.isArray(playbook.modes?.[mode]?.emphasis)
+    ? playbook.modes[mode].emphasis.slice(0, 3)
+    : []
 
   return [
     '카테고리 실행 참고 규칙(설정과 충돌하면 계정 설정을 우선하고, 아래는 보조 참고로만 사용):',
@@ -1082,6 +1093,7 @@ function buildPlaybookPrompt(playbook) {
     hookTypes.length ? `- 잘 먹히는 훅 유형 참고: ${hookTypes.join(', ')}` : '',
     ctaTypes.length ? `- 자연스러운 CTA 방향 참고: ${ctaTypes.join(', ')}` : '',
     tones.length ? `- 톤 참고: ${tones.join(', ')}` : '',
+    modeHints.length ? `- 이번 생성 모드 핵심: ${modeHints.join(', ')}` : '',
   ]
     .filter(Boolean)
     .join('\n')
@@ -2032,7 +2044,8 @@ export async function analyzeReferenceVideo({
       characterSystemPrompt,
     })
     const categoryPlaybook = getCategoryPlaybook(categoryGuard.category)
-    const playbookPrompt = buildPlaybookPrompt(categoryPlaybook)
+    const playbookMode = resolvePlaybookMode(categoryGuard.accountGoal)
+    const playbookPrompt = buildPlaybookPrompt(categoryPlaybook, playbookMode)
     const guardPromptSummary = buildPromptGuardSummary(categoryGuard)
     const categoryGuardText = [
       `카테고리: ${categoryGuard.category}`,
@@ -2478,7 +2491,7 @@ export async function analyzeReferenceVideo({
       ...row,
       global_knowledge_debug: mapGlobalKnowledgeDebug(globalKnowledge.items || []),
       global_knowledge_categories: globalKnowledge.categories || [],
-      category_playbook: buildCategoryPlaybookPayload(categoryGuard.category, categoryPlaybook),
+      category_playbook: buildCategoryPlaybookPayload(categoryGuard.category, categoryPlaybook, playbookMode),
       analysis_stage_metrics: stageMetrics,
     }
 
@@ -2711,6 +2724,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
   let enrichedVariations = Array.isArray(data.variations) ? data.variations : []
   let resolvedCategory = ''
   let categoryPlaybook = null
+  let playbookMode = 'awareness'
 
   try {
     const profile = await getAccountProfile(accountId)
@@ -2720,6 +2734,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
         : {}
     resolvedCategory = normalizeCategoryLabel(settings.category || '')
     categoryPlaybook = getCategoryPlaybook(resolvedCategory)
+    playbookMode = resolvePlaybookMode(settings.accountGoal || '')
   } catch (error) {
     logAIError('analysis', error, {
       stage: 'reference-detail-account-profile',
@@ -2784,7 +2799,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
     variations: enrichedVariations,
     global_knowledge_debug: globalKnowledgeDebug,
     global_knowledge_categories: globalKnowledgeCategories,
-    category_playbook: buildCategoryPlaybookPayload(resolvedCategory, categoryPlaybook),
+    category_playbook: buildCategoryPlaybookPayload(resolvedCategory, categoryPlaybook, playbookMode),
   }
 }
 

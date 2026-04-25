@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import AppLayout from './components/AppLayout'
 import ChatPanel from './components/ChatPanel'
 import Editor from './components/Editor'
@@ -14,15 +14,24 @@ import { AppStateProvider, useAppState } from './store/AppState'
 
 const FABRIC_DARK_BACKGROUND = {
   backgroundImage:
-    'radial-gradient(ellipse 130% 88% at 14% 10%, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0) 52%), radial-gradient(ellipse 110% 80% at 84% 78%, rgba(148,163,184,0.10) 0%, rgba(148,163,184,0) 56%), linear-gradient(180deg, #07090D 0%, #0B0E14 100%)',
+    'radial-gradient(ellipse 135% 90% at 14% 8%, rgba(250,249,246,0.08) 0%, rgba(250,249,246,0) 50%), radial-gradient(ellipse 115% 82% at 86% 80%, rgba(175,174,172,0.08) 0%, rgba(175,174,172,0) 54%), linear-gradient(180deg, #0D0F14 0%, #11151D 100%)',
+}
+
+function getAuthRedirectUrl() {
+  const configuredRedirectUrl = import.meta.env.VITE_AUTH_REDIRECT_URL?.trim()
+  if (configuredRedirectUrl) {
+    return configuredRedirectUrl
+  }
+
+  return `${window.location.origin}/purchase`
 }
 
 function FabricBackgroundOverlay() {
   return (
     <>
-      <div className="pointer-events-none absolute -left-24 top-10 h-[340px] w-[500px] rotate-[-14deg] rounded-full bg-white/10 blur-3xl" />
-      <div className="pointer-events-none absolute right-[-180px] top-[22%] h-[420px] w-[520px] rotate-[16deg] rounded-full bg-slate-300/10 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-[-140px] left-[18%] h-[300px] w-[620px] rotate-[-6deg] rounded-full bg-white/10 blur-3xl" />
+      <div className="pointer-events-none absolute -left-24 top-10 h-[340px] w-[500px] rotate-[-14deg] rounded-full bg-[#faf9f6]/8 blur-3xl" />
+      <div className="pointer-events-none absolute right-[-180px] top-[22%] h-[420px] w-[520px] rotate-[16deg] rounded-full bg-[#868584]/10 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-[-140px] left-[18%] h-[300px] w-[620px] rotate-[-6deg] rounded-full bg-[#faf9f6]/6 blur-3xl" />
     </>
   )
 }
@@ -145,9 +154,9 @@ function LandingScreen() {
 
   return (
     <main
-      className="relative min-h-screen overflow-hidden bg-[#07090D] text-[#F3F4F6]"
+      className="relative min-h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]"
       style={{
-        fontFamily: 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
+        fontFamily: 'Matter, Inter, Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
         ...FABRIC_DARK_BACKGROUND,
       }}
     >
@@ -155,7 +164,7 @@ function LandingScreen() {
 
       <div className="mx-auto w-full max-w-[1920px] px-6 pb-28 pt-24 md:pt-[154px]">
         <section className="mx-auto max-w-[1024px] text-center">
-          <div className="inline-flex h-9 items-center justify-center rounded-full border border-[#3A4252] bg-[#171B24] px-5 text-xs font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
+          <div className="warp-outline-button inline-flex h-9 items-center justify-center rounded-full px-5 text-xs font-semibold uppercase tracking-[0.18em]">
             베타서비스
           </div>
           <h1 className="mt-7 text-[40px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F8FAFC] md:text-[72px] md:leading-[79.2px]">
@@ -195,17 +204,17 @@ function LandingScreen() {
           </div>
           <p className="mt-5 text-xs text-[#9CA3AF]">Free trial · 신용카드 없이 시작</p>
           <div className="mt-14 grid w-full gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-[#2F3543] bg-[#12151D] px-6 py-5 text-left">
+            <div className="warp-panel rounded-2xl px-6 py-5 text-left">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">평균 분석 시간</div>
               <div className="mt-2 text-3xl font-bold text-[#F8FAFC]">15초</div>
               <div className="mt-1 text-sm text-[#9CA3AF]">레퍼런스 업로드 후 1차 리포트 생성</div>
             </div>
-            <div className="rounded-2xl border border-[#2F3543] bg-[#12151D] px-6 py-5 text-left">
+            <div className="warp-panel rounded-2xl px-6 py-5 text-left">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">초안 생산성</div>
               <div className="mt-2 text-3xl font-bold text-[#F8FAFC]">3x</div>
               <div className="mt-1 text-sm text-[#9CA3AF]">A/B/C 자동 초안으로 작성 시간 단축</div>
             </div>
-            <div className="rounded-2xl border border-[#2F3543] bg-[#12151D] px-6 py-5 text-left">
+            <div className="warp-panel rounded-2xl px-6 py-5 text-left">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">운영 일관성</div>
               <div className="mt-2 text-3xl font-bold text-[#F8FAFC]">89%</div>
               <div className="mt-1 text-sm text-[#9CA3AF]">포맷 규칙 기반 구조 재사용률</div>
@@ -217,17 +226,15 @@ function LandingScreen() {
           {storyboardCards.map((board) => (
             <article
               key={board.id}
-              className="rounded-[28px] border p-6 md:p-8"
+              className="warp-panel rounded-[28px] p-6 md:p-8"
               style={{
-                borderColor: board.border,
                 background: board.bg,
-                boxShadow: '0 10px 30px rgba(17,24,39,0.06)',
               }}
             >
               <h3 className="text-[22px] font-bold tracking-[-0.02em] text-[#F8FAFC]">{board.title}</h3>
               <div className="mt-5 grid gap-3">
                 {board.items.map((item) => (
-                  <div key={`${board.id}-${item.label}`} className="rounded-2xl border border-[#2F3543] bg-[#171B24] p-4">
+                  <div key={`${board.id}-${item.label}`} className="rounded-2xl border border-[#2F3543] bg-[#171B24]/92 p-4">
                     <div
                       className="inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-semibold"
                       style={{ backgroundColor: item.bg, color: item.color }}
@@ -242,11 +249,11 @@ function LandingScreen() {
           ))}
         </section>
 
-        <section className="mx-auto mt-10 flex max-w-[1100px] flex-wrap items-center justify-center gap-3 rounded-[24px] border border-[#2F3543] bg-[#12151D]/90 p-5 shadow-[0_10px_34px_rgba(0,0,0,0.34)] backdrop-blur-sm">
+        <section className="mx-auto mt-10 flex max-w-[1100px] flex-wrap items-center justify-center gap-3 rounded-[24px] border border-[#2F3543] bg-[#12151D]/94 p-5 shadow-[0_10px_34px_rgba(0,0,0,0.34)] backdrop-blur-sm">
           {useCases.map((useCase) => (
             <span
               key={useCase}
-              className="inline-flex items-center rounded-full border border-[#2F3543] bg-[#171B24] px-4 py-2 text-xs font-medium text-[#CBD5E1] md:text-sm"
+              className="warp-outline-button inline-flex items-center rounded-full px-4 py-2 text-xs font-medium md:text-sm"
             >
               {useCase}
             </span>
@@ -260,12 +267,12 @@ function LandingScreen() {
               className="relative overflow-hidden rounded-3xl border bg-[#12151D] p-8"
               style={{
                 borderColor: card.border,
-                boxShadow: `0 4px 16px ${card.shadow}`,
+                boxShadow: `0 14px 34px ${card.shadow}`,
               }}
             >
               <div
                 className="pointer-events-none absolute -right-7 -top-8 h-32 w-32 rounded-full blur-3xl"
-                style={{ backgroundColor: card.glow, opacity: 0.5 }}
+                style={{ backgroundColor: '#faf9f6', opacity: 0.08 }}
               />
               <div
                 className="flex h-12 w-12 items-center justify-center rounded-full border"
@@ -290,7 +297,7 @@ function LandingScreen() {
         </section>
       </div>
 
-      <section className="bg-[#0D1016] py-24">
+      <section className="bg-[#0f1218] py-24">
         <div className="mx-auto w-full max-w-[1152px] px-6">
           <div className="flex justify-center">
             <div className="inline-flex h-[34px] items-center justify-center rounded-full border border-[#3A4252] bg-[#171B24] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
@@ -307,9 +314,8 @@ function LandingScreen() {
             {featureCards.map((card) => (
               <article
                 key={card.id}
-                className="rounded-[28px] border p-10"
+                className="warp-panel rounded-[28px] p-10"
                 style={{
-                  borderColor: card.border,
                   background: card.gradient,
                   minHeight: card.chips.length ? 246 : 194,
                 }}
@@ -324,11 +330,10 @@ function LandingScreen() {
                     {card.chips.map((chip) => (
                       <span
                         key={chip.label}
-                        className="inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold"
+                        className="warp-outline-button inline-flex h-7 items-center rounded-full px-3 text-xs font-semibold"
                         style={{
                           backgroundColor: chip.bg,
                           color: chip.color,
-                          borderColor: chip.border,
                         }}
                       >
                         {chip.label}
@@ -343,7 +348,7 @@ function LandingScreen() {
       </section>
 
       <section className="px-6 pb-28 pt-16">
-        <div className="mx-auto w-full max-w-[896px] rounded-[36px] border border-[#2F3543] p-10 text-center shadow-[0_30px_60px_-14px_rgba(0,0,0,0.45)] md:p-16" style={{ background: 'linear-gradient(168deg, #12151D 0%, #171B24 55%, #1E2432 100%)' }}>
+        <div className="mx-auto w-full max-w-[896px] rounded-[36px] border border-[#2F3543] p-10 text-center shadow-[0_30px_60px_-14px_rgba(0,0,0,0.45)] md:p-16" style={{ background: 'linear-gradient(168deg, #15181f 0%, #171b24 55%, #1d2129 100%)' }}>
           <h2 className="text-[36px] font-bold leading-[1.35] tracking-[-0.03em] text-[#F8FAFC] md:text-[48px] md:leading-[72px]">
             지금 팀의 콘텐츠 기준을
             <br className="hidden md:block" />
@@ -1235,16 +1240,16 @@ function AuthScreen({
 
   return (
     <main
-      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07090D] px-6 py-10"
+      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0D0F14] px-6 py-10"
       style={{
         ...FABRIC_DARK_BACKGROUND,
       }}
     >
       <FabricBackgroundOverlay />
 
-      <div className="relative w-full max-w-[440px] overflow-hidden rounded-[34px] border border-white/15 bg-[linear-gradient(180deg,rgba(8,10,14,0.95)_0%,rgba(11,14,20,0.92)_100%)] p-8 shadow-[0_34px_90px_rgba(0,0,0,0.62)] backdrop-blur-xl">
-        <div className="pointer-events-none absolute -right-16 -top-20 h-60 w-60 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -left-16 bottom-[-90px] h-56 w-72 rounded-full bg-white/10 blur-3xl" />
+      <div className="relative w-full max-w-[440px] overflow-hidden rounded-[34px] border border-[#3a414f] bg-[linear-gradient(180deg,rgba(19,23,32,0.96)_0%,rgba(15,19,28,0.94)_100%)] p-8 shadow-[0_34px_90px_rgba(0,0,0,0.62)] backdrop-blur-xl">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-60 w-60 rounded-full bg-[#faf9f6]/7 blur-3xl" />
+        <div className="pointer-events-none absolute -left-16 bottom-[-90px] h-56 w-72 rounded-full bg-[#868584]/8 blur-3xl" />
         <a href="/" className="inline-flex items-center text-xs font-medium text-[#A1A8B5] transition hover:text-[#D1D5DB]">
           &lt; Home
         </a>
@@ -1252,7 +1257,7 @@ function AuthScreen({
         <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl">
           <img src={logoWebp} alt="HookAI 로고" className="h-full w-full object-cover" />
         </div>
-        <h1 className="mt-6 text-center text-[36px] font-extrabold tracking-[-0.03em] text-[#F8FAFC]">
+        <h1 className="mt-6 text-center text-[36px] font-bold tracking-[-0.04em] text-[#F8FAFC]">
           {title}
         </h1>
         <p className="mt-3 text-center text-sm leading-6 text-[#9CA3AF]">{subtitle}</p>
@@ -1268,7 +1273,7 @@ function AuthScreen({
                   setError('')
                 }}
                 placeholder="홍길동"
-                className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
+                className="warp-input h-12 rounded-2xl px-4 text-sm outline-none transition"
               />
             </label>
           ) : null}
@@ -1281,7 +1286,7 @@ function AuthScreen({
                 setError('')
               }}
               placeholder="your@email.com"
-              className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
+              className="warp-input h-12 rounded-2xl px-4 text-sm outline-none transition"
             />
           </label>
           <label className="grid gap-2">
@@ -1294,7 +1299,7 @@ function AuthScreen({
                 setError('')
               }}
               placeholder="••••••••"
-              className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
+              className="warp-input h-12 rounded-2xl px-4 text-sm outline-none transition"
             />
           </label>
           {mode === 'signup' ? (
@@ -1308,7 +1313,7 @@ function AuthScreen({
                   setError('')
                 }}
                 placeholder="••••••••"
-                className="h-12 rounded-2xl border border-white/15 bg-white/5 px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] focus:bg-white/[0.07]"
+                className="warp-input h-12 rounded-2xl px-4 text-sm outline-none transition"
               />
             </label>
           ) : null}
@@ -1373,14 +1378,14 @@ function AuthScreen({
                 window.location.assign('/login')
                 return
               }
-              window.location.assign('/analyze')
+              window.location.assign(result?.nextPath || '/purchase')
             } catch (nextError) {
               setError(nextError.message || `${primaryLabel}에 실패했습니다.`)
             } finally {
               setIsSubmitting(false)
             }
           }}
-          className="mt-8 flex h-12 w-full items-center justify-center rounded-2xl border border-white/15 bg-[linear-gradient(180deg,#D5D7DC_0%,#A8AFBA_100%)] text-sm font-semibold text-[#0B0D12] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+          className="btn-solid-contrast mt-8 flex h-12 w-full items-center justify-center rounded-2xl text-sm font-semibold transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {primaryLabel}
         </button>
@@ -1399,7 +1404,7 @@ function AuthScreen({
               setIsOAuthSubmitting(true)
               setError('')
               setAuthPersistMode(mode === 'login' ? rememberMe : true)
-              const redirectTo = `${window.location.origin}/analyze`
+              const redirectTo = getAuthRedirectUrl()
               const { error: oauthError } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
@@ -1415,7 +1420,7 @@ function AuthScreen({
               setIsOAuthSubmitting(false)
             }
           }}
-          className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 text-sm font-semibold text-[#F8FAFC] transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+          className="warp-outline-button mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
             <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.8-5.4 3.8-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.4 14.6 2.4 12 2.4 6.8 2.4 2.6 6.7 2.6 12s4.2 9.6 9.4 9.6c5.4 0 9-3.8 9-9.1 0-.6-.1-1-.1-1.4H12Z" />
@@ -2263,13 +2268,13 @@ function RecommendScreenV2() {
 }
 
 function LoginScreen() {
-  const { login, isLoggedIn, isAuthReady } = useAppState()
+  const { login, isLoggedIn, isAuthReady, entitlementStatus, isEntitlementReady } = useAppState()
 
   useEffect(() => {
-    if (isAuthReady && isLoggedIn) {
-      window.location.replace('/analyze')
+    if (isAuthReady && isLoggedIn && isEntitlementReady) {
+      window.location.replace(entitlementStatus?.hasAccess ? '/analyze' : '/purchase')
     }
-  }, [isAuthReady, isLoggedIn])
+  }, [entitlementStatus?.hasAccess, isAuthReady, isEntitlementReady, isLoggedIn])
 
   if (isAuthReady && isLoggedIn) {
     return null
@@ -2289,13 +2294,13 @@ function LoginScreen() {
 }
 
 function SignupScreen() {
-  const { signup, isLoggedIn, isAuthReady } = useAppState()
+  const { signup, isLoggedIn, isAuthReady, entitlementStatus, isEntitlementReady } = useAppState()
 
   useEffect(() => {
-    if (isAuthReady && isLoggedIn) {
-      window.location.replace('/analyze')
+    if (isAuthReady && isLoggedIn && isEntitlementReady) {
+      window.location.replace(entitlementStatus?.hasAccess ? '/analyze' : '/purchase')
     }
-  }, [isAuthReady, isLoggedIn])
+  }, [entitlementStatus?.hasAccess, isAuthReady, isEntitlementReady, isLoggedIn])
 
   if (isAuthReady && isLoggedIn) {
     return null
@@ -2311,6 +2316,433 @@ function SignupScreen() {
       secondaryLabel="로그인"
       onSubmit={signup}
     />
+  )
+}
+
+function formatDate(value) {
+  if (!value) {
+    return ''
+  }
+
+  try {
+    return new Intl.DateTimeFormat('ko-KR', {
+      month: 'long',
+      day: 'numeric',
+    }).format(new Date(value))
+  } catch {
+    return ''
+  }
+}
+
+function PurchaseScreen() {
+  const {
+    isLoggedIn,
+    isAuthReady,
+    entitlementStatus,
+    isEntitlementReady,
+    applyCoupon,
+  } = useAppState()
+  const [couponCode, setCouponCode] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [appliedCouponBenefit, setAppliedCouponBenefit] = useState(null)
+  const [appliedCouponCode, setAppliedCouponCode] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isCheckoutSubmitting, setIsCheckoutSubmitting] = useState(false)
+  const [selectedPlanId, setSelectedPlanId] = useState('student')
+  const couponInputRef = useRef(null)
+
+  useEffect(() => {
+    if (isAuthReady && !isLoggedIn) {
+      window.location.replace('/login')
+    }
+  }, [isAuthReady, isLoggedIn])
+
+  useEffect(() => {
+    if (isAuthReady && isEntitlementReady && entitlementStatus?.hasAccess && !success) {
+      window.location.replace('/analyze')
+    }
+  }, [entitlementStatus?.hasAccess, isAuthReady, isEntitlementReady, success])
+
+  if (!isAuthReady || !isLoggedIn || !isEntitlementReady) {
+    return (
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
+        <FabricBackgroundOverlay />
+        <div className="relative z-10 rounded-[28px] border border-[#2F3543] bg-[#12151D]/90 px-6 py-5 text-sm text-[#AEB6C5]">
+          이용권 확인 중...
+        </div>
+      </main>
+    )
+  }
+
+  const handleFocusCoupon = () => {
+    couponInputRef.current?.focus()
+    couponInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const handleSelectPlan = (planId) => {
+    setSelectedPlanId(planId)
+    setError('')
+    setSuccess('')
+    setAppliedCouponBenefit(null)
+    setAppliedCouponCode('')
+    handleFocusCoupon()
+  }
+
+  const handleApplyCoupon = async () => {
+    try {
+      setIsSubmitting(true)
+      setError('')
+      setSuccess('')
+      setAppliedCouponBenefit(null)
+      setAppliedCouponCode('')
+
+      const normalizedCouponCode = couponCode.trim().toUpperCase()
+      if (!normalizedCouponCode) {
+        throw new Error('쿠폰 코드를 입력해주세요.')
+      }
+
+      const couponBenefits = {
+        WELCOME2OPENBETA_0425: {
+          label: '체험단 할인',
+          description: '7일 무제한 이용권',
+        },
+        WELCOME2INSTACAMPUS_0425: {
+          label: '수강생 할인',
+          description: '3개월 무료 · 월 분석 30회 · 분석당 코파일럿 5회/피드백 2회',
+        },
+      }
+
+      const appliedBenefit = couponBenefits[normalizedCouponCode]
+      if (!appliedBenefit) {
+        throw new Error('유효하지 않은 쿠폰 코드입니다.')
+      }
+
+      setAppliedCouponBenefit(appliedBenefit)
+      setAppliedCouponCode(normalizedCouponCode)
+      setSuccess(`${appliedBenefit.label}이 적용되었습니다. 결제하기를 누르면 이용권이 활성화됩니다.`)
+    } catch (nextError) {
+      setError(nextError.message || '쿠폰 적용에 실패했습니다.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleCancelCoupon = () => {
+    setError('')
+    setSuccess('')
+    setAppliedCouponBenefit(null)
+    setAppliedCouponCode('')
+    couponInputRef.current?.focus()
+  }
+
+  const handleCheckout = async () => {
+    try {
+      setIsCheckoutSubmitting(true)
+      setError('')
+
+      if (!appliedCouponCode) {
+        throw new Error('먼저 쿠폰을 적용해주세요.')
+      }
+
+      const status = await applyCoupon(appliedCouponCode)
+      const planLabel = status?.entitlement?.planType === 'student' ? '수강생 3개월 이용권' : '오픈베타 7일 이용권'
+      setSuccess(`${planLabel}이 활성화되었습니다.`)
+      window.location.replace('/analyze')
+    } catch (nextError) {
+      setError(nextError.message || '결제 처리에 실패했습니다.')
+    } finally {
+      setIsCheckoutSubmitting(false)
+    }
+  }
+
+  const planCards = [
+    {
+      id: 'beta',
+      title: 'LITE',
+      price: '22,000원',
+      priceSuffix: '/월',
+      description: '숏폼 입문자를 위한 기초 팩',
+      detail: '아이디어 검증과 첫 성과를 만드는 가벼운 스타트 플랜',
+      buttonLabel: '준비 중',
+      disabled: true,
+      benefits: [
+        '월 5회 레퍼런스 정밀 분석',
+        'AI 점수 피드백 5회 (분석당 1회)',
+        'AI 코파일럿 대화 15회 (분석당 3회)',
+      ],
+    },
+    {
+      id: 'student',
+      title: 'Plus',
+      price: '55,000원',
+      priceSuffix: '/월',
+      description: '수익화 가속을 위한 추천 플랜',
+      detail: '콘텐츠 운영과 실험을 본격적으로 확장하는 베스트 밸런스',
+      buttonLabel: '시작하기',
+      disabled: false,
+      featured: true,
+      benefits: [
+        '월 30회 레퍼런스 정밀 분석',
+        'AI 점수 피드백 60회 (분석당 2회)',
+        'AI 코파일럿 대화 150회 (분석당 5회)',
+      ],
+    },
+    {
+      id: 'pro',
+      title: 'Pro',
+      price: '275,000원',
+      priceSuffix: '/월',
+      description: '대행사 및 전문 크리에이터 전용',
+      detail: '대량 운영, 빠른 응답, 우선 자원을 원하는 팀을 위한 플랜',
+      buttonLabel: '준비 중',
+      disabled: true,
+      benefits: [
+        '월 200회 레퍼런스 정밀 분석',
+        'AI 점수 피드백 및 코파일럿 대화 무제한',
+        '최우선 서버 할당 및 전용 로직 적용',
+      ],
+    },
+  ]
+  const selectedPlan = planCards.find((plan) => plan.id === selectedPlanId) || planCards[1]
+  const isCouponApplied = Boolean(success)
+
+  return (
+    <main className="relative min-h-screen overflow-y-auto bg-[#0F1117] px-6 py-12 text-[#F3F4F6] md:px-12 md:py-16">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(ellipse_at_top,rgba(250,249,246,0.08),rgba(15,17,23,0)_68%)]" />
+      <div className="relative z-10 mx-auto w-full max-w-[1280px]">
+        <header className="text-center">
+          <div className="inline-flex text-xs font-semibold uppercase tracking-[0.42em] text-[#AEB6C5]">
+            Pricing
+          </div>
+          <h1 className="mt-6 text-[32px] font-semibold tracking-[-0.04em] text-[#FAF9F6] md:text-[52px]">
+            Hook AI 플랜 업그레이드
+          </h1>
+          <p className="mx-auto mt-4 max-w-[720px] text-sm leading-6 text-[#AFAEAC] md:text-base">
+            숏폼 성장을 위한 분석, 피드백, 코파일럿 경험을 사용량에 맞게 선택하세요.
+          </p>
+        </header>
+
+        <section className="mx-auto mt-10 grid max-w-[1120px] gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {planCards.map((plan) => {
+            const isSelected = selectedPlanId === plan.id
+            const isDisabled = Boolean(plan.disabled)
+
+            return (
+            <article
+              key={plan.id}
+              role={isDisabled ? undefined : 'button'}
+              tabIndex={isDisabled ? -1 : 0}
+              aria-pressed={isSelected}
+              aria-disabled={isDisabled}
+              onClick={() => {
+                if (!isDisabled) {
+                  handleSelectPlan(plan.id)
+                }
+              }}
+              onKeyDown={(event) => {
+                if (!isDisabled && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault()
+                  handleSelectPlan(plan.id)
+                }
+              }}
+              className={`flex min-h-[470px] flex-col rounded-[22px] border bg-[#1D1F23] p-6 transition ${
+                isDisabled
+                  ? 'cursor-not-allowed opacity-45 grayscale'
+                  : 'cursor-pointer hover:border-[#525864] hover:bg-[#22252B]'
+              } ${
+                isSelected
+                  ? 'border-[#FAF9F6] shadow-[0_0_0_1px_rgba(250,249,246,0.42),0_24px_70px_rgba(0,0,0,0.28)]'
+                  : 'border-[#3A3D43]'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <h2 className="text-[25px] font-semibold tracking-[-0.03em] text-[#FAF9F6]">{plan.title}</h2>
+                {plan.featured || isSelected ? (
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                    isSelected
+                      ? 'border-[#FAF9F6]/70 bg-[#FAF9F6] text-[#0F1117]'
+                      : 'border-[#4B5563] bg-[#2A2D33] text-[#D1D5DB]'
+                  }`}>
+                    {isSelected ? '선택됨' : '추천'}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="mt-6 flex min-h-[54px] items-end gap-2">
+                <div className="text-[42px] font-semibold tracking-[-0.06em] text-[#FAF9F6]">
+                  {plan.price}
+                </div>
+                <span className="mb-2 text-sm font-semibold text-[#AFAEAC]">{plan.priceSuffix}</span>
+              </div>
+              <p className="mt-6 text-[16px] font-semibold leading-6 text-[#F3F4F6]">
+                {plan.description}
+              </p>
+              <p className="mt-3 min-h-[48px] text-sm leading-6 text-[#AFAEAC]">{plan.detail}</p>
+
+              <button
+                type="button"
+                disabled={isDisabled}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (!isDisabled) {
+                    handleSelectPlan(plan.id)
+                  }
+                }}
+                className="mt-7 flex h-[48px] w-full items-center justify-center rounded-full border border-[#3A3D43] bg-transparent text-sm font-semibold text-[#FAF9F6] transition hover:bg-[#282B31] disabled:cursor-not-allowed disabled:text-[#868584] disabled:hover:bg-transparent"
+              >
+                {plan.buttonLabel}
+              </button>
+
+              <div className="mt-8 space-y-4">
+                {plan.benefits.map((benefit) => (
+                  <div key={benefit} className="flex items-start gap-3 text-[14px] leading-6 text-[#D7D7D7]">
+                    <span className="mt-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#6B7280] text-[9px] text-[#FAF9F6]">
+                      ✓
+                    </span>
+                    <span>{benefit}</span>
+                  </div>
+                ))}
+              </div>
+            </article>
+            )
+          })}
+        </section>
+
+        <section className="mx-auto mt-8 max-w-[760px] rounded-[28px] border border-[#223044] bg-[#111111] p-5 shadow-[0_22px_70px_rgba(0,0,0,0.42)] md:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.32em] text-[#AEB6C5]">Checkout</div>
+              <h2 className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-[#FAF9F6] md:text-[30px]">
+                {selectedPlan.title} 플랜 결제
+              </h2>
+            </div>
+            <span className="rounded-full border border-[#3A3D43] bg-[#1D1F23] px-4 py-1.5 text-xs font-semibold text-[#D1D5DB]">
+              월간 이용권
+            </span>
+          </div>
+
+          <div className="mt-6 rounded-[22px] border border-[#2E2E2E] bg-[#0B0B0B] p-4 md:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="text-[20px] font-semibold tracking-[-0.03em] text-[#FAF9F6]">
+                  Hook AI {selectedPlan.title}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-[#AEB6C5]">{selectedPlan.description}</p>
+              </div>
+              <div className="text-sm font-semibold text-[#AEB6C5]">월 정기 결제</div>
+            </div>
+
+            <div className="mt-6">
+              <label className="text-sm font-semibold text-[#FAF9F6]" htmlFor="coupon-code">쿠폰 번호</label>
+              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center">
+                <input
+                  id="coupon-code"
+                  ref={couponInputRef}
+                  value={couponCode}
+                  onChange={(event) => {
+                    setCouponCode(event.target.value.toUpperCase())
+                    setError('')
+                    setSuccess('')
+                    setAppliedCouponBenefit(null)
+                    setAppliedCouponCode('')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void handleApplyCoupon()
+                    }
+                  }}
+                  placeholder="예: PIONEER_PASS"
+                  className="h-[52px] min-w-0 flex-1 rounded-[15px] border border-[#334155] bg-[#171717] px-4 text-sm font-semibold tracking-[0.04em] text-[#FAF9F6] outline-none transition placeholder:text-[#8E97A6] focus:border-[#FAF9F6]"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleApplyCoupon()
+                  }}
+                  disabled={isSubmitting}
+                  className="h-[52px] shrink-0 rounded-[15px] bg-[#FAF9F6] px-7 text-sm font-bold text-[#0F1117] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isSubmitting ? '적용 중' : '적용'}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[20px] border border-[#2E2E2E] bg-[#141414] p-4 md:p-5">
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <span className="font-semibold text-[#AEB6C5]">기본 요금</span>
+                <span className={`font-semibold text-[#FAF9F6] ${isCouponApplied ? 'text-[#F87171] line-through' : ''}`}>
+                  {selectedPlan.price}
+                </span>
+              </div>
+              {isCouponApplied ? (
+                <div className="mt-3 flex items-start justify-between gap-4 text-sm">
+                  <div>
+                    <div className="font-semibold text-[#34D399]">
+                      -{selectedPlan.price} ({appliedCouponBenefit?.label || '쿠폰 할인'})
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-[#86EFAC]">
+                      {appliedCouponBenefit?.description || '이용권 혜택이 적용되었습니다.'}
+                    </div>
+                  </div>
+                  <span className="shrink-0 font-semibold text-[#34D399]">적용됨</span>
+                </div>
+              ) : null}
+
+              <div className="my-4 h-px bg-[#2E2E2E]" />
+
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <div className="text-sm font-semibold text-[#AEB6C5]">최종 결제 금액</div>
+                  <p className="mt-2 text-xs leading-5 text-[#8E97A6]">결제 시 월간 이용권이 즉시 활성화됩니다.</p>
+                </div>
+                <div className="text-[32px] font-semibold tracking-[-0.06em] text-[#FAF9F6] md:text-[40px]">
+                  {isCouponApplied ? '0원' : selectedPlan.price}
+                </div>
+              </div>
+            </div>
+          </div>
+          {isCouponApplied ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <button
+                type="button"
+                onClick={handleCancelCoupon}
+                disabled={isCheckoutSubmitting}
+                className="h-12 rounded-[16px] border border-[#3A3D43] bg-transparent text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#1B1E24] disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleCheckout()
+                }}
+                disabled={isCheckoutSubmitting}
+                className="h-12 rounded-[16px] bg-[#FAF9F6] text-sm font-bold text-[#0F1117] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isCheckoutSubmitting ? '처리 중' : '결제하기'}
+              </button>
+            </div>
+          ) : null}
+          {error ? (
+            <div className="mt-3 rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-sm leading-6 text-[#FCA5A5]">
+              {error}
+            </div>
+          ) : null}
+          {success ? (
+            <div className="mt-3 rounded-2xl border border-[#315C3A] bg-[#122418] px-4 py-3 text-sm leading-6 text-[#86EFAC]">
+              {success}
+            </div>
+          ) : null}
+          {entitlementStatus?.entitlement?.endsAt ? (
+            <p className="mt-3 text-xs text-[#868584]">
+              현재 이용권 만료일: {formatDate(entitlementStatus.entitlement.endsAt)}
+            </p>
+          ) : null}
+        </section>
+      </div>
+    </main>
   )
 }
 
@@ -2334,14 +2766,27 @@ function MainPanel() {
 }
 
 function StudioShell() {
-  const { isVersionModalOpen, currentStep, viewTransition, toast, isLoggedIn, isAuthReady } = useAppState()
+  const {
+    isVersionModalOpen,
+    currentStep,
+    toast,
+    isLoggedIn,
+    isAuthReady,
+    entitlementStatus,
+    isEntitlementReady,
+  } = useAppState()
 
-  if (!isAuthReady) {
+  if (!isAuthReady || !isEntitlementReady) {
     return null
   }
 
   if (!isLoggedIn) {
     return <LoginScreen />
+  }
+
+  if (!entitlementStatus?.hasAccess) {
+    window.location.replace('/purchase')
+    return null
   }
 
   return (
@@ -2393,6 +2838,10 @@ function SignupApp() {
   return <SignupScreen />
 }
 
+function PurchaseApp() {
+  return <PurchaseScreen />
+}
+
 function IntroApp() {
   return <LandingScreen />
 }
@@ -2412,6 +2861,8 @@ export default function App() {
     content = <LoginApp />
   } else if (pathname.startsWith('/signup')) {
     content = <SignupApp />
+  } else if (pathname.startsWith('/purchase')) {
+    content = <PurchaseApp />
   } else if (pathname.startsWith('/analyze')) {
     content = <StudioApp />
   } else if (pathname.startsWith('/recommend')) {

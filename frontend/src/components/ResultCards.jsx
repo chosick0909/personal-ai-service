@@ -65,6 +65,8 @@ function PlaybookNoticeCard({ title, body, tone = 'default' }) {
   const toneClass =
     tone === 'rule'
       ? 'border-[#2A3345] bg-[linear-gradient(180deg,#101724_0%,#0D1320_100%)]'
+      : tone === 'success'
+        ? 'border-[#2C3C32] bg-[linear-gradient(180deg,#111A16_0%,#0E1512_100%)]'
       : 'border-[#2F3543] bg-[linear-gradient(180deg,#121722_0%,#0F141D_100%)]'
 
   return (
@@ -101,6 +103,10 @@ export default function ResultCards({ transitioning = false, entering = false })
     return '전사 텍스트가 없습니다. (오디오가 없거나 전사 추출에 실패한 파일일 수 있습니다.)'
   }, [referenceData?.transcript])
   const categoryPlaybook = referenceData?.categoryPlaybook || null
+  const monetizationInsight =
+    '돈 되는 릴스는 문제 상황이 구체적이고, 제품이나 서비스가 해결책으로 자연스럽게 이어져야 합니다. 전후 차이, 후기, 작은 증거가 붙고 CTA도 하나로 짧게 가야 다음 행동이 쉬워집니다. 너무 세게 파는 느낌보다 “필요하면 다음 단계로” 연결되는 흐름이 전환에 더 유리합니다.'
+  const viralInsight =
+    '잘 되는 릴스는 첫 1~3초에 멈추게 하고, 첫 화면이 분명해야 합니다. 공감이나 반전, 궁금증이 있어야 댓글과 저장 이유가 생기고, 광고처럼 보이지 않을수록 반응이 더 잘 붙습니다. 질문형 훅, 궁금증형 훅, 텍스트 오버레이 같은 요소도 계속 강하게 작동하는 편입니다.'
 
   const keyPoints = useMemo(() => {
     const points = referenceData?.keyPoints || []
@@ -113,7 +119,6 @@ export default function ResultCards({ transitioning = false, entering = false })
       points[1] || '중간 설명이 짧고 핵심 메시지가 빠르게 전달됨',
       points[2] || 'CTA가 길지 않고 명확함',
       points[3] || '구조 흐름이 자연스럽고 이탈 포인트가 적음',
-      points[4] || '시각 요소는 마지막 인사이트 박스에서만 분리 분석',
     ]
   }, [referenceData?.keyPoints])
 
@@ -301,6 +306,12 @@ export default function ResultCards({ transitioning = false, entering = false })
           <SmallBadge tone="pink">Select Draft</SmallBadge>
           <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-4xl">A/B/C 초안 선택</h2>
           <p className="mt-2 text-sm text-[#8E97A6]">원하는 스타일을 선택하여 에디터로 이동하세요</p>
+          <div className="mt-6 grid gap-4 md:mt-7">
+            <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
+          </div>
+          <div className="mt-6 grid gap-4 md:mt-7">
+            <PlaybookNoticeCard title="잘 되는 릴스 특징" body={viralInsight} />
+          </div>
           {categoryPlaybook?.insight || categoryPlaybook?.hookAiRule ? (
             <div className="mt-6 grid gap-4 md:mt-7">
               {categoryPlaybook?.insight ? (

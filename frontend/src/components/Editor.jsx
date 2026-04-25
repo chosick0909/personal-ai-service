@@ -54,7 +54,9 @@ export default function Editor({ transitioning = false, entering = false, embedd
   const totalSpeechSeconds = estimateSpeechSeconds(
     `${editorSections.hook} ${editorSections.body} ${editorSections.cta}`.trim(),
   )
-  const isFeedbackLimitReached = copilotRemaining.feedback <= 0
+  const chatRemainingLabel = Number.isFinite(copilotRemaining.chat) ? `${copilotRemaining.chat}회` : '무제한'
+  const feedbackRemainingLabel = Number.isFinite(copilotRemaining.feedback) ? `${copilotRemaining.feedback}회` : '무제한'
+  const isFeedbackLimitReached = Number.isFinite(copilotRemaining.feedback) && copilotRemaining.feedback <= 0
   const isFeedbackButtonDisabled = isFeedbackLoading || isFeedbackLimitReached
 
   return (
@@ -142,10 +144,10 @@ export default function Editor({ transitioning = false, entering = false, embedd
                   ? '피드백 생성 중...'
                   : isFeedbackLimitReached
                     ? '피드백 한도 도달'
-                    : `피드백 (${copilotRemaining.feedback}회)`}
+                    : `피드백 (${feedbackRemainingLabel})`}
               </button>
             </div>
-            <p className="mt-3 text-xs leading-5 text-[#94A3B8]">남은 횟수: 피드백 {copilotRemaining.feedback}회 · 수정 {copilotRemaining.chat}회</p>
+            <p className="mt-3 text-xs leading-5 text-[#94A3B8]">남은 횟수: 피드백 {feedbackRemainingLabel} · 수정 {chatRemainingLabel}</p>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

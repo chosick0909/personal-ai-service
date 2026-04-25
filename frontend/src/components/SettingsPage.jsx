@@ -4,6 +4,7 @@ import { useAppState } from '../store/AppState'
 
 const CATEGORY_OPTIONS = [
   '뷰티',
+  '운동/헬스',
   '육아',
   '반려동물',
   '살림',
@@ -25,6 +26,7 @@ const LEGACY_CATEGORY_ALIAS_MAP = {
   비즈니스: '전문직(회사홍보)',
   이커머스: '살림',
   '건강/웰니스': '멘탈케어',
+  피트니스: '운동/헬스',
   '음식/요리': '요리',
   '패션/뷰티': '뷰티',
 }

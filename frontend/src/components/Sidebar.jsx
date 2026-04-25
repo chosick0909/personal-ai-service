@@ -143,6 +143,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     addAccount,
     logout,
     currentUser,
+    entitlementStatus,
     isAccountConfigured,
     createProject,
     selectProject,
@@ -802,6 +803,13 @@ export default function Sidebar({ onRequestClose = () => {} }) {
             <div className="truncate text-sm font-semibold text-[#F3F4F6]">
               {currentAccount?.name || currentUser?.email || '계정'}
             </div>
+            {entitlementStatus?.hasAccess ? (
+              <div className="mt-1 truncate text-[10px] font-medium text-[#8E97A6]">
+                {entitlementStatus.entitlement?.planType === 'student'
+                  ? `분석 ${entitlementStatus.usage?.monthlyReferenceUsed ?? 0}/${entitlementStatus.usage?.limits?.monthlyReferenceLimit ?? 30}`
+                  : '오픈베타 무제한'}
+              </div>
+            ) : null}
             {currentAccount?.id && !isAccountConfigured(currentAccount.id) ? (
               <div className="mt-1 inline-flex items-center rounded-full border border-[#7F1D1D] bg-[#2A1417] px-2 py-0.5 text-[10px] font-semibold text-[#FCA5A5]">
                 계정설정필요

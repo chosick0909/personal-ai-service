@@ -30,6 +30,7 @@ import {
   restoreScriptVersionRecord,
   saveVersionRecord,
 } from '../lib/scriptApi'
+import { applyCouponCode, loadMyEntitlement } from '../lib/entitlementApi'
 
 const AppStateContext = createContext(null)
 const REFERENCE_HISTORY_CACHE_KEY = 'personal-ai-service:reference-history-cache:v1'
@@ -657,6 +658,8 @@ export function AppStateProvider({ children }) {
   const [toast, setToast] = useState(null)
   const [copilotUsage, setCopilotUsage] = useState(createInitialCopilotUsage())
   const [currentUser, setCurrentUser] = useState(null)
+  const [entitlementStatus, setEntitlementStatus] = useState(null)
+  const [isEntitlementReady, setIsEntitlementReady] = useState(false)
   const activeReferenceIdRef = useRef(null)
   const toastTimerRef = useRef(null)
   const historyStepRef = useRef(null)
@@ -687,6 +690,8 @@ export function AppStateProvider({ children }) {
         setStoredAccountId('')
         setAccounts([])
         setCurrentAccount(null)
+        setEntitlementStatus(null)
+        setIsEntitlementReady(true)
       }
     }
 
@@ -704,6 +709,8 @@ export function AppStateProvider({ children }) {
         setStoredAccountId('')
         setAccounts([])
         setCurrentAccount(null)
+        setEntitlementStatus(null)
+        setIsEntitlementReady(true)
         resetStudioForAccount()
       }
     })
@@ -713,6 +720,20 @@ export function AppStateProvider({ children }) {
       subscription?.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!isAuthReady) {
+      return
+    }
+
+    if (!isLoggedIn) {
+      setEntitlementStatus(null)
+      setIsEntitlementReady(true)
+      return
+    }
+
+    void refreshEntitlement({ referenceId: activeReferenceIdRef.current })
+  }, [isAuthReady, isLoggedIn, currentUser?.id])
 
   const showToast = (message, tone = 'success') => {
     if (toastTimerRef.current) {
@@ -729,6 +750,75 @@ export function AppStateProvider({ children }) {
       setToast(null)
       toastTimerRef.current = null
     }, 2200)
+  }
+
+  const refreshEntitlement = async ({ referenceId } = {}) => {
+    if (!isLoggedIn) {
+      setEntitlementStatus(null)
+      setIsEntitlementReady(true)
+      return null
+    }
+
+    setIsEntitlementReady(false)
+    try {
+      const status = await loadMyEntitlement({ referenceId })
+      setEntitlementStatus(status)
+      return status
+    } catch (error) {
+      setEntitlementStatus({
+        hasAccess: false,
+        entitlement: null,
+        usage: null,
+        error: error.message || '이용권 정보를 불러오지 못했습니다.',
+      })
+      return null
+    } finally {
+      setIsEntitlementReady(true)
+    }
+  }
+
+  const resolvePostAuthPath = async ({ referenceId } = {}) => {
+    setIsEntitlementReady(false)
+    try {
+      const status = await loadMyEntitlement({ referenceId })
+      setEntitlementStatus(status)
+      return status?.hasAccess ? '/analyze' : '/purchase'
+    } catch (error) {
+      setEntitlementStatus({
+        hasAccess: false,
+        entitlement: null,
+        usage: null,
+        error: error.message || '이용권 정보를 불러오지 못했습니다.',
+      })
+      return '/purchase'
+    } finally {
+      setIsEntitlementReady(true)
+    }
+  }
+
+  const applyCoupon = async (couponCode) => {
+    const status = await applyCouponCode(couponCode)
+    setEntitlementStatus(status)
+    setIsEntitlementReady(true)
+    return status
+  }
+
+  const getEffectiveCopilotLimit = (kind) => {
+    const limits = entitlementStatus?.usage?.limits || entitlementStatus?.entitlement?.limits || {}
+    const planLimit =
+      kind === 'feedback'
+        ? limits.perReferenceFeedbackLimit
+        : limits.perReferenceCopilotLimit
+
+    if (entitlementStatus?.hasAccess && planLimit === null) {
+      return Infinity
+    }
+
+    if (Number.isFinite(Number(planLimit))) {
+      return Number(planLimit)
+    }
+
+    return kind === 'feedback' ? COPILOT_FEEDBACK_LIMIT_PER_DRAFT : COPILOT_CHAT_LIMIT_PER_DRAFT
   }
 
   const syncHistory = (referenceId, patch) => {
@@ -819,7 +909,11 @@ export function AppStateProvider({ children }) {
     setCurrentUser(data?.user || null)
     setIsLoggedIn(true)
     setCurrentStep('upload')
-    return data?.user || null
+    const nextPath = await resolvePostAuthPath()
+    return {
+      user: data?.user || null,
+      nextPath,
+    }
   }
 
   const signup = async ({ loginId, password, accountName }) => {
@@ -878,10 +972,12 @@ export function AppStateProvider({ children }) {
     setCurrentUser(data.user)
     setIsLoggedIn(true)
     setCurrentStep('upload')
+    const nextPath = await resolvePostAuthPath()
 
     return {
       user: data.user,
       requiresEmailConfirmation: false,
+      nextPath,
     }
   }
 
@@ -1521,6 +1617,7 @@ export function AppStateProvider({ children }) {
 
       setReferenceData(completedReference)
       setGeneratedScripts(analysis.generatedScripts)
+      void refreshEntitlement({ referenceId: completedReference.id })
       setCachedReferenceDetail(currentAccount?.id, completedReference.id, {
         reference: completedReference,
         generatedScripts: analysis.generatedScripts,
@@ -1804,7 +1901,8 @@ export function AppStateProvider({ children }) {
   }
 
   const requestFeedback = async () => {
-    if (copilotUsage.feedbackUsed >= COPILOT_FEEDBACK_LIMIT_PER_DRAFT) {
+    const feedbackLimit = getEffectiveCopilotLimit('feedback')
+    if (Number.isFinite(feedbackLimit) && copilotUsage.feedbackUsed >= feedbackLimit) {
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -1812,7 +1910,7 @@ export function AppStateProvider({ children }) {
             id: `feedback-limit-${Date.now()}`,
             role: 'assistant',
             content:
-              `이번 초안에서는 피드백 요청을 최대 ${COPILOT_FEEDBACK_LIMIT_PER_DRAFT}회로 제한했습니다. ` +
+              `이번 레퍼런스에서는 피드백 요청을 최대 ${feedbackLimit}회로 제한했습니다. ` +
               '현재 에디터 수정 후 코파일럿 채팅으로 세부 조정해 주세요.',
           },
         ]
@@ -1852,6 +1950,7 @@ export function AppStateProvider({ children }) {
       })
       const normalizedFeedback = { ...result, applied: false }
       setFeedback(normalizedFeedback)
+      void refreshEntitlement({ referenceId: referenceData?.id })
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -1983,7 +2082,8 @@ export function AppStateProvider({ children }) {
       return
     }
 
-    if (copilotUsage.chatUsed >= COPILOT_CHAT_LIMIT_PER_DRAFT) {
+    const chatLimit = getEffectiveCopilotLimit('chat')
+    if (Number.isFinite(chatLimit) && copilotUsage.chatUsed >= chatLimit) {
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -1991,7 +2091,7 @@ export function AppStateProvider({ children }) {
             id: `chat-limit-${Date.now()}`,
             role: 'assistant',
             content:
-              `이번 초안에서는 코파일럿 수정 요청을 최대 ${COPILOT_CHAT_LIMIT_PER_DRAFT}회로 제한했습니다. ` +
+              `이번 레퍼런스에서는 코파일럿 수정 요청을 최대 ${chatLimit}회로 제한했습니다. ` +
               '핵심 수정은 에디터에서 직접 정리한 뒤 피드백 기능을 사용해 주세요.',
           },
         ]
@@ -2039,6 +2139,7 @@ export function AppStateProvider({ children }) {
       }
 
       setPendingSuggestion(response.proposedSections)
+      void refreshEntitlement({ referenceId: referenceData?.id })
       setChatMessages((current) => {
         const next = [...current, assistantMessage]
         syncHistory(activeReferenceIdRef.current, {
@@ -2172,6 +2273,8 @@ export function AppStateProvider({ children }) {
       isLoggedIn,
       isAuthReady,
       currentUser,
+      entitlementStatus,
+      isEntitlementReady,
       currentStep,
       referenceData,
       generatedScripts,
@@ -2197,12 +2300,16 @@ export function AppStateProvider({ children }) {
       toast,
       copilotUsage,
       copilotLimits: {
-        chat: COPILOT_CHAT_LIMIT_PER_DRAFT,
-        feedback: COPILOT_FEEDBACK_LIMIT_PER_DRAFT,
+        chat: getEffectiveCopilotLimit('chat'),
+        feedback: getEffectiveCopilotLimit('feedback'),
       },
       copilotRemaining: {
-        chat: Math.max(0, COPILOT_CHAT_LIMIT_PER_DRAFT - copilotUsage.chatUsed),
-        feedback: Math.max(0, COPILOT_FEEDBACK_LIMIT_PER_DRAFT - copilotUsage.feedbackUsed),
+        chat: Number.isFinite(getEffectiveCopilotLimit('chat'))
+          ? Math.max(0, getEffectiveCopilotLimit('chat') - copilotUsage.chatUsed)
+          : Infinity,
+        feedback: Number.isFinite(getEffectiveCopilotLimit('feedback'))
+          ? Math.max(0, getEffectiveCopilotLimit('feedback') - copilotUsage.feedbackUsed)
+          : Infinity,
       },
       isVersionModalOpen,
       isAnalyzing,
@@ -2232,6 +2339,8 @@ export function AppStateProvider({ children }) {
       login,
       signup,
       logout,
+      refreshEntitlement,
+      applyCoupon,
       analyzeReference,
       selectScript,
       openReference,
@@ -2264,6 +2373,8 @@ export function AppStateProvider({ children }) {
       deleteAccount,
       updateCurrentAccountName,
       currentUser,
+      entitlementStatus,
+      isEntitlementReady,
       isAuthReady,
       editorSections,
       feedback,

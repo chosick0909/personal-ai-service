@@ -131,6 +131,7 @@ export function mapReferenceAnalysisToUi(analysis) {
               label: analysis.category_playbook.label || '',
               insight: analysis.category_playbook.insight || '',
               hookAiRule: analysis.category_playbook.hookai_rule || '',
+              mode: analysis.category_playbook.mode || '',
             }
           : null,
     },
