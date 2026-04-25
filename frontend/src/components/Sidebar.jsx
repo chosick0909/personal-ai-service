@@ -122,6 +122,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isAccountSwitchOpen, setIsAccountSwitchOpen] = useState(false)
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false)
+  const [isUsageModalOpen, setIsUsageModalOpen] = useState(false)
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [activeReferenceMenuId, setActiveReferenceMenuId] = useState(null)
   const [activeMoveMenuId, setActiveMoveMenuId] = useState(null)
@@ -144,6 +145,9 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     logout,
     currentUser,
     entitlementStatus,
+    copilotRemaining,
+    copilotLimits,
+    copilotUsage,
     isAccountConfigured,
     createProject,
     selectProject,
@@ -292,6 +296,61 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   }, [searchRows])
 
   const accountRows = useMemo(() => accounts.slice(0, 6), [accounts])
+  const usageSummary = useMemo(() => {
+    const limits = entitlementStatus?.usage?.limits || entitlementStatus?.entitlement?.limits || {}
+    const monthlyReferenceLimit = limits.monthlyReferenceLimit
+    const monthlyReferenceUsed = entitlementStatus?.usage?.monthlyReferenceUsed ?? 0
+    const referenceRemaining = Number.isFinite(Number(monthlyReferenceLimit))
+      ? Math.max(0, Number(monthlyReferenceLimit) - Number(monthlyReferenceUsed))
+      : Infinity
+
+    const chatRemaining = Number.isFinite(copilotRemaining?.chat)
+      ? Math.max(0, copilotRemaining.chat)
+      : Infinity
+    const feedbackRemaining = Number.isFinite(copilotRemaining?.feedback)
+      ? Math.max(0, copilotRemaining.feedback)
+      : Infinity
+
+    return {
+      planLabel:
+        entitlementStatus?.entitlement?.planType === 'student'
+          ? '수강생 이용권'
+          : entitlementStatus?.entitlement?.planType === 'open_beta'
+            ? '오픈베타 이용권'
+            : entitlementStatus?.entitlement?.planType === 'paid'
+              ? '유료 이용권'
+              : '이용권 없음',
+      reference: {
+        used: monthlyReferenceUsed,
+        limit: monthlyReferenceLimit,
+        remaining: referenceRemaining,
+        label: Number.isFinite(referenceRemaining)
+          ? `${referenceRemaining}회 남음`
+          : '무제한',
+        subLabel: Number.isFinite(Number(monthlyReferenceLimit))
+          ? `이번 달 ${monthlyReferenceUsed}/${monthlyReferenceLimit} 사용`
+          : '월 분석 제한 없음',
+      },
+      chat: {
+        used: copilotUsage?.chatUsed ?? 0,
+        limit: copilotLimits?.chat,
+        remaining: chatRemaining,
+        label: Number.isFinite(chatRemaining) ? `${chatRemaining}회 남음` : '무제한',
+        subLabel: Number.isFinite(copilotLimits?.chat)
+          ? `현재 레퍼런스 ${copilotUsage?.chatUsed ?? 0}/${copilotLimits.chat} 사용`
+          : '현재 레퍼런스 대화 제한 없음',
+      },
+      feedback: {
+        used: copilotUsage?.feedbackUsed ?? 0,
+        limit: copilotLimits?.feedback,
+        remaining: feedbackRemaining,
+        label: Number.isFinite(feedbackRemaining) ? `${feedbackRemaining}회 남음` : '무제한',
+        subLabel: Number.isFinite(copilotLimits?.feedback)
+          ? `현재 레퍼런스 ${copilotUsage?.feedbackUsed ?? 0}/${copilotLimits.feedback} 사용`
+          : '현재 레퍼런스 피드백 제한 없음',
+      },
+    }
+  }, [copilotLimits, copilotRemaining, copilotUsage, entitlementStatus])
 
   useEffect(() => {
     if (!isAccountSwitchOpen) {
@@ -360,6 +419,23 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isCreateProjectOpen])
+
+  useEffect(() => {
+    if (!isUsageModalOpen) {
+      return undefined
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsUsageModalOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isUsageModalOpen])
 
   useEffect(() => {
     if (!activeReferenceMenuId) {
@@ -769,6 +845,16 @@ export default function Sidebar({ onRequestClose = () => {} }) {
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  setIsUsageModalOpen(true)
+                  setIsAccountSwitchOpen(false)
+                }}
+                className="mt-1.5 flex h-8 w-full items-center justify-center gap-2 rounded-lg border border-[#4A505C] bg-[#252932] text-[12px] font-semibold text-[#D1D5DB] transition hover:bg-[#343943]"
+              >
+                남은 사용량
+              </button>
+              <button
+                type="button"
                 onClick={async () => {
                   const ok = window.confirm('로그아웃할까요?')
                   if (!ok) {
@@ -821,6 +907,85 @@ export default function Sidebar({ onRequestClose = () => {} }) {
           </svg>
         </button>
       </div>
+
+      {isUsageModalOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[125] bg-[rgba(6,8,12,0.68)] backdrop-blur-[3px]"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  setIsUsageModalOpen(false)
+                }
+              }}
+            >
+              <div className="absolute left-1/2 top-1/2 w-[min(520px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[28px] border border-[#2F3543] bg-[#10141D] shadow-[0_28px_90px_rgba(0,0,0,0.55)]">
+                <div className="flex items-start justify-between gap-4 border-b border-[#232833] bg-[linear-gradient(180deg,#141821_0%,#10141D_100%)] px-5 py-5">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[#8E97A6]">
+                      Usage
+                    </div>
+                    <h3 className="mt-2 text-[24px] font-bold tracking-[-0.03em] text-[#F3F4F6]">
+                      남은 사용량
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-[#AEB6C5]">
+                      {usageSummary.planLabel} 기준으로 남은 횟수를 확인하세요.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsUsageModalOpen(false)}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#343A45] bg-[#111723] text-[#AEB6C5] transition hover:border-[#4B5563] hover:bg-[#1A1F2A] hover:text-[#F3F4F6]"
+                    aria-label="남은 사용량 닫기"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="grid gap-3 px-5 py-5">
+                  {[
+                    {
+                      title: '레퍼런스 분석',
+                      value: usageSummary.reference.label,
+                      description: usageSummary.reference.subLabel,
+                      note: '계정 기준 월간 제한',
+                    },
+                    {
+                      title: '코파일럿 질문',
+                      value: usageSummary.chat.label,
+                      description: usageSummary.chat.subLabel,
+                      note: '현재 레퍼런스 기준',
+                    },
+                    {
+                      title: 'AI 피드백',
+                      value: usageSummary.feedback.label,
+                      description: usageSummary.feedback.subLabel,
+                      note: '현재 레퍼런스 기준',
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.title}
+                      className="rounded-[20px] border border-[#2F3543] bg-[#121722] px-4 py-4"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-[#F3F4F6]">{item.title}</div>
+                          <div className="mt-1 text-xs leading-5 text-[#8E97A6]">{item.description}</div>
+                          <div className="mt-2 inline-flex rounded-full border border-[#3A3F4A] bg-[#1A1F2A] px-2.5 py-1 text-[11px] font-semibold text-[#AEB6C5]">
+                            {item.note}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right text-[22px] font-bold tracking-[-0.04em] text-[#FAF9F6]">
+                          {item.value}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {isCreateProjectOpen
         ? createPortal(
