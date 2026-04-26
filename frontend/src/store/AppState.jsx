@@ -31,7 +31,6 @@ import {
   saveVersionRecord,
 } from '../lib/scriptApi'
 import { applyCouponCode, loadMyEntitlement } from '../lib/entitlementApi'
-import { optimizeVideoForUpload } from '../lib/videoCompression'
 
 const AppStateContext = createContext(null)
 const REFERENCE_HISTORY_CACHE_KEY = 'personal-ai-service:reference-history-cache:v1'
@@ -599,16 +598,6 @@ const initialState = {
   currentProjectId: null,
 }
 
-function createInitialUploadOptimization() {
-  return {
-    progress: 0,
-    optimized: false,
-    originalSize: 0,
-    optimizedSize: 0,
-    reason: '',
-  }
-}
-
 function createInitialCopilotUsage() {
   return {
     chatUsed: 0,
@@ -686,7 +675,6 @@ export function AppStateProvider({ children }) {
   const [analyzeError, setAnalyzeError] = useState('')
   const [analyzeErrorType, setAnalyzeErrorType] = useState('')
   const [uploadPhase, setUploadPhase] = useState('idle')
-  const [uploadOptimization, setUploadOptimization] = useState(createInitialUploadOptimization())
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
@@ -866,7 +854,6 @@ export function AppStateProvider({ children }) {
     setUploadTitle('')
     setAnalyzeError('')
     setUploadPhase('idle')
-    setUploadOptimization(createInitialUploadOptimization())
     setIsAnalyzing(false)
     setIsChatLoading(false)
     setIsFeedbackLoading(false)
@@ -1842,7 +1829,6 @@ export function AppStateProvider({ children }) {
     setAnalyzeError('')
     setAnalyzeErrorType('')
     setUploadPhase('uploading')
-    setUploadOptimization(createInitialUploadOptimization())
     setChatMessages([])
     setCopilotUsage(createInitialCopilotUsage())
     setReferenceHistory((current) => [localReference, ...current])
@@ -1854,35 +1840,8 @@ export function AppStateProvider({ children }) {
 
     let keepAnalyzingAfterError = false
     try {
-      setUploadPhase('compressing')
-      const optimizationResult = await optimizeVideoForUpload(file, {
-        onProgress: (progress) => {
-          if (!isCurrentAccountRequest(requestAccountId)) {
-            return
-          }
-          setUploadOptimization((current) => ({
-            ...current,
-            progress,
-          }))
-        },
-      }).catch((error) => ({
-        file,
-        optimized: false,
-        reason: error?.message || 'compression-failed',
-      }))
-      if (!isCurrentAccountRequest(requestAccountId)) {
-        return
-      }
-      setUploadOptimization({
-        progress: 100,
-        optimized: Boolean(optimizationResult.optimized),
-        originalSize: optimizationResult.originalSize || file.size,
-        optimizedSize: optimizationResult.optimizedSize || optimizationResult.file?.size || file.size,
-        reason: optimizationResult.reason || '',
-      })
-      setUploadPhase('uploading')
       const analysis = await analyzeReferenceVideo({
-        file: optimizationResult.file || file,
+        file,
         accountId: requestAccountId,
         topic: effectiveTopic,
         title: uploadTitle,
@@ -2692,7 +2651,6 @@ export function AppStateProvider({ children }) {
       uploadTopic,
       uploadTitle,
       uploadPhase,
-      uploadOptimization,
       analyzeError,
       analyzeErrorType,
       pendingSuggestion,
@@ -2797,7 +2755,6 @@ export function AppStateProvider({ children }) {
       uploadTitle,
       uploadTopic,
       uploadPhase,
-      uploadOptimization,
       viewTransition,
       versions,
       createProject,
