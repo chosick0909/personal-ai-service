@@ -1933,7 +1933,6 @@ export async function analyzeReferenceVideo({
           referenceId: processingReference.id,
           accountId,
           patch: {
-            processing_status: 'processing',
             current_stage: stage,
             failure_stage: null,
             failure_code: null,
