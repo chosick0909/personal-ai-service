@@ -6,6 +6,8 @@ const TARGET_VIDEO_BITRATE = 1_800_000
 const TARGET_AUDIO_BITRATE = 96_000
 const METADATA_TIMEOUT_MS = 5000
 const COMPRESSION_TIMEOUT_MS = 12000
+const ENABLE_CLIENT_VIDEO_OPTIMIZATION =
+  String(import.meta.env.VITE_ENABLE_CLIENT_VIDEO_OPTIMIZATION || '').trim() === 'true'
 
 function isLikelyIOS() {
   if (typeof navigator === 'undefined') {
@@ -114,6 +116,10 @@ function getTargetSize(width, height) {
 export async function optimizeVideoForUpload(file, { onProgress } = {}) {
   if (!file || !file.type?.startsWith('video/')) {
     return { file, optimized: false, reason: 'not-video' }
+  }
+
+  if (!ENABLE_CLIENT_VIDEO_OPTIMIZATION) {
+    return { file, optimized: false, reason: 'disabled' }
   }
 
   if (!canUseBrowserVideoCompression()) {

@@ -579,6 +579,11 @@ async function expireStaleProcessingReferences({ supabaseAdmin, accountId, refer
 }
 
 function logStage(level, stage, context = {}) {
+  const debugEnabled = String(process.env.DEBUG_REFERENCE_ANALYSIS || '').trim() === '1'
+  if (level !== 'error' && process.env.NODE_ENV === 'production' && !debugEnabled) {
+    return
+  }
+
   const safeContext = Object.fromEntries(
     Object.entries(context).filter(([, value]) => value !== undefined && value !== null && value !== ''),
   )

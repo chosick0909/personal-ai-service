@@ -1841,7 +1841,7 @@ export function AppStateProvider({ children }) {
     setPendingSuggestion(null)
     setAnalyzeError('')
     setAnalyzeErrorType('')
-    setUploadPhase('compressing')
+    setUploadPhase('uploading')
     setUploadOptimization(createInitialUploadOptimization())
     setChatMessages([])
     setCopilotUsage(createInitialCopilotUsage())
@@ -1854,6 +1854,7 @@ export function AppStateProvider({ children }) {
 
     let keepAnalyzingAfterError = false
     try {
+      setUploadPhase('compressing')
       const optimizationResult = await optimizeVideoForUpload(file, {
         onProgress: (progress) => {
           if (!isCurrentAccountRequest(requestAccountId)) {
