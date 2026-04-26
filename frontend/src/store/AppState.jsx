@@ -773,14 +773,16 @@ export function AppStateProvider({ children }) {
     }, 2200)
   }
 
-  const refreshEntitlement = async ({ referenceId } = {}) => {
+  const refreshEntitlement = async ({ referenceId, silent = false } = {}) => {
     if (!isLoggedIn) {
       setEntitlementStatus(null)
       setIsEntitlementReady(true)
       return null
     }
 
-    setIsEntitlementReady(false)
+    if (!silent) {
+      setIsEntitlementReady(false)
+    }
     try {
       const status = await loadMyEntitlement({ referenceId })
       setEntitlementStatus(status)
@@ -794,7 +796,9 @@ export function AppStateProvider({ children }) {
       })
       return null
     } finally {
-      setIsEntitlementReady(true)
+      if (!silent) {
+        setIsEntitlementReady(true)
+      }
     }
   }
 
@@ -1826,7 +1830,7 @@ export function AppStateProvider({ children }) {
           activeReferenceIdRef.current === normalizedReferenceId ||
           referenceData?.id === normalizedReferenceId,
       })
-      void refreshEntitlement({ referenceId: normalizedReferenceId })
+      void refreshEntitlement({ referenceId: normalizedReferenceId, silent: true })
     } catch {
       // Mobile browsers often suspend polling while backgrounded. The next tick/reload will retry.
     } finally {
@@ -1968,7 +1972,7 @@ export function AppStateProvider({ children }) {
         status: analysis.reference?.status === 'processing' ? 'processing' : 'ready',
       }
       if (completedReference.status !== 'processing') {
-        void refreshEntitlement({ referenceId: completedReference.id })
+        void refreshEntitlement({ referenceId: completedReference.id, silent: true })
       }
       setUploadTitle('')
       if (completedReference.status === 'processing') {
@@ -2392,7 +2396,7 @@ export function AppStateProvider({ children }) {
       }
       const normalizedFeedback = { ...result, applied: false }
       setFeedback(normalizedFeedback)
-      void refreshEntitlement({ referenceId: referenceData?.id })
+      void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -2604,7 +2608,7 @@ export function AppStateProvider({ children }) {
       }
 
       setPendingSuggestion(response.proposedSections)
-      void refreshEntitlement({ referenceId: referenceData?.id })
+      void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
       setChatMessages((current) => {
         const next = [...current, assistantMessage]
         syncHistory(activeReferenceIdRef.current, {
