@@ -776,26 +776,78 @@ app.post(
       allowedExtensions: ['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'],
       magicType: 'video',
     })
+    const account = await resolveRequestAccount(req)
+    const usageStatus = await assertUsageAllowed({
+      userId: req.auth?.userId,
+      eventType: 'reference_analysis',
+    })
+    const character = await getAccountCharacterContext(account.id)
+    const analysisInput = {
+      accountId: account.id,
+      file: req.file,
+      topic: req.body?.topic,
+      title: req.body?.title,
+      projectId: req.body?.projectId || null,
+      idempotencyKey: req.headers['x-idempotency-key'] || req.body?.idempotencyKey || '',
+      characterSystemPrompt: character.systemPrompt,
+      accountSettings:
+        character?.profile?.settings && typeof character.profile.settings === 'object'
+          ? character.profile.settings
+          : {},
+    }
+
+    if (req.body?.asyncProcessing === '1' || req.body?.asyncProcessing === 'true') {
+      let accepted = false
+      let resolveAccepted
+      let rejectAccepted
+      const acceptedPromise = new Promise((resolve, reject) => {
+        resolveAccepted = resolve
+        rejectAccepted = reject
+      })
+
+      const analysisPromise = analyzeReferenceVideo({
+        ...analysisInput,
+        onProcessingCreated: async (processingReference) => {
+          if (accepted) {
+            return
+          }
+          accepted = true
+          resolveAccepted(processingReference)
+        },
+      })
+
+      analysisPromise
+        .then(async (result) => {
+          await recordUsageEvent({
+            userId: req.auth?.userId,
+            entitlementId: usageStatus.entitlement.id,
+            eventType: 'reference_analysis',
+            referenceId: result?.id || null,
+          })
+        })
+        .catch((error) => {
+          if (!accepted) {
+            rejectAccepted(error)
+          }
+          logAIError('analysis', error, {
+            stage: 'async-reference-analysis',
+            accountId: account.id,
+          })
+        })
+        .finally(async () => {
+          await removeUploadedTempFile(req.file)
+        })
+
+      const processingReference = await acceptedPromise
+      res.status(202).json({
+        message: 'Reference video analysis accepted',
+        analysis: processingReference,
+      })
+      return
+    }
+
     try {
-      const account = await resolveRequestAccount(req)
-      const usageStatus = await assertUsageAllowed({
-        userId: req.auth?.userId,
-        eventType: 'reference_analysis',
-      })
-      const character = await getAccountCharacterContext(account.id)
-      const result = await analyzeReferenceVideo({
-        accountId: account.id,
-        file: req.file,
-        topic: req.body?.topic,
-        title: req.body?.title,
-        projectId: req.body?.projectId || null,
-        idempotencyKey: req.headers['x-idempotency-key'] || req.body?.idempotencyKey || '',
-        characterSystemPrompt: character.systemPrompt,
-        accountSettings:
-          character?.profile?.settings && typeof character.profile.settings === 'object'
-            ? character.profile.settings
-            : {},
-      })
+      const result = await analyzeReferenceVideo(analysisInput)
       await recordUsageEvent({
         userId: req.auth?.userId,
         entitlementId: usageStatus.entitlement.id,
@@ -998,11 +1050,11 @@ app.post(
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
-      `refine:${req.body?.referenceId || account.id}`
+      `refine:${account.id}:${req.body?.referenceId || 'general'}`
     const personalization = await buildPersonalizationContext({
       accountId: account.id,
       sessionId,
-      fallbackSession: `refine:${req.body?.referenceId || account.id}`,
+      fallbackSession: `refine:${account.id}:${req.body?.referenceId || 'general'}`,
     })
     const requestText = readString(req.body?.request, {
       field: 'request',
@@ -1031,7 +1083,7 @@ app.post(
       sessionId: personalization.sessionId,
       userInput: requestText,
       assistantOutput: assistantOutputSummary,
-      fallbackSession: `refine:${req.body?.referenceId || account.id}`,
+      fallbackSession: `refine:${account.id}:${req.body?.referenceId || 'general'}`,
     })
     await recordUsageEvent({
       userId: req.auth?.userId,
@@ -1067,11 +1119,11 @@ app.post(
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
-      `feedback:${req.body?.referenceId || account.id}`
+      `feedback:${account.id}:${req.body?.referenceId || 'general'}`
     const personalization = await buildPersonalizationContext({
       accountId: account.id,
       sessionId,
-      fallbackSession: `feedback:${req.body?.referenceId || account.id}`,
+      fallbackSession: `feedback:${account.id}:${req.body?.referenceId || 'general'}`,
     })
     const result = await generateScriptFeedback({
       accountId: account.id,

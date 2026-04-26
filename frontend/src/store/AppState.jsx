@@ -41,6 +41,9 @@ const REFERENCE_DETAIL_CACHE_KEY = 'personal-ai-service:reference-detail-cache:v
 const REFERENCE_DETAIL_CACHE_TTL_MS = 1000 * 60 * 60 * 24
 const SCRIPT_VERSIONS_CACHE_KEY = 'personal-ai-service:script-versions-cache:v1'
 const SCRIPT_VERSIONS_CACHE_TTL_MS = 1000 * 60 * 60 * 12
+const PROCESSING_POLL_FAST_MS = 3000
+const PROCESSING_POLL_NORMAL_MS = 5000
+const PROCESSING_POLL_SLOW_MS = 10000
 const OAUTH_NOISE_KEYS = new Set([
   'error',
   'error_code',
@@ -472,6 +475,28 @@ function removeCachedReferenceDetail(accountId, referenceId) {
   setStoredMap(REFERENCE_DETAIL_CACHE_KEY, map)
 }
 
+function removeCachedReferenceDetailsForAccount(accountId) {
+  const normalizedAccountId = String(accountId || '').trim()
+  if (!normalizedAccountId) {
+    return
+  }
+
+  const map = getStoredMap(REFERENCE_DETAIL_CACHE_KEY)
+  const prefix = `${normalizedAccountId}::`
+  let changed = false
+
+  Object.keys(map).forEach((key) => {
+    if (key.startsWith(prefix)) {
+      delete map[key]
+      changed = true
+    }
+  })
+
+  if (changed) {
+    setStoredMap(REFERENCE_DETAIL_CACHE_KEY, map)
+  }
+}
+
 function scriptVersionsCacheKey(accountId, scriptId) {
   return `${String(accountId || '').trim()}::${String(scriptId || '').trim()}`
 }
@@ -603,17 +628,18 @@ function classifyAnalyzeFailure(error) {
   const name = String(error?.name || '').trim()
   const message = String(error?.message || '')
 
+  if (name === 'AbortError' || /timeout|failed to fetch|networkerror|network request failed/i.test(message)) {
+    return {
+      type: 'recovering',
+      message:
+        '브라우저 연결이 끊겼습니다. 서버에 등록된 분석 작업이 있으면 최근 분석에서 이어서 확인합니다.',
+    }
+  }
+
   if (code === 'FILE_TOO_LARGE' || code === 'LIMIT_FILE_SIZE') {
     return {
       type: 'file-too-large',
       message: '용량 초과: 영상은 최대 300MB까지 업로드할 수 있습니다. 파일 용량을 줄여 다시 시도해주세요.',
-    }
-  }
-
-  if (name === 'AbortError' || /timeout/i.test(message)) {
-    return {
-      type: 'timeout',
-      message: '타임아웃: 분석 요청 시간이 초과됐습니다(최대 8분). 네트워크 상태나 영상 길이/용량을 확인 후 다시 시도해주세요.',
     }
   }
 
@@ -648,6 +674,7 @@ export function AppStateProvider({ children }) {
   const [uploadTitle, setUploadTitle] = useState('')
   const [analyzeError, setAnalyzeError] = useState('')
   const [analyzeErrorType, setAnalyzeErrorType] = useState('')
+  const [uploadPhase, setUploadPhase] = useState('idle')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
@@ -666,6 +693,9 @@ export function AppStateProvider({ children }) {
   const suppressNextHistoryPushRef = useRef(false)
   const activeAccountIdRef = useRef(null)
   const referenceHistoryReadyByAccountRef = useRef({})
+  const processingPollInFlightRef = useRef(new Set())
+  const isCurrentAccountRequest = (accountId) =>
+    Boolean(accountId) && activeAccountIdRef.current === accountId
 
   useEffect(() => {
     sanitizeOAuthUrlParams({ includeTokenParams: false })
@@ -823,6 +853,7 @@ export function AppStateProvider({ children }) {
     setUploadTopic('')
     setUploadTitle('')
     setAnalyzeError('')
+    setUploadPhase('idle')
     setIsAnalyzing(false)
     setIsChatLoading(false)
     setIsFeedbackLoading(false)
@@ -856,6 +887,40 @@ export function AppStateProvider({ children }) {
     setIsResultEntering(false)
   }
 
+  const normalizeAuthErrorMessage = (error, mode) => {
+    const message = String(error?.message || '').trim()
+    const lowerMessage = message.toLowerCase()
+
+    if (lowerMessage.includes('invalid login credentials')) {
+      return (
+        '이메일 또는 비밀번호가 맞지 않습니다. ' +
+        'Google로 가입한 계정이라면 아래 “Google로 계속하기”로 로그인해주세요.'
+      )
+    }
+
+    if (lowerMessage.includes('email not confirmed') || lowerMessage.includes('email_not_confirmed')) {
+      return '이메일 인증이 아직 완료되지 않았습니다. 받은 메일함에서 인증 후 다시 로그인해주세요.'
+    }
+
+    if (
+      lowerMessage.includes('already registered') ||
+      lowerMessage.includes('already exists') ||
+      lowerMessage.includes('user already')
+    ) {
+      return '이미 가입된 계정입니다. 회원가입이 아니라 로그인으로 이동해서 진행해주세요.'
+    }
+
+    if (lowerMessage.includes('only request this after')) {
+      return '인증 메일은 잠시 후 다시 요청할 수 있습니다. 받은 메일함을 먼저 확인한 뒤 로그인해주세요.'
+    }
+
+    if (lowerMessage.includes('signup disabled')) {
+      return '현재 회원가입이 일시적으로 제한되어 있습니다. 잠시 후 다시 시도해주세요.'
+    }
+
+    return message || (mode === 'signup' ? '회원가입에 실패했습니다.' : '로그인에 실패했습니다.')
+  }
+
   const login = async ({ loginId, password }) => {
     const normalizedLoginId = loginId.trim()
     const normalizedPassword = password.trim()
@@ -870,7 +935,7 @@ export function AppStateProvider({ children }) {
     })
 
     if (error) {
-      throw new Error(error.message || '로그인에 실패했습니다.')
+      throw new Error(normalizeAuthErrorMessage(error, 'login'))
     }
 
     setCurrentUser(data?.user || null)
@@ -907,11 +972,18 @@ export function AppStateProvider({ children }) {
           rateLimited: true,
         }
       }
-      throw new Error(error.message || '회원가입에 실패했습니다.')
+      throw new Error(normalizeAuthErrorMessage(error, 'signup'))
     }
 
     if (!data?.user) {
       throw new Error('회원가입에 실패했습니다. 잠시 후 다시 시도해주세요.')
+    }
+
+    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return {
+        user: null,
+        alreadyRegistered: true,
+      }
     }
 
     // When email confirmation is enabled, Supabase returns a user without a session.
@@ -1169,7 +1241,7 @@ export function AppStateProvider({ children }) {
 
     const run = async () => {
       try {
-        const items = await listProjectRecords()
+        const items = await listProjectRecords(currentAccount.id)
         if (canceled) {
           return
         }
@@ -1216,7 +1288,7 @@ export function AppStateProvider({ children }) {
       return
     }
     try {
-      const items = await listReferenceVideoHistory()
+      const items = await listReferenceVideoHistory(accountId)
       if (activeAccountIdRef.current !== accountId) {
         return
       }
@@ -1243,6 +1315,7 @@ export function AppStateProvider({ children }) {
     }
 
     setStoredAccountId(nextAccount.id)
+    activeAccountIdRef.current = nextAccount.id
     setCurrentAccount(nextAccount)
     resetStudioForAccount()
   }
@@ -1328,6 +1401,7 @@ export function AppStateProvider({ children }) {
     setDraftMessage('')
     setPendingSuggestion(null)
     setAnalyzeError('')
+    setUploadPhase('idle')
     setIsAnalyzing(false)
     setChatMessages(initialState.chatMessages)
     setViewTransition('idle')
@@ -1378,6 +1452,8 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    removeCachedReferenceDetailsForAccount(accountId)
+
     setAccountSetupMap((current) => {
       return {
         ...current,
@@ -1425,7 +1501,7 @@ export function AppStateProvider({ children }) {
     }
 
     try {
-      await deleteProjectById(projectId)
+      await deleteProjectById(projectId, currentAccount?.id)
     } catch (error) {
       showToast(error.message || '프로젝트 삭제에 실패했습니다.', 'error')
       return false
@@ -1456,7 +1532,7 @@ export function AppStateProvider({ children }) {
     }
 
     try {
-      await deleteReferenceVideoRecord(referenceId)
+      await deleteReferenceVideoRecord(referenceId, currentAccount?.id)
     } catch (error) {
       showToast(error.message || '대화내역 삭제에 실패했습니다.', 'error')
       return false
@@ -1530,7 +1606,200 @@ export function AppStateProvider({ children }) {
     return updated
   }
 
+  const applyReferenceAnalysisResult = ({
+    accountId = currentAccount?.id,
+    baseReference = {},
+    analysis,
+    activate = true,
+  }) => {
+    const rawStatus = String(analysis?.reference?.status || '').trim()
+    const completed = rawStatus === 'completed' || rawStatus === 'ready'
+    const nextReference = {
+      ...baseReference,
+      ...analysis.reference,
+      status: completed ? 'ready' : rawStatus || baseReference.status || 'ready',
+    }
+
+    if (activate) {
+      activeReferenceIdRef.current = nextReference.id
+      setReferenceData(nextReference)
+      setGeneratedScripts(analysis.generatedScripts || [])
+    }
+    setCachedReferenceDetail(accountId, nextReference.id, {
+      reference: nextReference,
+      generatedScripts: analysis.generatedScripts || [],
+    })
+    setReferenceHistory((current) =>
+      current.map((item) =>
+        item.id === baseReference.id || item.id === nextReference.id
+          ? {
+              ...item,
+              ...nextReference,
+              generatedScripts: analysis.generatedScripts || [],
+              lastStep: completed ? 'result' : item.lastStep,
+            }
+          : item,
+      ),
+    )
+
+    if (completed && activate) {
+      setCurrentStep('result')
+      setIsAnalyzing(false)
+      setUploadPhase('completed')
+      setAnalyzeError('')
+      setAnalyzeErrorType('')
+      setIsResultEntering(true)
+      window.setTimeout(() => {
+        if (isCurrentAccountRequest(accountId)) {
+          setIsResultEntering(false)
+        }
+      }, 420)
+    }
+  }
+
+  const refreshProcessingReference = async (referenceId) => {
+    const requestAccountId = currentAccount?.id
+    const normalizedReferenceId = String(referenceId || '').trim()
+    if (!requestAccountId || !normalizedReferenceId || normalizedReferenceId.startsWith('reference-')) {
+      return
+    }
+    if (processingPollInFlightRef.current.has(normalizedReferenceId)) {
+      return
+    }
+
+    processingPollInFlightRef.current.add(normalizedReferenceId)
+    try {
+      const detail = await fetchReferenceVideoDetail(normalizedReferenceId, requestAccountId)
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
+      const rawStatus = String(detail?.reference?.status || '').trim()
+      const baseReference =
+        referenceHistory.find((item) => item.id === normalizedReferenceId) || detail.reference
+
+      if (rawStatus === 'processing') {
+        const nextReference = {
+          ...baseReference,
+          ...detail.reference,
+          status: 'processing',
+        }
+        setReferenceHistory((current) =>
+          current.map((item) => (item.id === normalizedReferenceId ? { ...item, ...nextReference } : item)),
+        )
+        if (activeReferenceIdRef.current === normalizedReferenceId || referenceData?.id === normalizedReferenceId) {
+          setReferenceData(nextReference)
+          setCurrentStep('analyzing')
+          setIsAnalyzing(true)
+          setUploadPhase('analyzing')
+        }
+        return
+      }
+
+      if (rawStatus === 'failed') {
+        const nextReference = {
+          ...baseReference,
+          ...detail.reference,
+          status: 'failed',
+        }
+        setReferenceHistory((current) =>
+          current.map((item) => (item.id === normalizedReferenceId ? { ...item, ...nextReference } : item)),
+        )
+        if (activeReferenceIdRef.current === normalizedReferenceId || referenceData?.id === normalizedReferenceId) {
+          setReferenceData(nextReference)
+          setCurrentStep('upload')
+          setIsAnalyzing(false)
+          setUploadPhase('failed')
+          setAnalyzeError(detail.reference?.errorMessage || '분석 작업이 실패했습니다. 다시 업로드해주세요.')
+          setAnalyzeErrorType('general')
+        }
+        return
+      }
+
+      applyReferenceAnalysisResult({
+        accountId: requestAccountId,
+        baseReference,
+        analysis: detail,
+        activate:
+          activeReferenceIdRef.current === normalizedReferenceId ||
+          referenceData?.id === normalizedReferenceId,
+      })
+      void refreshEntitlement({ referenceId: normalizedReferenceId })
+    } catch {
+      // Mobile browsers often suspend polling while backgrounded. The next tick/reload will retry.
+    } finally {
+      processingPollInFlightRef.current.delete(normalizedReferenceId)
+    }
+  }
+
+  useEffect(() => {
+    if (!isLoggedIn || !currentAccount?.id || !isAnalyzePage()) {
+      return undefined
+    }
+
+    const processingItems = referenceHistory.filter(
+      (item) => item?.id && item.status === 'processing' && !String(item.id).startsWith('reference-'),
+    )
+    if (!processingItems.length) {
+      return undefined
+    }
+
+    if (!referenceData) {
+      const firstProcessing = processingItems[0]
+      activeReferenceIdRef.current = firstProcessing.id
+      setReferenceData(firstProcessing)
+      setGeneratedScripts([])
+      setCurrentStep('analyzing')
+      setIsAnalyzing(true)
+      setUploadPhase('analyzing')
+      setAnalyzeError('')
+      setAnalyzeErrorType('')
+      setUploadPhase('analyzing')
+    }
+
+    const getNextDelay = () => {
+      const startedAt = processingItems
+        .map((item) => new Date(item.createdAt || item.created_at || Date.now()).getTime())
+        .filter((time) => Number.isFinite(time))
+        .sort((a, b) => a - b)[0] || Date.now()
+      const elapsedMs = Date.now() - startedAt
+      const baseDelay =
+        elapsedMs < 30_000
+          ? PROCESSING_POLL_FAST_MS
+          : elapsedMs < 120_000
+            ? PROCESSING_POLL_NORMAL_MS
+            : PROCESSING_POLL_SLOW_MS
+
+      return typeof document !== 'undefined' && document.hidden
+        ? Math.max(baseDelay, PROCESSING_POLL_SLOW_MS)
+        : baseDelay
+    }
+
+    let canceled = false
+    let timer = null
+    const tick = () => {
+      if (canceled) {
+        return
+      }
+      processingItems.forEach((item) => {
+        void refreshProcessingReference(item.id)
+      })
+      timer = window.setTimeout(tick, getNextDelay())
+    }
+
+    tick()
+    return () => {
+      canceled = true
+      if (timer) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [isLoggedIn, currentAccount?.id, referenceHistory, referenceData])
+
   const analyzeReference = async (file, options = {}) => {
+    const requestAccountId = currentAccount?.id
+    if (!requestAccountId) {
+      throw new Error('계정을 먼저 선택하세요.')
+    }
     const normalizedTopic = typeof options.topic === 'string'
       ? options.topic.trim()
       : uploadTopic.trim()
@@ -1559,6 +1828,7 @@ export function AppStateProvider({ children }) {
     setPendingSuggestion(null)
     setAnalyzeError('')
     setAnalyzeErrorType('')
+    setUploadPhase('uploading')
     setChatMessages([])
     setCopilotUsage(createInitialCopilotUsage())
     setReferenceHistory((current) => [localReference, ...current])
@@ -1568,46 +1838,56 @@ export function AppStateProvider({ children }) {
     setIsEditorEntering(false)
     setIsResultEntering(false)
 
+    let keepAnalyzingAfterError = false
     try {
       const analysis = await analyzeReferenceVideo({
         file,
-        accountId: currentAccount?.id,
+        accountId: requestAccountId,
         topic: effectiveTopic,
         title: uploadTitle,
         projectId: currentProjectId || null,
       })
+      if (activeAccountIdRef.current !== requestAccountId) {
+        return
+      }
 
       const completedReference = {
         ...localReference,
         ...analysis.reference,
-        status: 'ready',
+        status: analysis.reference?.status === 'processing' ? 'processing' : 'ready',
       }
-      activeReferenceIdRef.current = completedReference.id
-
-      setReferenceData(completedReference)
-      setGeneratedScripts(analysis.generatedScripts)
-      void refreshEntitlement({ referenceId: completedReference.id })
-      setCachedReferenceDetail(currentAccount?.id, completedReference.id, {
-        reference: completedReference,
-        generatedScripts: analysis.generatedScripts,
-      })
-      setCurrentStep('result')
-      setIsResultEntering(true)
+      if (completedReference.status !== 'processing') {
+        void refreshEntitlement({ referenceId: completedReference.id })
+      }
       setUploadTitle('')
-      setReferenceHistory((current) =>
-        current.map((item) =>
-          item.id === localReference.id
-            ? {
-                ...completedReference,
-                generatedScripts: analysis.generatedScripts,
-                lastStep: 'result',
-              }
-            : item,
-        ),
-      )
-      setTimeout(() => {
-        setIsResultEntering(false)
-      }, 420)
+      if (completedReference.status === 'processing') {
+        keepAnalyzingAfterError = true
+        activeReferenceIdRef.current = completedReference.id
+        setReferenceData(completedReference)
+        setGeneratedScripts([])
+        setUploadPhase('server-accepted')
+        setCurrentStep('analyzing')
+        setIsAnalyzing(true)
+        setReferenceHistory((current) =>
+          current.map((item) =>
+            item.id === localReference.id
+              ? {
+                  ...completedReference,
+                  generatedScripts: [],
+                }
+              : item,
+          ),
+        )
+      } else {
+        applyReferenceAnalysisResult({
+          accountId: requestAccountId,
+          baseReference: localReference,
+          analysis: {
+            ...analysis,
+            reference: completedReference,
+          },
+        })
+      }
     } catch (error) {
       console.groupCollapsed('[reference-analysis] analyze failed')
       console.error('message:', error.message)
@@ -1616,20 +1896,37 @@ export function AppStateProvider({ children }) {
       console.error('requestId:', error.requestId || null)
       console.error(error)
       console.groupEnd()
+      if (activeAccountIdRef.current !== requestAccountId) {
+        return
+      }
       const analyzedFailure = classifyAnalyzeFailure(error)
-      setCurrentStep('upload')
       setAnalyzeError(analyzedFailure.message)
       setAnalyzeErrorType(analyzedFailure.type)
-      setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
+      if (analyzedFailure.type === 'recovering') {
+        keepAnalyzingAfterError = true
+        setCurrentStep('analyzing')
+        setIsAnalyzing(true)
+        setUploadPhase('server-accepted')
+        window.setTimeout(() => {
+          void loadReferenceHistory(requestAccountId)
+        }, 1200)
+      } else {
+        setCurrentStep('upload')
+        setUploadPhase('failed')
+        setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
+      }
     } finally {
-      setIsAnalyzing(false)
+      if (activeAccountIdRef.current === requestAccountId && !keepAnalyzingAfterError) {
+        setIsAnalyzing(false)
+      }
     }
   }
 
   const selectScript = async (scriptId) => {
+    const requestAccountId = currentAccount?.id
     const nextScript = generatedScripts.find((item) => item.id === scriptId)
 
-    if (!nextScript) {
+    if (!requestAccountId || !nextScript) {
       return
     }
 
@@ -1643,17 +1940,21 @@ export function AppStateProvider({ children }) {
 
     try {
       const created = await createScriptSelection({
+        accountId: requestAccountId,
         referenceId: referenceData?.id,
         selectedLabel: nextScript.label,
         title: `${referenceData?.title || '레퍼런스'} · ${nextScript.label}`,
         sections: nextScript.sections,
         score: nextScript.score,
       })
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       const initialVersions = created.versions || []
 
       setActiveScriptId(created.script?.id || null)
       setVersions(initialVersions)
-      setCachedScriptVersions(currentAccount?.id, created.script?.id, initialVersions)
+      setCachedScriptVersions(requestAccountId, created.script?.id, initialVersions)
       syncHistory(activeReferenceIdRef.current, {
         selectedScriptId: nextScript.id,
         activeScriptId: created.script?.id || null,
@@ -1665,9 +1966,14 @@ export function AppStateProvider({ children }) {
       setViewTransition('idle')
       setIsEditorEntering(true)
       setTimeout(() => {
-        setIsEditorEntering(false)
+        if (isCurrentAccountRequest(requestAccountId)) {
+          setIsEditorEntering(false)
+        }
       }, 420)
     } catch (error) {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       setChatMessages((current) => [
         ...current,
         {
@@ -1682,6 +1988,7 @@ export function AppStateProvider({ children }) {
   }
 
   const goBackToResults = () => {
+    const requestAccountId = currentAccount?.id
     if (!generatedScripts.length) {
       return
     }
@@ -1693,11 +2000,16 @@ export function AppStateProvider({ children }) {
     setViewTransition('to-result')
     setIsResultEntering(false)
     setTimeout(() => {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       setCurrentStep('result')
       setViewTransition('idle')
       setIsResultEntering(true)
       setTimeout(() => {
-        setIsResultEntering(false)
+        if (isCurrentAccountRequest(requestAccountId)) {
+          setIsResultEntering(false)
+        }
       }, 420)
     }, 320)
   }
@@ -1720,13 +2032,16 @@ export function AppStateProvider({ children }) {
   }
 
   const openReference = (referenceId) => {
+    const requestAccountId = currentAccount?.id
     const item = referenceHistory.find((entry) => entry.id === referenceId)
 
-    if (!item) {
+    if (!requestAccountId || !item) {
       return
     }
 
     const applyOpenedState = ({ detail, baseItem }) => {
+      const isProcessingReference = detail.reference?.status === 'processing'
+      const isFailedReference = detail.reference?.status === 'failed'
       activeReferenceIdRef.current = baseItem.id
       setReferenceData(detail.reference)
       setGeneratedScripts(detail.generatedScripts || [])
@@ -1736,20 +2051,23 @@ export function AppStateProvider({ children }) {
       setActiveScriptId(baseItem.activeScriptId || null)
 
       if (baseItem.activeScriptId) {
-        const cachedVersions = getCachedScriptVersions(currentAccount?.id, baseItem.activeScriptId)
+        const cachedVersions = getCachedScriptVersions(requestAccountId, baseItem.activeScriptId)
         if (cachedVersions.length) {
           setVersions(cachedVersions)
         } else if (Array.isArray(baseItem.versions) && baseItem.versions.length) {
           setVersions(baseItem.versions)
-          setCachedScriptVersions(currentAccount?.id, baseItem.activeScriptId, baseItem.versions)
+          setCachedScriptVersions(requestAccountId, baseItem.activeScriptId, baseItem.versions)
         } else {
           setVersions([])
         }
 
-        loadScriptVersions(baseItem.activeScriptId)
+        loadScriptVersions(baseItem.activeScriptId, requestAccountId)
           .then((freshVersions) => {
+            if (!isCurrentAccountRequest(requestAccountId)) {
+              return
+            }
             setVersions(freshVersions || [])
-            setCachedScriptVersions(currentAccount?.id, baseItem.activeScriptId, freshVersions || [])
+            setCachedScriptVersions(requestAccountId, baseItem.activeScriptId, freshVersions || [])
           })
           .catch(() => {
             // keep cached versions when refresh fails
@@ -1771,12 +2089,19 @@ export function AppStateProvider({ children }) {
         ],
       )
       setCopilotUsage(createInitialCopilotUsage())
-      const restoredStep =
+      let restoredStep = 'result'
+      if (isProcessingReference) {
+        restoredStep = 'analyzing'
+      } else if (isFailedReference) {
+        restoredStep = 'upload'
+      } else if (
         baseItem.lastStep === 'editor' &&
         detail.generatedScripts?.some((script) => script.id === baseItem.selectedScriptId)
-          ? 'editor'
-          : 'result'
+      ) {
+        restoredStep = 'editor'
+      }
       setCurrentStep(restoredStep)
+      setIsAnalyzing(isProcessingReference)
       setViewTransition('idle')
       setIsEditorEntering(false)
       setIsResultEntering(false)
@@ -1794,7 +2119,7 @@ export function AppStateProvider({ children }) {
       )
     }
 
-    const cachedDetail = getCachedReferenceDetail(currentAccount?.id, referenceId)
+    const cachedDetail = getCachedReferenceDetail(requestAccountId, referenceId)
     if (cachedDetail) {
       applyOpenedState({ detail: cachedDetail, baseItem: item })
     }
@@ -1802,7 +2127,7 @@ export function AppStateProvider({ children }) {
     const open = async () => {
       let detail
       try {
-        detail = await fetchReferenceVideoDetail(referenceId)
+        detail = await fetchReferenceVideoDetail(referenceId, requestAccountId)
       } catch (error) {
         if (cachedDetail) {
           return
@@ -1817,17 +2142,24 @@ export function AppStateProvider({ children }) {
           generatedScripts: item.generatedScripts,
         }
       }
-      setCachedReferenceDetail(currentAccount?.id, referenceId, detail)
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
+      setCachedReferenceDetail(requestAccountId, referenceId, detail)
       applyOpenedState({ detail, baseItem: item })
     }
 
     open().catch((error) => {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       setAnalyzeError(error.message)
     })
   }
 
   const saveVersion = async (source = 'USER') => {
-    if (!activeScriptId) {
+    const requestAccountId = currentAccount?.id
+    if (!requestAccountId || !activeScriptId) {
       return
     }
 
@@ -1835,6 +2167,7 @@ export function AppStateProvider({ children }) {
       const serializedContent = serializeEditorSections(editorSections)
       const versionType = source === 'AI' ? 'ai_generation' : 'manual_save'
       const nextVersion = await saveVersionRecord({
+        accountId: requestAccountId,
         scriptId: activeScriptId,
         title: source === 'AI' ? 'AI 제안 반영본' : '사용자 저장본',
         sections: editorSections,
@@ -1845,10 +2178,13 @@ export function AppStateProvider({ children }) {
           selectedLabel: selectedScript?.label,
         },
       })
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
 
       setVersions((current) => {
         const next = [nextVersion, ...current]
-        setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
+        setCachedScriptVersions(requestAccountId, activeScriptId, next)
         syncHistory(activeReferenceIdRef.current, {
           activeScriptId,
           versions: next,
@@ -1858,6 +2194,9 @@ export function AppStateProvider({ children }) {
       })
       showToast('버전 저장 완료')
     } catch (error) {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       setChatMessages((current) => [
         ...current,
         {
@@ -1870,6 +2209,10 @@ export function AppStateProvider({ children }) {
   }
 
   const requestFeedback = async () => {
+    const requestAccountId = currentAccount?.id
+    if (!requestAccountId) {
+      return
+    }
     const feedbackLimit = getEffectiveCopilotLimit('feedback')
     if (Number.isFinite(feedbackLimit) && copilotUsage.feedbackUsed >= feedbackLimit) {
       setChatMessages((current) => {
@@ -1912,11 +2255,15 @@ export function AppStateProvider({ children }) {
 
     try {
       const result = await generateScriptFeedback({
+        accountId: requestAccountId,
         referenceId: referenceData?.id,
         scriptId: activeScriptId,
         selectedLabel: selectedScript?.label,
         sections: editorSections,
       })
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       const normalizedFeedback = { ...result, applied: false }
       setFeedback(normalizedFeedback)
       void refreshEntitlement({ referenceId: referenceData?.id })
@@ -1937,6 +2284,9 @@ export function AppStateProvider({ children }) {
         return next
       })
     } catch (error) {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -1952,7 +2302,9 @@ export function AppStateProvider({ children }) {
         return next
       })
     } finally {
-      setIsFeedbackLoading(false)
+      if (isCurrentAccountRequest(requestAccountId)) {
+        setIsFeedbackLoading(false)
+      }
     }
   }
 
@@ -1961,6 +2313,10 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    const requestAccountId = currentAccount?.id
+    if (!requestAccountId) {
+      return
+    }
     setIsApplyingFeedback(true)
     const serializedContent = serializeEditorSections(feedback.suggestedSections)
     setEditorSections(createEditorSections(feedback.suggestedSections))
@@ -1972,6 +2328,7 @@ export function AppStateProvider({ children }) {
 
     try {
       const nextVersion = await saveVersionRecord({
+        accountId: requestAccountId,
         scriptId: activeScriptId,
         title: '피드백 반영본',
         sections: feedback.suggestedSections,
@@ -1983,6 +2340,9 @@ export function AppStateProvider({ children }) {
           feedbackSummary: feedback.summary,
         },
       })
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
 
       const appliedMessage = {
         id: `feedback-applied-${Date.now()}`,
@@ -1999,7 +2359,7 @@ export function AppStateProvider({ children }) {
 
       setVersions((current) => {
         const next = [nextVersion, ...current]
-        setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
+        setCachedScriptVersions(requestAccountId, activeScriptId, next)
         syncHistory(activeReferenceIdRef.current, {
           activeScriptId,
           editorContent: serializedContent,
@@ -2025,6 +2385,9 @@ export function AppStateProvider({ children }) {
 
       showToast('피드백 반영 저장 완료')
     } catch (error) {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -2040,14 +2403,17 @@ export function AppStateProvider({ children }) {
         return next
       })
     } finally {
-      setIsApplyingFeedback(false)
+      if (isCurrentAccountRequest(requestAccountId)) {
+        setIsApplyingFeedback(false)
+      }
     }
   }
 
   const sendChatMessage = async () => {
+    const requestAccountId = currentAccount?.id
     const normalized = draftMessage.trim()
 
-    if (!normalized) {
+    if (!requestAccountId || !normalized) {
       return
     }
 
@@ -2094,11 +2460,15 @@ export function AppStateProvider({ children }) {
 
     try {
       const response = await generateChatReply({
+        accountId: requestAccountId,
         referenceId: referenceData?.id,
         selectedLabel: selectedScript?.label,
         editorSections,
         message: normalized,
       })
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
 
       const assistantMessage = {
         id: `assistant-${Date.now()}`,
@@ -2117,6 +2487,9 @@ export function AppStateProvider({ children }) {
         return next
       })
     } catch (error) {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
       setChatMessages((current) => {
         const next = [
           ...current,
@@ -2132,11 +2505,17 @@ export function AppStateProvider({ children }) {
         return next
       })
     } finally {
-      setIsChatLoading(false)
+      if (isCurrentAccountRequest(requestAccountId)) {
+        setIsChatLoading(false)
+      }
     }
   }
 
   const applySuggestion = (sections) => {
+    const requestAccountId = currentAccount?.id
+    if (!requestAccountId) {
+      return
+    }
     const serializedContent = serializeEditorSections(sections)
     setEditorSections(createEditorSections(sections))
     setPendingSuggestion(sections)
@@ -2145,6 +2524,7 @@ export function AppStateProvider({ children }) {
     }
 
     saveVersionRecord({
+      accountId: requestAccountId,
       scriptId: activeScriptId,
       title: 'AI 수정안 적용',
       sections,
@@ -2156,9 +2536,12 @@ export function AppStateProvider({ children }) {
       },
     })
       .then((nextVersion) => {
+        if (!isCurrentAccountRequest(requestAccountId)) {
+          return
+        }
         setVersions((current) => {
           const next = [nextVersion, ...current]
-          setCachedScriptVersions(currentAccount?.id, activeScriptId, next)
+          setCachedScriptVersions(requestAccountId, activeScriptId, next)
           syncHistory(activeReferenceIdRef.current, {
             activeScriptId,
             editorContent: serializedContent,
@@ -2182,17 +2565,22 @@ export function AppStateProvider({ children }) {
   }
 
   const restoreVersion = async (versionId) => {
+    const requestAccountId = currentAccount?.id
     const version = versions.find((item) => item.id === versionId)
 
-    if (!version || !activeScriptId) {
+    if (!requestAccountId || !version || !activeScriptId) {
       return
     }
 
     try {
       await restoreScriptVersionRecord({
+        accountId: requestAccountId,
         scriptId: activeScriptId,
         versionId,
       })
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
 
       setEditorSections(deserializeEditorContent(version.content))
       setIsVersionModalOpen(false)
@@ -2262,6 +2650,7 @@ export function AppStateProvider({ children }) {
       draftMessage,
       uploadTopic,
       uploadTitle,
+      uploadPhase,
       analyzeError,
       analyzeErrorType,
       pendingSuggestion,
@@ -2365,6 +2754,7 @@ export function AppStateProvider({ children }) {
       selectedScript,
       uploadTitle,
       uploadTopic,
+      uploadPhase,
       viewTransition,
       versions,
       createProject,

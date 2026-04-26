@@ -107,6 +107,10 @@ const ANALYZE_DEDUPE_WINDOW_MINUTES = Number.parseInt(
   String(process.env.ANALYZE_DEDUPE_WINDOW_MINUTES || '30'),
   10,
 )
+const PROCESSING_TIMEOUT_MINUTES = Number.parseInt(
+  String(process.env.REFERENCE_PROCESSING_TIMEOUT_MINUTES || '15'),
+  10,
+)
 const ANALYZE_IN_FLIGHT = new Map()
 
 function cacheLog(stage, details = {}) {
@@ -507,6 +511,70 @@ async function updateReferenceLifecycleState({
     if (!Object.keys(payload).length) {
       return
     }
+  }
+}
+
+async function expireStaleProcessingReferences({ supabaseAdmin, accountId, referenceId = null }) {
+  if (!accountId || !Number.isFinite(PROCESSING_TIMEOUT_MINUTES) || PROCESSING_TIMEOUT_MINUTES <= 0) {
+    return
+  }
+
+  const timeoutMs = PROCESSING_TIMEOUT_MINUTES * 60 * 1000
+  const staleBefore = new Date(Date.now() - timeoutMs).toISOString()
+  const timeoutMessage = '분석 시간이 초과되었습니다. 영상을 다시 업로드해주세요.'
+  const basePatch = {
+    processing_status: 'failed',
+    current_stage: 'timeout',
+    failure_stage: 'timeout',
+    failure_code: 'REFERENCE_PROCESSING_TIMEOUT',
+    failure_message: timeoutMessage,
+    error_message: timeoutMessage,
+    processing_completed_at: new Date().toISOString(),
+    last_heartbeat_at: new Date().toISOString(),
+  }
+  const removableColumns = new Set([
+    'current_stage',
+    'failure_stage',
+    'failure_code',
+    'failure_message',
+    'error_message',
+    'processing_completed_at',
+    'last_heartbeat_at',
+  ])
+  const buildQuery = (payload) => {
+    let query = supabaseAdmin
+      .from('reference_videos')
+      .update(payload)
+      .eq('account_id', accountId)
+      .eq('processing_status', 'processing')
+      .lt('created_at', staleBefore)
+
+    if (referenceId) {
+      query = query.eq('id', referenceId)
+    }
+
+    return query
+  }
+
+  let payload = { ...basePatch }
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { error } = await buildQuery(payload)
+    if (!error) {
+      return
+    }
+
+    const missingColumn = extractMissingColumnName(error)
+    if (!missingColumn || !removableColumns.has(missingColumn)) {
+      console.warn('[reference-video-analysis] stale processing cleanup failed', {
+        accountId,
+        referenceId,
+        code: error.code || null,
+        message: error.message,
+      })
+      return
+    }
+
+    delete payload[missingColumn]
   }
 }
 
@@ -1065,6 +1133,29 @@ function getCategoryPlaybook(category = '') {
   return CATEGORY_PLAYBOOKS[normalized] || null
 }
 
+function buildAccountPlaybookContext({
+  accountSettings = {},
+  characterSystemPrompt = '',
+  categoryGuard = null,
+} = {}) {
+  const guard =
+    categoryGuard ||
+    buildCategoryGuard({
+      accountSettings,
+      characterSystemPrompt,
+    })
+  const mode = resolvePlaybookMode(guard.accountGoal)
+  const playbook = getCategoryPlaybook(guard.category)
+
+  return {
+    guard,
+    mode,
+    playbook,
+    prompt: buildPlaybookPrompt(playbook, mode),
+    payload: buildCategoryPlaybookPayload(guard.category, playbook, mode),
+  }
+}
+
 function buildPlaybookPrompt(playbook, mode = '') {
   if (!playbook) {
     return ''
@@ -1620,6 +1711,7 @@ export async function analyzeReferenceVideo({
   idempotencyKey = '',
   characterSystemPrompt = '',
   accountSettings = {},
+  onProcessingCreated = null,
 }) {
   if (!file) {
     throw new AppError('video file is required', {
@@ -1694,6 +1786,9 @@ export async function analyzeReferenceVideo({
         inProgressError = fallback.error
       }
       if (inProgress) {
+        if (typeof onProcessingCreated === 'function') {
+          await onProcessingCreated(inProgress)
+        }
         return {
           ...inProgress,
           global_knowledge_debug: [],
@@ -1723,6 +1818,9 @@ export async function analyzeReferenceVideo({
     analysisFingerprint,
   })
   ANALYZE_IN_FLIGHT.set(inFlightKey, processingReference.id)
+  if (typeof onProcessingCreated === 'function') {
+    await onProcessingCreated(processingReference)
+  }
 
   if (cacheConfig.enableAnalysisResultReuse) {
     try {
@@ -1765,6 +1863,12 @@ export async function analyzeReferenceVideo({
           throw new Error('cached variations are misaligned with current category guard')
         }
 
+        const playbookContext = buildAccountPlaybookContext({
+          accountSettings,
+          characterSystemPrompt,
+          categoryGuard,
+        })
+
         cacheLog('hit', {
           accountId,
           topic: normalizedTopic,
@@ -1791,6 +1895,7 @@ export async function analyzeReferenceVideo({
           global_knowledge_categories: Array.isArray(cachedAnalysis.global_knowledge_categories)
             ? cachedAnalysis.global_knowledge_categories
             : [],
+          category_playbook: playbookContext.payload,
         }
       }
     } catch (error) {
@@ -2043,9 +2148,14 @@ export async function analyzeReferenceVideo({
       accountSettings,
       characterSystemPrompt,
     })
-    const categoryPlaybook = getCategoryPlaybook(categoryGuard.category)
-    const playbookMode = resolvePlaybookMode(categoryGuard.accountGoal)
-    const playbookPrompt = buildPlaybookPrompt(categoryPlaybook, playbookMode)
+    const playbookContext = buildAccountPlaybookContext({
+      accountSettings,
+      characterSystemPrompt,
+      categoryGuard,
+    })
+    const categoryPlaybook = playbookContext.playbook
+    const playbookMode = playbookContext.mode
+    const playbookPrompt = playbookContext.prompt
     const guardPromptSummary = buildPromptGuardSummary(categoryGuard)
     const categoryGuardText = [
       `카테고리: ${categoryGuard.category}`,
@@ -2491,7 +2601,7 @@ export async function analyzeReferenceVideo({
       ...row,
       global_knowledge_debug: mapGlobalKnowledgeDebug(globalKnowledge.items || []),
       global_knowledge_categories: globalKnowledge.categories || [],
-      category_playbook: buildCategoryPlaybookPayload(categoryGuard.category, categoryPlaybook, playbookMode),
+      category_playbook: playbookContext.payload,
       analysis_stage_metrics: stageMetrics,
     }
 
@@ -2646,6 +2756,7 @@ export async function listReferenceVideos(accountId) {
   }
 
   const supabaseAdmin = getSupabaseAdmin()
+  await expireStaleProcessingReferences({ supabaseAdmin, accountId })
   let { data, error } = await supabaseAdmin
     .from('reference_videos')
     .select(selectReferenceVideoColumns({ includeProjectId: true, detail: false }))
@@ -2682,6 +2793,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
   }
 
   const supabaseAdmin = getSupabaseAdmin()
+  await expireStaleProcessingReferences({ supabaseAdmin, accountId, referenceId: referenceVideoId })
   let { data, error } = await supabaseAdmin
     .from('reference_videos')
     .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
@@ -2722,9 +2834,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
   let globalKnowledgeDebug = []
   let globalKnowledgeCategories = []
   let enrichedVariations = Array.isArray(data.variations) ? data.variations : []
-  let resolvedCategory = ''
-  let categoryPlaybook = null
-  let playbookMode = 'awareness'
+  let categoryPlaybookPayload = null
 
   try {
     const profile = await getAccountProfile(accountId)
@@ -2732,15 +2842,27 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
       profile?.settings && typeof profile.settings === 'object'
         ? profile.settings
         : {}
-    resolvedCategory = normalizeCategoryLabel(settings.category || '')
-    categoryPlaybook = getCategoryPlaybook(resolvedCategory)
-    playbookMode = resolvePlaybookMode(settings.accountGoal || '')
+    const playbookContext = buildAccountPlaybookContext({
+      accountSettings: settings,
+      characterSystemPrompt: '',
+    })
+    categoryPlaybookPayload = playbookContext.payload
   } catch (error) {
     logAIError('analysis', error, {
       stage: 'reference-detail-account-profile',
       referenceVideoId,
       accountId,
     })
+  }
+
+  if (data.processing_status && data.processing_status !== 'completed') {
+    return {
+      ...data,
+      variations: Array.isArray(data.variations) ? data.variations : [],
+      global_knowledge_debug: [],
+      global_knowledge_categories: [],
+      category_playbook: categoryPlaybookPayload,
+    }
   }
 
   try {
@@ -2799,7 +2921,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
     variations: enrichedVariations,
     global_knowledge_debug: globalKnowledgeDebug,
     global_knowledge_categories: globalKnowledgeCategories,
-    category_playbook: buildCategoryPlaybookPayload(resolvedCategory, categoryPlaybook, playbookMode),
+    category_playbook: categoryPlaybookPayload,
   }
 }
 

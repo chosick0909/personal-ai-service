@@ -105,6 +105,15 @@ function buildReferenceGuides(reference) {
   return { insights, checkpoints }
 }
 
+function buildCharacterBoundary(accountId) {
+  return [
+    `현재 선택된 캐릭터 계정 ID: ${accountId}`,
+    '이 응답은 반드시 현재 캐릭터 계정 전용으로 작성한다.',
+    '다른 캐릭터/다른 계정의 업종, 상품, 타겟, 말투, 메모리를 절대 섞지 않는다.',
+    '캐릭터 고정 규칙과 개인화 메모리가 충돌하면 캐릭터 고정 규칙과 현재 계정 설정을 우선한다.',
+  ].join('\n')
+}
+
 export async function refineScriptWithAI({
   accountId,
   referenceId,
@@ -145,6 +154,7 @@ export async function refineScriptWithAI({
             '연결성 규칙: HOOK에서 던진 문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
             '아래 핵심 인사이트/체크포인트를 가능한 한 유지해서 수정한다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
+            buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
@@ -239,6 +249,7 @@ export async function generateScriptFeedback({
             'HOOK은 긴장감 있게, BODY는 상황/경험형으로, CTA는 행동 이유를 담아 짧고 강하게 제안하라.',
             '평가 시 HOOK/BODY/CTA 연결성과 핵심 인사이트 반영 여부를 반드시 본다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
+            buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`

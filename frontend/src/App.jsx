@@ -1378,6 +1378,10 @@ function AuthScreen({
                 window.location.assign('/login')
                 return
               }
+              if (mode === 'signup' && result?.alreadyRegistered) {
+                setError('이미 가입된 계정입니다. 회원가입이 아니라 로그인으로 이동해서 진행해주세요.')
+                return
+              }
               window.location.assign(result?.nextPath || '/purchase')
             } catch (nextError) {
               setError(nextError.message || `${primaryLabel}에 실패했습니다.`)

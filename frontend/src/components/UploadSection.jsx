@@ -28,6 +28,7 @@ export default function UploadSection() {
     isAnalyzing,
     analyzeError,
     analyzeErrorType,
+    uploadPhase,
     uploadTopic,
     setUploadTopic,
     uploadTitle,
@@ -82,13 +83,51 @@ export default function UploadSection() {
   }, [currentStep, isAnalyzing])
 
   const analyzeStageText = useMemo(() => {
+    if (uploadPhase === 'uploading') return '업로드 중 · 이 단계에서는 화면을 끄거나 앱을 전환하지 마세요'
+    if (uploadPhase === 'server-accepted') return '서버에 접수됨 · 이제 재접속해도 최근 분석에서 이어서 확인할 수 있습니다'
     if (analyzeProgress < 20) return '레퍼런스 영상 음성 추출중'
     if (analyzeProgress < 40) return '전사 텍스트 정리중'
     if (analyzeProgress < 60) return '후킹 포인트 분석중'
     if (analyzeProgress < 80) return '구조화 분석중'
     if (analyzeProgress < 95) return 'A/B/C 초안 생성중'
     return '결과 마무리중'
-  }, [analyzeProgress])
+  }, [analyzeProgress, uploadPhase])
+
+  const uploadPhaseSteps = useMemo(() => {
+    const activeIndex =
+      uploadPhase === 'uploading'
+        ? 0
+        : uploadPhase === 'server-accepted'
+          ? 1
+          : currentStep === 'analyzing' || isAnalyzing
+            ? 2
+            : uploadPhase === 'completed'
+              ? 3
+              : -1
+
+    return [
+      {
+        label: '업로드 중',
+        description: '아직 위험',
+      },
+      {
+        label: '서버 접수',
+        description: '이후 복구 가능',
+      },
+      {
+        label: '분석 중',
+        description: 'AI 처리',
+      },
+      {
+        label: '완료',
+        description: '결과 확인',
+      },
+    ].map((item, index) => ({
+      ...item,
+      active: activeIndex === index,
+      done: activeIndex > index,
+    }))
+  }, [currentStep, isAnalyzing, uploadPhase])
 
   const analyzeDelayNotice = useMemo(() => {
     if (!(currentStep === 'analyzing' || isAnalyzing)) {
@@ -109,6 +148,9 @@ export default function UploadSection() {
     }
     if (analyzeErrorType === 'timeout') {
       return '타임아웃'
+    }
+    if (analyzeErrorType === 'recovering') {
+      return '복구 확인 중'
     }
     return '분석 실패'
   }, [analyzeErrorType])
@@ -242,6 +284,30 @@ export default function UploadSection() {
             </p>
             {currentStep === 'analyzing' ? (
               <p className="mt-1 text-[11px] text-[#9CA3AF] md:text-xs">{analyzeStageText}</p>
+            ) : null}
+            {currentStep === 'analyzing' || isAnalyzing ? (
+              <div className="mt-4 grid w-full max-w-[620px] grid-cols-4 gap-2 rounded-2xl border border-[#2F3543] bg-[#10151E] p-2">
+                {uploadPhaseSteps.map((step) => (
+                  <div
+                    key={step.label}
+                    className={`rounded-xl px-2 py-2 text-center transition ${
+                      step.active
+                        ? 'bg-[#232B39] text-[#F3F4F6]'
+                        : step.done
+                          ? 'bg-[#13251B] text-[#86EFAC]'
+                          : 'text-[#6B7280]'
+                    }`}
+                  >
+                    <div className="text-[10px] font-semibold leading-4 md:text-xs">{step.label}</div>
+                    <div className="mt-0.5 text-[9px] leading-3 opacity-80 md:text-[10px]">{step.description}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {uploadPhase === 'uploading' ? (
+              <div className="mt-3 rounded-2xl border border-[#7C2D12] bg-[#21160E] px-3 py-2 text-[11px] leading-4 text-[#FDBA74] md:px-4 md:text-xs">
+                지금은 영상이 서버에 올라가는 중입니다. 이 단계에서는 화면 잠금, 앱 전환, Safari 종료 시 실패할 수 있습니다.
+              </div>
             ) : null}
             {analyzeDelayNotice ? (
               <div className="mt-3 rounded-2xl border border-[#FDE68A] bg-[#2A2111] px-3 py-2 text-[11px] text-[#FDE68A] md:px-4 md:text-xs">

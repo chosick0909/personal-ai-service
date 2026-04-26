@@ -1,6 +1,7 @@
 import { apiFetch, createApiError, parseApiResponse } from './api'
 
 export async function createScriptSelection({
+  accountId,
   referenceId,
   selectedLabel,
   title,
@@ -13,6 +14,7 @@ export async function createScriptSelection({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      accountId,
       referenceId,
       selectedLabel,
       title,
@@ -30,6 +32,7 @@ export async function createScriptSelection({
 }
 
 export async function saveVersionRecord({
+  accountId,
   scriptId,
   title,
   sections,
@@ -43,6 +46,7 @@ export async function saveVersionRecord({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      accountId,
       title,
       sections,
       versionType,
@@ -59,8 +63,18 @@ export async function saveVersionRecord({
   return payload.version
 }
 
-export async function loadScriptVersions(scriptId) {
-  const response = await apiFetch(`/api/scripts/${scriptId}/versions`)
+function appendAccountQuery(path, accountId) {
+  const normalizedAccountId = String(accountId || '').trim()
+  if (!normalizedAccountId) {
+    return path
+  }
+
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}accountId=${encodeURIComponent(normalizedAccountId)}`
+}
+
+export async function loadScriptVersions(scriptId, accountId) {
+  const response = await apiFetch(appendAccountQuery(`/api/scripts/${scriptId}/versions`, accountId))
   const payload = await parseApiResponse(response)
 
   if (!response.ok) {
@@ -70,13 +84,13 @@ export async function loadScriptVersions(scriptId) {
   return payload.versions || []
 }
 
-export async function restoreScriptVersionRecord({ scriptId, versionId }) {
+export async function restoreScriptVersionRecord({ accountId, scriptId, versionId }) {
   const response = await apiFetch(`/api/scripts/${scriptId}/restore`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ versionId }),
+    body: JSON.stringify({ accountId, versionId }),
   })
   const payload = await parseApiResponse(response)
 

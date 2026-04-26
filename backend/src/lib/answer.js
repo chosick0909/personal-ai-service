@@ -12,6 +12,15 @@ function buildContextBlock(results) {
     .join('\n\n')
 }
 
+function buildCharacterBoundary(accountId) {
+  return [
+    `현재 선택된 캐릭터 계정 ID: ${accountId}`,
+    '이 답변은 현재 캐릭터 계정 전용이다.',
+    '다른 캐릭터/다른 계정의 업종, 상품, 타겟, 말투, 메모리를 섞지 않는다.',
+    '캐릭터 고정 규칙과 개인화 메모리가 충돌하면 캐릭터 고정 규칙과 현재 계정 설정을 우선한다.',
+  ].join('\n')
+}
+
 export async function answerQuestion({
   query,
   accountId,
@@ -54,6 +63,7 @@ export async function answerQuestion({
           role: 'system',
           content: [
             '당신은 문서 검색 기반 한국어 어시스턴트다. 답변은 반드시 제공된 context를 바탕으로 해야 한다. 다만 말투는 자연스럽고 실무적으로 풀어 설명한다. 사용자가 이해하기 쉽도록 핵심 설명 뒤에 필요한 경우 짧은 예시를 1~3개 만든다. context에 없는 사실을 단정하지 말고, 부족하면 context 기준으로는 확인되지 않는다고 분명히 말한다. 답변은 한국어로 작성한다.',
+            buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`

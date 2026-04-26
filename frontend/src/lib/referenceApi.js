@@ -118,6 +118,7 @@ export function mapReferenceAnalysisToUi(analysis) {
       keyPoints: buildKeyPoints(analysis),
       transcript: analysis.transcript || '',
       aiFeedback: analysis.ai_feedback || '',
+      errorMessage: analysis.error_message || '',
       globalKnowledgeDebug: Array.isArray(analysis.global_knowledge_debug)
         ? analysis.global_knowledge_debug
         : [],
@@ -142,6 +143,7 @@ export function mapReferenceAnalysisToUi(analysis) {
 export async function analyzeReferenceVideo({ file, topic, title, accountId, projectId }) {
   const formData = new FormData()
   formData.append('video', file)
+  formData.append('asyncProcessing', '1')
   if (accountId) {
     formData.append('accountId', String(accountId))
   }
@@ -170,8 +172,18 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, pro
   return mapReferenceAnalysisToUi(payload.analysis)
 }
 
-export async function listReferenceVideoHistory() {
-  const response = await apiFetch('/api/reference-videos')
+function appendAccountQuery(path, accountId) {
+  const normalizedAccountId = String(accountId || '').trim()
+  if (!normalizedAccountId) {
+    return path
+  }
+
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}accountId=${encodeURIComponent(normalizedAccountId)}`
+}
+
+export async function listReferenceVideoHistory(accountId) {
+  const response = await apiFetch(appendAccountQuery('/api/reference-videos', accountId))
   const payload = await parseApiResponse(response)
 
   if (!response.ok) {
@@ -190,8 +202,8 @@ export async function listReferenceVideoHistory() {
   }))
 }
 
-export async function fetchReferenceVideoDetail(referenceId) {
-  const response = await apiFetch(`/api/reference-videos/${referenceId}`)
+export async function fetchReferenceVideoDetail(referenceId, accountId) {
+  const response = await apiFetch(appendAccountQuery(`/api/reference-videos/${referenceId}`, accountId))
   const payload = await parseApiResponse(response)
 
   if (!response.ok) {
@@ -201,8 +213,8 @@ export async function fetchReferenceVideoDetail(referenceId) {
   return mapReferenceAnalysisToUi(payload.analysis)
 }
 
-export async function deleteReferenceVideo(referenceId) {
-  const response = await apiFetch(`/api/reference-videos/${referenceId}`, {
+export async function deleteReferenceVideo(referenceId, accountId) {
+  const response = await apiFetch(appendAccountQuery(`/api/reference-videos/${referenceId}`, accountId), {
     method: 'DELETE',
   })
   const payload = await parseApiResponse(response)
@@ -231,13 +243,14 @@ export async function updateReferenceVideo(referenceId, input = {}) {
   return payload.item || null
 }
 
-export async function generateScriptFeedback({ referenceId, scriptId, selectedLabel, sections }) {
+export async function generateScriptFeedback({ accountId, referenceId, scriptId, selectedLabel, sections }) {
   const response = await apiFetch('/api/scripts/feedback', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      accountId,
       referenceId,
       scriptId,
       selectedLabel,
@@ -254,6 +267,7 @@ export async function generateScriptFeedback({ referenceId, scriptId, selectedLa
 }
 
 export async function generateChatReply({
+  accountId,
   referenceId,
   selectedLabel,
   message,
@@ -265,6 +279,7 @@ export async function generateChatReply({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      accountId,
       referenceId,
       selectedLabel,
       request: message,

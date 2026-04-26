@@ -28,9 +28,15 @@ function requireSupabaseAdmin() {
   return getSupabaseAdmin()
 }
 
-function normalizeSessionId(sessionId, fallback) {
+function normalizeSessionId(sessionId, fallback, accountId = '') {
   const value = String(sessionId || '').trim()
-  return value || fallback
+  const normalizedAccountId = String(accountId || '').trim()
+  const raw = value || fallback
+  if (!normalizedAccountId) {
+    return raw
+  }
+  const accountPrefix = `account:${normalizedAccountId}:`
+  return raw.startsWith(accountPrefix) ? raw : `${accountPrefix}${raw}`
 }
 
 function formatMemoryRows(rows = []) {
@@ -137,7 +143,7 @@ export async function buildPersonalizationContext({
   fallbackSession = 'default',
 }) {
   const supabaseAdmin = requireSupabaseAdmin()
-  const normalizedSessionId = normalizeSessionId(sessionId, fallbackSession)
+  const normalizedSessionId = normalizeSessionId(sessionId, fallbackSession, accountId)
 
   const profile = await getAccountProfile(accountId)
 
@@ -254,6 +260,12 @@ export async function buildPersonalizationContext({
     summarizeRecentMessages(Array.isArray(sessionRow?.recent_messages) ? sessionRow.recent_messages : [])
 
   const context = [
+    '[CURRENT_CHARACTER_BOUNDARY]',
+    `- account_id: ${accountId}`,
+    '- 이 컨텍스트는 현재 선택된 캐릭터 계정 전용이다.',
+    '- 다른 캐릭터/다른 계정의 카테고리, 상품, 톤, 말투, 메모리가 섞이면 안 된다.',
+    '- 메모리와 세팅이 충돌하면 HARD_RULES와 현재 캐릭터 설정을 최우선으로 따른다.',
+    '',
     '[HARD_RULES]',
     hardRules.length ? hardRules.join('\n') : '- 없음',
     '',
@@ -289,7 +301,7 @@ export async function updatePersonalizationMemory({
   fallbackSession = 'default',
 }) {
   const supabaseAdmin = requireSupabaseAdmin()
-  const normalizedSessionId = normalizeSessionId(sessionId, fallbackSession)
+  const normalizedSessionId = normalizeSessionId(sessionId, fallbackSession, accountId)
   let persisted = true
 
   const quick = extractQuickPreferences(userInput)

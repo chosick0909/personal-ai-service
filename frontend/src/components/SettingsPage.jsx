@@ -133,7 +133,7 @@ function Field({ label, description, children }) {
 }
 
 export default function SettingsPage({ onBack }) {
-  const { currentAccount, markAccountConfigured, updateCurrentAccountName } = useAppState()
+  const { currentAccount, markAccountConfigured, startNewProject, updateCurrentAccountName } = useAppState()
   const [account, setAccount] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -336,6 +336,7 @@ export default function SettingsPage({ onBack }) {
 
       updateCurrentAccountName(currentAccount?.id, form.accountName.trim())
       markAccountConfigured(currentAccount?.id, true)
+      startNewProject()
       setSuccess('설정이 저장되었습니다.')
       window.setTimeout(() => {
         onBack()
