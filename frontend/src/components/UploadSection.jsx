@@ -25,6 +25,7 @@ export default function UploadSection() {
   const {
     currentStep,
     analyzeReference,
+    cancelCurrentAnalysis,
     isAnalyzing,
     analyzeError,
     analyzeErrorType,
@@ -37,6 +38,8 @@ export default function UploadSection() {
   const [dragActive, setDragActive] = useState(false)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
   const [analyzeElapsedSec, setAnalyzeElapsedSec] = useState(0)
+  const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false)
+  const [isCanceling, setIsCanceling] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -161,6 +164,15 @@ export default function UploadSection() {
     }
 
     await analyzeReference(file, { topic: uploadTopic })
+  }
+
+  const handleCancelAnalysis = async () => {
+    setIsCanceling(true)
+    const canceled = await cancelCurrentAnalysis()
+    setIsCanceling(false)
+    if (canceled) {
+      setIsCancelConfirmOpen(false)
+    }
   }
 
   return (
@@ -321,17 +333,56 @@ export default function UploadSection() {
               </div>
             ) : null}
 
-            <button
-              type="button"
-              disabled={isAnalyzing}
-              onClick={() => fileInputRef.current?.click()}
-              className="btn-solid-contrast mt-4 inline-flex h-11 items-center justify-center rounded-full px-6 text-sm font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:mt-8 md:h-14 md:px-8 md:text-base"
-            >
-              {isAnalyzing ? '분석 중...' : '파일 업로드'}
-            </button>
+            <div className="mt-4 flex flex-row items-center justify-center gap-4 md:mt-8 md:gap-5">
+              {currentStep === 'analyzing' || isAnalyzing ? (
+                <button
+                  type="button"
+                  onClick={() => setIsCancelConfirmOpen(true)}
+                  className="inline-flex h-11 min-w-[116px] items-center justify-center whitespace-nowrap rounded-full border border-[#4B5563] bg-[#171B24] px-5 text-xs font-semibold text-[#FCA5A5] transition hover:border-[#7F1D1D] hover:bg-[#2A1417] md:h-14 md:min-w-[150px] md:px-6 md:text-base"
+                >
+                  분석 중단
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => fileInputRef.current?.click()}
+                className="btn-solid-contrast inline-flex h-11 min-w-[116px] items-center justify-center rounded-full px-5 text-xs font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:h-14 md:min-w-[150px] md:px-6 md:text-base"
+              >
+                {isAnalyzing ? '분석 중...' : '파일 업로드'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+      {isCancelConfirmOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-[420px] rounded-[24px] border border-[#343A45] bg-[#111723] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.48)]">
+            <h3 className="text-xl font-bold tracking-[-0.02em] text-[#F3F4F6]">분석을 중단하시겠어요?</h3>
+            <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">
+              진행 중인 분석은 중단되고, 생성된 분석 기록도 삭제됩니다.
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={isCanceling}
+                onClick={() => setIsCancelConfirmOpen(false)}
+                className="h-11 rounded-full border border-[#3A414F] bg-[#171B24] text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#202633] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={isCanceling}
+                onClick={handleCancelAnalysis}
+                className="h-11 rounded-full border border-[#7F1D1D] bg-[#3A171A] text-sm font-semibold text-[#FCA5A5] transition hover:bg-[#4A1B1F] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCanceling ? '중단 중...' : '중단'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

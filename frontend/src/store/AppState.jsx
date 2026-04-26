@@ -39,6 +39,7 @@ const ACCOUNTS_CACHE_KEY = 'personal-ai-service:accounts-cache:v1'
 const ACCOUNTS_CACHE_TTL_MS = 1000 * 60 * 60 * 24
 const REFERENCE_DETAIL_CACHE_KEY = 'personal-ai-service:reference-detail-cache:v1'
 const REFERENCE_DETAIL_CACHE_TTL_MS = 1000 * 60 * 60 * 24
+const REFERENCE_DETAIL_PREFETCH_LIMIT = 8
 const SCRIPT_VERSIONS_CACHE_KEY = 'personal-ai-service:script-versions-cache:v1'
 const SCRIPT_VERSIONS_CACHE_TTL_MS = 1000 * 60 * 60 * 12
 const PROCESSING_POLL_FAST_MS = 3000
@@ -694,6 +695,10 @@ export function AppStateProvider({ children }) {
   const activeAccountIdRef = useRef(null)
   const referenceHistoryReadyByAccountRef = useRef({})
   const processingPollInFlightRef = useRef(new Set())
+  const referencePrefetchInFlightRef = useRef(new Set())
+  const analysisRunTokenRef = useRef(0)
+  const analysisAbortControllerRef = useRef(null)
+  const canceledAnalysisTokensRef = useRef(new Set())
   const isCurrentAccountRequest = (accountId) =>
     Boolean(accountId) && activeAccountIdRef.current === accountId
 
@@ -1300,11 +1305,65 @@ export function AppStateProvider({ children }) {
           })
           .filter(Boolean)
         setCachedReferenceHistory(accountId, merged)
+        prefetchReferenceDetails(merged, accountId)
         return merged
       })
     } catch (_error) {
       // keep sidebar empty if history fetch fails in mock/dev startup
     }
+  }
+
+  const prefetchReferenceDetails = (items, accountId = currentAccount?.id) => {
+    const normalizedAccountId = String(accountId || '').trim()
+    if (!normalizedAccountId || !Array.isArray(items) || !items.length) {
+      return
+    }
+
+    items
+      .filter((item) => {
+        const normalizedReferenceId = String(item?.id || '').trim()
+        return (
+          normalizedReferenceId &&
+          item.status !== 'processing' &&
+          item.status !== 'failed' &&
+          !normalizedReferenceId.startsWith('reference-') &&
+          !getCachedReferenceDetail(normalizedAccountId, normalizedReferenceId)
+        )
+      })
+      .slice(0, REFERENCE_DETAIL_PREFETCH_LIMIT)
+      .forEach((item) => {
+        const normalizedReferenceId = String(item.id).trim()
+        const prefetchKey = referenceDetailCacheKey(normalizedAccountId, normalizedReferenceId)
+        if (referencePrefetchInFlightRef.current.has(prefetchKey)) {
+          return
+        }
+
+        referencePrefetchInFlightRef.current.add(prefetchKey)
+        fetchReferenceVideoDetail(normalizedReferenceId, normalizedAccountId)
+          .then((detail) => {
+            if (!isCurrentAccountRequest(normalizedAccountId)) {
+              return
+            }
+            setCachedReferenceDetail(normalizedAccountId, normalizedReferenceId, detail)
+            setReferenceHistory((current) =>
+              current.map((historyItem) =>
+                historyItem.id === normalizedReferenceId
+                  ? {
+                      ...historyItem,
+                      ...detail.reference,
+                      generatedScripts: detail.generatedScripts,
+                    }
+                  : historyItem,
+              ),
+            )
+          })
+          .catch(() => {
+            // Prefetch is best-effort; clicking the item will still fetch on demand.
+          })
+          .finally(() => {
+            referencePrefetchInFlightRef.current.delete(prefetchKey)
+          })
+      })
   }
 
   const selectAccount = (accountId) => {
@@ -1389,6 +1448,13 @@ export function AppStateProvider({ children }) {
   }
 
   const startNewProject = () => {
+    const cancelToken = analysisRunTokenRef.current
+    if (cancelToken) {
+      canceledAnalysisTokensRef.current.add(cancelToken)
+    }
+    analysisRunTokenRef.current += 1
+    analysisAbortControllerRef.current?.abort()
+    analysisAbortControllerRef.current = null
     activeReferenceIdRef.current = null
     setCurrentStep('upload')
     setReferenceData(null)
@@ -1408,6 +1474,43 @@ export function AppStateProvider({ children }) {
     setIsEditorEntering(false)
     setIsResultEntering(false)
     setCopilotUsage(createInitialCopilotUsage())
+  }
+
+  const cancelCurrentAnalysis = async () => {
+    const requestAccountId = currentAccount?.id
+    const normalizedReferenceId = String(referenceData?.id || activeReferenceIdRef.current || '').trim()
+
+    const cancelToken = analysisRunTokenRef.current
+    if (cancelToken) {
+      canceledAnalysisTokensRef.current.add(cancelToken)
+    }
+    analysisRunTokenRef.current += 1
+    analysisAbortControllerRef.current?.abort()
+    analysisAbortControllerRef.current = null
+
+    if (!normalizedReferenceId) {
+      startNewProject()
+      showToast('분석을 중단했습니다.')
+      return true
+    }
+
+    const shouldDeleteServerRecord = !normalizedReferenceId.startsWith('reference-')
+
+    setReferenceHistory((current) => current.filter((item) => item.id !== normalizedReferenceId))
+    removeCachedReferenceDetail(requestAccountId, normalizedReferenceId)
+    startNewProject()
+
+    if (shouldDeleteServerRecord) {
+      try {
+        await deleteReferenceVideoRecord(normalizedReferenceId, requestAccountId)
+      } catch (error) {
+        showToast(error.message || '분석 중단 처리에 실패했습니다.', 'error')
+        return false
+      }
+    }
+
+    showToast('분석을 중단하고 삭제했습니다.')
+    return true
   }
 
   const createProject = async (name = '') => {
@@ -1743,19 +1846,6 @@ export function AppStateProvider({ children }) {
       return undefined
     }
 
-    if (!referenceData) {
-      const firstProcessing = processingItems[0]
-      activeReferenceIdRef.current = firstProcessing.id
-      setReferenceData(firstProcessing)
-      setGeneratedScripts([])
-      setCurrentStep('analyzing')
-      setIsAnalyzing(true)
-      setUploadPhase('analyzing')
-      setAnalyzeError('')
-      setAnalyzeErrorType('')
-      setUploadPhase('analyzing')
-    }
-
     const getNextDelay = () => {
       const startedAt = processingItems
         .map((item) => new Date(item.createdAt || item.created_at || Date.now()).getTime())
@@ -1800,6 +1890,15 @@ export function AppStateProvider({ children }) {
     if (!requestAccountId) {
       throw new Error('계정을 먼저 선택하세요.')
     }
+    const requestToken = analysisRunTokenRef.current + 1
+    analysisRunTokenRef.current = requestToken
+    canceledAnalysisTokensRef.current.delete(requestToken)
+    analysisAbortControllerRef.current?.abort()
+    const requestAbortController = new AbortController()
+    analysisAbortControllerRef.current = requestAbortController
+    const isCurrentAnalysisRequest = () =>
+      isCurrentAccountRequest(requestAccountId) && analysisRunTokenRef.current === requestToken
+
     const normalizedTopic = typeof options.topic === 'string'
       ? options.topic.trim()
       : uploadTopic.trim()
@@ -1846,8 +1945,20 @@ export function AppStateProvider({ children }) {
         topic: effectiveTopic,
         title: uploadTitle,
         projectId: currentProjectId || null,
+        signal: requestAbortController.signal,
       })
-      if (activeAccountIdRef.current !== requestAccountId) {
+      if (!isCurrentAnalysisRequest()) {
+        if (canceledAnalysisTokensRef.current.has(requestToken)) {
+          const staleReferenceId = String(analysis?.reference?.id || '').trim()
+          if (staleReferenceId && !staleReferenceId.startsWith('reference-')) {
+            try {
+              await deleteReferenceVideoRecord(staleReferenceId, requestAccountId)
+            } catch {
+              // The user already left the flow; best-effort cleanup avoids resurrecting canceled jobs.
+            }
+          }
+          canceledAnalysisTokensRef.current.delete(requestToken)
+        }
         return
       }
 
@@ -1889,6 +2000,14 @@ export function AppStateProvider({ children }) {
         })
       }
     } catch (error) {
+      if (!isCurrentAnalysisRequest()) {
+        canceledAnalysisTokensRef.current.delete(requestToken)
+        return
+      }
+      if (error?.name === 'AbortError') {
+        canceledAnalysisTokensRef.current.delete(requestToken)
+        return
+      }
       console.groupCollapsed('[reference-analysis] analyze failed')
       console.error('message:', error.message)
       console.error('code:', error.code || null)
@@ -1896,9 +2015,6 @@ export function AppStateProvider({ children }) {
       console.error('requestId:', error.requestId || null)
       console.error(error)
       console.groupEnd()
-      if (activeAccountIdRef.current !== requestAccountId) {
-        return
-      }
       const analyzedFailure = classifyAnalyzeFailure(error)
       setAnalyzeError(analyzedFailure.message)
       setAnalyzeErrorType(analyzedFailure.type)
@@ -1916,7 +2032,10 @@ export function AppStateProvider({ children }) {
         setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
       }
     } finally {
-      if (activeAccountIdRef.current === requestAccountId && !keepAnalyzingAfterError) {
+      if (analysisAbortControllerRef.current === requestAbortController) {
+        analysisAbortControllerRef.current = null
+      }
+      if (isCurrentAnalysisRequest() && !keepAnalyzingAfterError) {
         setIsAnalyzing(false)
       }
     }
@@ -2120,8 +2239,15 @@ export function AppStateProvider({ children }) {
     }
 
     const cachedDetail = getCachedReferenceDetail(requestAccountId, referenceId)
-    if (cachedDetail) {
-      applyOpenedState({ detail: cachedDetail, baseItem: item })
+    const historyDetail = Array.isArray(item.generatedScripts)
+      ? {
+          reference: item,
+          generatedScripts: item.generatedScripts,
+        }
+      : null
+    const immediateDetail = cachedDetail || historyDetail
+    if (immediateDetail) {
+      applyOpenedState({ detail: immediateDetail, baseItem: item })
     }
 
     const open = async () => {
@@ -2129,7 +2255,7 @@ export function AppStateProvider({ children }) {
       try {
         detail = await fetchReferenceVideoDetail(referenceId, requestAccountId)
       } catch (error) {
-        if (cachedDetail) {
+        if (immediateDetail) {
           return
         }
 
@@ -2694,6 +2820,7 @@ export function AppStateProvider({ children }) {
       moveReferenceToProject,
       deleteReferenceHistoryItem,
       startNewProject,
+      cancelCurrentAnalysis,
       login,
       signup,
       logout,
@@ -2765,6 +2892,7 @@ export function AppStateProvider({ children }) {
       moveReferenceToProject,
       deleteReferenceHistoryItem,
       startNewProject,
+      cancelCurrentAnalysis,
       logout,
     ],
   )

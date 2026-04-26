@@ -140,7 +140,7 @@ export function mapReferenceAnalysisToUi(analysis) {
   }
 }
 
-export async function analyzeReferenceVideo({ file, topic, title, accountId, projectId }) {
+export async function analyzeReferenceVideo({ file, topic, title, accountId, projectId, signal }) {
   const formData = new FormData()
   formData.append('video', file)
   formData.append('asyncProcessing', '1')
@@ -162,6 +162,7 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, pro
     method: 'POST',
     timeoutMs: 8 * 60 * 1000,
     body: formData,
+    signal,
   })
   const payload = await parseApiResponse(response)
 
