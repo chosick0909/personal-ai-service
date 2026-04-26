@@ -4,6 +4,32 @@ const TARGET_MAX_DIMENSION = 720
 const TARGET_FRAME_RATE = 30
 const TARGET_VIDEO_BITRATE = 1_800_000
 const TARGET_AUDIO_BITRATE = 96_000
+const METADATA_TIMEOUT_MS = 5000
+const COMPRESSION_TIMEOUT_MS = 12000
+
+function isLikelyIOS() {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+
+  const userAgent = navigator.userAgent || ''
+  const platform = navigator.platform || ''
+  const touchPoints = navigator.maxTouchPoints || 0
+  return /iPad|iPhone|iPod/i.test(userAgent) || (platform === 'MacIntel' && touchPoints > 1)
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timer = null
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      window.clearTimeout(timer)
+    }
+  })
+}
 
 function canUseBrowserVideoCompression() {
   return (
@@ -40,10 +66,18 @@ function loadVideoMetadata(file) {
     video.muted = true
 
     const cleanup = () => {
+      if (timer) {
+        window.clearTimeout(timer)
+      }
       URL.revokeObjectURL(url)
       video.removeAttribute('src')
       video.load()
     }
+
+    const timer = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('영상 정보 읽기 시간이 초과되었습니다.'))
+    }, METADATA_TIMEOUT_MS)
 
     video.onloadedmetadata = () => {
       const duration = Number(video.duration || 0)
@@ -84,6 +118,10 @@ export async function optimizeVideoForUpload(file, { onProgress } = {}) {
 
   if (!canUseBrowserVideoCompression()) {
     return { file, optimized: false, reason: 'unsupported-browser' }
+  }
+
+  if (isLikelyIOS()) {
+    return { file, optimized: false, reason: 'ios-skip' }
   }
 
   if (file.size < MIN_COMPRESS_BYTES) {
@@ -189,8 +227,8 @@ export async function optimizeVideoForUpload(file, { onProgress } = {}) {
 
     recorder.start(1000)
     draw()
-    await video.play()
-    await finished
+    await withTimeout(video.play(), 3000, '영상 최적화 재생이 지연되었습니다.')
+    await withTimeout(finished, COMPRESSION_TIMEOUT_MS, '영상 최적화 시간이 초과되었습니다.')
 
     onProgress?.(100)
     const blob = new Blob(chunks, { type: mimeType.split(';')[0] || 'video/webm' })
