@@ -29,6 +29,7 @@ export default function UploadSection() {
     analyzeError,
     analyzeErrorType,
     uploadPhase,
+    uploadOptimization,
     uploadTopic,
     setUploadTopic,
     uploadTitle,
@@ -83,6 +84,7 @@ export default function UploadSection() {
   }, [currentStep, isAnalyzing])
 
   const analyzeStageText = useMemo(() => {
+    if (uploadPhase === 'compressing') return '모바일 안정성을 위해 영상을 720p급으로 최적화하는 중입니다'
     if (uploadPhase === 'uploading') return '업로드 중 · 이 단계에서는 화면을 끄거나 앱을 전환하지 마세요'
     if (uploadPhase === 'server-accepted') return '서버에 접수됨 · 이제 재접속해도 최근 분석에서 이어서 확인할 수 있습니다'
     if (analyzeProgress < 20) return '레퍼런스 영상 음성 추출중'
@@ -95,17 +97,23 @@ export default function UploadSection() {
 
   const uploadPhaseSteps = useMemo(() => {
     const activeIndex =
-      uploadPhase === 'uploading'
+      uploadPhase === 'compressing'
         ? 0
-        : uploadPhase === 'server-accepted'
+        : uploadPhase === 'uploading'
           ? 1
-          : currentStep === 'analyzing' || isAnalyzing
+          : uploadPhase === 'server-accepted'
             ? 2
-            : uploadPhase === 'completed'
+            : currentStep === 'analyzing' || isAnalyzing
               ? 3
-              : -1
+              : uploadPhase === 'completed'
+                ? 4
+                : -1
 
     return [
+      {
+        label: '최적화',
+        description: '용량 축소',
+      },
       {
         label: '업로드 중',
         description: '아직 위험',
@@ -128,6 +136,21 @@ export default function UploadSection() {
       done: activeIndex > index,
     }))
   }, [currentStep, isAnalyzing, uploadPhase])
+
+  const visibleProgress = uploadPhase === 'compressing'
+    ? Math.max(1, Math.min(99, uploadOptimization?.progress || 1))
+    : analyzeProgress
+
+  const optimizationSummary = useMemo(() => {
+    if (!uploadOptimization?.optimized || !uploadOptimization.originalSize || !uploadOptimization.optimizedSize) {
+      return ''
+    }
+    const savedPercent = Math.max(
+      1,
+      Math.round((1 - uploadOptimization.optimizedSize / uploadOptimization.originalSize) * 100),
+    )
+    return `업로드 전 용량을 약 ${savedPercent}% 줄였습니다.`
+  }, [uploadOptimization])
 
   const analyzeDelayNotice = useMemo(() => {
     if (!(currentStep === 'analyzing' || isAnalyzing)) {
@@ -246,11 +269,11 @@ export default function UploadSection() {
                 <div
                   className="flex h-11 w-11 items-center justify-center rounded-full md:h-14 md:w-14"
                   style={{
-                    background: `conic-gradient(#7C3AED ${analyzeProgress * 3.6}deg, #2F3543 ${analyzeProgress * 3.6}deg 360deg)`,
+                    background: `conic-gradient(#7C3AED ${visibleProgress * 3.6}deg, #2F3543 ${visibleProgress * 3.6}deg 360deg)`,
                   }}
                 >
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#141923] text-[10px] font-semibold text-[#E5E7EB] md:h-[50px] md:w-[50px] md:text-xs">
-                    {analyzeProgress}%
+                    {visibleProgress}%
                   </div>
                 </div>
               ) : (
@@ -259,7 +282,11 @@ export default function UploadSection() {
             </div>
 
             <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:mt-8 md:text-xs">
-              {currentStep === 'analyzing' ? `Analyzing ${analyzeProgress}%` : 'Drag & Drop'}
+              {currentStep === 'analyzing'
+                ? uploadPhase === 'compressing'
+                  ? `Optimizing ${visibleProgress}%`
+                  : `Analyzing ${visibleProgress}%`
+                : 'Drag & Drop'}
             </div>
 
             <h2 className="mt-2.5 text-[23px] font-bold leading-[1.14] tracking-[-0.03em] text-[#F3F4F6] md:mt-4 md:text-2xl md:leading-8">
@@ -279,14 +306,16 @@ export default function UploadSection() {
 
             <p className="mt-2 text-[11px] leading-4.5 text-[#8E97A6] md:text-sm md:leading-6">
               {currentStep === 'analyzing'
-                ? '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
+                ? uploadPhase === 'compressing'
+                  ? '업로드 전에 영상 용량을 줄여 모바일 끊김 가능성을 낮추고 있습니다.'
+                  : '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
                 : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다. (긴 영상은 앞부분 중심으로 분석)'}
             </p>
             {currentStep === 'analyzing' ? (
               <p className="mt-1 text-[11px] text-[#9CA3AF] md:text-xs">{analyzeStageText}</p>
             ) : null}
             {currentStep === 'analyzing' || isAnalyzing ? (
-              <div className="mt-4 grid w-full max-w-[620px] grid-cols-4 gap-2 rounded-2xl border border-[#2F3543] bg-[#10151E] p-2">
+              <div className="mt-4 grid w-full max-w-[680px] grid-cols-5 gap-1.5 rounded-2xl border border-[#2F3543] bg-[#10151E] p-2 md:gap-2">
                 {uploadPhaseSteps.map((step) => (
                   <div
                     key={step.label}
@@ -302,6 +331,16 @@ export default function UploadSection() {
                     <div className="mt-0.5 text-[9px] leading-3 opacity-80 md:text-[10px]">{step.description}</div>
                   </div>
                 ))}
+              </div>
+            ) : null}
+            {optimizationSummary ? (
+              <div className="mt-3 rounded-2xl border border-[#14532D] bg-[#0F2218] px-3 py-2 text-[11px] leading-4 text-[#86EFAC] md:px-4 md:text-xs">
+                {optimizationSummary}
+              </div>
+            ) : null}
+            {uploadPhase === 'compressing' ? (
+              <div className="mt-3 rounded-2xl border border-[#334155] bg-[#111827] px-3 py-2 text-[11px] leading-4 text-[#CBD5E1] md:px-4 md:text-xs">
+                최적화 중에는 화면을 잠그거나 앱을 전환하지 않는 편이 안전합니다. 지원하지 않는 기기에서는 원본으로 바로 업로드합니다.
               </div>
             ) : null}
             {uploadPhase === 'uploading' ? (
