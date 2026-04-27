@@ -88,6 +88,53 @@ function summarizeFrameInsight(frameNotes = []) {
     .join('\n')
 }
 
+function normalizeComparableText(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[“”"'\[\]{}()<>.,!?;:·•\-–—_~`|/\\]/g, ' ')
+    .replace(/\b(hook|body|cta|ai|a\/b\/c)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isSimilarText(a = '', b = '') {
+  const left = normalizeComparableText(a)
+  const right = normalizeComparableText(b)
+  if (!left || !right) return false
+  if (left === right) return true
+  if (left.length >= 18 && right.length >= 18 && (left.includes(right) || right.includes(left))) {
+    return true
+  }
+
+  const leftTokens = new Set(left.split(' ').filter((token) => token.length >= 2))
+  const rightTokens = new Set(right.split(' ').filter((token) => token.length >= 2))
+  if (!leftTokens.size || !rightTokens.size) return false
+
+  let intersection = 0
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) intersection += 1
+  }
+
+  const overlap = intersection / Math.min(leftTokens.size, rightTokens.size)
+  return intersection >= 4 && overlap >= 0.72
+}
+
+function dedupeTextList(values = [], max = 4, excluded = []) {
+  const result = []
+  const exclusions = Array.isArray(excluded) ? excluded.filter(Boolean) : []
+
+  for (const value of values) {
+    const normalized = String(value || '').trim()
+    if (!normalized) continue
+    if (exclusions.some((item) => isSimilarText(item, normalized))) continue
+    if (result.some((item) => isSimilarText(item, normalized))) continue
+    result.push(normalized)
+    if (result.length >= max) break
+  }
+
+  return result
+}
+
 function buildKeyPoints(analysis) {
   const items = [
     analysis.structure_analysis,
@@ -96,7 +143,14 @@ function buildKeyPoints(analysis) {
     analysis.ai_feedback,
   ]
 
-  return items.filter(Boolean).slice(0, 4)
+  const panelItems = [
+    analysis.structure_analysis,
+    analysis.hook_analysis,
+    analysis.psychology_analysis,
+    summarizeFrameInsight(analysis.frame_notes || []),
+  ]
+
+  return dedupeTextList(items, 4, panelItems)
 }
 
 export function mapReferenceAnalysisToUi(analysis) {

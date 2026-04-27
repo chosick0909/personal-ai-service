@@ -2,6 +2,14 @@ import { AppError } from './errors.js'
 import { getAccountProfile } from './account-profile.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 
+const VOICE_TONE_LABELS = {
+  expert: '전문가형',
+  friendly: '친근한 언니형',
+  coach: '코치형',
+  storyteller: '스토리텔러형',
+  trendy: '트렌디한 MZ 톤',
+}
+
 function requireSupabaseAdmin() {
   if (!hasSupabaseAdminConfig()) {
     throw new AppError('Supabase admin client is not configured', {
@@ -20,7 +28,15 @@ function buildCharacterSystemPrompt({ account, profile }) {
   const category = typeof settings.category === 'string' ? settings.category.trim() : ''
   const instagramId = typeof settings.instagramId === 'string' ? settings.instagramId.trim() : ''
   const accountGoal = typeof settings.accountGoal === 'string' ? settings.accountGoal.trim() : ''
-  const voiceTone = typeof settings.voiceTone === 'string' ? settings.voiceTone.trim() : ''
+  const voiceTones = Array.isArray(settings.voiceTones)
+    ? settings.voiceTones.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 2)
+    : []
+  const voiceToneLabels = voiceTones.map((item) => VOICE_TONE_LABELS[item] || item)
+  const voiceTone = voiceTones.length
+    ? voiceToneLabels.join(' + ')
+    : typeof settings.voiceTone === 'string'
+      ? VOICE_TONE_LABELS[settings.voiceTone.trim()] || settings.voiceTone.trim()
+      : ''
   const persona = settings.persona && typeof settings.persona === 'object' ? settings.persona : {}
   const strategyPreferences = Array.isArray(settings.strategyPreferences)
     ? settings.strategyPreferences.map((item) => String(item || '').trim()).filter(Boolean)
@@ -41,7 +57,9 @@ function buildCharacterSystemPrompt({ account, profile }) {
   const responseGoal = typeof settings.responseGoal === 'string' ? settings.responseGoal.trim() : ''
 
   const profileTraits = [
-    voiceTone || profile?.tone?.trim() ? `브랜드 보이스/톤: ${voiceTone || profile.tone.trim()}` : null,
+    voiceTone || profile?.tone?.trim()
+      ? `브랜드 보이스/톤: ${voiceTone || profile.tone.trim()}${voiceTones.length > 1 ? ' (첫 번째 톤을 기본으로, 두 번째 톤은 보조로만 섞기)' : ''}`
+      : null,
     profile?.target_audience?.trim() ? `타겟 요약: ${profile.target_audience.trim()}` : null,
     accountGoal || profile?.goal?.trim() ? `운영 목적: ${accountGoal || profile.goal.trim()}` : null,
     profile?.strategy?.trim() ? `전략 요약: ${profile.strategy.trim()}` : null,

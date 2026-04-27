@@ -35,6 +35,66 @@ function normalizeSections(sections = {}) {
   }
 }
 
+function compactSummaryText(value = '', maxLength = 34) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
+}
+
+function isGenericRefineMessage(message = '') {
+  const text = String(message || '').trim()
+  if (!text) return true
+
+  const genericPatterns = [
+    /요청을\s*반영/,
+    /다시\s*정리/,
+    /수정(?:을)?\s*적용/,
+    /수정(?:했|하였)습니다/,
+    /다듬(?:었|었습니다)/,
+  ]
+  const concretePatterns = [
+    /HOOK|BODY|CTA/,
+    /훅|본문|바디|행동|유도|흐름|전개|시작|문제|결론/,
+    /식으로|방향으로|느낌으로/,
+  ]
+
+  return genericPatterns.some((pattern) => pattern.test(text)) && !concretePatterns.some((pattern) => pattern.test(text))
+}
+
+function buildFallbackRefineMessage(previousSections = {}, nextSections = {}) {
+  const previous = normalizeSections(previousSections)
+  const next = normalizeSections(nextSections)
+  const changes = []
+
+  if (next.hook && next.hook !== previous.hook) {
+    const hookPreview = compactSummaryText(next.hook)
+    changes.push(
+      hookPreview
+        ? `HOOK은 "${hookPreview}"처럼 바로 문제를 찌르는 식으로 바꿨습니다`
+        : 'HOOK은 첫 문장에서 문제를 더 바로 찌르는 식으로 바꿨습니다',
+    )
+  }
+
+  if (next.body && next.body !== previous.body) {
+    changes.push('BODY는 상황에서 해결 흐름으로 자연스럽게 이어지게 풀었습니다')
+  }
+
+  if (next.cta && next.cta !== previous.cta) {
+    const ctaPreview = compactSummaryText(next.cta)
+    changes.push(
+      ctaPreview
+        ? `CTA는 "${ctaPreview}"처럼 다음 행동이 더 분명하게 보이게 정리했습니다`
+        : 'CTA는 다음 행동이 더 분명하게 보이게 정리했습니다',
+    )
+  }
+
+  if (!changes.length) {
+    return '전체 구조는 유지하고 문장 리듬과 표현을 더 자연스럽게 다듬었습니다.'
+  }
+
+  return `${changes.slice(0, 2).join('. ')}.`
+}
+
 async function loadReferenceContext(supabaseAdmin, accountId, referenceId) {
   const { data, error } = await supabaseAdmin
     .from('reference_videos')
@@ -154,6 +214,8 @@ export async function refineScriptWithAI({
             '연결성 규칙: HOOK에서 던진 문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
             '아래 핵심 인사이트/체크포인트를 가능한 한 유지해서 수정한다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
+            'message 규칙: "요청을 반영했습니다", "다시 정리했습니다"처럼 뭉뚱그린 말은 금지한다. 무엇을 어떤 식으로 바꿨는지 구체적으로 말한다.',
+            'message 예시: "HOOK은 문제를 바로 찌르는 식으로 바꾸고, BODY는 전후 변화가 보이게 풀었습니다." 실제로 바꾼 섹션만 언급한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
@@ -185,6 +247,10 @@ export async function refineScriptWithAI({
             '- HOOK: 평범한 질문형 금지, 첫 문장 긴장감\n' +
             '- BODY: 교과서 문장 금지, 상황/경험형 전개\n' +
             '- CTA: 이유가 있는 행동 유도, 뻔한 부탁형 금지\n\n' +
+            'message 작성 지침:\n' +
+            '- "요청을 반영해 정리했습니다" 같은 일반 요약 금지\n' +
+            '- 어떤 섹션을 어떤 식으로 바꿨는지 1~2문장으로 구체적으로 작성\n' +
+            '- 예: "HOOK은 불편 상황을 바로 찌르는 식으로 바꾸고, CTA는 댓글 행동 유도로 정리했습니다."\n\n' +
             '다음 JSON 형식으로만 답하세요: ' +
             '{"message":"","sections":{"hook":"","body":"","cta":""}}',
         },
@@ -199,11 +265,13 @@ export async function refineScriptWithAI({
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
     const nextSections = normalizeSections(parsed.sections)
+    const parsedMessage = parsed.message?.trim() || ''
 
     return {
       message:
-        parsed.message?.trim() ||
-        '요청을 반영해 HOOK, BODY, CTA를 다시 정리했습니다.',
+        parsedMessage && !isGenericRefineMessage(parsedMessage)
+          ? parsedMessage
+          : buildFallbackRefineMessage(normalizedSections, nextSections),
       sections: nextSections,
     }
   } catch (error) {

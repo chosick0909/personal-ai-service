@@ -678,6 +678,37 @@ function toBulletCandidates(text = '') {
     .filter((line) => line.length >= 8)
 }
 
+function normalizeComparableGuideText(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[“”"'\[\]{}()<>.,!?;:·•\-–—_~`|/\\]/g, ' ')
+    .replace(/\b(hook|body|cta|ai|a\/b\/c)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isSimilarGuideText(a = '', b = '') {
+  const left = normalizeComparableGuideText(a)
+  const right = normalizeComparableGuideText(b)
+  if (!left || !right) return false
+  if (left === right) return true
+  if (left.length >= 18 && right.length >= 18 && (left.includes(right) || right.includes(left))) {
+    return true
+  }
+
+  const leftTokens = new Set(left.split(' ').filter((token) => token.length >= 2))
+  const rightTokens = new Set(right.split(' ').filter((token) => token.length >= 2))
+  if (!leftTokens.size || !rightTokens.size) return false
+
+  let intersection = 0
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) intersection += 1
+  }
+
+  const overlap = intersection / Math.min(leftTokens.size, rightTokens.size)
+  return intersection >= 4 && overlap >= 0.72
+}
+
 function normalizeStringList(values = [], max = 3) {
   if (!Array.isArray(values)) {
     return []
@@ -687,11 +718,30 @@ function normalizeStringList(values = [], max = 3) {
   for (const value of values) {
     const normalized = String(value || '').trim()
     if (!normalized) continue
-    if (deduped.includes(normalized)) continue
+    if (deduped.some((item) => isSimilarGuideText(item, normalized))) continue
     deduped.push(normalized)
     if (deduped.length >= max) break
   }
   return deduped
+}
+
+function removeOverlappingGuideItems(primary = [], secondary = [], max = 4) {
+  const normalizedPrimary = normalizeStringList(primary, max)
+  const filteredSecondary = []
+
+  for (const value of Array.isArray(secondary) ? secondary : []) {
+    const normalized = String(value || '').trim()
+    if (!normalized) continue
+    if (normalizedPrimary.some((item) => isSimilarGuideText(item, normalized))) continue
+    if (filteredSecondary.some((item) => isSimilarGuideText(item, normalized))) continue
+    filteredSecondary.push(normalized)
+    if (filteredSecondary.length >= max) break
+  }
+
+  return {
+    primary: normalizedPrimary,
+    secondary: filteredSecondary,
+  }
 }
 
 function clampText(text = '', maxLength = 800) {
@@ -735,14 +785,26 @@ function normalizeSettingCue(value = '') {
   return trimmed.replace(/\s+/g, ' ')
 }
 
+function resolveVoiceToneLabels(accountSettings = {}) {
+  const rawValues = Array.isArray(accountSettings?.voiceTones)
+    ? accountSettings.voiceTones
+    : [accountSettings?.voiceTone]
+
+  return rawValues
+    .map((item) => String(item || '').trim())
+    .filter((item, index, array) => item && array.indexOf(item) === index)
+    .slice(0, 2)
+    .map((item) => normalizeSettingCue(VOICE_TONE_LABELS[item] || item))
+    .filter(Boolean)
+}
+
 function buildSettingCues(accountSettings = {}) {
   const persona = accountSettings?.persona && typeof accountSettings.persona === 'object'
     ? accountSettings.persona
     : {}
   const characterPrompt = normalizeSettingCue(accountSettings?.characterPrompt)
   const aiAdditionalInfo = normalizeSettingCue(accountSettings?.aiAdditionalInfo)
-  const voiceToneRaw = String(accountSettings?.voiceTone || '').trim()
-  const voiceToneLabel = normalizeSettingCue(VOICE_TONE_LABELS[voiceToneRaw] || voiceToneRaw)
+  const voiceToneLabels = resolveVoiceToneLabels(accountSettings)
   const cues = []
   const goal = normalizeSettingCue(
     ACCOUNT_GOAL_LABELS[String(accountSettings?.accountGoal || '').trim()] ||
@@ -770,8 +832,8 @@ function buildSettingCues(accountSettings = {}) {
     }
   }
 
-  if (voiceToneLabel) {
-    cues.push(voiceToneLabel)
+  for (const label of voiceToneLabels) {
+    cues.push(label)
   }
 
   const personaSignals = [
@@ -872,15 +934,15 @@ function buildGenerationGuides({ analysisResult }) {
     ...toBulletCandidates(analysisResult?.aiFeedback || ''),
   ]
 
+  const deduped = removeOverlappingGuideItems(
+    insights.filter((line) => isUsableScriptGuideLine(line)),
+    checkpoints.filter((line) => isUsableScriptGuideLine(line)),
+    4,
+  )
+
   return {
-    keyInsights: normalizeStringList(
-      insights.filter((line) => isUsableScriptGuideLine(line)),
-      4,
-    ),
-    checkpoints: normalizeStringList(
-      checkpoints.filter((line) => isUsableScriptGuideLine(line)),
-      4,
-    ),
+    keyInsights: deduped.primary,
+    checkpoints: deduped.secondary,
   }
 }
 
@@ -1042,7 +1104,7 @@ function buildCategoryGuard({ accountSettings = {}, characterSystemPrompt = '' }
   const instagramId = String(accountSettings?.instagramId || '')
     .trim()
     .replace(/^@/, '')
-  const voiceTone = String(accountSettings?.voiceTone || '').trim()
+  const voiceTone = resolveVoiceToneLabels(accountSettings).join(' + ')
   const strategyPreferences = Array.isArray(accountSettings?.strategyPreferences)
     ? accountSettings.strategyPreferences.map((item) => String(item || '').trim()).filter(Boolean)
     : []

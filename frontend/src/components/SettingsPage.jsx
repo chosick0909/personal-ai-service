@@ -71,6 +71,21 @@ const VOICE_TONE_OPTIONS = [
   { id: 'storyteller', title: '스토리텔러형', description: '이야기로 전달하는 톤' },
   { id: 'trendy', title: '트렌디한 MZ 톤', description: '밈과 트렌드를 활용하는 톤' },
 ]
+const MAX_VOICE_TONE_SELECTIONS = 2
+
+function normalizeVoiceTones(settings = {}, profileTone = '') {
+  const source = Array.isArray(settings.voiceTones)
+    ? settings.voiceTones
+    : [settings.voiceTone || profileTone || VOICE_TONE_OPTIONS[0].id]
+
+  const validIds = new Set(VOICE_TONE_OPTIONS.map((item) => item.id))
+  const normalized = source
+    .map((item) => String(item || '').trim())
+    .filter((item, index, array) => validIds.has(item) && array.indexOf(item) === index)
+    .slice(0, MAX_VOICE_TONE_SELECTIONS)
+
+  return normalized.length ? normalized : [VOICE_TONE_OPTIONS[0].id]
+}
 
 function createProduct(index = 0) {
   return {
@@ -152,7 +167,7 @@ export default function SettingsPage({ onBack }) {
     personaDesiredChange: '',
     products: [createProduct(0)],
     strategyPreferences: [],
-    voiceTone: VOICE_TONE_OPTIONS[0].id,
+    voiceTones: [VOICE_TONE_OPTIONS[0].id],
     characterPrompt: '',
     aiAdditionalInfo: '',
   })
@@ -206,7 +221,7 @@ export default function SettingsPage({ onBack }) {
           personaDesiredChange: persona.desiredChange || '',
           products: normalizeProducts(settings.products),
           strategyPreferences: loadedStrategy,
-          voiceTone: settings.voiceTone || profile.tone || VOICE_TONE_OPTIONS[0].id,
+          voiceTones: normalizeVoiceTones(settings, profile.tone),
           characterPrompt: settings.characterPrompt || '',
           aiAdditionalInfo: settings.aiAdditionalInfo || settings.characterPrompt || '',
         })
@@ -248,6 +263,30 @@ export default function SettingsPage({ onBack }) {
     }))
   }
 
+  const toggleVoiceTone = (value) => {
+    setForm((current) => {
+      const currentTones = Array.isArray(current.voiceTones) && current.voiceTones.length
+        ? current.voiceTones
+        : [VOICE_TONE_OPTIONS[0].id]
+
+      if (currentTones.includes(value)) {
+        const nextTones = currentTones.filter((item) => item !== value)
+        return {
+          ...current,
+          voiceTones: nextTones.length ? nextTones : [value],
+        }
+      }
+
+      return {
+        ...current,
+        voiceTones:
+          currentTones.length >= MAX_VOICE_TONE_SELECTIONS
+            ? [currentTones[0], value]
+            : [...currentTones, value],
+      }
+    })
+  }
+
   const addProduct = () => {
     setForm((current) => ({
       ...current,
@@ -285,6 +324,10 @@ export default function SettingsPage({ onBack }) {
     setSuccess('')
 
     try {
+      const selectedVoiceTones =
+        Array.isArray(form.voiceTones) && form.voiceTones.length
+          ? form.voiceTones.slice(0, MAX_VOICE_TONE_SELECTIONS)
+          : [VOICE_TONE_OPTIONS[0].id]
       const normalizedProducts = form.products.map((item) => ({
         name: item.name.trim(),
         price: item.price.trim(),
@@ -305,7 +348,7 @@ export default function SettingsPage({ onBack }) {
         {
           accountName: form.accountName,
           category: form.category,
-          tone: form.voiceTone,
+          tone: selectedVoiceTones[0],
           targetAudience,
           goal: form.accountGoal,
           goals: [form.accountGoal],
@@ -324,7 +367,8 @@ export default function SettingsPage({ onBack }) {
             },
             products: normalizedProducts,
             strategyPreferences: form.strategyPreferences,
-            voiceTone: form.voiceTone,
+            voiceTone: selectedVoiceTones[0],
+            voiceTones: selectedVoiceTones,
             aiAdditionalInfo: form.aiAdditionalInfo,
             characterPrompt: form.characterPrompt,
           },
@@ -564,23 +608,42 @@ export default function SettingsPage({ onBack }) {
                     </div>
                   </Field>
 
-                  <Field label="브랜드 보이스/톤">
+                  <Field
+                    label="브랜드 보이스/톤"
+                    description={`최대 ${MAX_VOICE_TONE_SELECTIONS}개까지 선택할 수 있습니다. 첫 번째 선택이 기본 톤이고, 두 번째는 보조 톤으로만 섞입니다.`}
+                  >
                     <div className="grid gap-3">
                       {VOICE_TONE_OPTIONS.map((option) => {
-                        const selected = form.voiceTone === option.id
+                        const selectedVoiceTones =
+                          Array.isArray(form.voiceTones) && form.voiceTones.length
+                            ? form.voiceTones
+                            : [VOICE_TONE_OPTIONS[0].id]
+                        const selected = selectedVoiceTones.includes(option.id)
+                        const order = selectedVoiceTones.indexOf(option.id) + 1
                         return (
                           <button
                             key={option.id}
                           type="button"
-                          onClick={() => setForm((current) => ({ ...current, voiceTone: option.id }))}
-                          className={`rounded-2xl border px-4 py-3 text-left transition ${
+                          onClick={() => toggleVoiceTone(option.id)}
+                          className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
                               selected
                                 ? 'shimmer-selected border-[#94A3B8] bg-[#1D2330]'
                                 : 'border-[#374151] bg-[#171B24] hover:bg-[#1D2330]'
                             }`}
                           >
-                            <div className="text-sm font-semibold text-[#F3F4F6]">{option.title}</div>
-                            <div className="mt-1 text-xs text-[#8E97A6]">{option.description}</div>
+                            <div>
+                              <div className="text-sm font-semibold text-[#F3F4F6]">{option.title}</div>
+                              <div className="mt-1 text-xs text-[#8E97A6]">{option.description}</div>
+                            </div>
+                            <span
+                              className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold ${
+                                selected
+                                  ? 'border-[#CBD5E1] bg-[#CBD5E1] text-[#0B0D12]'
+                                  : 'border-[#4B5563] text-transparent'
+                              }`}
+                            >
+                              {selected ? order : '✓'}
+                            </span>
                           </button>
                         )
                       })}

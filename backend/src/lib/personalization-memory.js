@@ -4,6 +4,13 @@ import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 
 const MAX_RECENT_MESSAGES = 12
+const VOICE_TONE_LABELS = {
+  expert: '전문가형',
+  friendly: '친근한 언니형',
+  coach: '코치형',
+  storyteller: '스토리텔러형',
+  trendy: '트렌디한 MZ 톤',
+}
 
 function isMissingTableError(error) {
   if (!error) {
@@ -207,12 +214,20 @@ export async function buildPersonalizationContext({
         }))
         .filter((item) => item.name || item.price || item.description || item.ctaType)
     : []
+  const voiceTone = Array.isArray(settings?.voiceTones)
+    ? settings.voiceTones
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((item) => VOICE_TONE_LABELS[item] || item)
+        .join(' + ')
+    : VOICE_TONE_LABELS[String(settings?.voiceTone || '').trim()] || settings?.voiceTone
 
   const hardRules = [
     settings?.forbiddenExpressions ? `- 금지 표현: ${settings.forbiddenExpressions}` : null,
     settings?.toneGuide ? `- 톤 가이드: ${settings.toneGuide}` : null,
     settings?.responseGoal ? `- 응답 목표: ${settings.responseGoal}` : null,
-    settings?.voiceTone ? `- 브랜드 보이스/톤: ${settings.voiceTone}` : null,
+    voiceTone ? `- 브랜드 보이스/톤: ${voiceTone}` : null,
     settings?.accountGoal ? `- 운영 목적: ${settings.accountGoal}` : null,
     settings?.category ? `- 계정 카테고리: ${settings.category}` : null,
     settings?.aiAdditionalInfo ? `- AI 추가 정보: ${settings.aiAdditionalInfo}` : null,
