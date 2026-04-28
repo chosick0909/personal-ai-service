@@ -1067,22 +1067,17 @@ app.post(
       selectedLabel: req.body?.selectedLabel,
       request: requestText,
       sections: req.body?.sections,
+      editTarget: req.body?.editTarget || req.body?.edit_target || '',
+      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+      currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: personalization.context,
     })
-    const assistantOutputSummary = [
-      result.message,
-      result.sections?.hook ? `HOOK: ${result.sections.hook}` : '',
-      result.sections?.body ? `BODY: ${result.sections.body}` : '',
-      result.sections?.cta ? `CTA: ${result.sections.cta}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n')
     const memoryUpdate = await updatePersonalizationMemory({
       accountId: account.id,
       sessionId: personalization.sessionId,
       userInput: requestText,
-      assistantOutput: assistantOutputSummary,
+      assistantOutput: result.message || '',
       fallbackSession: `refine:${account.id}:${req.body?.referenceId || 'general'}`,
     })
     await recordUsageEvent({
@@ -1095,6 +1090,9 @@ app.post(
     res.json({
       message: result.message,
       sections: result.sections,
+      editTarget: result.editTarget,
+      changedSections: result.changedSections,
+      flowValidation: result.flowValidation,
       personalization: {
         sessionId: personalization.sessionId,
         snapshot: personalization.snapshot,
@@ -1130,6 +1128,8 @@ app.post(
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
       sections: req.body?.sections,
+      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+      currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: personalization.context,
     })

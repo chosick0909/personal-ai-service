@@ -298,7 +298,14 @@ export async function updateReferenceVideo(referenceId, input = {}) {
   return payload.item || null
 }
 
-export async function generateScriptFeedback({ accountId, referenceId, scriptId, selectedLabel, sections }) {
+export async function generateScriptFeedback({
+  accountId,
+  referenceId,
+  scriptId,
+  currentVersionId,
+  selectedLabel,
+  sections,
+}) {
   const response = await apiFetch('/api/scripts/feedback', {
     method: 'POST',
     headers: {
@@ -308,6 +315,9 @@ export async function generateScriptFeedback({ accountId, referenceId, scriptId,
       accountId,
       referenceId,
       scriptId,
+      currentDraftId: scriptId,
+      currentVersionId,
+      scriptVersionId: currentVersionId,
       selectedLabel,
       sections,
     }),
@@ -324,6 +334,9 @@ export async function generateScriptFeedback({ accountId, referenceId, scriptId,
 export async function generateChatReply({
   accountId,
   referenceId,
+  scriptId,
+  currentVersionId,
+  editTarget,
   selectedLabel,
   message,
   editorSections,
@@ -336,6 +349,11 @@ export async function generateChatReply({
     body: JSON.stringify({
       accountId,
       referenceId,
+      scriptId,
+      currentDraftId: scriptId,
+      currentVersionId,
+      scriptVersionId: currentVersionId,
+      editTarget,
       selectedLabel,
       request: message,
       sections: editorSections,
@@ -350,5 +368,8 @@ export async function generateChatReply({
   return {
     message: payload.message,
     proposedSections: payload.sections,
+    editTarget: payload.editTarget,
+    changedSections: payload.changedSections,
+    flowValidation: payload.flowValidation,
   }
 }

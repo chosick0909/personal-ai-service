@@ -63,6 +63,16 @@ function summarizeRecentMessages(recentMessages = []) {
   return ['최근 사용자 요청 요약', ...userMessages].join('\n')
 }
 
+function stripDraftLikeContent(value = '') {
+  return String(value || '')
+    .replace(/HOOK\s*:[\s\S]*?(?=\n\s*BODY\s*:|$)/gi, '')
+    .replace(/BODY\s*:[\s\S]*?(?=\n\s*CTA\s*:|$)/gi, '')
+    .replace(/CTA\s*:[\s\S]*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500)
+}
+
 function extractQuickPreferences(input = '') {
   const text = String(input || '')
   const lowered = text.toLowerCase()
@@ -119,7 +129,7 @@ async function extractLlmPreferences({ userInput, assistantOutput }) {
       },
       {
         role: 'user',
-        content: `USER:\n${userInput || ''}\n\nASSISTANT:\n${assistantOutput || ''}`,
+        content: `USER:\n${userInput || ''}\n\nASSISTANT_SUMMARY_WITHOUT_DRAFT:\n${stripDraftLikeContent(assistantOutput)}`,
       },
     ],
   })
@@ -381,9 +391,8 @@ export async function updatePersonalizationMemory({
       ? currentSession.recent_messages
       : []
     const nextMessages = [
-      ...previousMessages,
+      ...previousMessages.filter((message) => message?.role === 'user'),
       { role: 'user', content: String(userInput || '').slice(0, 1200), at: new Date().toISOString() },
-      { role: 'assistant', content: String(assistantOutput || '').slice(0, 1200), at: new Date().toISOString() },
     ].slice(-MAX_RECENT_MESSAGES)
 
     const summary = summarizeRecentMessages(nextMessages)

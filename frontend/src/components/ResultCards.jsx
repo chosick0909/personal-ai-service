@@ -372,8 +372,8 @@ export default function ResultCards({ transitioning = false, entering = false })
               <div ref={editorPanelRef} className="min-w-0">
                 <Editor embedded entering={false} transitioning={false} />
               </div>
-              <div className="min-w-0 h-full">
-                <ChatPanel embedded entering={false} fixedHeight={editorPanelHeight} />
+              <div className="min-w-0 xl:sticky xl:top-6 xl:h-[calc(100vh-48px)] xl:self-start">
+                <ChatPanel embedded entering={false} />
               </div>
             </div>
           </section>

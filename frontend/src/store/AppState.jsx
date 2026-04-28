@@ -184,6 +184,12 @@ function normalizeHistoryCacheItem(item = {}) {
               message.proposedSections && typeof message.proposedSections === 'object'
                 ? message.proposedSections
                 : undefined,
+            editTarget: typeof message.editTarget === 'string' ? message.editTarget : undefined,
+            changedSections: Array.isArray(message.changedSections) ? message.changedSections : undefined,
+            flowValidation:
+              message.flowValidation && typeof message.flowValidation === 'object'
+                ? message.flowValidation
+                : undefined,
           }
         })
         .filter(Boolean)
@@ -592,6 +598,7 @@ const initialState = {
   editorSections: createEditorSections(),
   isVersionModalOpen: false,
   draftMessage: '',
+  editTarget: 'all',
   pendingSuggestion: null,
   accounts: [],
   currentAccount: null,
@@ -664,6 +671,7 @@ export function AppStateProvider({ children }) {
   const [editorSections, setEditorSections] = useState(initialState.editorSections)
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false)
   const [draftMessage, setDraftMessage] = useState('')
+  const [editTarget, setEditTarget] = useState('all')
   const [pendingSuggestion, setPendingSuggestion] = useState(null)
   const [accounts, setAccounts] = useState(initialState.accounts)
   const [currentAccount, setCurrentAccount] = useState(initialState.currentAccount)
@@ -2388,6 +2396,7 @@ export function AppStateProvider({ children }) {
         accountId: requestAccountId,
         referenceId: referenceData?.id,
         scriptId: activeScriptId,
+        currentVersionId: versions[0]?.id,
         selectedLabel: selectedScript?.label,
         sections: editorSections,
       })
@@ -2592,6 +2601,9 @@ export function AppStateProvider({ children }) {
       const response = await generateChatReply({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
+        scriptId: activeScriptId,
+        currentVersionId: versions[0]?.id,
+        editTarget,
         selectedLabel: selectedScript?.label,
         editorSections,
         message: normalized,
@@ -2605,6 +2617,9 @@ export function AppStateProvider({ children }) {
         role: 'assistant',
         content: response.message,
         proposedSections: response.proposedSections,
+        editTarget: response.editTarget,
+        changedSections: response.changedSections,
+        flowValidation: response.flowValidation,
       }
 
       setPendingSuggestion(response.proposedSections)
@@ -2649,49 +2664,12 @@ export function AppStateProvider({ children }) {
     const serializedContent = serializeEditorSections(sections)
     setEditorSections(createEditorSections(sections))
     setPendingSuggestion(sections)
-    if (!activeScriptId) {
-      return
-    }
-
-    saveVersionRecord({
-      accountId: requestAccountId,
-      scriptId: activeScriptId,
-      title: 'AI 수정안 적용',
-      sections,
-      versionType: 'ai_generation',
-      score: feedback?.score ?? selectedScript?.score ?? null,
-      metadata: {
-        referenceId: referenceData?.id,
-        selectedLabel: selectedScript?.label,
-      },
+    syncHistory(activeReferenceIdRef.current, {
+      activeScriptId,
+      editorContent: serializedContent,
+      lastStep: 'editor',
     })
-      .then((nextVersion) => {
-        if (!isCurrentAccountRequest(requestAccountId)) {
-          return
-        }
-        setVersions((current) => {
-          const next = [nextVersion, ...current]
-          setCachedScriptVersions(requestAccountId, activeScriptId, next)
-          syncHistory(activeReferenceIdRef.current, {
-            activeScriptId,
-            editorContent: serializedContent,
-            versions: next,
-            lastStep: 'editor',
-          })
-          return next
-        })
-        showToast('AI 수정안 저장 완료')
-      })
-      .catch((error) => {
-        setChatMessages((current) => [
-          ...current,
-          {
-            id: `suggestion-apply-error-${Date.now()}`,
-            role: 'assistant',
-            content: error.message || 'AI 수정안 저장에 실패했습니다.',
-          },
-        ])
-      })
+    showToast('AI 수정안을 에디터에 반영했습니다')
   }
 
   const restoreVersion = async (versionId) => {
@@ -2778,6 +2756,7 @@ export function AppStateProvider({ children }) {
       feedback,
       editorSections,
       draftMessage,
+      editTarget,
       uploadTopic,
       uploadTitle,
       uploadPhase,
@@ -2842,6 +2821,7 @@ export function AppStateProvider({ children }) {
       exportCurrentScriptPdf,
       updateEditorSection,
       setDraftMessage,
+      setEditTarget,
       setUploadTopic,
       setUploadTitle,
       setIsVersionModalOpen,
@@ -2852,6 +2832,7 @@ export function AppStateProvider({ children }) {
       chatMessages,
       currentStep,
       draftMessage,
+      editTarget,
       analyzeError,
       analyzeErrorType,
       accounts,
