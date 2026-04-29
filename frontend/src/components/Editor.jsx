@@ -35,7 +35,7 @@ function SectionEditor({ label, value, onChange, tone, placeholder }) {
   )
 }
 
-export default function Editor({ transitioning = false, entering = false, embedded = false }) {
+export default function Editor({ embedded = false }) {
   const {
     selectedScript,
     editorSections,

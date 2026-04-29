@@ -77,7 +77,7 @@ function PlaybookNoticeCard({ title, body, tone = 'default' }) {
   )
 }
 
-export default function ResultCards({ transitioning = false, entering = false }) {
+export default function ResultCards() {
   const {
     generatedScripts,
     referenceData,
@@ -95,6 +95,7 @@ export default function ResultCards({ transitioning = false, entering = false })
   const editorPanelRef = useRef(null)
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
   const [editorPanelHeight, setEditorPanelHeight] = useState(null)
+  const [isDesktopEditorLayout, setIsDesktopEditorLayout] = useState(false)
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
@@ -220,6 +221,20 @@ export default function ResultCards({ transitioning = false, entering = false })
       window.removeEventListener('resize', updateHeight)
     }
   }, [currentStep, selectedScript])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1280px)')
+    const updateLayoutMode = () => {
+      setIsDesktopEditorLayout(mediaQuery.matches)
+    }
+
+    updateLayoutMode()
+    mediaQuery.addEventListener('change', updateLayoutMode)
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateLayoutMode)
+    }
+  }, [])
 
   useEffect(() => {
     if (currentStep !== 'editor' || !selectedScript) {
@@ -370,10 +385,13 @@ export default function ResultCards({ transitioning = false, entering = false })
             </div>
             <div className="mt-6 grid items-stretch gap-6 md:mt-8 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div ref={editorPanelRef} className="min-w-0">
-                <Editor embedded entering={false} transitioning={false} />
+                <Editor embedded />
               </div>
               <div className="min-w-0 xl:sticky xl:top-6 xl:h-[calc(100vh-48px)] xl:self-start">
-                <ChatPanel embedded entering={false} />
+                <ChatPanel
+                  embedded
+                  fixedHeight={isDesktopEditorLayout ? editorPanelHeight : null}
+                />
               </div>
             </div>
           </section>

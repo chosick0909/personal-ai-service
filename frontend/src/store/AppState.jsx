@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps, react-refresh/only-export-components */
 import {
   createContext,
   useContext,
@@ -560,27 +561,10 @@ function deserializeEditorContent(content = '') {
   })
 }
 
-function createVersionEntry({
-  source,
-  title,
-  content,
-  score = null,
-  versionNumber,
-}) {
-  return {
-    id: `${source.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    source,
-    title,
-    content,
-    score,
-    versionNumber,
-    createdAt: new Date().toISOString(),
-  }
-}
-
 const initialState = {
   isLoggedIn: false,
   currentStep: 'upload',
+  activeToolPage: null,
   referenceData: null,
   generatedScripts: [],
   selectedScript: null,
@@ -661,6 +645,7 @@ export function AppStateProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialState.isLoggedIn)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [currentStep, setCurrentStep] = useState(initialState.currentStep)
+  const [activeToolPage, setActiveToolPage] = useState(initialState.activeToolPage)
   const [referenceData, setReferenceData] = useState(initialState.referenceData)
   const [generatedScripts, setGeneratedScripts] = useState(initialState.generatedScripts)
   const [selectedScript, setSelectedScript] = useState(initialState.selectedScript)
@@ -1137,7 +1122,7 @@ export function AppStateProvider({ children }) {
 
         setCurrentAccount(nextCurrentAccount)
         setAccountSetupMap(nextSetupMap)
-      } catch (_error) {
+      } catch {
         if (!cachedAccounts.length) {
           setAccounts([])
           setCurrentAccount(null)
@@ -1269,7 +1254,7 @@ export function AppStateProvider({ children }) {
           }
           return null
         })
-      } catch (_error) {
+      } catch {
         if (!canceled) {
           setProjects([])
           setCurrentProjectId(null)
@@ -1320,7 +1305,7 @@ export function AppStateProvider({ children }) {
         prefetchReferenceDetails(merged, accountId)
         return merged
       })
-    } catch (_error) {
+    } catch {
       // keep sidebar empty if history fetch fails in mock/dev startup
     }
   }
@@ -1468,6 +1453,7 @@ export function AppStateProvider({ children }) {
     analysisAbortControllerRef.current?.abort()
     analysisAbortControllerRef.current = null
     activeReferenceIdRef.current = null
+    setActiveToolPage(null)
     setCurrentStep('upload')
     setReferenceData(null)
     setGeneratedScripts([])
@@ -1545,6 +1531,7 @@ export function AppStateProvider({ children }) {
   }
 
   const selectProject = (projectId) => {
+    setActiveToolPage(null)
     if (!projectId) {
       setCurrentProjectId(null)
       return
@@ -2169,6 +2156,7 @@ export function AppStateProvider({ children }) {
     if (!requestAccountId || !item) {
       return
     }
+    setActiveToolPage(null)
 
     const applyOpenedState = ({ detail, baseItem }) => {
       const isProcessingReference = detail.reference?.status === 'processing'
@@ -2741,6 +2729,7 @@ export function AppStateProvider({ children }) {
       entitlementStatus,
       isEntitlementReady,
       currentStep,
+      activeToolPage,
       referenceData,
       generatedScripts,
       selectedScript,
@@ -2789,6 +2778,7 @@ export function AppStateProvider({ children }) {
       goBackToUpload,
       goBackToResults,
       clearScriptSelection,
+      setActiveToolPage,
       loadReferenceHistory,
       selectAccount,
       addAccount,
@@ -2831,6 +2821,7 @@ export function AppStateProvider({ children }) {
     [
       chatMessages,
       currentStep,
+      activeToolPage,
       draftMessage,
       editTarget,
       analyzeError,

@@ -91,7 +91,7 @@ function summarizeFrameInsight(frameNotes = []) {
 function normalizeComparableText(value = '') {
   return String(value || '')
     .toLowerCase()
-    .replace(/[“”"'\[\]{}()<>.,!?;:·•\-–—_~`|/\\]/g, ' ')
+    .replace(/[“”"'[\]{}()<>.,!?;:·•\-–—_~`|/\\]/g, ' ')
     .replace(/\b(hook|body|cta|ai|a\/b\/c)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()

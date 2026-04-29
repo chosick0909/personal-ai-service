@@ -41,14 +41,18 @@ export default function UploadSection() {
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false)
   const [isCanceling, setIsCanceling] = useState(false)
   const fileInputRef = useRef(null)
+  const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
+  const displayedAnalyzeProgress = isAnalysisStep ? analyzeProgress : 0
+  const displayedAnalyzeElapsedSec = isAnalysisStep ? analyzeElapsedSec : 0
 
   useEffect(() => {
-    const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
     if (!isAnalysisStep) {
-      setAnalyzeProgress(0)
       return undefined
     }
 
+    const resetTimer = window.setTimeout(() => {
+      setAnalyzeProgress(0)
+    }, 0)
     const timer = window.setInterval(() => {
       setAnalyzeProgress((current) => {
         if (current >= 95) {
@@ -68,33 +72,40 @@ export default function UploadSection() {
       })
     }, 520)
 
-    return () => window.clearInterval(timer)
-  }, [currentStep, isAnalyzing])
+    return () => {
+      window.clearTimeout(resetTimer)
+      window.clearInterval(timer)
+    }
+  }, [isAnalysisStep])
 
   useEffect(() => {
-    const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
     if (!isAnalysisStep) {
-      setAnalyzeElapsedSec(0)
       return undefined
     }
 
+    const resetTimer = window.setTimeout(() => {
+      setAnalyzeElapsedSec(0)
+    }, 0)
     const timer = window.setInterval(() => {
       setAnalyzeElapsedSec((current) => current + 1)
     }, 1000)
 
-    return () => window.clearInterval(timer)
-  }, [currentStep, isAnalyzing])
+    return () => {
+      window.clearTimeout(resetTimer)
+      window.clearInterval(timer)
+    }
+  }, [isAnalysisStep])
 
   const analyzeStageText = useMemo(() => {
     if (uploadPhase === 'uploading') return '업로드 중 · 이 단계에서는 화면을 끄거나 앱을 전환하지 마세요'
     if (uploadPhase === 'server-accepted') return '서버에 접수됨 · 이제 재접속해도 최근 분석에서 이어서 확인할 수 있습니다'
-    if (analyzeProgress < 20) return '레퍼런스 영상 음성 추출중'
-    if (analyzeProgress < 40) return '전사 텍스트 정리중'
-    if (analyzeProgress < 60) return '후킹 포인트 분석중'
-    if (analyzeProgress < 80) return '구조화 분석중'
-    if (analyzeProgress < 95) return 'A/B/C 초안 생성중'
+    if (displayedAnalyzeProgress < 20) return '레퍼런스 영상 음성 추출중'
+    if (displayedAnalyzeProgress < 40) return '전사 텍스트 정리중'
+    if (displayedAnalyzeProgress < 60) return '후킹 포인트 분석중'
+    if (displayedAnalyzeProgress < 80) return '구조화 분석중'
+    if (displayedAnalyzeProgress < 95) return 'A/B/C 초안 생성중'
     return '결과 마무리중'
-  }, [analyzeProgress, uploadPhase])
+  }, [displayedAnalyzeProgress, uploadPhase])
 
   const uploadPhaseSteps = useMemo(() => {
     const activeIndex =
@@ -133,17 +144,17 @@ export default function UploadSection() {
   }, [currentStep, isAnalyzing, uploadPhase])
 
   const analyzeDelayNotice = useMemo(() => {
-    if (!(currentStep === 'analyzing' || isAnalyzing)) {
+    if (!isAnalysisStep) {
       return ''
     }
-    if (analyzeElapsedSec >= 180) {
+    if (displayedAnalyzeElapsedSec >= 180) {
       return '분석 지연: 처리 시간이 길어지고 있습니다. 잠시만 더 기다려주세요. 오래 지속되면 영상 길이/용량을 줄여 다시 시도해주세요.'
     }
-    if (analyzeElapsedSec >= 90) {
+    if (displayedAnalyzeElapsedSec >= 90) {
       return '분석 지연: 현재 서버에서 구조 분석을 계속 진행 중입니다.'
     }
     return ''
-  }, [currentStep, isAnalyzing, analyzeElapsedSec])
+  }, [displayedAnalyzeElapsedSec, isAnalysisStep])
 
   const analyzeErrorLabel = useMemo(() => {
     if (analyzeErrorType === 'file-too-large') {
@@ -258,11 +269,11 @@ export default function UploadSection() {
                 <div
                   className="flex h-11 w-11 items-center justify-center rounded-full md:h-14 md:w-14"
                   style={{
-                    background: `conic-gradient(#7C3AED ${analyzeProgress * 3.6}deg, #2F3543 ${analyzeProgress * 3.6}deg 360deg)`,
+                    background: `conic-gradient(#7C3AED ${displayedAnalyzeProgress * 3.6}deg, #2F3543 ${displayedAnalyzeProgress * 3.6}deg 360deg)`,
                   }}
                 >
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#141923] text-[10px] font-semibold text-[#E5E7EB] md:h-[50px] md:w-[50px] md:text-xs">
-                    {analyzeProgress}%
+                    {displayedAnalyzeProgress}%
                   </div>
                 </div>
               ) : (
@@ -271,7 +282,7 @@ export default function UploadSection() {
             </div>
 
             <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:mt-8 md:text-xs">
-              {currentStep === 'analyzing' ? `Analyzing ${analyzeProgress}%` : 'Drag & Drop'}
+              {currentStep === 'analyzing' ? `Analyzing ${displayedAnalyzeProgress}%` : 'Drag & Drop'}
             </div>
 
             <h2 className="mt-2.5 text-[23px] font-bold leading-[1.14] tracking-[-0.03em] text-[#F3F4F6] md:mt-4 md:text-2xl md:leading-8">

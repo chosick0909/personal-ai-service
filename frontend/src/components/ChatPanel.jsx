@@ -92,7 +92,7 @@ function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }
   )
 }
 
-export default function ChatPanel({ entering = false, embedded = false, fixedHeight = null }) {
+export default function ChatPanel({ embedded = false, fixedHeight = null }) {
   const {
     chatMessages,
     draftMessage,

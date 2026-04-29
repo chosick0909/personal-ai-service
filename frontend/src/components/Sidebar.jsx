@@ -133,6 +133,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     referenceHistory,
     referenceData,
     currentStep,
+    activeToolPage,
     isAnalyzing,
     openReference,
     projects,
@@ -156,29 +157,10 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     moveReferenceToProject,
     deleteReferenceHistoryItem,
     startNewProject,
+    setActiveToolPage,
   } = useAppState()
 
   const normalizedQuery = String(searchQuery || '').normalize('NFC').trim().toLowerCase()
-  const matchesReferenceSearch = (item) => {
-    if (!normalizedQuery) {
-      return true
-    }
-    const rawNeedle = String(normalizedQuery || '').normalize('NFC').toLowerCase()
-    const compactNeedle = normalizeSearchText(normalizedQuery)
-    const haystacks = [
-      String(item.title || '').normalize('NFC').toLowerCase(),
-      String(item.fileName || '').normalize('NFC').toLowerCase(),
-      String(item.topic || '').normalize('NFC').toLowerCase(),
-      String(item.transcript || '').normalize('NFC').toLowerCase(),
-    ]
-
-    return haystacks.some((haystack) => {
-      if (haystack.includes(rawNeedle)) {
-        return true
-      }
-      return normalizeSearchText(haystack).includes(compactNeedle)
-    })
-  }
 
   const projectRows = useMemo(() => {
     const dynamic = projects.slice(0, 20).map((project) => ({
@@ -189,7 +171,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     }))
 
     return dynamic
-  }, [projects, currentProjectId, normalizedQuery, selectProject])
+  }, [projects, currentProjectId, selectProject])
 
   const recentRows = useMemo(() => {
     const scopedHistory = currentProjectId
@@ -229,7 +211,6 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     currentStep,
     deleteReferenceHistoryItem,
     isAnalyzing,
-    normalizedQuery,
     openReference,
     referenceData?.id,
     referenceHistory,
@@ -237,6 +218,27 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   ])
 
   const searchRows = useMemo(() => {
+    const matchesReferenceSearch = (item) => {
+      if (!normalizedQuery) {
+        return true
+      }
+      const rawNeedle = String(normalizedQuery || '').normalize('NFC').toLowerCase()
+      const compactNeedle = normalizeSearchText(normalizedQuery)
+      const haystacks = [
+        String(item.title || '').normalize('NFC').toLowerCase(),
+        String(item.fileName || '').normalize('NFC').toLowerCase(),
+        String(item.topic || '').normalize('NFC').toLowerCase(),
+        String(item.transcript || '').normalize('NFC').toLowerCase(),
+      ]
+
+      return haystacks.some((haystack) => {
+        if (haystack.includes(rawNeedle)) {
+          return true
+        }
+        return normalizeSearchText(haystack).includes(compactNeedle)
+      })
+    }
+
     return referenceHistory
       .map((item) => ({
         id: item.id,
@@ -255,7 +257,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       }))
       .filter((item) => matchesReferenceSearch(item))
       .slice(0, 40)
-  }, [matchesReferenceSearch, onRequestClose, openReference, referenceData?.id, referenceHistory])
+  }, [normalizedQuery, onRequestClose, openReference, referenceData?.id, referenceHistory])
 
   const groupedSearchRows = useMemo(() => {
     const formatter = new Intl.DateTimeFormat('ko-KR', {
@@ -539,7 +541,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="px-6 pt-4 text-xs font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">프로젝트</div>
+        <div className="px-6 pt-4 text-sm font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">프로젝트</div>
         <div className="px-3 pt-2">
           <Row onClick={() => selectProject(null)} active={!currentProjectId}>
             <IconFolder />
@@ -601,7 +603,19 @@ export default function Sidebar({ onRequestClose = () => {} }) {
           ) : null}
         </div>
 
-        <div className="px-6 pt-4 text-xs font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">최근</div>
+        <div className="px-6 pt-4 text-sm font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">도구</div>
+        <div className="px-3 pt-2">
+          <Row onClick={() => setActiveToolPage('caption')} active={activeToolPage === 'caption'}>
+            <IconChatBubble />
+            캡션 생성기
+          </Row>
+          <Row onClick={() => setActiveToolPage('thumbnail')} active={activeToolPage === 'thumbnail'}>
+            <IconFile />
+            썸네일 제목 생성기
+          </Row>
+        </div>
+
+        <div className="px-6 pt-4 text-sm font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">최근</div>
         <div className="px-3 pb-3 pt-2">
           {recentRows.map((item) => (
             <div
