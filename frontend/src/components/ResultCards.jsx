@@ -383,11 +383,18 @@ export default function ResultCards() {
                 </button>
               </div>
             </div>
-            <div className="mt-6 grid items-stretch gap-6 md:mt-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="mt-6 grid items-start gap-6 md:mt-8 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div ref={editorPanelRef} className="min-w-0">
                 <Editor embedded />
               </div>
-              <div className="min-w-0 xl:sticky xl:top-6 xl:h-[calc(100vh-48px)] xl:self-start">
+              <div
+                className="min-w-0 overflow-hidden xl:sticky xl:top-6 xl:self-start"
+                style={
+                  isDesktopEditorLayout && Number.isFinite(editorPanelHeight) && editorPanelHeight > 0
+                    ? { height: `${editorPanelHeight}px`, maxHeight: `${editorPanelHeight}px` }
+                    : undefined
+                }
+              >
                 <ChatPanel
                   embedded
                   fixedHeight={isDesktopEditorLayout ? editorPanelHeight : null}
