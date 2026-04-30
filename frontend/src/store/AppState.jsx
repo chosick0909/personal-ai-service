@@ -2286,8 +2286,11 @@ export function AppStateProvider({ children }) {
   const saveVersion = async (source = 'USER') => {
     const requestAccountId = currentAccount?.id
     if (!requestAccountId || !activeScriptId) {
+      showToast('저장할 스크립트가 없습니다.', 'error')
       return
     }
+
+    showToast('버전을 저장하고 있습니다...')
 
     try {
       const serializedContent = serializeEditorSections(editorSections)
@@ -2323,6 +2326,7 @@ export function AppStateProvider({ children }) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
       }
+      showToast(error.message || '버전 저장에 실패했습니다.', 'error')
       setChatMessages((current) => [
         ...current,
         {
@@ -2332,6 +2336,11 @@ export function AppStateProvider({ children }) {
         },
       ])
     }
+  }
+
+  const openVersionHistory = () => {
+    setIsVersionModalOpen(true)
+    showToast(versions.length ? '저장 내역을 열었습니다.' : '아직 저장된 버전이 없습니다.')
   }
 
   const requestFeedback = async () => {
@@ -2665,8 +2674,11 @@ export function AppStateProvider({ children }) {
     const version = versions.find((item) => item.id === versionId)
 
     if (!requestAccountId || !version || !activeScriptId) {
+      showToast('불러올 버전을 찾지 못했습니다.', 'error')
       return
     }
+
+    showToast('버전을 불러오고 있습니다...')
 
     try {
       await restoreScriptVersionRecord({
@@ -2687,6 +2699,7 @@ export function AppStateProvider({ children }) {
       })
       showToast('버전 복원 완료')
     } catch (error) {
+      showToast(error.message || '버전 복원에 실패했습니다.', 'error')
       setChatMessages((current) => [
         ...current,
         {
@@ -2698,11 +2711,23 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const exportCurrentScriptPdf = () => {
-    downloadScriptPdf({
-      title: `${referenceData?.title || '스크립트'} · ${selectedScript?.label || 'Export'}`,
-      sections: editorSections,
-    })
+  const exportCurrentScriptPdf = async () => {
+    try {
+      await downloadScriptPdf({
+        title: `${referenceData?.title || '스크립트'} · ${selectedScript?.label || 'Export'}`,
+        sections: editorSections,
+      })
+      showToast('PDF 다운로드를 시작했습니다')
+    } catch (error) {
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `pdf-export-error-${Date.now()}`,
+          role: 'assistant',
+          content: error.message || 'PDF 다운로드에 실패했습니다.',
+        },
+      ])
+    }
   }
 
   const updateEditorSection = (section, value) => {
@@ -2808,6 +2833,7 @@ export function AppStateProvider({ children }) {
       sendChatMessage,
       applySuggestion,
       restoreVersion,
+      openVersionHistory,
       exportCurrentScriptPdf,
       updateEditorSection,
       setDraftMessage,

@@ -40,7 +40,7 @@ export default function Editor({ embedded = false }) {
     selectedScript,
     editorSections,
     updateEditorSection,
-    setIsVersionModalOpen,
+    openVersionHistory,
     saveVersion,
     requestFeedback,
     isFeedbackLoading,
@@ -80,7 +80,7 @@ export default function Editor({ embedded = false }) {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => setIsVersionModalOpen(true)}
+                onClick={openVersionHistory}
                 className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
               >
                 저장 내역

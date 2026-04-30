@@ -86,7 +86,7 @@ export default function ResultCards() {
     clearScriptSelection,
     goBackToUpload,
     currentStep,
-    setIsVersionModalOpen,
+    openVersionHistory,
     saveVersion,
   } = useAppState()
   const editorSectionRef = useRef(null)
@@ -369,7 +369,7 @@ export default function ResultCards() {
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsVersionModalOpen(true)}
+                  onClick={openVersionHistory}
                   className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
                 >
                   저장 내역

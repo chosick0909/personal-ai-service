@@ -183,7 +183,18 @@ export async function downloadScriptPdf({ title, sections }) {
       heightLeft -= pageHeight
     }
 
-    pdf.save(`${(title || 'script').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'script'}.pdf`)
+    const filename = `${(title || 'script').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'script'}.pdf`
+    const blob = pdf.output('blob')
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = filename
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   } finally {
     document.body.removeChild(container)
   }
