@@ -31,7 +31,11 @@ import {
   restoreScriptVersionRecord,
   saveVersionRecord,
 } from '../lib/scriptApi'
-import { applyCouponCode, loadMyEntitlement } from '../lib/entitlementApi'
+import {
+  applyCouponCode,
+  loadMyEntitlement,
+  readCachedEntitlementForUser,
+} from '../lib/entitlementApi'
 
 const AppStateContext = createContext(null)
 const REFERENCE_HISTORY_CACHE_KEY = 'personal-ai-service:reference-history-cache:v1'
@@ -673,6 +677,7 @@ export function AppStateProvider({ children }) {
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
   const [isApplyingFeedback, setIsApplyingFeedback] = useState(false)
+  const [isEditorPreparing, setIsEditorPreparing] = useState(false)
   const [viewTransition, setViewTransition] = useState('idle')
   const [isEditorEntering, setIsEditorEntering] = useState(false)
   const [isResultEntering, setIsResultEntering] = useState(false)
@@ -692,6 +697,7 @@ export function AppStateProvider({ children }) {
   const analysisRunTokenRef = useRef(0)
   const analysisAbortControllerRef = useRef(null)
   const canceledAnalysisTokensRef = useRef(new Set())
+  const currentUserIdRef = useRef(null)
   const isCurrentAccountRequest = (accountId) =>
     Boolean(accountId) && activeAccountIdRef.current === accountId
 
@@ -707,6 +713,17 @@ export function AppStateProvider({ children }) {
 
       if (!mounted) {
         return
+      }
+
+      const sessionUserId = session?.user?.id || null
+      const previousUserId = currentUserIdRef.current
+      currentUserIdRef.current = sessionUserId
+      const cachedEntitlement = readCachedEntitlementForUser(sessionUserId)
+      if (cachedEntitlement) {
+        setEntitlementStatus(cachedEntitlement)
+        setIsEntitlementReady(true)
+      } else if (previousUserId !== sessionUserId) {
+        setEntitlementStatus(null)
       }
 
       setCurrentUser(session?.user || null)
@@ -728,6 +745,17 @@ export function AppStateProvider({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      const sessionUserId = session?.user?.id || null
+      const previousUserId = currentUserIdRef.current
+      currentUserIdRef.current = sessionUserId
+      const cachedEntitlement = readCachedEntitlementForUser(sessionUserId)
+      if (cachedEntitlement) {
+        setEntitlementStatus(cachedEntitlement)
+        setIsEntitlementReady(true)
+      } else if (previousUserId !== sessionUserId) {
+        setEntitlementStatus(null)
+      }
+
       setCurrentUser(session?.user || null)
       setIsLoggedIn(Boolean(session?.user))
       setIsAuthReady(true)
@@ -859,6 +887,7 @@ export function AppStateProvider({ children }) {
     setIsAnalyzing(false)
     setIsChatLoading(false)
     setIsFeedbackLoading(false)
+    setIsEditorPreparing(false)
     setViewTransition('idle')
     setIsEditorEntering(false)
     setIsResultEntering(false)
@@ -1518,16 +1547,45 @@ export function AppStateProvider({ children }) {
 
     const normalizedName = name.trim()
     const baseName = normalizedName || '새 프로젝트'
-    const created = await createProjectRecord({
+    const previousProjectId = currentProjectId
+    const optimisticId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? `pending-${crypto.randomUUID()}`
+        : `pending-${Date.now()}`
+    const now = new Date().toISOString()
+    const optimisticProject = {
+      id: optimisticId,
+      account_id: currentAccount.id,
       name: baseName,
-      accountId: currentAccount.id,
-    })
-    if (!created) {
-      return null
+      created_at: now,
+      updated_at: now,
+      isOptimistic: true,
     }
-    setProjects((current) => [...current, created])
-    setCurrentProjectId(created.id)
-    return created
+
+    setProjects((current) => [...current, optimisticProject])
+    setCurrentProjectId(optimisticId)
+
+    try {
+      const created = await createProjectRecord({
+        name: baseName,
+        accountId: currentAccount.id,
+      })
+      if (!created) {
+        setProjects((current) => current.filter((item) => item.id !== optimisticId))
+        setCurrentProjectId((current) => (current === optimisticId ? previousProjectId : current))
+        return null
+      }
+
+      setProjects((current) =>
+        current.map((item) => (item.id === optimisticId ? created : item)),
+      )
+      setCurrentProjectId((current) => (current === optimisticId ? created.id : current))
+      return created
+    } catch (error) {
+      setProjects((current) => current.filter((item) => item.id !== optimisticId))
+      setCurrentProjectId((current) => (current === optimisticId ? previousProjectId : current))
+      throw error
+    }
   }
 
   const selectProject = (projectId) => {
@@ -2053,6 +2111,8 @@ export function AppStateProvider({ children }) {
     setFeedback(null)
     setPendingSuggestion(null)
     setCopilotUsage(createInitialCopilotUsage())
+    setIsEditorPreparing(true)
+    setCurrentStep('editor')
     setViewTransition('to-editor')
     setIsEditorEntering(false)
 
@@ -2066,6 +2126,7 @@ export function AppStateProvider({ children }) {
         score: nextScript.score,
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
+        setIsEditorPreparing(false)
         return
       }
       const initialVersions = created.versions || []
@@ -2080,8 +2141,8 @@ export function AppStateProvider({ children }) {
         versions: initialVersions,
         lastStep: 'editor',
       })
-      setCurrentStep('editor')
       setViewTransition('idle')
+      setIsEditorPreparing(false)
       setIsEditorEntering(true)
       setTimeout(() => {
         if (isCurrentAccountRequest(requestAccountId)) {
@@ -2100,6 +2161,7 @@ export function AppStateProvider({ children }) {
           content: error.message || '에디터용 스크립트 생성에 실패했습니다.',
         },
       ])
+      setIsEditorPreparing(false)
       setCurrentStep('result')
       setViewTransition('idle')
     }
@@ -2116,6 +2178,7 @@ export function AppStateProvider({ children }) {
     })
 
     setViewTransition('to-result')
+    setIsEditorPreparing(false)
     setIsResultEntering(false)
     setTimeout(() => {
       if (!isCurrentAccountRequest(requestAccountId)) {
@@ -2828,6 +2891,7 @@ export function AppStateProvider({ children }) {
       isChatLoading,
       isFeedbackLoading,
       isApplyingFeedback,
+      isEditorPreparing,
       viewTransition,
       isEditorEntering,
       isResultEntering,
@@ -2901,6 +2965,7 @@ export function AppStateProvider({ children }) {
       isChatLoading,
       isFeedbackLoading,
       isApplyingFeedback,
+      isEditorPreparing,
       isEditorEntering,
       isLoggedIn,
       isResultEntering,

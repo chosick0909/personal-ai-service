@@ -35,10 +35,27 @@ function SectionEditor({ label, value, onChange, tone, placeholder }) {
   )
 }
 
+function SectionSkeleton({ label, tone, minHeight = 'min-h-[124px]' }) {
+  return (
+    <div className={`grid gap-3 rounded-[18px] border border-[#2F3543] bg-[#111722] px-4 py-4 ${tone}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">{label}</span>
+        <span className="text-xs opacity-80">생성중...</span>
+      </div>
+      <div className={`grid content-start gap-3 rounded-[12px] px-1 py-1 ${minHeight}`}>
+        <div className="h-3 w-[82%] animate-pulse rounded-full bg-[#2A303B]" />
+        <div className="h-3 w-[94%] animate-pulse rounded-full bg-[#252B36]" />
+        <div className="h-3 w-[68%] animate-pulse rounded-full bg-[#2A303B]" />
+      </div>
+    </div>
+  )
+}
+
 export default function Editor({ embedded = false }) {
   const {
     selectedScript,
     editorSections,
+    isEditorPreparing,
     updateEditorSection,
     openVersionHistory,
     saveVersion,
@@ -81,6 +98,7 @@ export default function Editor({ embedded = false }) {
               <button
                 type="button"
                 onClick={openVersionHistory}
+                disabled={isEditorPreparing}
                 className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
               >
                 저장 내역
@@ -88,7 +106,8 @@ export default function Editor({ embedded = false }) {
               <button
                 type="button"
                 onClick={() => saveVersion('USER')}
-                className="btn-solid-contrast rounded-full px-5 py-2.5 text-sm font-semibold transition hover:bg-[#D1D5DB]"
+                disabled={isEditorPreparing}
+                className="btn-solid-contrast rounded-full px-5 py-2.5 text-sm font-semibold transition hover:bg-[#D1D5DB] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 버전 저장
               </button>
@@ -98,27 +117,37 @@ export default function Editor({ embedded = false }) {
 
         <div className={`${embedded ? '' : 'mt-6'} rounded-[32px] border border-[#2F3543] bg-[#0F131B] p-6 ${embedded ? '' : 'shadow-[0_20px_60px_rgba(0,0,0,0.25)]'}`}>
           <div className="grid gap-4">
-            <SectionEditor
-              label="Hook"
-              value={editorSections.hook}
-              onChange={(event) => updateEditorSection('hook', event.target.value)}
-              tone="text-[#FCA5A5]"
-              placeholder="첫 1초를 잡는 훅 문장을 다듬으세요."
-            />
-            <SectionEditor
-              label="Body"
-              value={editorSections.body}
-              onChange={(event) => updateEditorSection('body', event.target.value)}
-              tone="text-[#93C5FD]"
-              placeholder="핵심 설명과 전개를 정리하세요."
-            />
-            <SectionEditor
-              label="CTA"
-              value={editorSections.cta}
-              onChange={(event) => updateEditorSection('cta', event.target.value)}
-              tone="text-[#86EFAC]"
-              placeholder="행동 유도 문장을 정리하세요."
-            />
+            {isEditorPreparing ? (
+              <>
+                <SectionSkeleton label="Hook" tone="text-[#FCA5A5]" />
+                <SectionSkeleton label="Body" tone="text-[#93C5FD]" />
+                <SectionSkeleton label="CTA" tone="text-[#86EFAC]" />
+              </>
+            ) : (
+              <>
+                <SectionEditor
+                  label="Hook"
+                  value={editorSections.hook}
+                  onChange={(event) => updateEditorSection('hook', event.target.value)}
+                  tone="text-[#FCA5A5]"
+                  placeholder="첫 1초를 잡는 훅 문장을 다듬으세요."
+                />
+                <SectionEditor
+                  label="Body"
+                  value={editorSections.body}
+                  onChange={(event) => updateEditorSection('body', event.target.value)}
+                  tone="text-[#93C5FD]"
+                  placeholder="핵심 설명과 전개를 정리하세요."
+                />
+                <SectionEditor
+                  label="CTA"
+                  value={editorSections.cta}
+                  onChange={(event) => updateEditorSection('cta', event.target.value)}
+                  tone="text-[#86EFAC]"
+                  placeholder="행동 유도 문장을 정리하세요."
+                />
+              </>
+            )}
           </div>
 
           <div className="mt-5 rounded-[22px] border border-[#2F3543] bg-[#131720] px-4 py-4">
@@ -137,10 +166,12 @@ export default function Editor({ embedded = false }) {
               <button
                 type="button"
                 onClick={requestFeedback}
-                disabled={isFeedbackButtonDisabled}
+                disabled={isFeedbackButtonDisabled || isEditorPreparing}
                 className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isFeedbackLoading
+                {isEditorPreparing
+                  ? '초안 준비 중...'
+                  : isFeedbackLoading
                   ? '피드백 생성 중...'
                   : isFeedbackLimitReached
                     ? '피드백 한도 도달'
@@ -154,6 +185,7 @@ export default function Editor({ embedded = false }) {
             <button
               type="button"
               onClick={goBackToResults}
+              disabled={isEditorPreparing}
               className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
             >
               다시 선택하기
@@ -161,7 +193,8 @@ export default function Editor({ embedded = false }) {
             <button
               type="button"
               onClick={exportCurrentScriptPdf}
-              className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold shadow-[0_20px_44px_rgba(0,0,0,0.25)] transition hover:bg-white"
+              disabled={isEditorPreparing}
+              className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold shadow-[0_20px_44px_rgba(0,0,0,0.25)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               완성 및 내보내기
             </button>

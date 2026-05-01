@@ -1,7 +1,7 @@
 import { apiFetch, createApiError, parseApiResponse } from './api'
 import { supabase } from './supabase'
 
-const ENTITLEMENT_CACHE_TTL_MS = 30 * 1000
+const ENTITLEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 async function getEntitlementCacheKey() {
   const {
@@ -17,13 +17,13 @@ function readCachedEntitlement(cacheKey) {
   }
 
   try {
-    const cached = JSON.parse(window.sessionStorage.getItem(cacheKey) || 'null')
+    const cached = JSON.parse(window.localStorage.getItem(cacheKey) || 'null')
     if (!cached?.status || !cached?.cachedAt) {
       return null
     }
 
     if (Date.now() - cached.cachedAt > ENTITLEMENT_CACHE_TTL_MS) {
-      window.sessionStorage.removeItem(cacheKey)
+      window.localStorage.removeItem(cacheKey)
       return null
     }
 
@@ -38,13 +38,22 @@ function writeCachedEntitlement(cacheKey, status) {
     return
   }
 
-  window.sessionStorage.setItem(
+  window.localStorage.setItem(
     cacheKey,
     JSON.stringify({
       cachedAt: Date.now(),
       status,
     }),
   )
+}
+
+export function readCachedEntitlementForUser(userId) {
+  const normalizedUserId = String(userId || '').trim()
+  if (!normalizedUserId) {
+    return null
+  }
+
+  return readCachedEntitlement(`hookai:entitlement:${normalizedUserId}`)
 }
 
 export async function loadMyEntitlement({ referenceId } = {}) {

@@ -75,6 +75,19 @@ function IconFile() {
   )
 }
 
+function RecentItemIcon() {
+  return (
+    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[#8E97A6]" aria-hidden="true">
+      <svg viewBox="0 0 16 16" className="h-[14px] w-[14px]">
+        <path
+          d="M3.2 1.8h5.9l3.1 3.1v9.3h-9a1.8 1.8 0 0 1-1.8-1.8V3.6a1.8 1.8 0 0 1 1.8-1.8Zm5.2 1.3H3.2a.5.5 0 0 0-.5.5v8.8c0 .28.22.5.5.5h7.7V5.6H8.4V3.1Zm1.2.9v.4h.4L9.6 4Z"
+          fill="currentColor"
+        />
+      </svg>
+    </span>
+  )
+}
+
 function IconChatBubble() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#D1D5DB]">
@@ -117,12 +130,17 @@ function normalizeSearchText(value = '') {
     .trim()
 }
 
+const PROJECT_PREVIEW_LIMIT = 5
+
 export default function Sidebar({ onRequestClose = () => {} }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isAccountSwitchOpen, setIsAccountSwitchOpen] = useState(false)
+  const [isAccountActionsOpen, setIsAccountActionsOpen] = useState(false)
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false)
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false)
+  const [isProjectListExpanded, setIsProjectListExpanded] = useState(false)
+  const [isRecentListExpanded, setIsRecentListExpanded] = useState(true)
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [activeReferenceMenuId, setActiveReferenceMenuId] = useState(null)
   const [activeMoveMenuId, setActiveMoveMenuId] = useState(null)
@@ -161,9 +179,15 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   } = useAppState()
 
   const normalizedQuery = String(searchQuery || '').normalize('NFC').trim().toLowerCase()
+  const hasMoreProjects = projects.length > PROJECT_PREVIEW_LIMIT
+  const shouldShowExpandedProjects = isProjectListExpanded && hasMoreProjects
 
   const projectRows = useMemo(() => {
-    const dynamic = projects.slice(0, 20).map((project) => ({
+    const visibleProjects = shouldShowExpandedProjects
+      ? projects
+      : projects.slice(0, PROJECT_PREVIEW_LIMIT)
+
+    const dynamic = visibleProjects.map((project) => ({
       id: project.id,
       title: project.name,
       active: currentProjectId === project.id,
@@ -171,7 +195,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     }))
 
     return dynamic
-  }, [projects, currentProjectId, selectProject])
+  }, [projects, shouldShowExpandedProjects, currentProjectId, selectProject])
 
   const recentRows = useMemo(() => {
     const scopedHistory = currentProjectId
@@ -298,6 +322,9 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   }, [searchRows])
 
   const accountRows = useMemo(() => accounts.slice(0, 6), [accounts])
+  const currentAccountNeedsSetup = Boolean(
+    currentAccount?.id && !isAccountConfigured(currentAccount.id),
+  )
   const usageSummary = useMemo(() => {
     const limits = entitlementStatus?.usage?.limits || entitlementStatus?.entitlement?.limits || {}
     const monthlyReferenceLimit = limits.monthlyReferenceLimit
@@ -355,13 +382,14 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   }, [copilotLimits, copilotRemaining, copilotUsage, entitlementStatus])
 
   useEffect(() => {
-    if (!isAccountSwitchOpen) {
+    if (!isAccountSwitchOpen && !isAccountActionsOpen) {
       return undefined
     }
 
     const handleOutside = (event) => {
       if (accountSheetRef.current && !accountSheetRef.current.contains(event.target)) {
         setIsAccountSwitchOpen(false)
+        setIsAccountActionsOpen(false)
       }
     }
 
@@ -369,6 +397,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         setIsAccountSwitchOpen(false)
+        setIsAccountActionsOpen(false)
       }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -376,7 +405,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       document.removeEventListener('mousedown', handleOutside)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isAccountSwitchOpen])
+  }, [isAccountSwitchOpen, isAccountActionsOpen])
 
   useEffect(() => {
     if (!isSearchOpen) {
@@ -465,10 +494,16 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   }
 
   const submitCreateProject = async () => {
+    const nextProjectName = projectNameDraft
+    const shouldRevealNewProject = projects.length >= PROJECT_PREVIEW_LIMIT
+    setIsCreateProjectOpen(false)
+    setProjectNameDraft('')
+    if (shouldRevealNewProject) {
+      setIsProjectListExpanded(true)
+    }
+
     try {
-      await createProject(projectNameDraft)
-      setIsCreateProjectOpen(false)
-      setProjectNameDraft('')
+      await createProject(nextProjectName)
     } catch (error) {
       window.alert(error.message || '프로젝트 생성에 실패했습니다.')
     }
@@ -494,6 +529,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     }
 
     setIsAccountSwitchOpen(false)
+    setIsAccountActionsOpen(false)
   }
 
   const handleAccountSettings = (account) => {
@@ -501,6 +537,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       selectAccount(account.id)
     }
     setIsAccountSwitchOpen(false)
+    setIsAccountActionsOpen(false)
     window.location.assign('/settings')
   }
 
@@ -513,6 +550,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
     try {
       await addAccount(name)
       setIsAccountSwitchOpen(false)
+      setIsAccountActionsOpen(false)
     } catch (error) {
       window.alert(error.message || '계정 추가에 실패했습니다.')
     }
@@ -595,10 +633,10 @@ export default function Sidebar({ onRequestClose = () => {} }) {
             </div>
           ))}
 
-          {projectRows.length > 0 ? (
-            <Row muted onClick={() => {}}>
+          {hasMoreProjects ? (
+            <Row muted onClick={() => setIsProjectListExpanded((current) => !current)}>
               <IconDots />
-              더 보기
+              {shouldShowExpandedProjects ? '접기' : '더 보기'}
             </Row>
           ) : null}
         </div>
@@ -615,9 +653,28 @@ export default function Sidebar({ onRequestClose = () => {} }) {
           </Row>
         </div>
 
-        <div className="px-6 pt-4 text-sm font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">최근</div>
-        <div className="px-3 pb-3 pt-2">
-          {recentRows.map((item) => (
+        <button
+          type="button"
+          onClick={() => {
+            setIsRecentListExpanded((current) => !current)
+            setActiveReferenceMenuId(null)
+            setActiveMoveMenuId(null)
+          }}
+          className="mt-4 flex h-8 items-center gap-1.5 px-6 text-sm font-semibold uppercase tracking-[0.05em] text-[#8E97A6] transition hover:text-[#D1D5DB]"
+          aria-expanded={isRecentListExpanded}
+        >
+          최근
+          <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 transition-transform ${isRecentListExpanded ? '' : '-rotate-90'}`}
+          >
+            <path d="M4.5 6.2 8 9.8l3.5-3.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {isRecentListExpanded ? (
+          <div className="px-3 pb-3 pt-2">
+            {recentRows.map((item) => (
             <div
               key={item.id}
               className={`group relative flex h-10 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm transition ${
@@ -633,7 +690,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                   item.active ? 'text-[#F3F4F6]' : 'text-[#E5E7EB]'
                 }`}
               >
-                <IconFile />
+                <RecentItemIcon />
                 <span className="truncate">{item.title}</span>
                 {item.isProcessing ? (
                   <span className="inline-flex shrink-0 whitespace-nowrap items-center gap-1 rounded-full border border-[#6B7280] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-[#D1D5DB]">
@@ -754,91 +811,75 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                 </div>
               ) : null}
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="relative mt-auto border-t border-[#2C313C] px-3 py-3" ref={accountSheetRef}>
         {isAccountSwitchOpen ? (
-          <div className="absolute bottom-[calc(100%+10px)] left-3 right-3 overflow-hidden rounded-[18px] border border-[#343A45] bg-[#26282D] shadow-[0_12px_24px_rgba(0,0,0,0.35)]">
-            <div className="px-4 py-3 text-[13px] font-semibold text-[#E5E7EB]">계정 전환</div>
-            <div className="max-h-[320px] overflow-y-auto">
+          <div className="absolute bottom-[calc(100%+10px)] left-3 right-3 overflow-hidden rounded-[18px] border border-[#343A45] bg-[#151922] shadow-[0_18px_44px_rgba(0,0,0,0.42)]">
+            <div className="border-b border-[#252B36] px-4 py-3 text-[13px] font-semibold text-[#AEB6C5]">계정 전환</div>
+            <div className="max-h-[300px] overflow-y-auto py-1.5">
               {accountRows.map((account) => {
                 const isActive = currentAccount?.id === account.id
                 const needsSetup = !isAccountConfigured(account.id)
                 return (
                   <div
                     key={account.id}
-                    onClick={() => handleAccountSelect(account)}
-                    className={`flex w-full cursor-pointer items-center gap-2.5 px-4 py-2.5 text-left transition ${
-                      isActive
-                        ? 'bg-[#30333A]'
-                        : 'hover:bg-[#2B2E35]'
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${
+                      isActive ? 'bg-[#232833]' : 'hover:bg-[#1D2330]'
                     }`}
                   >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#4B5563] text-white">
-                      <svg viewBox="0 0 20 20" aria-hidden="true" className="h-6 w-6">
-                        <path
-                          d="M10 10.2a3.2 3.2 0 1 0 0-6.4a3.2 3.2 0 0 0 0 6.4Zm0 1.8c-3.2 0-5.8 1.9-5.8 4.2 0 .6.4 1 1 1h9.6c.6 0 1-.4 1-1 0-2.3-2.6-4.2-5.8-4.2Z"
-                          fill="currentColor"
-                        />
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12px] font-semibold leading-4 text-[#F3F4F6]">
-                        {account.name}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleAccountSettings(account)
-                        }}
-                        className="mt-1 inline-flex min-h-[14px] items-center gap-0.5 overflow-hidden rounded-full border border-[#4A505C] bg-[#2B2F36] px-1.5 py-0.5 text-[7px] font-semibold leading-none text-[#D1D5DB] no-underline transition hover:bg-[#343943]"
-                        aria-label={`${account.name} 계정 설정`}
-                        title="계정 설정"
-                      >
-                        {needsSetup ? (
-                          <span
-                            className="inline-block h-1 w-1 rounded-full bg-[#EF4444]"
-                            aria-hidden="true"
-                          />
-                        ) : null}
-                        <svg viewBox="0 0 16 16" aria-hidden="true" className="h-1.5 w-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleAccountSelect(account)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#4B5563] text-white">
+                        <svg viewBox="0 0 20 20" aria-hidden="true" className="h-6 w-6">
                           <path
-                            d="M6.26.94h3.48l.38 1.86a5.4 5.4 0 0 1 1.25.72l1.77-.74 1.74 3.01-1.38 1.22c.07.4.1.8.1 1.2 0 .4-.03.8-.1 1.2l1.38 1.22-1.74 3.01-1.77-.74c-.39.3-.8.54-1.25.72l-.38 1.86H6.26l-.38-1.86a5.4 5.4 0 0 1-1.25-.72l-1.77.74L1.12 11.6 2.5 10.38a6.3 6.3 0 0 1 0-2.4L1.12 6.76 2.86 3.75l1.77.74c.39-.3.8-.54 1.25-.72L6.26.94Zm1.74 4.11A3.15 3.15 0 1 0 8 11.35 3.15 3.15 0 0 0 8 5.05Z"
+                            d="M10 10.2a3.2 3.2 0 1 0 0-6.4a3.2 3.2 0 0 0 0 6.4Zm0 1.8c-3.2 0-5.8 1.9-5.8 4.2 0 .6.4 1 1 1h9.6c.6 0 1-.4 1-1 0-2.3-2.6-4.2-5.8-4.2Z"
                             fill="currentColor"
                           />
                         </svg>
-                        설정
-                      </button>
-                    </div>
-                    <div className="ml-1.5 flex shrink-0 items-center gap-0.5">
-                      {isActive ? (
-                        <div className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#CBD5E1] text-[#CBD5E1]">
-                          <svg viewBox="0 0 16 16" aria-hidden="true" className="h-2.5 w-2.5">
-                            <path d="M6.8 10.74 3.92 7.87 2.8 9l4 4 6.4-6.4-1.12-1.13-5.28 5.27Z" fill="currentColor" />
-                          </svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold leading-5 text-[#F3F4F6]">
+                          {account.name}
                         </div>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={async (event) => {
-                          event.stopPropagation()
-                          const ok = window.confirm(`"${account.name}" 계정을 삭제할까요?`)
-                          if (!ok) {
-                            return
-                          }
-                          await deleteAccount(account.id)
-                          setIsAccountSwitchOpen(false)
-                        }}
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[#F87171] text-[10px] font-semibold transition hover:bg-[#3A1E23]"
-                        aria-label={`${account.name} 계정 삭제`}
-                        title="계정 삭제"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-[#8E97A6]">
+                          {needsSetup ? (
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#EF4444]" aria-hidden="true" />
+                          ) : null}
+                          {needsSetup ? '계정 설정 필요' : account.slug ? `@${account.slug}` : '계정'}
+                        </div>
+                      </div>
+                    </button>
+                    {isActive ? (
+                      <div className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#CBD5E1] text-[#CBD5E1]">
+                        <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3 w-3">
+                          <path d="M6.8 10.74 3.92 7.87 2.8 9l4 4 6.4-6.4-1.12-1.13-5.28 5.27Z" fill="currentColor" />
+                        </svg>
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={async (event) => {
+                        event.stopPropagation()
+                        const ok = window.confirm(`"${account.name}" 계정을 삭제할까요?`)
+                        if (!ok) {
+                          return
+                        }
+                        await deleteAccount(account.id)
+                        setIsAccountSwitchOpen(false)
+                      }}
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-[#F87171] opacity-70 transition hover:bg-[#3A1E23] hover:opacity-100"
+                      aria-label={`${account.name} 계정 삭제`}
+                      title="계정 삭제"
+                    >
+                      ✕
+                    </button>
                   </div>
                 )
               })}
@@ -846,11 +887,26 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                 <div className="px-4 py-5 text-[12px] text-[#A5ACB8]">표시할 계정이 없습니다.</div>
               ) : null}
             </div>
-            <div className="border-t border-[#3A3F4A] px-3 py-2.5">
+          </div>
+        ) : null}
+
+        {isAccountActionsOpen ? (
+          <div className="absolute bottom-[calc(100%+10px)] left-3 right-3 overflow-hidden rounded-[18px] border border-[#343A45] bg-[#151922] shadow-[0_18px_44px_rgba(0,0,0,0.42)]">
+            <div className="border-b border-[#252B36] px-4 py-3 text-[13px] font-semibold text-[#AEB6C5]">계정 메뉴</div>
+            <div className="grid gap-1.5 px-3 py-2.5">
+              {currentAccount ? (
+                <button
+                  type="button"
+                  onClick={() => handleAccountSettings(currentAccount)}
+                  className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#343A45] bg-[#1B202B] text-[12px] font-semibold text-[#D1D5DB] transition hover:bg-[#242A36]"
+                >
+                  {currentAccountNeedsSetup ? '현재 계정 설정하기' : '현재 계정 설정'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={handleAddAccount}
-                className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#4A505C] bg-[#2B2F36] text-[13px] font-semibold text-[#E5E7EB] transition hover:bg-[#343943]"
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#343A45] bg-[#1B202B] text-[12px] font-semibold text-[#E5E7EB] transition hover:bg-[#242A36]"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4">
                   <path d="M7.25 2.5h1.5v4.75H13.5v1.5H8.75v4.75h-1.5V8.75H2.5v-1.5h4.75V2.5Z" fill="currentColor" />
@@ -862,8 +918,9 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                 onClick={() => {
                   setIsUsageModalOpen(true)
                   setIsAccountSwitchOpen(false)
+                  setIsAccountActionsOpen(false)
                 }}
-                className="mt-1.5 flex h-8 w-full items-center justify-center gap-2 rounded-lg border border-[#4A505C] bg-[#252932] text-[12px] font-semibold text-[#D1D5DB] transition hover:bg-[#343943]"
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#343A45] bg-[#1B202B] text-[12px] font-semibold text-[#D1D5DB] transition hover:bg-[#242A36]"
               >
                 남은 사용량
               </button>
@@ -878,12 +935,13 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                   try {
                     await logout()
                     setIsAccountSwitchOpen(false)
+                    setIsAccountActionsOpen(false)
                     window.location.assign('/login')
                   } catch (error) {
                     window.alert(error.message || '로그아웃에 실패했습니다.')
                   }
                 }}
-                className="mt-1.5 flex h-8 w-full items-center justify-center gap-2 rounded-lg border border-[#4A505C] bg-[#252932] text-[12px] font-semibold text-[#FCA5A5] transition hover:bg-[#343943]"
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#3F2930] bg-[#241820] text-[12px] font-semibold text-[#FCA5A5] transition hover:bg-[#30202A]"
               >
                 로그아웃
               </button>
@@ -891,35 +949,65 @@ export default function Sidebar({ onRequestClose = () => {} }) {
           </div>
         ) : null}
 
-        <button
-          type="button"
-          onClick={() => setIsAccountSwitchOpen((current) => !current)}
-          className="flex h-[52px] w-full items-center gap-3 rounded-[10px] px-3 transition hover:bg-[#232833]"
-        >
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4B5563] text-xs font-semibold text-white">
-            {(currentUser?.email || currentAccount?.name || 'H').slice(0, 1).toUpperCase()}
-          </div>
-          <div className="min-w-0 flex-1 text-left">
-            <div className="truncate text-sm font-semibold text-[#F3F4F6]">
-              {currentAccount?.name || currentUser?.email || '계정'}
+        <div className="flex h-[58px] w-full items-center gap-3 rounded-[12px] px-3">
+          <button
+            type="button"
+            onClick={() => {
+              setIsAccountSwitchOpen((current) => !current)
+              setIsAccountActionsOpen(false)
+            }}
+            className={`flex min-w-0 flex-1 items-center gap-3 rounded-[10px] py-1.5 pr-2 text-left transition ${
+              isAccountSwitchOpen ? 'bg-[#1D2330]' : 'hover:bg-[#1D2330]'
+            }`}
+            aria-label="계정 전환"
+            title="계정 전환"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#4B5563] text-sm font-semibold text-white">
+              {(currentUser?.email || currentAccount?.name || 'H').slice(0, 1).toUpperCase()}
             </div>
-            {entitlementStatus?.hasAccess ? (
-              <div className="mt-1 truncate text-[10px] font-medium text-[#8E97A6]">
-                {entitlementStatus.entitlement?.planType === 'student'
-                  ? `분석 ${entitlementStatus.usage?.monthlyReferenceUsed ?? 0}/${entitlementStatus.usage?.limits?.monthlyReferenceLimit ?? 30}`
-                  : '오픈베타 무제한'}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-[#F3F4F6]">
+                {currentAccount?.name || currentUser?.email || '계정'}
               </div>
+              {entitlementStatus?.hasAccess ? (
+                <div className="mt-1 truncate text-[10px] font-medium text-[#8E97A6]">
+                  {entitlementStatus.entitlement?.planType === 'student'
+                    ? `분석 ${entitlementStatus.usage?.monthlyReferenceUsed ?? 0}/${entitlementStatus.usage?.limits?.monthlyReferenceLimit ?? 30}`
+                    : '오픈베타 무제한'}
+                </div>
+              ) : null}
+              {currentAccountNeedsSetup ? (
+                <div className="mt-1 inline-flex items-center rounded-full border border-[#7F1D1D] bg-[#2A1417] px-2 py-0.5 text-[10px] font-semibold text-[#FCA5A5]">
+                  계정설정필요
+                </div>
+              ) : null}
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsAccountActionsOpen((current) => !current)
+              setIsAccountSwitchOpen(false)
+            }}
+            className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition ${
+              isAccountActionsOpen
+                ? 'border-[#4B5563] bg-[#232833] text-[#F3F4F6]'
+                : 'border-[#343A45] bg-[#171C26] text-[#AEB6C5] hover:border-[#4B5563] hover:bg-[#232833] hover:text-[#F3F4F6]'
+            }`}
+            aria-label="계정 메뉴"
+            title="계정 메뉴"
+          >
+            {currentAccountNeedsSetup ? (
+              <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#EF4444]" />
             ) : null}
-            {currentAccount?.id && !isAccountConfigured(currentAccount.id) ? (
-              <div className="mt-1 inline-flex items-center rounded-full border border-[#7F1D1D] bg-[#2A1417] px-2 py-0.5 text-[10px] font-semibold text-[#FCA5A5]">
-                계정설정필요
-              </div>
-            ) : null}
-          </div>
-          <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4 text-[#AEB6C5]">
-            <path d="M8 11.5 3.5 6.5h9L8 11.5Z" fill="currentColor" />
-          </svg>
-        </button>
+            <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4">
+              <path
+                d="M6.26.94h3.48l.38 1.86a5.4 5.4 0 0 1 1.25.72l1.77-.74 1.74 3.01-1.38 1.22c.07.4.1.8.1 1.2 0 .4-.03.8-.1 1.2l1.38 1.22-1.74 3.01-1.77-.74c-.39.3-.8.54-1.25.72l-.38 1.86H6.26l-.38-1.86a5.4 5.4 0 0 1-1.25-.72l-1.77.74L1.12 11.6 2.5 10.38a6.3 6.3 0 0 1 0-2.4L1.12 6.76 2.86 3.75l1.77.74c.39-.3.8-.54 1.25-.72L6.26.94Zm1.74 4.11A3.15 3.15 0 1 0 8 11.35 3.15 3.15 0 0 0 8 5.05Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {isUsageModalOpen

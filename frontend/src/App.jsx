@@ -41,130 +41,16 @@ function FabricBackgroundOverlay() {
 
 function LandingScreen() {
   const { isLoggedIn, currentUser, logout } = useAppState()
-  const stepCards = [
-    {
-      id: 'step-1',
-      label: 'Step 1',
-      title: '레퍼런스 업로드',
-      body: '분석하고 싶은 영상 파일을 드래그 앤 드롭하거나 직접 선택하세요.',
-      border: '#2F3543',
-      shadow: 'rgba(0, 0, 0, 0.28)',
-      badgeBg: '#1C2230',
-      badgeColor: '#D1D5DB',
-      glow: '#1C2230',
-    },
-    {
-      id: 'step-2',
-      label: 'Step 2',
-      title: 'AI 분석 + 초안 생성',
-      body: '구조, 후킹 포인트, 심리 기제를 분석하고 A/B/C 세 가지 초안을 자동으로 생성합니다.',
-      border: '#2F3543',
-      shadow: 'rgba(0, 0, 0, 0.28)',
-      badgeBg: '#1C2230',
-      badgeColor: '#D1D5DB',
-      glow: '#1C2230',
-    },
-    {
-      id: 'step-3',
-      label: 'Step 3',
-      title: '에디터에서 수정',
-      body: '마음에 드는 초안을 선택해 에디터로 이동하고, AI 코파일럿과 함께 완성하세요.',
-      border: '#2F3543',
-      shadow: 'rgba(0, 0, 0, 0.28)',
-      badgeBg: '#1C2230',
-      badgeColor: '#D1D5DB',
-      glow: '#1C2230',
-    },
-  ]
-
-  const featureCards = [
-    {
-      id: 'feature-1',
-      title: '심층 레퍼런스 분석',
-      body: '단순한 텍스트 추출이 아닌, 영상의 구조·후킹 포인트·심리 기제·시각적 연출까지 다각도로 분석합니다.',
-      chips: [
-        { label: '구조 분석', bg: '#1D2330', color: '#D1D5DB', border: '#2F3543' },
-        { label: '후킹 포인트', bg: '#1D2330', color: '#D1D5DB', border: '#2F3543' },
-        { label: '심리 기제', bg: '#1D2330', color: '#D1D5DB', border: '#2F3543' },
-      ],
-      border: '#2F3543',
-      gradient: 'linear-gradient(169deg, #12151D 0%, #171B24 100%)',
-      iconBg: '#1E2432',
-    },
-    {
-      id: 'feature-2',
-      title: 'A/B/C 자동 초안 생성',
-      body: '분석 결과를 바탕으로 세 가지 톤앤매너의 초안을 자동 생성. 강한 문제 제기형, 정보 압축형, 공감 유도형 중에서 선택하세요.',
-      chips: [
-        { label: 'A안', bg: '#1D2330', color: '#D1D5DB', border: '#2F3543' },
-        { label: 'B안', bg: '#1D2330', color: '#D1D5DB', border: '#2F3543' },
-        { label: 'C안', bg: '#1D2330', color: '#D1D5DB', border: '#2F3543' },
-      ],
-      border: '#2F3543',
-      gradient: 'linear-gradient(169deg, #12151D 0%, #171B24 100%)',
-      iconBg: '#1E2432',
-    },
-    {
-      id: 'feature-3',
-      title: '실시간 AI 피드백',
-      body: '에디터 우측 AI 코파일럿 패널에서 수정 요청을 보내고 즉시 피드백과 점수를 받아 콘텐츠를 개선하세요.',
-      chips: [],
-      border: '#2F3543',
-      gradient: 'linear-gradient(173deg, #12151D 0%, #171B24 100%)',
-      iconBg: '#1E2432',
-    },
-    {
-      id: 'feature-4',
-      title: '버전 관리 및 히스토리',
-      body: '모든 레퍼런스와 작업 내역이 자동 저장되어 언제든 이전 버전을 불러오고 비교할 수 있습니다.',
-      chips: [],
-      border: '#2F3543',
-      gradient: 'linear-gradient(173deg, #12151D 0%, #171B24 100%)',
-      iconBg: '#1E2432',
-    },
-  ]
-
-  const storyboardCards = [
-    {
-      id: 'board-a',
-      title: '레퍼런스 분석 리포트',
-      border: '#2F3543',
-      bg: 'linear-gradient(170deg, #12151D 0%, #171B24 100%)',
-      items: [
-        { label: '구조 분석', value: '문제 제기 → 사례 → CTA', color: '#D1D5DB', bg: '#1D2330' },
-        { label: '후킹 포인트', value: '첫 2초 반전 질문형', color: '#D1D5DB', bg: '#1D2330' },
-        { label: '심리 기제', value: '손실 회피 + 권위 암시', color: '#D1D5DB', bg: '#1D2330' },
-      ],
-    },
-    {
-      id: 'board-b',
-      title: 'A/B/C 초안 미리보기',
-      border: '#2F3543',
-      bg: 'linear-gradient(170deg, #12151D 0%, #171B24 100%)',
-      items: [
-        { label: 'A안', value: '강한 문제 제기형', color: '#D1D5DB', bg: '#1D2330' },
-        { label: 'B안', value: '정보 압축형', color: '#D1D5DB', bg: '#1D2330' },
-        { label: 'C안', value: '공감 유도형', color: '#D1D5DB', bg: '#1D2330' },
-      ],
-    },
-  ]
-
-  const useCases = [
-    '광고 외주 스크립트 제작',
-    '쇼핑몰 상세페이지 영상 기획',
-    '브랜드 숏폼 포맷 표준화',
-    'AI 코파일럿 기반 빠른 리라이트',
-  ]
 
   return (
     <main
       className="relative min-h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]"
       style={{
         fontFamily: 'Matter, Inter, Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
-        ...FABRIC_DARK_BACKGROUND,
+        backgroundImage:
+          'radial-gradient(ellipse 76% 64% at 14% 10%, rgba(250,249,246,0.10) 0%, rgba(250,249,246,0.045) 28%, rgba(250,249,246,0) 62%), radial-gradient(ellipse 62% 54% at 88% 86%, rgba(148,163,184,0.09) 0%, rgba(148,163,184,0.035) 32%, rgba(148,163,184,0) 66%), linear-gradient(180deg, #141820 0%, #0D1118 48%, #11151D 100%)',
       }}
     >
-      <FabricBackgroundOverlay />
       {isLoggedIn ? (
         <div className="absolute right-6 top-6 z-20 flex items-center gap-3">
           <div className="hidden max-w-[220px] truncate text-sm text-[#AEB6C5] md:block">
@@ -187,221 +73,51 @@ function LandingScreen() {
         </div>
       ) : null}
 
-      <div className="mx-auto w-full max-w-[1920px] px-6 pb-28 pt-24 md:pt-[154px]">
-        <section className="mx-auto max-w-[1024px] text-center">
-          <div className="warp-outline-button inline-flex h-9 items-center justify-center rounded-full px-5 text-xs font-semibold uppercase tracking-[0.18em]">
-            베타서비스
-          </div>
-          <h1 className="mt-7 text-[40px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F8FAFC] md:text-[72px] md:leading-[79.2px]">
-            검증 가능한 기준으로
-            <br />
-            숏폼 기획을 표준화하세요
-          </h1>
-          <p className="mx-auto mt-6 max-w-[600px] text-base leading-8 text-[#9CA3AF] md:text-[18px]">
-            레퍼런스 분석, 초안 생성, 에디팅, 피드백까지
-            <br className="hidden md:block" />
-            한 플로우에서 운영 가능한 콘텐츠 제작 워크스테이션입니다.
-          </p>
-
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-            <a
-              href="/recommend"
-              className="btn-solid-contrast inline-flex h-[59px] items-center justify-center gap-2 rounded-full px-8 text-lg font-semibold shadow-[0_12px_32px_rgba(0,0,0,0.38)] transition hover:bg-white"
-            >
-              <span>내 콘텐츠 방향 추천받기</span>
-              <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5">
-                <path
-                  d="M6.67 3.33 13.34 10l-6.67 6.67"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.67"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </a>
-            <a
-              href="/login"
-              className="inline-flex h-[59px] items-center justify-center rounded-full border border-[#4B5563] bg-[#111827] px-8 text-lg font-semibold !text-[#F8FAFC] transition hover:bg-[#1F2937]"
-            >
-              <span className="!text-[#F8FAFC]">바로 시작하기</span>
-            </a>
-          </div>
-          <p className="mt-5 text-xs text-[#9CA3AF]">Free trial · 신용카드 없이 시작</p>
-          <div className="mt-14 grid w-full gap-3 md:grid-cols-3">
-            <div className="warp-panel rounded-2xl px-6 py-5 text-left">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">평균 분석 시간</div>
-              <div className="mt-2 text-3xl font-bold text-[#F8FAFC]">15초</div>
-              <div className="mt-1 text-sm text-[#9CA3AF]">레퍼런스 업로드 후 1차 리포트 생성</div>
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-16">
+        <section className="relative flex min-h-[620px] w-full flex-col items-center justify-center px-6 py-16 text-center md:px-12">
+          <div className="relative z-10">
+            <div className="inline-flex h-10 items-center justify-center rounded-full border border-[#4B5563] bg-[#111827]/70 px-6 text-sm font-semibold text-[#D1D5DB] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:h-12 md:text-base">
+              베타서비스
             </div>
-            <div className="warp-panel rounded-2xl px-6 py-5 text-left">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">초안 생산성</div>
-              <div className="mt-2 text-3xl font-bold text-[#F8FAFC]">3x</div>
-              <div className="mt-1 text-sm text-[#9CA3AF]">A/B/C 자동 초안으로 작성 시간 단축</div>
-            </div>
-            <div className="warp-panel rounded-2xl px-6 py-5 text-left">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#94A3B8]">운영 일관성</div>
-              <div className="mt-2 text-3xl font-bold text-[#F8FAFC]">89%</div>
-              <div className="mt-1 text-sm text-[#9CA3AF]">포맷 규칙 기반 구조 재사용률</div>
-            </div>
-          </div>
-        </section>
+            <h1 className="mt-10 text-[38px] font-black leading-[1.18] tracking-[-0.04em] text-[#F8FAFC] md:text-[66px] lg:text-[86px]">
+              검증 가능한 기준으로
+              <br />
+              숏폼 기획을 표준화하세요
+            </h1>
+            <p className="mx-auto mt-8 max-w-[720px] text-base font-medium leading-8 text-[#9CA3AF] md:text-[22px] md:leading-[1.7]">
+              레퍼런스 분석, 초안 생성, 에디팅, 피드백까지
+              <br className="hidden md:block" />
+              한 플로우에서 운영 가능한 콘텐츠 제작 워크스테이션입니다.
+            </p>
 
-        <section className="mx-auto mt-16 grid max-w-[1100px] gap-6 lg:grid-cols-2">
-          {storyboardCards.map((board) => (
-            <article
-              key={board.id}
-              className="warp-panel rounded-[28px] p-6 md:p-8"
-              style={{
-                background: board.bg,
-              }}
-            >
-              <h3 className="text-[22px] font-bold tracking-[-0.02em] text-[#F8FAFC]">{board.title}</h3>
-              <div className="mt-5 grid gap-3">
-                {board.items.map((item) => (
-                  <div key={`${board.id}-${item.label}`} className="rounded-2xl border border-[#2F3543] bg-[#171B24]/92 p-4">
-                    <div
-                      className="inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-semibold"
-                      style={{ backgroundColor: item.bg, color: item.color }}
-                    >
-                      {item.label}
-                    </div>
-                    <p className="mt-2 text-sm font-medium text-[#E5E7EB]">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          ))}
-        </section>
-
-        <section className="mx-auto mt-10 flex max-w-[1100px] flex-wrap items-center justify-center gap-3 rounded-[24px] border border-[#2F3543] bg-[#12151D]/94 p-5 shadow-[0_10px_34px_rgba(0,0,0,0.34)] backdrop-blur-sm">
-          {useCases.map((useCase) => (
-            <span
-              key={useCase}
-              className="warp-outline-button inline-flex items-center rounded-full px-4 py-2 text-xs font-medium md:text-sm"
-            >
-              {useCase}
-            </span>
-          ))}
-        </section>
-
-        <section className="mx-auto mt-20 grid max-w-[1025px] gap-6 xl:grid-cols-3">
-          {stepCards.map((card) => (
-            <article
-              key={card.id}
-              className="relative overflow-hidden rounded-3xl border bg-[#12151D] p-8"
-              style={{
-                borderColor: card.border,
-                boxShadow: `0 14px 34px ${card.shadow}`,
-              }}
-            >
-              <div
-                className="pointer-events-none absolute -right-7 -top-8 h-32 w-32 rounded-full blur-3xl"
-                style={{ backgroundColor: '#faf9f6', opacity: 0.08 }}
-              />
-              <div
-                className="flex h-12 w-12 items-center justify-center rounded-full border"
-                style={{ backgroundColor: card.badgeBg, borderColor: card.border }}
+            <div className="mt-12 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <a
+                href="/recommend"
+                className="btn-solid-contrast inline-flex h-[58px] min-w-[270px] items-center justify-center gap-3 rounded-full px-8 text-lg font-bold shadow-[0_18px_42px_rgba(0,0,0,0.38)] transition hover:bg-white"
               >
-                <span className="h-4 w-4 rounded-sm border-2" style={{ borderColor: card.badgeColor }} />
-              </div>
-              <div
-                className="mt-4 inline-flex h-[25px] items-center rounded-full border px-3 text-[10px] font-semibold uppercase tracking-[0.18em]"
-                style={{
-                  backgroundColor: card.badgeBg,
-                  borderColor: card.border,
-                  color: card.badgeColor,
-                }}
+                <span>내 콘텐츠 방향 추천받기</span>
+                <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5">
+                  <path
+                    d="M6.67 3.33 13.34 10l-6.67 6.67"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.9"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </a>
+              <a
+                href={isLoggedIn ? '/analyze' : '/login'}
+                className="inline-flex h-[58px] min-w-[220px] items-center justify-center rounded-full border border-[#4B5563] bg-[#111827]/82 px-8 text-lg font-bold !text-[#F8FAFC] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:bg-[#1F2937]"
               >
-                {card.label}
-              </div>
-              <h3 className="mt-3 text-3xl font-bold leading-9 tracking-[-0.02em] text-[#F8FAFC]">{card.title}</h3>
-              <p className="mt-4 text-sm leading-6 text-[#9CA3AF]">{card.body}</p>
-            </article>
-          ))}
+                바로 시작하기
+              </a>
+            </div>
+            <p className="mt-6 text-sm font-medium text-[#9CA3AF]">Free trial · 신용카드 없이 시작</p>
+          </div>
         </section>
       </div>
-
-      <section className="bg-[#0f1218] py-24">
-        <div className="mx-auto w-full max-w-[1152px] px-6">
-          <div className="flex justify-center">
-            <div className="inline-flex h-[34px] items-center justify-center rounded-full border border-[#3A4252] bg-[#171B24] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
-              Core Capabilities
-            </div>
-          </div>
-          <h2 className="mx-auto mt-6 max-w-[560px] text-center text-[34px] font-bold leading-[1.35] tracking-[-0.03em] text-[#F8FAFC] md:text-[42px] md:leading-[63px]">
-            실무 기준으로 바로 쓸 수 있는
-            <br className="hidden md:block" />
-            제작 파이프라인
-          </h2>
-
-          <div className="mt-16 grid gap-8 lg:grid-cols-2">
-            {featureCards.map((card) => (
-              <article
-                key={card.id}
-                className="warp-panel rounded-[28px] p-10"
-                style={{
-                  background: card.gradient,
-                  minHeight: card.chips.length ? 246 : 194,
-                }}
-              >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: card.iconBg }}>
-                  <span className="h-4 w-4 rounded-sm border-2 border-current text-[#E5E7EB]" />
-                </div>
-                <h3 className="mt-3 text-[30px] font-bold leading-9 tracking-[-0.02em] text-[#F8FAFC]">{card.title}</h3>
-                <p className="mt-4 text-base leading-7 text-[#9CA3AF]">{card.body}</p>
-                {card.chips.length ? (
-                  <div className="mt-6 flex flex-wrap gap-2">
-                    {card.chips.map((chip) => (
-                      <span
-                        key={chip.label}
-                        className="warp-outline-button inline-flex h-7 items-center rounded-full px-3 text-xs font-semibold"
-                        style={{
-                          backgroundColor: chip.bg,
-                          color: chip.color,
-                        }}
-                      >
-                        {chip.label}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="px-6 pb-28 pt-16">
-        <div className="mx-auto w-full max-w-[896px] rounded-[36px] border border-[#2F3543] p-10 text-center shadow-[0_30px_60px_-14px_rgba(0,0,0,0.45)] md:p-16" style={{ background: 'linear-gradient(168deg, #15181f 0%, #171b24 55%, #1d2129 100%)' }}>
-          <h2 className="text-[36px] font-bold leading-[1.35] tracking-[-0.03em] text-[#F8FAFC] md:text-[48px] md:leading-[72px]">
-            지금 팀의 콘텐츠 기준을
-            <br className="hidden md:block" />
-            시스템으로 고정하세요
-          </h2>
-          <p className="mx-auto mt-3 max-w-[560px] text-base leading-8 text-[#9CA3AF] md:text-[18px]">
-            레퍼런스 분석부터 초안, 에디팅, 저장 이력까지
-            <br className="hidden md:block" />
-            재현 가능한 워크플로우로 운영할 수 있습니다.
-          </p>
-          <a
-            href="/signup"
-            className="btn-solid-contrast mt-10 inline-flex h-[67px] items-center justify-center gap-2 rounded-full px-10 text-lg font-semibold shadow-[0_12px_34px_rgba(0,0,0,0.38)] transition hover:bg-white"
-          >
-            무료로 시작하기
-            <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5">
-              <path
-                d="M6.67 3.33 13.34 10l-6.67 6.67"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.67"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </a>
-        </div>
-      </section>
     </main>
   )
 }
@@ -1986,15 +1702,22 @@ function RecommendScreenV2() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answers, setAnswers] = useState({})
   const [selectedCategoryKey, setSelectedCategoryKey] = useState(null)
-  const isCompleted = currentIndex >= RF_QUESTIONS.length
-  const currentQuestion = RF_QUESTIONS[currentIndex]
-  const progress = Math.round((currentIndex / RF_QUESTIONS.length) * 100)
+  const [hasStarted, setHasStarted] = useState(false)
+  const [isCardLeaving, setIsCardLeaving] = useState(false)
+  const [pendingSelectionKey, setPendingSelectionKey] = useState(null)
+  const activeQuestions = useMemo(() => RF_QUESTIONS.slice(0, 12), [])
+  const isCompleted = currentIndex >= activeQuestions.length
+  const currentQuestion = activeQuestions[currentIndex]
+  const progress = Math.round((currentIndex / activeQuestions.length) * 100)
 
   const result = useMemo(() => (isCompleted ? rfComputeResult(answers) : null), [answers, isCompleted])
+  const currentSavedAnswer = currentQuestion ? answers[currentQuestion.code] : null
   const currentText = currentQuestion?.type === 'free_text' ? answers[currentQuestion.code]?.text || '' : ''
   const currentMultiSelected = currentQuestion?.type === 'multi_select'
     ? (answers[currentQuestion.code]?.optionCodes || [])
     : []
+  const currentLikertValue = currentQuestion?.type === 'likert' ? currentSavedAnswer?.value : null
+  const currentSingleOptionCode = currentQuestion?.type === 'single_choice' ? currentSavedAnswer?.optionCode : null
 
   const selectedCategory = useMemo(() => {
     if (!result?.topCategories?.length) return null
@@ -2028,12 +1751,16 @@ function RecommendScreenV2() {
   }, [result, selectedCategory])
 
   const saveLikert = (code, value) => {
+    if (isCardLeaving || pendingSelectionKey) return
+    setPendingSelectionKey(`${code}:${value}`)
     setAnswers((prev) => ({ ...prev, [code]: { value } }))
-    setCurrentIndex((prev) => prev + 1)
+    window.setTimeout(advanceQuestion, 80)
   }
   const saveChoice = (code, optionCode) => {
+    if (isCardLeaving || pendingSelectionKey) return
+    setPendingSelectionKey(`${code}:${optionCode}`)
     setAnswers((prev) => ({ ...prev, [code]: { optionCode } }))
-    setCurrentIndex((prev) => prev + 1)
+    window.setTimeout(advanceQuestion, 80)
   }
   const saveMultiSelectToggle = (code, optionCode, maxSelect = 3) => {
     setAnswers((prev) => {
@@ -2050,10 +1777,32 @@ function RecommendScreenV2() {
   const saveText = (code, text) => {
     setAnswers((prev) => ({ ...prev, [code]: { text } }))
   }
+  const transitionTo = (callback) => {
+    setIsCardLeaving(true)
+    window.setTimeout(() => {
+      callback()
+      setPendingSelectionKey(null)
+      setIsCardLeaving(false)
+    }, 1200)
+  }
+  const advanceQuestion = () => {
+    transitionTo(() => setCurrentIndex((prev) => prev + 1))
+  }
+  const goPreviousQuestion = () => {
+    if (currentIndex <= 0 || isCardLeaving || pendingSelectionKey) return
+    setPendingSelectionKey(null)
+    transitionTo(() => setCurrentIndex((prev) => Math.max(0, prev - 1)))
+  }
+  const startQuestions = () => {
+    transitionTo(() => setHasStarted(true))
+  }
   const restart = () => {
     setAnswers({})
     setCurrentIndex(0)
     setSelectedCategoryKey(null)
+    setHasStarted(false)
+    setIsCardLeaving(false)
+    setPendingSelectionKey(null)
   }
 
   return (
@@ -2065,130 +1814,202 @@ function RecommendScreenV2() {
       }}
     >
       <div className="mx-auto max-w-[1120px]">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-start">
           <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-[#D1D5DB]">
             <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4"><path d="M11.67 4.17 5.84 10l5.83 5.83" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round" /></svg>
             홈으로
           </a>
-          <div className="inline-flex rounded-full border border-[#374151] bg-[#12151D] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#E5E7EB]">
-            Content Direction Fit
-          </div>
         </div>
 
         {!isCompleted ? (
-          <section className="mt-12 grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
-            <aside className="rounded-[32px] border border-[#2F3543] bg-[#12151D]/95 p-8 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-              <div className="text-sm font-semibold text-[#CBD5E1]">Q{currentIndex + 1} / {RF_QUESTIONS.length}</div>
-              <h1 className="mt-4 text-[34px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F8FAFC]">내 콘텐츠 방향 추천받기</h1>
-              <p className="mt-4 text-sm leading-7 text-[#9CA3AF]">{RF_QUESTIONS.length}문항 하이브리드 진단으로 카테고리·콘텐츠 타입·수익 루트를 점수 기반으로 추천합니다.</p>
-              <div className="mt-8">
-                <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF]"><span>진행률</span><span>{progress}%</span></div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1E2432]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#CBD5E1_0%,#F8FAFC_100%)] transition-all duration-300" style={{ width: `${progress}%` }} /></div>
+          <section className="mt-12 flex flex-col items-center">
+            <div className="mb-5 w-full max-w-[920px]">
+              <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF]">
+                <span>진행률</span>
+                <span>{hasStarted ? `${currentIndex + 1} / ${activeQuestions.length}` : '0 / 12'}</span>
               </div>
-              <div className="mt-8 rounded-2xl border border-[#2F3543] bg-[#171B24] px-4 py-4 text-xs leading-6 text-[#AEB6C5]">
-                마지막 2문항은 자연어 보정 질문입니다.
-                <br />
-                선택형 점수를 뒤집지 않고 상위 후보를 보정하는 방식으로 적용됩니다.
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1E2432]">
+                <div
+                  className="h-full rounded-full bg-[linear-gradient(90deg,#CBD5E1_0%,#F8FAFC_100%)] transition-all duration-300"
+                  style={{ width: hasStarted ? `${Math.max(4, progress)}%` : '0%' }}
+                />
               </div>
-            </aside>
-
-            <section className="rounded-[32px] border border-[#2F3543] bg-[#12151D] p-8 shadow-[0_18px_50px_rgba(0,0,0,0.38)]">
-              <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
-                {currentQuestion.type === 'likert'
-                  ? '척도형 질문'
-                  : currentQuestion.type === 'single_choice'
-                    ? '선택형 질문'
-                    : currentQuestion.type === 'multi_select'
-                      ? '카테고리 선택 질문'
-                      : '서술형 질문'}
-              </div>
-              <h2 className="mt-5 text-[30px] font-bold leading-[1.3] tracking-[-0.03em] text-[#F8FAFC]">{currentQuestion.title}</h2>
-              <p className="mt-3 text-base leading-7 text-[#9CA3AF]">{currentQuestion.subtitle}</p>
-
-              {currentQuestion.type === 'multi_select' && (
-                <div className="mt-8">
-                  <div className="mb-4 text-xs font-semibold text-[#9CA3AF]">
-                    현재 선택: {currentMultiSelected.length} / {currentQuestion.maxSelect || 3}
+            </div>
+            <div
+              key={hasStarted ? `question-${currentIndex}` : 'intro'}
+              className={`recommend-card-enter w-full max-w-[920px] rounded-[28px] border border-[#2F3543] bg-[#12151D]/96 p-7 shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur-xl transition-opacity duration-[1200ms] ease-[cubic-bezier(0.16,1,0.3,1)] md:p-9 ${
+                isCardLeaving ? 'opacity-0' : 'opacity-100'
+              }`}
+            >
+              {!hasStarted ? (
+                <div className="flex min-h-[320px] flex-col items-center justify-center text-center">
+                  <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
+                    Content Direction Fit
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {currentQuestion.options.map((option) => {
-                      const selected = currentMultiSelected.includes(option.code)
-                      const reachedMax = !selected && currentMultiSelected.length >= (currentQuestion.maxSelect || 3)
-                      return (
+                  <h1 className="mt-6 text-[34px] font-bold leading-[1.2] tracking-[-0.03em] text-[#F8FAFC] md:text-[42px]">
+                    내 콘텐츠 방향 추천받기
+                  </h1>
+                  <p className="mt-4 text-base leading-7 text-[#9CA3AF]">
+                    12문항으로 내 콘텐츠 방향을 찾을 수 있어요 :)
+                  </p>
+                  <div className="mt-10 flex flex-wrap justify-center gap-3">
+                    <a href="/" className="inline-flex h-12 items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-6 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]">
+                      뒤로가기
+                    </a>
+                    <button type="button" onClick={startQuestions} className="btn-solid-contrast inline-flex h-12 items-center justify-center rounded-full px-7 text-sm font-semibold transition hover:bg-white">
+                      시작하기
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {currentIndex > 0 ? (
+                        <button
+                          type="button"
+                          onClick={goPreviousQuestion}
+                          disabled={isCardLeaving || Boolean(pendingSelectionKey)}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#374151] bg-[#171B24] px-3 text-xs font-semibold text-[#D1D5DB] transition hover:border-[#94A3B8] hover:bg-[#1D2330] disabled:cursor-default disabled:opacity-50"
+                        >
+                          <svg viewBox="0 0 20 20" aria-hidden="true" className="h-3.5 w-3.5"><path d="M12.5 4.17 6.67 10l5.83 5.83" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          이전 질문
+                        </button>
+                      ) : null}
+                      <div className="inline-flex rounded-full border border-[#374151] bg-[#171B24] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
+                        Q{currentIndex + 1} / {activeQuestions.length}
+                      </div>
+                    </div>
+                  </div>
+                  <h2 className="mt-6 text-[28px] font-bold leading-[1.3] tracking-[-0.03em] text-[#F8FAFC] md:text-[34px]">{currentQuestion.title}</h2>
+                  <p className="mt-3 text-base leading-7 text-[#9CA3AF]">{currentQuestion.subtitle}</p>
+
+                  {currentQuestion.type === 'multi_select' && (
+                    <div className="mt-8">
+                      <div className="mb-4 text-xs font-semibold text-[#9CA3AF]">
+                        현재 선택: {currentMultiSelected.length} / {currentQuestion.maxSelect || 3}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {currentQuestion.options.map((option) => {
+                          const selected = currentMultiSelected.includes(option.code)
+                          const reachedMax = !selected && currentMultiSelected.length >= (currentQuestion.maxSelect || 3)
+                          return (
+                            <button
+                              key={option.code}
+                              type="button"
+                              onClick={() => saveMultiSelectToggle(currentQuestion.code, option.code, currentQuestion.maxSelect || 3)}
+                              disabled={reachedMax}
+                              className={`rounded-2xl border px-4 py-4 text-left transition ${
+                                selected
+                                  ? 'border-[#34D399] bg-[#10231B]'
+                                  : 'border-[#2F3543] bg-[#171B24] hover:border-[#94A3B8] hover:bg-[#1D2330]'
+                              } ${reachedMax ? 'cursor-not-allowed opacity-55' : ''}`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-base font-semibold text-[#F8FAFC]">{option.label}</div>
+                                {selected ? (
+                                  <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5 shrink-0 text-[#34D399]">
+                                    <path d="m4.17 10.42 3.33 3.33 8.33-8.33" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                ) : null}
+                              </div>
+                              <div className="mt-1 text-xs leading-6 text-[#9CA3AF]">{option.description}</div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div className="mt-6 flex justify-end">
+                        <button type="button" onClick={advanceQuestion} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white">
+                          다음으로
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentQuestion.type === 'likert' && (
+                    <div className="mt-8 grid gap-3">
+                      {RF_LIKERT_OPTIONS.map((option) => {
+                        const selectionKey = `${currentQuestion.code}:${option.value}`
+                        const selected = pendingSelectionKey === selectionKey || (!pendingSelectionKey && currentLikertValue === option.value)
+                        return (
+                        <button
+                          key={selectionKey}
+                          type="button"
+                          onClick={() => saveLikert(currentQuestion.code, option.value)}
+                          disabled={isCardLeaving || Boolean(pendingSelectionKey)}
+                          className={`rounded-2xl border px-5 py-4 text-left text-sm font-semibold transition ${
+                            selected
+                              ? 'border-[#34D399] bg-[#10231B] text-[#ECFDF5]'
+                              : 'border-[#2F3543] bg-[#171B24] text-[#E5E7EB] hover:border-[#94A3B8] hover:bg-[#1D2330]'
+                          } ${isCardLeaving || pendingSelectionKey ? 'cursor-default' : ''}`}
+                        >
+                          <span className="flex items-center justify-between gap-4">
+                            <span>{option.label}</span>
+                            {selected ? (
+                              <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5 shrink-0 text-[#34D399]">
+                                <path d="m4.17 10.42 3.33 3.33 8.33-8.33" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : null}
+                          </span>
+                        </button>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {currentQuestion.type === 'single_choice' && (
+                    <div className="mt-8 grid gap-4 md:grid-cols-2">
+                      {currentQuestion.options.map((option, index) => {
+                        const selectionKey = `${currentQuestion.code}:${option.code}`
+                        const selected = pendingSelectionKey === selectionKey || (!pendingSelectionKey && currentSingleOptionCode === option.code)
+                        return (
                         <button
                           key={option.code}
                           type="button"
-                          onClick={() => saveMultiSelectToggle(currentQuestion.code, option.code, currentQuestion.maxSelect || 3)}
-                          disabled={reachedMax}
-                          className={`rounded-2xl border px-4 py-4 text-left transition ${
+                          onClick={() => saveChoice(currentQuestion.code, option.code)}
+                          disabled={isCardLeaving || Boolean(pendingSelectionKey)}
+                          className={`group rounded-[22px] border p-5 text-left transition ${
                             selected
-                              ? 'border-[#93C5FD] bg-[#162033]'
+                              ? 'border-[#34D399] bg-[#10231B]'
                               : 'border-[#2F3543] bg-[#171B24] hover:border-[#94A3B8] hover:bg-[#1D2330]'
-                          } ${reachedMax ? 'cursor-not-allowed opacity-55' : ''}`}
+                          } ${isCardLeaving || pendingSelectionKey ? 'cursor-default' : ''}`}
                         >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="text-base font-semibold text-[#F8FAFC]">{option.label}</div>
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="flex items-center gap-3">
+                                <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
+                                  selected ? 'bg-[#123C2D] text-[#A7F3D0]' : 'bg-[#1E2432] text-[#E5E7EB]'
+                                }`}>{String.fromCharCode(65 + index)}</span>
+                                <h3 className="text-lg font-bold text-[#F8FAFC]">{option.label}</h3>
+                              </div>
+                              <p className="mt-3 text-sm leading-6 text-[#9CA3AF]">{option.description}</p>
+                            </div>
                             {selected ? (
-                              <span className="inline-flex items-center rounded-full border border-[#60A5FA] bg-[#172033] px-2 py-0.5 text-[10px] font-semibold text-[#93C5FD]">선택됨</span>
-                            ) : null}
+                              <svg viewBox="0 0 20 20" aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-[#34D399]">
+                                <path d="m4.17 10.42 3.33 3.33 8.33-8.33" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : (
+                              <svg viewBox="0 0 20 20" aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-[#94A3B8] transition group-hover:text-[#E2E8F0]"><path d="M7.5 4.17 13.33 10 7.5 15.83" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                            )}
                           </div>
-                          <div className="mt-1 text-xs leading-6 text-[#9CA3AF]">{option.description}</div>
                         </button>
-                      )
-                    })}
-                  </div>
-                  <div className="mt-6 flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentIndex((prev) => prev + 1)}
-                      className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white"
-                    >
-                      다음으로
-                    </button>
-                  </div>
-                </div>
-              )}
+                        )
+                      })}
+                    </div>
+                  )}
 
-              {currentQuestion.type === 'likert' && (
-                <div className="mt-8 grid gap-3">
-                  {RF_LIKERT_OPTIONS.map((option) => (
-                    <button key={`${currentQuestion.code}-${option.value}`} type="button" onClick={() => saveLikert(currentQuestion.code, option.value)} className="rounded-2xl border border-[#2F3543] bg-[#171B24] px-5 py-4 text-left text-sm font-semibold text-[#E5E7EB] transition hover:border-[#94A3B8] hover:bg-[#1D2330]">
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {currentQuestion.type === 'single_choice' && (
-                <div className="mt-8 grid gap-4">
-                  {currentQuestion.options.map((option, index) => (
-                    <button key={option.code} type="button" onClick={() => saveChoice(currentQuestion.code, option.code)} className="group rounded-[24px] border border-[#2F3543] bg-[#171B24] p-5 text-left transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:bg-[#1D2330]">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <div className="flex items-center gap-3">
-                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1E2432] text-sm font-bold text-[#E5E7EB]">{String.fromCharCode(65 + index)}</span>
-                            <h3 className="text-lg font-bold text-[#F8FAFC]">{option.label}</h3>
-                          </div>
-                          <p className="mt-3 text-sm text-[#9CA3AF]">{option.description}</p>
-                        </div>
-                        <svg viewBox="0 0 20 20" aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-[#94A3B8] transition group-hover:text-[#E2E8F0]"><path d="M7.5 4.17 13.33 10 7.5 15.83" fill="none" stroke="currentColor" strokeWidth="1.67" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  {currentQuestion.type === 'free_text' && (
+                    <div className="mt-8">
+                      <textarea value={currentText} onChange={(event) => saveText(currentQuestion.code, event.target.value)} placeholder={currentQuestion.placeholder} className="h-44 w-full resize-none rounded-2xl border border-[#374151] bg-[#171B24] px-4 py-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280]" />
+                      <div className="mt-6 flex justify-end gap-2">
+                        <button type="button" onClick={advanceQuestion} className="inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#12151D] px-5 text-sm font-semibold text-[#CBD5E1] transition hover:bg-[#1D2330]">건너뛰기</button>
+                        <button type="button" onClick={advanceQuestion} disabled={currentText.trim().length === 0} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">다음으로</button>
                       </div>
-                    </button>
-                  ))}
-                </div>
+                    </div>
+                  )}
+                </>
               )}
-
-              {currentQuestion.type === 'free_text' && (
-                <div className="mt-8">
-                  <textarea value={currentText} onChange={(event) => saveText(currentQuestion.code, event.target.value)} placeholder={currentQuestion.placeholder} className="h-44 w-full resize-none rounded-2xl border border-[#374151] bg-[#171B24] px-4 py-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280]" />
-                  <div className="mt-3 text-xs text-[#9CA3AF]">키워드가 포함되면 카테고리/수익모델 보정이 자동 적용됩니다.</div>
-                  <div className="mt-6 flex justify-end gap-2">
-                    <button type="button" onClick={() => setCurrentIndex((prev) => prev + 1)} className="inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#12151D] px-5 text-sm font-semibold text-[#CBD5E1] transition hover:bg-[#1D2330]">건너뛰기</button>
-                    <button type="button" onClick={() => setCurrentIndex((prev) => prev + 1)} disabled={currentText.trim().length === 0} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">다음으로</button>
-                  </div>
-                </div>
-              )}
-            </section>
+            </div>
           </section>
         ) : (
           <section className="mt-12 grid gap-8">
@@ -2283,7 +2104,6 @@ function RecommendScreenV2() {
                   <div key={`${title}-${index}`} className="rounded-xl border border-[#2F3543] bg-[#171B24] px-4 py-3 text-sm text-[#E5E7EB]">{title}</div>
                 ))}
               </div>
-              <div className="mt-5 rounded-xl border border-[#2F3543] bg-[#171B24] px-4 py-3 text-xs text-[#AEB6C5]">{result.adjustmentNote}</div>
               <div className="mt-7 flex flex-wrap justify-center gap-3">
                 <button type="button" onClick={restart} className="inline-flex h-[52px] items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-7 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]">다시진단하기</button>
                 <a href="/analyze" className="btn-solid-contrast inline-flex h-[52px] items-center justify-center rounded-full px-7 text-sm font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.35)] transition hover:bg-white">분석시작해보기</a>

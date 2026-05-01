@@ -88,6 +88,7 @@ export default function ResultCards() {
     currentStep,
     openVersionHistory,
     saveVersion,
+    isEditorPreparing,
   } = useAppState()
   const editorSectionRef = useRef(null)
   const draftSectionRef = useRef(null)
@@ -325,7 +326,7 @@ export default function ResultCards() {
             <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
           </div>
           <div className="mt-6 grid gap-4 md:mt-7">
-            <PlaybookNoticeCard title="잘 되는 릴스 특징" body={viralInsight} />
+            <PlaybookNoticeCard title="전환을 만드는 흐름" body={viralInsight} />
           </div>
           {categoryPlaybook?.insight || categoryPlaybook?.hookAiRule ? (
             <div className="mt-6 grid gap-4 md:mt-7">
@@ -363,21 +364,25 @@ export default function ResultCards() {
               <div>
                 <h2 className="text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:text-4xl">스크립트 에디터</h2>
                 <p className="mt-2 text-sm text-[#8E97A6]">
-                  선택한 {selectedScript.label}을 자유롭게 수정하고 AI 코파일럿으로 피드백을 적용하세요.
+                  {isEditorPreparing
+                    ? `선택한 ${selectedScript.label}을 에디터에 준비하고 있습니다.`
+                    : `선택한 ${selectedScript.label}을 자유롭게 수정하고 AI 코파일럿으로 피드백을 적용하세요.`}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={openVersionHistory}
-                  className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
+                  disabled={isEditorPreparing}
+                  className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   저장 내역
                 </button>
                 <button
                   type="button"
                   onClick={() => saveVersion('USER')}
-                  className="btn-solid-contrast rounded-full px-5 py-2.5 text-sm font-semibold transition hover:bg-[#D1D5DB]"
+                  disabled={isEditorPreparing}
+                  className="btn-solid-contrast rounded-full px-5 py-2.5 text-sm font-semibold transition hover:bg-[#D1D5DB] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   버전 저장
                 </button>
