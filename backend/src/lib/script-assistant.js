@@ -259,6 +259,159 @@ function messageMentionsLockedSections(message = '', targetSections = SECTION_KE
   return locked.some((key) => patterns[key].test(message))
 }
 
+function createFallbackIntent(message = '', editTarget = '') {
+  const text = String(message || '').trim()
+  const compact = text.replace(/\s+/g, '').toLowerCase()
+  const normalizedEditTarget = normalizeEditTarget(editTarget, text)
+
+  if (!compact) {
+    return {
+      intent: 'clarification',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '수정할 내용을 입력해주세요. 예: "HOOK을 더 강하게 바꿔줘"처럼 요청하시면 됩니다.',
+    }
+  }
+
+  const minimalGreetings = ['ㅎㅇ', '하이', '안녕', 'hi', 'hello']
+  const hasEditOrFeedbackSignal = /(수정|바꿔|변경|고쳐|다듬|줄여|늘려|강하게|약하게|자연스럽게|hook|body|cta|훅|바디|본문|마무리|도입|문장|톤|느낌|다시|피드백|점수|평가|검토)/i.test(text)
+  if (minimalGreetings.includes(compact) || (compact.length <= 3 && !hasEditOrFeedbackSignal)) {
+    return {
+      intent: 'greeting',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '안녕하세요 :) 어떤 부분을 도와드릴까요? HOOK, BODY, CTA 중 하나를 골라서 요청해주시면 바로 도와드릴게요.',
+    }
+  }
+
+  if (/피드백|점수|평가|봐줘|검토|어때/i.test(text)) {
+    return {
+      intent: 'feedback_request',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '',
+    }
+  }
+
+  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|다시\s*(써|작성|수정))/i.test(text)) {
+    return {
+      intent: 'edit_request',
+      editTarget: normalizedEditTarget,
+      shouldModifyScript: true,
+      reply: '',
+    }
+  }
+
+  return null
+}
+
+export async function classifyCopilotIntent({
+  message,
+  sections,
+  editTarget = '',
+  characterSystemPrompt = '',
+  personalizationContext = '',
+}) {
+  const fallback = createFallbackIntent(message, editTarget)
+  if (fallback) {
+    return fallback
+  }
+
+  const normalizedMessage = String(message || '').trim()
+  const normalizedSections = normalizeSections(sections)
+
+  if (!hasOpenAIConfig()) {
+    return {
+      intent: 'clarification',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '수정 의도를 정확히 판단하지 못했습니다. 바꾸고 싶은 섹션과 방향을 조금 더 구체적으로 알려주세요.',
+    }
+  }
+
+  const { openai, models } = requireClients()
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: models.chatModel,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
+            '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
+            '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
+            'intent는 greeting, edit_request, feedback_request, question, clarification 중 하나만 사용한다.',
+            'edit_request일 때만 shouldModifyScript=true다.',
+            'feedback_request는 피드백 실행 대상이므로 shouldModifyScript=false다.',
+            '질문/인사/불명확한 요청이면 reply에 자연스러운 한국어 답변을 작성한다.',
+            'reply는 짧게, 다음 행동이 분명하게 작성한다.',
+            characterSystemPrompt ? `계정/캐릭터 규칙:\n${characterSystemPrompt}` : null,
+            personalizationContext ? `개인화 메모리:\n${personalizationContext}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+        {
+          role: 'user',
+          content: [
+            `현재 선택 UI editTarget: ${editTarget || 'all'}`,
+            `사용자 메시지: ${normalizedMessage}`,
+            '',
+            '[현재 초안 요약]',
+            `HOOK: ${normalizedSections.hook.slice(0, 180) || '-'}`,
+            `BODY: ${normalizedSections.body.slice(0, 220) || '-'}`,
+            `CTA: ${normalizedSections.cta.slice(0, 160) || '-'}`,
+            '',
+            'JSON 형식:',
+            '{"intent":"greeting|edit_request|feedback_request|question|clarification","editTarget":"all|hook|body|cta|null","shouldModifyScript":false,"reply":"","reason":""}',
+          ].join('\n'),
+        },
+      ],
+    })
+
+    logAIUsage('copilot-intent', response, {
+      model: models.chatModel,
+    })
+
+    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const allowedIntents = new Set(['greeting', 'edit_request', 'feedback_request', 'question', 'clarification'])
+    const intent = allowedIntents.has(parsed.intent) ? parsed.intent : 'clarification'
+    const target = EDIT_TARGETS.has(String(parsed.editTarget || '').toLowerCase())
+      ? String(parsed.editTarget).toLowerCase()
+      : intent === 'edit_request'
+        ? normalizeEditTarget(editTarget, normalizedMessage)
+        : null
+
+    return {
+      intent,
+      editTarget: target,
+      shouldModifyScript: intent === 'edit_request' && Boolean(parsed.shouldModifyScript),
+      reply: String(parsed.reply || '').trim() ||
+        (intent === 'question'
+          ? '좋은 질문입니다. 이 초안에서 어떤 부분을 더 보고 싶은지 알려주시면 기준을 잡아드릴게요.'
+          : intent === 'clarification'
+            ? '어떤 방향으로 바꾸고 싶으신가요? 예: 더 강하게, 더 짧게, 더 자연스럽게처럼 알려주세요.'
+            : ''),
+      reason: String(parsed.reason || '').trim(),
+    }
+  } catch (error) {
+    logAIError('gpt', error, {
+      stage: 'copilot-intent',
+      message: normalizedMessage,
+      model: models.chatModel,
+    })
+
+    return {
+      intent: 'clarification',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '수정 의도를 정확히 판단하지 못했습니다. 바꾸고 싶은 섹션과 방향을 조금 더 구체적으로 알려주세요.',
+    }
+  }
+}
+
 async function loadReferenceContext(supabaseAdmin, accountId, referenceId) {
   const { data, error } = await supabaseAdmin
     .from('reference_videos')

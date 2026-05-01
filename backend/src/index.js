@@ -26,7 +26,7 @@ import {
 } from './lib/admin.js'
 import { ingestDocument } from './lib/document-ingest.js'
 import { ingestPdfDocument } from './lib/pdf-ingest.js'
-import { generateScriptFeedback, refineScriptWithAI } from './lib/script-assistant.js'
+import { classifyCopilotIntent, generateScriptFeedback, refineScriptWithAI } from './lib/script-assistant.js'
 import { generateCaptionDraft } from './lib/caption-generator.js'
 import { getCaptionCategoryRule } from './lib/caption-category-rules.js'
 import { analyzeThumbnailImage, generateThumbnailTitles } from './lib/thumbnail-title.js'
@@ -1208,6 +1208,150 @@ app.post(
     })
 
     res.json(result)
+  }),
+)
+
+app.post(
+  '/api/scripts/copilot',
+  refineRateLimiter,
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const character = await getAccountCharacterContext(account.id)
+    const requestText = readString(req.body?.message || req.body?.request, {
+      field: 'message',
+      required: true,
+      maxLength: 3000,
+    })
+    const sessionId =
+      req.body?.sessionId ||
+      req.body?.session_id ||
+      req.headers['x-session-id'] ||
+      `copilot:${account.id}:${req.body?.referenceId || 'general'}`
+    const personalization = await buildPersonalizationContext({
+      accountId: account.id,
+      sessionId,
+      fallbackSession: `copilot:${account.id}:${req.body?.referenceId || 'general'}`,
+    })
+    const intent = await classifyCopilotIntent({
+      message: requestText,
+      sections: req.body?.sections,
+      editTarget: req.body?.editTarget || req.body?.edit_target || '',
+      characterSystemPrompt: character.systemPrompt,
+      personalizationContext: personalization.context,
+    })
+
+    if (intent.intent === 'feedback_request') {
+      const usageStatus = await assertUsageAllowed({
+        userId: req.auth?.userId,
+        eventType: 'feedback_request',
+        referenceId: req.body?.referenceId,
+      })
+      const result = await generateScriptFeedback({
+        accountId: account.id,
+        referenceId: req.body?.referenceId,
+        selectedLabel: req.body?.selectedLabel,
+        sections: req.body?.sections,
+        currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+        currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+        characterSystemPrompt: character.systemPrompt,
+        personalizationContext: personalization.context,
+      })
+      let feedbackRecord = null
+
+      if (req.body?.scriptId) {
+        feedbackRecord = await saveFeedbackRecord({
+          accountId: account.id,
+          scriptId: req.body.scriptId,
+          scriptVersionId: req.body?.scriptVersionId ?? null,
+          score: result.score,
+          content: `${result.summary}\n\n${result.detail}`.trim(),
+          metadata: {
+            selectedLabel: req.body?.selectedLabel,
+            suggestedSections: result.suggestedSections,
+            referenceId: req.body?.referenceId,
+            source: 'copilot_intent',
+          },
+        })
+      }
+      await recordUsageEvent({
+        userId: req.auth?.userId,
+        entitlementId: usageStatus.entitlement.id,
+        eventType: 'feedback_request',
+        referenceId: req.body?.referenceId,
+      })
+
+      res.json({
+        type: 'feedback',
+        intent,
+        message: result.summary || `현재 초안은 ${result.score}점입니다.`,
+        feedback: result,
+        feedbackRecord,
+        personalization: {
+          sessionId: personalization.sessionId,
+          snapshot: personalization.snapshot,
+        },
+      })
+      return
+    }
+
+    if (!intent.shouldModifyScript || intent.intent !== 'edit_request') {
+      res.json({
+        type: 'reply',
+        intent,
+        message: intent.reply || '어떤 부분을 도와드릴까요? 수정할 섹션과 방향을 알려주세요.',
+        personalization: {
+          sessionId: personalization.sessionId,
+          snapshot: personalization.snapshot,
+        },
+      })
+      return
+    }
+
+    const usageStatus = await assertUsageAllowed({
+      userId: req.auth?.userId,
+      eventType: 'copilot_message',
+      referenceId: req.body?.referenceId,
+    })
+    const result = await refineScriptWithAI({
+      accountId: account.id,
+      referenceId: req.body?.referenceId,
+      selectedLabel: req.body?.selectedLabel,
+      request: requestText,
+      sections: req.body?.sections,
+      editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
+      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+      currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+      characterSystemPrompt: character.systemPrompt,
+      personalizationContext: personalization.context,
+    })
+    const memoryUpdate = await updatePersonalizationMemory({
+      accountId: account.id,
+      sessionId: personalization.sessionId,
+      userInput: requestText,
+      assistantOutput: result.message || '',
+      fallbackSession: `copilot:${account.id}:${req.body?.referenceId || 'general'}`,
+    })
+    await recordUsageEvent({
+      userId: req.auth?.userId,
+      entitlementId: usageStatus.entitlement.id,
+      eventType: 'copilot_message',
+      referenceId: req.body?.referenceId,
+    })
+
+    res.json({
+      type: 'refine',
+      intent,
+      message: result.message,
+      sections: result.sections,
+      editTarget: result.editTarget,
+      changedSections: result.changedSections,
+      flowValidation: result.flowValidation,
+      personalization: {
+        sessionId: personalization.sessionId,
+        snapshot: personalization.snapshot,
+        memoryUpdate,
+      },
+    })
   }),
 )
 

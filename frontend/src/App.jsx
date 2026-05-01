@@ -40,6 +40,7 @@ function FabricBackgroundOverlay() {
 }
 
 function LandingScreen() {
+  const { isLoggedIn, currentUser, logout } = useAppState()
   const stepCards = [
     {
       id: 'step-1',
@@ -164,6 +165,27 @@ function LandingScreen() {
       }}
     >
       <FabricBackgroundOverlay />
+      {isLoggedIn ? (
+        <div className="absolute right-6 top-6 z-20 flex items-center gap-3">
+          <div className="hidden max-w-[220px] truncate text-sm text-[#AEB6C5] md:block">
+            {currentUser?.email || '로그인됨'}
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await logout()
+                window.location.assign('/')
+              } catch (error) {
+                window.alert(error.message || '로그아웃에 실패했습니다.')
+              }
+            }}
+            className="rounded-full border border-[#3A414F] bg-[#111827] px-4 py-2 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1F2937]"
+          >
+            로그아웃
+          </button>
+        </div>
+      ) : null}
 
       <div className="mx-auto w-full max-w-[1920px] px-6 pb-28 pt-24 md:pt-[154px]">
         <section className="mx-auto max-w-[1024px] text-center">

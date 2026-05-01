@@ -341,7 +341,7 @@ export async function generateChatReply({
   message,
   editorSections,
 }) {
-  const response = await apiFetch('/api/scripts/refine', {
+  const response = await apiFetch('/api/scripts/copilot', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -355,7 +355,7 @@ export async function generateChatReply({
       scriptVersionId: currentVersionId,
       editTarget,
       selectedLabel,
-      request: message,
+      message,
       sections: editorSections,
     }),
   })
@@ -366,8 +366,11 @@ export async function generateChatReply({
   }
 
   return {
+    type: payload.type || 'refine',
+    intent: payload.intent || null,
     message: payload.message,
     proposedSections: payload.sections,
+    feedback: payload.feedback,
     editTarget: payload.editTarget,
     changedSections: payload.changedSections,
     flowValidation: payload.flowValidation,

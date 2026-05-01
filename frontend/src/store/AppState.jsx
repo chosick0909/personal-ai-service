@@ -2322,6 +2322,7 @@ export function AppStateProvider({ children }) {
         return next
       })
       showToast('버전 저장 완료')
+      window.alert('버전 저장이 완료되었습니다.')
     } catch (error) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -2341,6 +2342,7 @@ export function AppStateProvider({ children }) {
   const openVersionHistory = () => {
     setIsVersionModalOpen(true)
     showToast(versions.length ? '저장 내역을 열었습니다.' : '아직 저장된 버전이 없습니다.')
+    window.alert(versions.length ? '저장 내역을 열었습니다.' : '아직 저장된 버전이 없습니다.')
   }
 
   const requestFeedback = async () => {
@@ -2553,27 +2555,6 @@ export function AppStateProvider({ children }) {
       return
     }
 
-    const chatLimit = getEffectiveCopilotLimit('chat')
-    if (Number.isFinite(chatLimit) && copilotUsage.chatUsed >= chatLimit) {
-      setChatMessages((current) => {
-        const next = [
-          ...current,
-          {
-            id: `chat-limit-${Date.now()}`,
-            role: 'assistant',
-            content:
-              `이번 레퍼런스에서는 코파일럿 수정 요청을 최대 ${chatLimit}회로 제한했습니다. ` +
-              '핵심 수정은 에디터에서 직접 정리한 뒤 피드백 기능을 사용해 주세요.',
-          },
-        ]
-        syncHistory(activeReferenceIdRef.current, {
-          chatMessages: next,
-        })
-        return next
-      })
-      return
-    }
-
     const userMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -2582,10 +2563,6 @@ export function AppStateProvider({ children }) {
 
     setDraftMessage('')
     setIsChatLoading(true)
-    setCopilotUsage((current) => ({
-      ...current,
-      chatUsed: current.chatUsed + 1,
-    }))
     setChatMessages((current) => {
       const next = [...current, userMessage]
       syncHistory(activeReferenceIdRef.current, {
@@ -2609,6 +2586,53 @@ export function AppStateProvider({ children }) {
         return
       }
 
+      if (response.type === 'feedback') {
+        const normalizedFeedback = { ...response.feedback, applied: false }
+        setFeedback(normalizedFeedback)
+        setCopilotUsage((current) => ({
+          ...current,
+          feedbackUsed: current.feedbackUsed + 1,
+        }))
+        void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
+        setChatMessages((current) => {
+          const next = [
+            ...current,
+            {
+              id: `assistant-${Date.now()}`,
+              role: 'assistant',
+              content: response.message,
+              feedback: normalizedFeedback,
+              intent: response.intent,
+            },
+          ]
+          syncHistory(activeReferenceIdRef.current, {
+            feedback: normalizedFeedback,
+            chatMessages: next,
+          })
+          return next
+        })
+        return
+      }
+
+      if (response.type === 'reply') {
+        setChatMessages((current) => {
+          const next = [
+            ...current,
+            {
+              id: `assistant-${Date.now()}`,
+              role: 'assistant',
+              content: response.message,
+              intent: response.intent,
+            },
+          ]
+          syncHistory(activeReferenceIdRef.current, {
+            chatMessages: next,
+          })
+          return next
+        })
+        return
+      }
+
       const assistantMessage = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
@@ -2617,8 +2641,13 @@ export function AppStateProvider({ children }) {
         editTarget: response.editTarget,
         changedSections: response.changedSections,
         flowValidation: response.flowValidation,
+        intent: response.intent,
       }
 
+      setCopilotUsage((current) => ({
+        ...current,
+        chatUsed: current.chatUsed + 1,
+      }))
       setPendingSuggestion(response.proposedSections)
       void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
       setChatMessages((current) => {
@@ -2698,6 +2727,7 @@ export function AppStateProvider({ children }) {
         lastStep: 'editor',
       })
       showToast('버전 복원 완료')
+      window.alert('버전 복원이 완료되었습니다.')
     } catch (error) {
       showToast(error.message || '버전 복원에 실패했습니다.', 'error')
       setChatMessages((current) => [
@@ -2718,6 +2748,7 @@ export function AppStateProvider({ children }) {
         sections: editorSections,
       })
       showToast('PDF 다운로드를 시작했습니다')
+      window.alert('PDF 다운로드를 시작했습니다.')
     } catch (error) {
       setChatMessages((current) => [
         ...current,
