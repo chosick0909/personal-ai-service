@@ -8,6 +8,9 @@ import Sidebar from './components/Sidebar'
 import UploadSection from './components/UploadSection'
 import VersionModal from './components/VersionModal'
 import { getAuthPersistMode, setAuthPersistMode, supabase } from './lib/supabase'
+import { loadAccountProfile } from './lib/accountApi'
+import { analyzeThumbnailImage, generateCaptionDraft, generateThumbnailTitles, loadCaptionCategoryRule } from './lib/toolApi'
+import { getCaptionStrategyRule } from './lib/captionStrategyRules'
 import logoWebp from './Logo.webp'
 // Deploy trigger: frontend touchpoint.
 import { AppStateProvider, useAppState } from './store/AppState'
@@ -2757,29 +2760,648 @@ function PurchaseScreen() {
   )
 }
 
+const TOOL_VOICE_TONE_LABELS = {
+  expert: '전문가형',
+  friendly: '친근한 언니형',
+  coach: '코치형',
+  storyteller: '스토리텔러형',
+  trendy: '트렌디한 MZ 톤',
+}
+
+const CAPTION_MONETIZATION_MODELS = [
+  {
+    id: 'affiliate',
+    label: '쿠팡파트너스/제휴',
+    description: '쿠팡파트너스 : 쿠팡파트너스는 팔로워 수보다 클릭 가능한 콘텐츠 수, 검색 유입, 저장형 정보, 제품 신뢰도가 더 중요합니다. 쿠팡파트너스는 공개 자료마다 수수료율 설명이 다르기 때문에, 실제 운영 시에는 반드시 쿠팡파트너스 대시보드의 최신 카테고리별 수수료를 확인해야 합니다. 현실적으로 제휴 수익은 아래 공식으로 계산하면 됩니다.',
+    categoryLine: '쿠팡파트너스/제휴 마케팅에 잘 맞는 카테고리 : 살림, 육아, 반려동물, 운동, 패션, 테크가젯, 요리, 여행 준비물입니다. 이유는 "제품 추천 -> 즉시 구매"가 자연스럽기 때문입니다.',
+  },
+  {
+    id: 'group_buy',
+    label: '공동구매',
+    description: '공동구매 : 공동구매는 단순 광고보다 판매에 가까운 구조입니다. 브랜드가 상품을 주고, 인플루언서는 팔로워에게 기간 한정 혜택으로 판매합니다. 수익은 보통 판매수수료, 마진, 정산 계약, 성과 보너스 형태로 납니다.',
+    categoryLine: '공동구매에 잘 맞는 카테고리 : 뷰티, 식품, 건강, 육아, 살림, 반려동물, 패션, 요리, 멘탈케어, 교육 키트입니다. 특히 "반복 구매"가 가능한 제품이 좋습니다.',
+  },
+  {
+    id: 'bonus',
+    label: '게시물 보너스/플랫폼 보상',
+    description: '게시물 보너스 / 플랫폼 보상 : 이건 제일 조심해야 합니다. Instagram Reels Play 같은 보너스 프로그램은 더 이상 활성화되어 있지 않고, 플랫폼 보상은 초대형/변동형으로 바뀌는 흐름입니다. 메인 수익보다 조회수 콘텐츠를 광고, 공구, 제휴, 대행으로 연결하는 보조 수단으로 보는 게 맞습니다.',
+    categoryLine: '게시물 보너스에 잘 맞는 카테고리 : 자기계발, AI, 재테크, 교육, 멘탈케어, 살림 꿀팁, 육아 체크리스트, 운동 루틴입니다. 이유는 저장과 공유가 잘 일어나기 때문입니다.',
+  },
+  {
+    id: 'sponsor',
+    label: '광고/PPL/협찬',
+    description: '광고 / PPL / 협찬 : 광고/PPL은 팔로워 수만 보는 게 아니라 계정 결, 참여율, 콘텐츠 퀄리티, 타깃 정확도를 봅니다. 구매력 있는 타깃이 명확하면 소형 계정도 단가를 받을 수 있습니다.',
+    categoryLine: '광고 / PPL / 협찬에 잘 맞는 카테고리 : 뷰티, 패션, 운동, 육아, 반려동물, 여행, 테크가젯, 전문직 홍보, 교육, AI SaaS입니다.',
+  },
+  {
+    id: 'agency',
+    label: '대행',
+    description: '대행 : 대행은 숨은 고수익 모델입니다. 팔로워가 없어도 가능합니다. "내 계정으로 돈 버는 것"이 아니라 "남의 계정을 키워주고 돈 받는 것"이기 때문입니다.',
+    categoryLine: '대행에 잘 맞는 카테고리 : AI, 전문직, 병원, 학원, 운동센터, 쇼핑몰, 여행업, 교육업 쪽이 특히 좋습니다.',
+  },
+]
+
+function ToolPage({ type }) {
+  const isCaption = type === 'caption'
+  const { currentAccount, isCurrentAccountConfigured } = useAppState()
+  const [captionA, setCaptionA] = useState('')
+  const [captionB, setCaptionB] = useState('')
+  const [topic, setTopic] = useState('')
+  const [accountProfile, setAccountProfile] = useState(null)
+  const [monetizationModel, setMonetizationModel] = useState(CAPTION_MONETIZATION_MODELS[0].id)
+  const [captionResult, setCaptionResult] = useState(null)
+  const [editableCaptionDraft, setEditableCaptionDraft] = useState('')
+  const [captionCategoryRule, setCaptionCategoryRule] = useState(null)
+  const [thumbnailFile, setThumbnailFile] = useState(null)
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState('')
+  const [thumbnailAnalysis, setThumbnailAnalysis] = useState(null)
+  const [thumbnailTitleResult, setThumbnailTitleResult] = useState(null)
+  const [isThumbnailAnalyzing, setIsThumbnailAnalyzing] = useState(false)
+  const [toolError, setToolError] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
+  const accountSettings = accountProfile?.settings && typeof accountProfile.settings === 'object'
+    ? accountProfile.settings
+    : {}
+  const accountCategory = accountSettings.category || accountProfile?.category || '설정 없음'
+  const accountVoiceToneIds = Array.isArray(accountSettings.voiceTones)
+    ? accountSettings.voiceTones
+    : [accountSettings.voiceTone || accountProfile?.tone].filter(Boolean)
+  const accountVoiceTone = accountVoiceToneIds.length
+    ? accountVoiceToneIds.map((item) => TOOL_VOICE_TONE_LABELS[item] || item).join(' + ')
+    : '설정 없음'
+  const selectedMonetization = CAPTION_MONETIZATION_MODELS.find((item) => item.id === monetizationModel) || CAPTION_MONETIZATION_MODELS[0]
+  const captionStrategyRule = getCaptionStrategyRule(accountCategory, monetizationModel)
+  const displayedHashtags = Array.isArray(captionResult?.hashtags)
+    ? captionResult.hashtags
+        .map((item) => String(item || '').trim().replace(/^#+/, '').replace(/\s+/g, ''))
+        .filter(Boolean)
+        .map((item) => `#${item}`)
+    : []
+  const title = isCaption ? '캡션 생성기' : '썸네일 제목 생성기'
+  const description = isCaption
+    ? '캡션 2개를 참고해 계정 톤과 구조에 맞는 새 캡션 초안을 만듭니다.'
+    : '썸네일 이미지와 영상 주제를 바탕으로 제목 카피 후보를 만듭니다.'
+
+  useEffect(() => {
+    let ignore = false
+    if (!currentAccount?.id) {
+      setAccountProfile(null)
+      return undefined
+    }
+
+    loadAccountProfile({ accountId: currentAccount.id })
+      .then((payload) => {
+        if (!ignore) {
+          setAccountProfile(payload?.profile || null)
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setAccountProfile(null)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [currentAccount?.id])
+
+  useEffect(() => {
+    setToolError('')
+    setIsGenerating(false)
+    setCaptionResult(null)
+    setEditableCaptionDraft('')
+    setThumbnailFile(null)
+    setThumbnailAnalysis(null)
+    setThumbnailTitleResult(null)
+    setIsThumbnailAnalyzing(false)
+  }, [type])
+
+  useEffect(() => {
+    setToolError('')
+    setIsGenerating(false)
+    setCaptionResult(null)
+    setEditableCaptionDraft('')
+    setTopic('')
+    setCaptionA('')
+    setCaptionB('')
+    setThumbnailFile(null)
+    setThumbnailAnalysis(null)
+    setThumbnailTitleResult(null)
+    setIsThumbnailAnalyzing(false)
+  }, [currentAccount?.id])
+
+  useEffect(() => {
+    if (!thumbnailFile) {
+      setThumbnailPreviewUrl('')
+      return undefined
+    }
+
+    const nextUrl = URL.createObjectURL(thumbnailFile)
+    setThumbnailPreviewUrl(nextUrl)
+
+    return () => {
+      URL.revokeObjectURL(nextUrl)
+    }
+  }, [thumbnailFile])
+
+  useEffect(() => {
+    let ignore = false
+    if (!isCaption || !accountCategory || accountCategory === '설정 없음') {
+      setCaptionCategoryRule(null)
+      return undefined
+    }
+
+    loadCaptionCategoryRule({ category: accountCategory })
+      .then((payload) => {
+        if (!ignore) {
+          setCaptionCategoryRule(payload?.rule || null)
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setCaptionCategoryRule(null)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [isCaption, accountCategory])
+
+  const handleGenerateCaption = async () => {
+    setToolError('')
+    setCaptionResult(null)
+    setEditableCaptionDraft('')
+
+    if (!topic.trim()) {
+      setToolError('내 영상 주제를 입력해주세요.')
+      return
+    }
+
+    if (!captionA.trim() || !captionB.trim()) {
+      setToolError('레퍼런스 캡션 A와 B를 모두 입력해주세요.')
+      return
+    }
+
+    setIsGenerating(true)
+    try {
+      const result = await generateCaptionDraft({
+        topic,
+        captionA,
+        captionB,
+        monetizationModel: selectedMonetization.label,
+        category: accountCategory,
+        strategyText: captionStrategyRule.strategyText,
+        hookDirection: captionStrategyRule.hookDirection,
+        bodyFocus: captionStrategyRule.bodyFocus,
+        ctaExamples: captionStrategyRule.ctaExamples,
+        riskNotes: captionStrategyRule.riskNotes,
+        bannedExpressions: captionStrategyRule.bannedExpressions,
+      })
+      setCaptionResult(result)
+      setEditableCaptionDraft(result.caption || '')
+    } catch (error) {
+      setToolError(error.message || '캡션 생성에 실패했습니다.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const handleThumbnailFile = async (file) => {
+    setToolError('')
+    if (!file) {
+      return
+    }
+    if (!file.type?.startsWith('image/')) {
+      setToolError('썸네일 이미지만 업로드할 수 있습니다.')
+      return
+    }
+    setThumbnailFile(file)
+    setThumbnailAnalysis(null)
+    setThumbnailTitleResult(null)
+    setIsThumbnailAnalyzing(true)
+    try {
+      const payload = await analyzeThumbnailImage({
+        image: file,
+        topic,
+      })
+      setThumbnailAnalysis(payload?.analysis || null)
+    } catch (error) {
+      setToolError(error.message || '썸네일 이미지 분석에 실패했습니다.')
+    } finally {
+      setIsThumbnailAnalyzing(false)
+    }
+  }
+
+  const handleGenerateThumbnailTitles = async () => {
+    setToolError('')
+    setThumbnailTitleResult(null)
+
+    if (!thumbnailFile) {
+      setToolError('썸네일 이미지를 먼저 업로드해주세요.')
+      return
+    }
+
+    if (!topic.trim()) {
+      setToolError('영상 주제를 입력해주세요.')
+      return
+    }
+
+    if (!thumbnailAnalysis) {
+      setToolError('이미지 분석이 끝난 뒤 다시 시도해주세요.')
+      return
+    }
+
+    setIsGenerating(true)
+    try {
+      const result = await generateThumbnailTitles({
+        topic,
+        imageAnalysis: thumbnailAnalysis,
+      })
+      setThumbnailTitleResult(result)
+    } catch (error) {
+      setToolError(error.message || '썸네일 제목 생성에 실패했습니다.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  return (
+    <div className="h-full overflow-y-auto bg-[#0D0F14] px-6 py-8 text-[#F3F4F6] md:px-10">
+      <div className="mx-auto max-w-[920px]">
+        <div className="inline-flex rounded-full border border-[#374151] bg-[#12151D] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#E5E7EB]">
+          Content Tool
+        </div>
+        <h1 className="mt-5 text-[34px] font-bold tracking-[-0.04em] text-[#F3F4F6]">
+          {title}
+        </h1>
+        <p className="mt-3 max-w-[680px] text-sm leading-7 text-[#AEB6C5]">{description}</p>
+
+        <section className="mt-8 rounded-[28px] border border-[#2F3543] bg-[#121821] p-5 shadow-[0_18px_48px_rgba(0,0,0,0.24)]">
+          {isCaption ? (
+            <div className="grid gap-5">
+              <div className="grid gap-3 rounded-[20px] border border-[#2F3543] bg-[#0F131B] px-4 py-4 md:grid-cols-3">
+                <div>
+                  <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">계정</div>
+                  <div className="mt-1 text-sm font-semibold text-[#E5E7EB]">{currentAccount?.name || '선택된 계정'}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">카테고리</div>
+                  <div className="mt-1 text-sm font-semibold text-[#E5E7EB]">{accountCategory}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">톤</div>
+                  <div className="mt-1 text-sm font-semibold text-[#E5E7EB]">{accountVoiceTone}</div>
+                </div>
+                {!isCurrentAccountConfigured ? (
+                  <div className="md:col-span-3 text-xs leading-5 text-[#FBBF24]">
+                    계정 설정이 비어 있으면 기본 톤으로 생성됩니다.
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="grid gap-2">
+                <span className="text-sm font-semibold text-[#E5E7EB]">수익화 모델 선택</span>
+                <div className="grid gap-2 md:grid-cols-5">
+                  {CAPTION_MONETIZATION_MODELS.map((item) => {
+                    const active = item.id === monetizationModel
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setMonetizationModel(item.id)}
+                        className={`min-h-[48px] rounded-[16px] border px-3 text-sm font-semibold transition ${
+                          active
+                            ? 'border-[#F3F4F6] bg-[#FAF9F6] text-[#111827]'
+                            : 'border-[#2F3543] bg-[#0F131B] text-[#AEB6C5] hover:bg-[#171D27] hover:text-[#E5E7EB]'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-[#2F3543] bg-[#0F131B] p-4">
+                <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">시장 배경</div>
+                <div className="mt-2 grid gap-2 text-sm leading-6 text-[#D1D5DB]">
+                  <p>
+                    국내는 온라인 광고, 크리에이터 미디어, 라이브/숏폼 커머스가 같이 커지는 구조입니다. 2024년 국내 온라인 광고비는 10조 1,011억 원으로 전년 대비 7.9% 증가했고, 2023년 국내 디지털 크리에이터 미디어 산업은 매출 5조 3,159억 원 규모로 조사됐습니다.
+                  </p>
+                  <p>
+                    공동구매와 연결되는 라이브커머스/숏폼커머스도 성장 중입니다. 2024년 국내 라이브커머스 시장은 약 4.4조 원, 전년 대비 47% 성장한 것으로 추정되며 유튜브, 네이버, 쿠팡도 쇼핑 기능을 계속 강화하고 있습니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 rounded-[20px] border border-[#2F3543] bg-[#0F131B] p-4">
+                <p className="text-sm leading-7 text-[#E5E7EB]">{selectedMonetization.description}</p>
+                <p className="text-sm leading-7 text-[#E5E7EB]">{selectedMonetization.categoryLine}</p>
+              </div>
+
+              <div className="grid gap-3 rounded-[20px] border border-[#2F3543] bg-[#0F131B] p-4">
+                <div>
+                  <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">
+                    {accountCategory} × {selectedMonetization.label} 캡션 전략
+                  </div>
+                  <p className="mt-1 text-sm leading-7 text-[#E5E7EB]">{captionStrategyRule.strategyText}</p>
+                </div>
+                {captionCategoryRule ? (
+                  <div className="rounded-2xl border border-[#2F3543] bg-[#121821] px-4 py-3">
+                    <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">
+                      현재 계정 카테고리 전략: {captionCategoryRule.category}
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">핵심: {captionCategoryRule.core}</p>
+                    {Array.isArray(captionCategoryRule.winningFeatures) && captionCategoryRule.winningFeatures.length ? (
+                      <p className="mt-1 text-xs leading-5 text-[#AEB6C5]">
+                        잘 터지는 특징: {captionCategoryRule.winningFeatures.slice(0, 3).join(', ')}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">Hook 방향</div>
+                    <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{captionStrategyRule.hookDirection.join(', ')}</p>
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">본문 강조점</div>
+                    <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{captionStrategyRule.bodyFocus.join(', ')}</p>
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">CTA 예시</div>
+                    <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{captionStrategyRule.ctaExamples.join(', ')}</p>
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">피해야 할 표현</div>
+                    <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{captionStrategyRule.bannedExpressions.join(', ')}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 border-t border-[#2F3543] pt-6">
+                <div className="grid gap-5 rounded-[24px] border border-[#485064] bg-[#0B1018] p-5 shadow-[0_16px_36px_rgba(0,0,0,0.18)]">
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[#E5E7EB]">내 영상 주제</span>
+                  <input
+                    value={topic}
+                    onChange={(event) => {
+                      setTopic(event.target.value)
+                      setToolError('')
+                    }}
+                    className="h-12 rounded-[16px] border border-[#2F3543] bg-[#0F131B] px-4 text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
+                    placeholder="예: 헬스 초보 루틴 PDF 소개"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[#E5E7EB]">레퍼런스 캡션 A 입력</span>
+                  <textarea
+                    value={captionA}
+                    onChange={(event) => {
+                      setCaptionA(event.target.value)
+                      setToolError('')
+                    }}
+                    rows={7}
+                    className="resize-y rounded-[18px] border border-[#343B49] bg-[#0F131B] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
+                    placeholder="첫 번째 캡션을 붙여넣으세요."
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[#E5E7EB]">레퍼런스 캡션 B 입력</span>
+                  <textarea
+                    value={captionB}
+                    onChange={(event) => {
+                      setCaptionB(event.target.value)
+                      setToolError('')
+                    }}
+                    rows={7}
+                    className="resize-y rounded-[18px] border border-[#343B49] bg-[#0F131B] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
+                    placeholder="두 번째 캡션을 붙여넣으세요."
+                  />
+                </label>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-[#E5E7EB]">썸네일 이미지</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(event) => {
+                    handleThumbnailFile(event.target.files?.[0])
+                    event.target.value = ''
+                  }}
+                />
+                <div
+                  className="group flex min-h-[220px] cursor-pointer items-center justify-center overflow-hidden rounded-[22px] border border-dashed border-[#3A414F] bg-[#0F131B] px-4 text-center text-sm text-[#8E97A6] transition hover:border-[#6B7280] hover:bg-[#111722]"
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    handleThumbnailFile(event.dataTransfer.files?.[0])
+                  }}
+                >
+                  {thumbnailPreviewUrl ? (
+                    <div className="grid w-full gap-3">
+                      <img
+                        src={thumbnailPreviewUrl}
+                        alt="업로드한 썸네일 미리보기"
+                        className="max-h-[360px] w-full rounded-[18px] object-contain"
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#AEB6C5]">
+                        <span className="truncate">{thumbnailFile?.name}</span>
+                        <span>{isThumbnailAnalyzing ? 'Vision API가 이미지를 분석 중입니다...' : '이미지를 다시 누르거나 드래그해서 교체'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-sm font-semibold text-[#E5E7EB]">썸네일 이미지 업로드</div>
+                      <div className="mt-2 text-sm leading-6 text-[#8E97A6]">
+                        클릭해서 이미지를 선택하거나 이 영역에 드래그하세요.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </label>
+              {isThumbnailAnalyzing ? (
+                <div className="rounded-[20px] border border-[#2F3543] bg-[#0F131B] px-4 py-4 text-sm leading-6 text-[#AEB6C5]">
+                  썸네일 이미지 안의 텍스트, 분위기, 구도, 제목을 얹기 좋은 위치를 분석하고 있습니다.
+                </div>
+              ) : null}
+              {thumbnailAnalysis ? (
+                <div className="grid gap-3 rounded-[20px] border border-[#2F3543] bg-[#0F131B] p-4">
+                  <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">이미지 분석 결과</div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">감지된 텍스트</div>
+                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">
+                        {thumbnailAnalysis.detectedText?.length ? thumbnailAnalysis.detectedText.join(', ') : '없음'}
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">주요 요소</div>
+                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">
+                        {thumbnailAnalysis.mainObjects?.length ? thumbnailAnalysis.mainObjects.join(', ') : '없음'}
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">분위기</div>
+                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{thumbnailAnalysis.visualMood || '-'}</p>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">제목 위치</div>
+                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{thumbnailAnalysis.titleSpace || '-'}</p>
+                    </div>
+                  </div>
+                  {thumbnailAnalysis.titleDirections?.length ? (
+                    <div>
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">추천 제목 방향</div>
+                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{thumbnailAnalysis.titleDirections.join(', ')}</p>
+                    </div>
+                  ) : null}
+                  {thumbnailAnalysis.avoidRepeating?.length ? (
+                    <div className="rounded-2xl border border-[#3A414F] bg-[#121821] px-4 py-3">
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">제목에서 반복 피할 표현</div>
+                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{thumbnailAnalysis.avoidRepeating.join(', ')}</p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-[#E5E7EB]">영상 주제</span>
+                <input
+                  value={topic}
+                  onChange={(event) => {
+                    setTopic(event.target.value)
+                    setToolError('')
+                    setThumbnailTitleResult(null)
+                  }}
+                  className="h-12 rounded-[16px] border border-[#2F3543] bg-[#0F131B] px-4 text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
+                  placeholder="예: 운동해도 몸이 안 바뀌는 이유"
+                />
+              </label>
+            </div>
+          )}
+
+          {toolError ? (
+            <div className="mt-5 rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-sm leading-6 text-[#FCA5A5]">
+              {toolError}
+            </div>
+          ) : null}
+
+          {isCaption && captionResult ? (
+            <div className="mt-8 border-t border-[#2F3543] pt-6">
+              <div className="rounded-[24px] border border-[#485064] bg-[#111722] p-5 shadow-[0_18px_42px_rgba(0,0,0,0.22)]">
+              <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">내 계정에 맞는 캡션 생성결과</div>
+              <textarea
+                value={editableCaptionDraft}
+                onChange={(event) => setEditableCaptionDraft(event.target.value)}
+                rows={7}
+                className="mt-3 min-h-[180px] w-full resize-y rounded-[18px] border border-[#343B49] bg-[#0F131B] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none"
+              />
+              {displayedHashtags.length ? (
+                <div className="mt-3 rounded-2xl border border-[#2F3543] bg-[#121821] px-4 py-3">
+                  <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">해시태그</div>
+                  <p className="mt-1 text-sm leading-6 text-[#CBD5E1]">{displayedHashtags.join(' ')}</p>
+                </div>
+              ) : null}
+              {captionResult.rationale ? (
+                <p className="mt-3 rounded-2xl border border-[#2F3543] bg-[#121821] px-4 py-3 text-xs leading-5 text-[#AEB6C5]">
+                  반영 포인트: {captionResult.rationale}
+                </p>
+              ) : null}
+              {captionResult.safetyCheck?.referenceContamination ? (
+                <p className="mt-3 rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-xs leading-5 text-[#FCA5A5]">
+                  레퍼런스 유사 표현이 감지됐습니다: {captionResult.safetyCheck.suspiciousReferenceTerms.join(', ')}
+                </p>
+              ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {!isCaption && thumbnailTitleResult?.recommendations?.length ? (
+            <div className="mt-8 border-t border-[#2F3543] pt-6">
+              <div className="grid gap-4 rounded-[24px] border border-[#485064] bg-[#111722] p-5 shadow-[0_18px_42px_rgba(0,0,0,0.22)]">
+                <div>
+                  <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">내 계정에 맞는 썸네일 제목 추천</div>
+                  <p className="mt-1 text-xs leading-5 text-[#8E97A6]">
+                    이미지 분석, 영상 주제, 계정 카테고리와 톤을 함께 반영했습니다.
+                  </p>
+                </div>
+                <div className="grid gap-3">
+                  {thumbnailTitleResult.recommendations.map((item) => (
+                    <article key={`${item.type}-${item.title}`} className="rounded-[20px] border border-[#2F3543] bg-[#0F131B] p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">
+                          추천 {item.type} · {item.label}
+                        </div>
+                        {item.strategy ? (
+                          <div className="rounded-full border border-[#3A414F] bg-[#121821] px-3 py-1 text-xs text-[#AEB6C5]">
+                            {item.strategy}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 text-2xl font-bold leading-9 text-[#F3F4F6]">{item.title}</div>
+                      {item.reason ? (
+                        <p className="mt-2 text-sm leading-6 text-[#AEB6C5]">{item.reason}</p>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+                {thumbnailTitleResult.safetyCheck?.imageTextRepeated ? (
+                  <div className="rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-xs leading-5 text-[#FCA5A5]">
+                    이미지 속 텍스트와 제목이 일부 반복될 수 있습니다.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              onClick={isCaption ? handleGenerateCaption : handleGenerateThumbnailTitles}
+              disabled={isGenerating || (!isCaption && isThumbnailAnalyzing)}
+              className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isGenerating ? '생성 중...' : isCaption ? '초안 생성' : '제목 추천 생성'}
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
 function MainPanel() {
-  const { currentStep, viewTransition, isEditorEntering, isResultEntering } = useAppState()
+  const { currentStep, activeToolPage } = useAppState()
+
+  if (activeToolPage) {
+    return <ToolPage type={activeToolPage} />
+  }
 
   if (currentStep === 'upload' || currentStep === 'analyzing') {
     return <UploadSection />
   }
 
   if (currentStep === 'result' || currentStep === 'editor') {
-    return (
-      <ResultCards
-        transitioning={viewTransition === 'to-editor' || viewTransition === 'to-result'}
-        entering={isResultEntering || isEditorEntering}
-      />
-    )
+    return <ResultCards />
   }
 
-  return <Editor transitioning={false} entering={false} />
+  return <Editor />
 }
 
 function StudioShell() {
   const {
     isVersionModalOpen,
     currentStep,
+    activeToolPage,
     toast,
     isLoggedIn,
     isAuthReady,
@@ -2818,7 +3440,7 @@ function StudioShell() {
       sidebar={<Sidebar />}
       main={<MainPanel />}
       panel={null}
-      mobileVariant={currentStep === 'upload' || currentStep === 'analyzing' ? 'upload' : 'default'}
+      mobileVariant={!activeToolPage && (currentStep === 'upload' || currentStep === 'analyzing') ? 'upload' : 'default'}
     >
       {toast ? (
         <div className="pointer-events-none fixed left-1/2 top-6 z-[60] -translate-x-1/2">

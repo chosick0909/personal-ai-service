@@ -383,7 +383,7 @@ export default function SettingsPage({ onBack }) {
       startNewProject()
       setSuccess('설정이 저장되었습니다.')
       window.setTimeout(() => {
-        onBack()
+        window.location.replace(`/analyze?settingsUpdated=${Date.now()}`)
       }, 300)
     } catch (nextError) {
       setError(nextError.message)

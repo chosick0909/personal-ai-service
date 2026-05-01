@@ -4,7 +4,7 @@ import { Agent, setGlobalDispatcher } from 'undici'
 
 function getOpenAIConfig() {
   const apiKey = process.env.OPENAI_API_KEY?.trim()
-  const chatModel = process.env.OPENAI_CHAT_MODEL?.trim() || 'gpt-4o'
+  const chatModel = process.env.OPENAI_CHAT_MODEL?.trim() || 'gpt-4.1'
   const embeddingModel =
     process.env.OPENAI_EMBEDDING_MODEL?.trim() || 'text-embedding-3-small'
   const transcribeModel =

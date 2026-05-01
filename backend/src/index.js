@@ -27,6 +27,9 @@ import {
 import { ingestDocument } from './lib/document-ingest.js'
 import { ingestPdfDocument } from './lib/pdf-ingest.js'
 import { generateScriptFeedback, refineScriptWithAI } from './lib/script-assistant.js'
+import { generateCaptionDraft } from './lib/caption-generator.js'
+import { getCaptionCategoryRule } from './lib/caption-category-rules.js'
+import { analyzeThumbnailImage, generateThumbnailTitles } from './lib/thumbnail-title.js'
 import {
   createScriptFromSelection,
   listScriptVersions,
@@ -102,6 +105,12 @@ const uploadPdf = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 100 * 1024 * 1024,
+  },
+})
+const uploadImage = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
   },
 })
 const uploadVideo = multer({
@@ -384,6 +393,22 @@ function readString(value, { field, maxLength = 2000, required = false } = {}) {
   return normalized
 }
 
+function readTextList(value, { maxItems = 12 } = {}) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, maxItems)
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, maxItems)
+  }
+
+  return []
+}
+
 function readNumber(value, { field, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY, fallback } = {}) {
   if (value === undefined || value === null || value === '') {
     return fallback
@@ -497,6 +522,157 @@ app.post(
       message: '이용권이 활성화되었습니다.',
       ...status,
     })
+  }),
+)
+
+app.post(
+  '/api/tools/caption',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const character = await getAccountCharacterContext(account.id)
+    const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
+      ? character.profile.settings
+      : {}
+    const requestCategory = readString(req.body?.category, {
+      field: 'category',
+      maxLength: 100,
+    })
+    const accountCategory = profileSettings.category || character.profile?.category || requestCategory || ''
+    const categoryRule = await getCaptionCategoryRule(accountCategory)
+    const result = await generateCaptionDraft({
+      accountId: account.id,
+      topic: readString(req.body?.topic, {
+        field: 'topic',
+        maxLength: 500,
+      }),
+      captionA: readString(req.body?.captionA || req.body?.caption_a, {
+        field: 'captionA',
+        maxLength: 5000,
+      }),
+      captionB: readString(req.body?.captionB || req.body?.caption_b, {
+        field: 'captionB',
+        maxLength: 5000,
+      }),
+      monetizationModel: readString(req.body?.monetizationModel || req.body?.monetization_model, {
+        field: 'monetizationModel',
+        maxLength: 100,
+      }),
+      category: accountCategory,
+      categoryRule,
+      strategyText: readString(req.body?.strategyText || req.body?.strategy_text, {
+        field: 'strategyText',
+        maxLength: 2000,
+      }),
+      hookDirection: Array.isArray(req.body?.hookDirection || req.body?.hook_direction)
+        ? (req.body?.hookDirection || req.body?.hook_direction).slice(0, 8).map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+      bodyFocus: Array.isArray(req.body?.bodyFocus || req.body?.body_focus)
+        ? (req.body?.bodyFocus || req.body?.body_focus).slice(0, 8).map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+      ctaExamples: Array.isArray(req.body?.ctaExamples || req.body?.cta_examples)
+        ? (req.body?.ctaExamples || req.body?.cta_examples).slice(0, 8).map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+      riskNotes: Array.isArray(req.body?.riskNotes || req.body?.risk_notes)
+        ? (req.body?.riskNotes || req.body?.risk_notes).slice(0, 8).map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+      bannedExpressions: Array.isArray(req.body?.bannedExpressions || req.body?.banned_expressions)
+        ? (req.body?.bannedExpressions || req.body?.banned_expressions).slice(0, 8).map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+      accountBannedExpressions: readTextList(profileSettings.forbiddenExpressions || profileSettings.bannedPhrases),
+      characterSystemPrompt: character.systemPrompt,
+    })
+
+    res.json(result)
+  }),
+)
+
+app.get(
+  '/api/tools/caption/category-rule',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req, { body: false, query: true })
+    const character = await getAccountCharacterContext(account.id)
+    const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
+      ? character.profile.settings
+      : {}
+    const requestCategory = readString(req.query?.category, {
+      field: 'category',
+      maxLength: 100,
+    })
+    const accountCategory = profileSettings.category || character.profile?.category || requestCategory || ''
+    const categoryRule = await getCaptionCategoryRule(accountCategory)
+
+    res.json({
+      category: accountCategory,
+      rule: categoryRule,
+    })
+  }),
+)
+
+app.post(
+  '/api/tools/thumbnail/analyze',
+  uploadImage.single('image'),
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const character = await getAccountCharacterContext(account.id)
+    const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
+      ? character.profile.settings
+      : {}
+    await validateUploadedFile(req.file, {
+      fieldName: 'thumbnail',
+      allowedMimePrefixes: ['image/'],
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+    })
+
+    const voiceTones = readTextList(profileSettings.voiceTones || profileSettings.voiceTone || character.profile?.tone, {
+      maxItems: 6,
+    })
+    const result = await analyzeThumbnailImage({
+      imageBuffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      topic: readString(req.body?.topic, {
+        field: 'topic',
+        maxLength: 500,
+      }),
+      category: profileSettings.category || character.profile?.category || '',
+      tone: voiceTones.join(', '),
+    })
+
+    res.json({
+      analysis: result,
+      appliedInputs: {
+        accountCategory: profileSettings.category || character.profile?.category || '',
+        accountTone: voiceTones,
+      },
+    })
+  }),
+)
+
+app.post(
+  '/api/tools/thumbnail/titles',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const character = await getAccountCharacterContext(account.id)
+    const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
+      ? character.profile.settings
+      : {}
+    const voiceTones = readTextList(profileSettings.voiceTones || profileSettings.voiceTone || character.profile?.tone, {
+      maxItems: 6,
+    })
+    const result = await generateThumbnailTitles({
+      topic: readString(req.body?.topic, {
+        field: 'topic',
+        maxLength: 500,
+        required: true,
+      }),
+      category: profileSettings.category || character.profile?.category || '',
+      tone: voiceTones.join(', '),
+      imageAnalysis: req.body?.imageAnalysis && typeof req.body.imageAnalysis === 'object'
+        ? req.body.imageAnalysis
+        : {},
+      characterSystemPrompt: character.systemPrompt,
+    })
+
+    res.json(result)
   }),
 )
 
