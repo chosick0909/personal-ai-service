@@ -27,6 +27,15 @@ function readCachedEntitlement(cacheKey) {
       return null
     }
 
+    const endsAt = cached.status?.entitlement?.endsAt
+    if (endsAt) {
+      const endsAtTime = new Date(endsAt).getTime()
+      if (Number.isFinite(endsAtTime) && endsAtTime <= Date.now()) {
+        window.localStorage.removeItem(cacheKey)
+        return null
+      }
+    }
+
     return cached.status
   } catch {
     return null

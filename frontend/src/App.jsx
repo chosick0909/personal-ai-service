@@ -1705,6 +1705,8 @@ function RecommendScreenV2() {
   const [hasStarted, setHasStarted] = useState(false)
   const [isCardLeaving, setIsCardLeaving] = useState(false)
   const [pendingSelectionKey, setPendingSelectionKey] = useState(null)
+  const transitionTimerRef = useRef(null)
+  const selectionTimerRef = useRef(null)
   const activeQuestions = useMemo(() => RF_QUESTIONS.slice(0, 12), [])
   const isCompleted = currentIndex >= activeQuestions.length
   const currentQuestion = activeQuestions[currentIndex]
@@ -1750,19 +1752,43 @@ function RecommendScreenV2() {
     return rfBuildComprehensiveSummary(result, selectedCategory)
   }, [result, selectedCategory])
 
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) {
+        window.clearTimeout(transitionTimerRef.current)
+      }
+      if (selectionTimerRef.current) {
+        window.clearTimeout(selectionTimerRef.current)
+      }
+    }
+  }, [])
+
   const saveLikert = (code, value) => {
     if (isCardLeaving || pendingSelectionKey) return
     setPendingSelectionKey(`${code}:${value}`)
     setAnswers((prev) => ({ ...prev, [code]: { value } }))
-    window.setTimeout(advanceQuestion, 80)
+    if (selectionTimerRef.current) {
+      window.clearTimeout(selectionTimerRef.current)
+    }
+    selectionTimerRef.current = window.setTimeout(() => {
+      selectionTimerRef.current = null
+      advanceQuestion()
+    }, 80)
   }
   const saveChoice = (code, optionCode) => {
     if (isCardLeaving || pendingSelectionKey) return
     setPendingSelectionKey(`${code}:${optionCode}`)
     setAnswers((prev) => ({ ...prev, [code]: { optionCode } }))
-    window.setTimeout(advanceQuestion, 80)
+    if (selectionTimerRef.current) {
+      window.clearTimeout(selectionTimerRef.current)
+    }
+    selectionTimerRef.current = window.setTimeout(() => {
+      selectionTimerRef.current = null
+      advanceQuestion()
+    }, 80)
   }
   const saveMultiSelectToggle = (code, optionCode, maxSelect = 3) => {
+    if (isCardLeaving) return
     setAnswers((prev) => {
       const existing = prev[code]?.optionCodes || []
       const exists = existing.includes(optionCode)
@@ -1775,15 +1801,22 @@ function RecommendScreenV2() {
     })
   }
   const saveText = (code, text) => {
+    if (isCardLeaving) return
     setAnswers((prev) => ({ ...prev, [code]: { text } }))
   }
   const transitionTo = (callback) => {
+    if (isCardLeaving || transitionTimerRef.current) {
+      return false
+    }
+
     setIsCardLeaving(true)
-    window.setTimeout(() => {
+    transitionTimerRef.current = window.setTimeout(() => {
       callback()
       setPendingSelectionKey(null)
       setIsCardLeaving(false)
+      transitionTimerRef.current = null
     }, 1200)
+    return true
   }
   const advanceQuestion = () => {
     transitionTo(() => setCurrentIndex((prev) => prev + 1))
@@ -1797,6 +1830,14 @@ function RecommendScreenV2() {
     transitionTo(() => setHasStarted(true))
   }
   const restart = () => {
+    if (transitionTimerRef.current) {
+      window.clearTimeout(transitionTimerRef.current)
+      transitionTimerRef.current = null
+    }
+    if (selectionTimerRef.current) {
+      window.clearTimeout(selectionTimerRef.current)
+      selectionTimerRef.current = null
+    }
     setAnswers({})
     setCurrentIndex(0)
     setSelectedCategoryKey(null)
@@ -1856,7 +1897,7 @@ function RecommendScreenV2() {
                     <a href="/" className="inline-flex h-12 items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-6 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]">
                       뒤로가기
                     </a>
-                    <button type="button" onClick={startQuestions} className="btn-solid-contrast inline-flex h-12 items-center justify-center rounded-full px-7 text-sm font-semibold transition hover:bg-white">
+                    <button type="button" onClick={startQuestions} disabled={isCardLeaving} className="btn-solid-contrast inline-flex h-12 items-center justify-center rounded-full px-7 text-sm font-semibold transition hover:bg-white disabled:cursor-default disabled:opacity-60">
                       시작하기
                     </button>
                   </div>
@@ -1898,12 +1939,12 @@ function RecommendScreenV2() {
                               key={option.code}
                               type="button"
                               onClick={() => saveMultiSelectToggle(currentQuestion.code, option.code, currentQuestion.maxSelect || 3)}
-                              disabled={reachedMax}
+                              disabled={isCardLeaving || reachedMax}
                               className={`rounded-2xl border px-4 py-4 text-left transition ${
                                 selected
                                   ? 'border-[#34D399] bg-[#10231B]'
                                   : 'border-[#2F3543] bg-[#171B24] hover:border-[#94A3B8] hover:bg-[#1D2330]'
-                              } ${reachedMax ? 'cursor-not-allowed opacity-55' : ''}`}
+                              } ${isCardLeaving || reachedMax ? 'cursor-not-allowed opacity-55' : ''}`}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-base font-semibold text-[#F8FAFC]">{option.label}</div>
@@ -1919,7 +1960,7 @@ function RecommendScreenV2() {
                         })}
                       </div>
                       <div className="mt-6 flex justify-end">
-                        <button type="button" onClick={advanceQuestion} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white">
+                        <button type="button" onClick={advanceQuestion} disabled={isCardLeaving} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-default disabled:opacity-60">
                           다음으로
                         </button>
                       </div>
@@ -2002,8 +2043,8 @@ function RecommendScreenV2() {
                     <div className="mt-8">
                       <textarea value={currentText} onChange={(event) => saveText(currentQuestion.code, event.target.value)} placeholder={currentQuestion.placeholder} className="h-44 w-full resize-none rounded-2xl border border-[#374151] bg-[#171B24] px-4 py-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280]" />
                       <div className="mt-6 flex justify-end gap-2">
-                        <button type="button" onClick={advanceQuestion} className="inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#12151D] px-5 text-sm font-semibold text-[#CBD5E1] transition hover:bg-[#1D2330]">건너뛰기</button>
-                        <button type="button" onClick={advanceQuestion} disabled={currentText.trim().length === 0} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">다음으로</button>
+                        <button type="button" onClick={advanceQuestion} disabled={isCardLeaving} className="inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#12151D] px-5 text-sm font-semibold text-[#CBD5E1] transition hover:bg-[#1D2330] disabled:cursor-default disabled:opacity-60">건너뛰기</button>
+                        <button type="button" onClick={advanceQuestion} disabled={isCardLeaving || currentText.trim().length === 0} className="btn-solid-contrast inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">다음으로</button>
                       </div>
                     </div>
                   )}
@@ -3058,7 +3099,7 @@ function ToolPage({ type }) {
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#AEB6C5]">
                         <span className="truncate">{thumbnailFile?.name}</span>
-                        <span>{isThumbnailAnalyzing ? 'Vision API가 이미지를 분석 중입니다...' : '이미지를 다시 누르거나 드래그해서 교체'}</span>
+                        <span>{isThumbnailAnalyzing ? '이미지를 분석 중입니다...' : '이미지를 다시 누르거나 드래그해서 교체'}</span>
                       </div>
                     </div>
                   ) : (
@@ -3103,14 +3144,8 @@ function ToolPage({ type }) {
                   </div>
                   {thumbnailAnalysis.titleDirections?.length ? (
                     <div>
-                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">추천 제목 방향</div>
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">레퍼런스 제목 결</div>
                       <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{thumbnailAnalysis.titleDirections.join(', ')}</p>
-                    </div>
-                  ) : null}
-                  {thumbnailAnalysis.avoidRepeating?.length ? (
-                    <div className="rounded-2xl border border-[#3A414F] bg-[#121821] px-4 py-3">
-                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">제목에서 반복 피할 표현</div>
-                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{thumbnailAnalysis.avoidRepeating.join(', ')}</p>
                     </div>
                   ) : null}
                 </div>
@@ -3173,7 +3208,7 @@ function ToolPage({ type }) {
                 <div>
                   <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">내 계정에 맞는 썸네일 제목 추천</div>
                   <p className="mt-1 text-xs leading-5 text-[#8E97A6]">
-                    이미지 분석, 영상 주제, 계정 카테고리와 톤을 함께 반영했습니다.
+                    썸네일 레퍼런스의 제목 결을 유지하고 영상 주제만 바꿔 적용했습니다.
                   </p>
                 </div>
                 <div className="grid gap-3">

@@ -7,15 +7,19 @@ function SectionPreview({ label, value, tone, sizeClass = '' }) {
   )
 }
 
-export default function ScriptCard({ script, onSelect, isSelected = false, hasSelection = false }) {
+export default function ScriptCard({ script, onSelect, isSelected = false, hasSelection = false, disabled = false }) {
   const handleSelect = () => {
+    if (disabled) {
+      return
+    }
     onSelect(script.id)
   }
 
   return (
     <article
       role="button"
-      tabIndex={0}
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
       onClick={handleSelect}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -29,7 +33,7 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
           : hasSelection
             ? 'border-[#2A303B] bg-[#11151D] grayscale-[0.55] opacity-55'
             : 'border-[#2F3543] bg-[#12151D] hover:border-[#495164] hover:bg-[#151B25]'
-      }`}
+      } ${disabled ? 'pointer-events-none cursor-default opacity-70' : 'cursor-pointer'}`}
     >
       <div className="min-h-[96px]">
         <div className="flex h-full flex-col">
@@ -70,11 +74,12 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
 
       <button
         type="button"
+        disabled={disabled}
         onClick={(event) => {
           event.stopPropagation()
           handleSelect()
         }}
-        className="btn-solid-contrast mt-5 flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold transition hover:bg-white"
+        className="btn-solid-contrast mt-5 flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold transition hover:bg-white disabled:cursor-default disabled:opacity-70"
       >
         {isSelected ? '선택됨' : '사용하기'}
       </button>

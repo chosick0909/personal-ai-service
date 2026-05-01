@@ -1588,6 +1588,19 @@ export function AppStateProvider({ children }) {
     }
   }
 
+  const getPersistedCurrentProjectId = () => {
+    if (!currentProjectId) {
+      return null
+    }
+
+    const currentProject = projects.find((item) => item.id === currentProjectId)
+    if (!currentProject || currentProject.isOptimistic || String(currentProject.id).startsWith('pending-')) {
+      return null
+    }
+
+    return currentProject.id
+  }
+
   const selectProject = (projectId) => {
     setActiveToolPage(null)
     if (!projectId) {
@@ -1667,8 +1680,7 @@ export function AppStateProvider({ children }) {
       return false
     }
 
-    const nextProjects = projects.filter((item) => item.id !== projectId)
-    setProjects(nextProjects)
+    setProjects((current) => current.filter((item) => item.id !== projectId))
     setReferenceHistory((current) =>
       current.map((item) =>
         item.projectId === projectId
@@ -1968,7 +1980,7 @@ export function AppStateProvider({ children }) {
       title: uploadTitle.trim() || file.name.replace(/\.[^.]+$/, ''),
       fileName: file.name,
       topic: effectiveTopic,
-      projectId: currentProjectId || null,
+      projectId: getPersistedCurrentProjectId(),
       createdAt,
       status: 'processing',
     }
@@ -2001,7 +2013,7 @@ export function AppStateProvider({ children }) {
         accountId: requestAccountId,
         topic: effectiveTopic,
         title: uploadTitle,
-        projectId: currentProjectId || null,
+        projectId: getPersistedCurrentProjectId(),
         signal: requestAbortController.signal,
       })
       if (!isCurrentAnalysisRequest()) {
@@ -2102,7 +2114,7 @@ export function AppStateProvider({ children }) {
     const requestAccountId = currentAccount?.id
     const nextScript = generatedScripts.find((item) => item.id === scriptId)
 
-    if (!requestAccountId || !nextScript) {
+    if (!requestAccountId || !nextScript || isEditorPreparing) {
       return
     }
 

@@ -352,6 +352,7 @@ export default function ResultCards() {
                 }}
                 isSelected={selectedScript?.id === script.id}
                 hasSelection={Boolean(selectedScript)}
+                disabled={isEditorPreparing}
               />
             ))}
           </div>
