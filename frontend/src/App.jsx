@@ -2685,6 +2685,29 @@ const CAPTION_MONETIZATION_MODELS = [
   },
 ]
 
+function getReferenceCaptionQualityError(value = '') {
+  const text = String(value || '').trim()
+  const compact = text.replace(/\s+/g, '')
+  const koreanChars = compact.match(/[가-힣]/g)?.length || 0
+  const alphaNumericChars = compact.match(/[0-9A-Za-z가-힣]/g)?.length || 0
+  const words = text.split(/\s+/).filter((item) => /[0-9A-Za-z가-힣]/.test(item))
+  const uniqueWords = new Set(words.map((item) => item.toLowerCase()))
+
+  if (compact.length < 35) {
+    return '너무 짧습니다.'
+  }
+  if (words.length < 8 || uniqueWords.size < 6) {
+    return '참고할 문장 구조가 부족합니다.'
+  }
+  if (alphaNumericChars < 25 || koreanChars < 15) {
+    return '의미 있는 한국어 캡션 내용이 부족합니다.'
+  }
+  if (/^[ㄱ-ㅎㅏ-ㅣㅋㅎㅇㅠㅜ\s.,!?~]+$/.test(text) || /^(.{1,3})\1{2,}$/.test(compact)) {
+    return '반복 문자만 있어 레퍼런스로 사용할 수 없습니다.'
+  }
+  return ''
+}
+
 function ToolPage({ type }) {
   const isCaption = type === 'caption'
   const { currentAccount, isCurrentAccountConfigured } = useAppState()
@@ -2852,6 +2875,20 @@ function ToolPage({ type }) {
       return
     }
 
+    const captionAError = getReferenceCaptionQualityError(captionA)
+    const captionBError = getReferenceCaptionQualityError(captionB)
+    if (captionAError || captionBError) {
+      setToolError(
+        `레퍼런스 캡션 ${[
+          captionAError ? `A(${captionAError})` : null,
+          captionBError ? `B(${captionBError})` : null,
+        ]
+          .filter(Boolean)
+          .join(', ')}가 너무 부실합니다. 실제로 올렸거나 참고할 캡션 문장을 A/B에 붙여넣어주세요.`,
+      )
+      return
+    }
+
     setIsGenerating(true)
     try {
       const result = await generateCaptionDraft({
@@ -2993,11 +3030,11 @@ function ToolPage({ type }) {
     try {
       await downloadScriptPdf({
         title: `${captionTopic.trim() || '캡션'} · 캡션 생성결과`,
-        sections: {
-          hook: captionTopic.trim() || '캡션 생성결과',
-          body: normalizedCaption,
-          cta: displayedHashtags.length ? displayedHashtags.join(' ') : '해시태그 없음',
-        },
+        sections: [
+          { label: '내 영상 주제', value: captionTopic.trim() || '입력된 영상 주제 없음' },
+          { label: '캡션 내용', value: normalizedCaption },
+          { label: '해시태그', value: displayedHashtags.length ? displayedHashtags.join(' ') : '해시태그 없음' },
+        ],
       })
     } catch (error) {
       const reason = error?.message || 'PDF 내보내기에 실패했습니다.'

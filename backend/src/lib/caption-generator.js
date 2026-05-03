@@ -23,6 +23,55 @@ function truncateText(value, maxLength = 1200) {
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
 }
 
+function assessReferenceCaptionQuality(value = '') {
+  const text = normalizeCaption(value)
+  const compact = text.replace(/\s+/g, '')
+  const koreanChars = compact.match(/[가-힣]/g)?.length || 0
+  const alphaNumericChars = compact.match(/[0-9A-Za-z가-힣]/g)?.length || 0
+  const words = text.split(/\s+/).filter((item) => /[0-9A-Za-z가-힣]/.test(item))
+  const uniqueWords = new Set(words.map((item) => item.toLowerCase()))
+  const repeatedJamoOnly = /^[ㄱ-ㅎㅏ-ㅣㅋㅎㅇㅠㅜ\s.,!?~]+$/.test(text)
+  const repeatedShortPattern = /^(.{1,3})\1{2,}$/.test(compact)
+
+  if (compact.length < 35) {
+    return { ok: false, reason: '너무 짧습니다.' }
+  }
+
+  if (words.length < 8 || uniqueWords.size < 6) {
+    return { ok: false, reason: '참고할 문장 구조가 부족합니다.' }
+  }
+
+  if (alphaNumericChars < 25 || koreanChars < 15) {
+    return { ok: false, reason: '의미 있는 한국어 캡션 내용이 부족합니다.' }
+  }
+
+  if (repeatedJamoOnly || repeatedShortPattern) {
+    return { ok: false, reason: '반복 문자만 있어 레퍼런스로 사용할 수 없습니다.' }
+  }
+
+  return { ok: true, reason: '' }
+}
+
+function validateReferenceCaptionInputs(captionA, captionB) {
+  const qualityA = assessReferenceCaptionQuality(captionA)
+  const qualityB = assessReferenceCaptionQuality(captionB)
+  const invalidLabels = [
+    qualityA.ok ? null : `A(${qualityA.reason})`,
+    qualityB.ok ? null : `B(${qualityB.reason})`,
+  ].filter(Boolean)
+
+  if (invalidLabels.length) {
+    throw new AppError(
+      `레퍼런스 캡션 ${invalidLabels.join(', ')}가 너무 부실합니다. 실제로 올렸거나 참고할 캡션 문장을 A/B에 붙여넣어주세요.`,
+      {
+        code: 'REFERENCE_CAPTIONS_TOO_WEAK',
+        statusCode: 400,
+        exposeMessage: true,
+      },
+    )
+  }
+}
+
 function buildStrategyContext({
   strategyText,
   hookDirection,
@@ -419,6 +468,8 @@ export async function generateCaptionDraft({
       exposeMessage: true,
     })
   }
+
+  validateReferenceCaptionInputs(referenceCaptionA, referenceCaptionB)
 
   const { openai, models } = requireOpenAI()
   const referencePattern = await extractReferencePattern({

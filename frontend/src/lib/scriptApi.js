@@ -114,6 +114,21 @@ function wait(ms) {
   })
 }
 
+function normalizePdfSections(sections = {}) {
+  if (Array.isArray(sections)) {
+    return sections.map((section) => [
+      section.label || section.title || '',
+      section.value || section.content || '',
+    ])
+  }
+
+  return [
+    ['HOOK', sections.hook],
+    ['BODY', sections.body],
+    ['CTA', sections.cta],
+  ]
+}
+
 export async function downloadScriptPdf({ title, sections }) {
   if (typeof document === 'undefined' || typeof window === 'undefined') {
     throw createPdfExportError('현재 환경에서는 브라우저 PDF 내보내기를 사용할 수 없습니다.')
@@ -154,11 +169,7 @@ export async function downloadScriptPdf({ title, sections }) {
     <div style="font-size: 28px; font-weight: 700; margin-bottom: 28px;">
       ${escapeHtml(title || 'AI Script Export')}
     </div>
-    ${[
-      ['HOOK', sections.hook],
-      ['BODY', sections.body],
-      ['CTA', sections.cta],
-    ]
+    ${normalizePdfSections(sections)
       .map(
         ([label, value]) => `
           <section style="margin-bottom: 28px;">
