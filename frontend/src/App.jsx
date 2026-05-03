@@ -2685,29 +2685,6 @@ const CAPTION_MONETIZATION_MODELS = [
   },
 ]
 
-function getReferenceCaptionQualityError(value = '') {
-  const text = String(value || '').trim()
-  const compact = text.replace(/\s+/g, '')
-  const koreanChars = compact.match(/[가-힣]/g)?.length || 0
-  const alphaNumericChars = compact.match(/[0-9A-Za-z가-힣]/g)?.length || 0
-  const words = text.split(/\s+/).filter((item) => /[0-9A-Za-z가-힣]/.test(item))
-  const uniqueWords = new Set(words.map((item) => item.toLowerCase()))
-
-  if (compact.length < 35) {
-    return '너무 짧습니다.'
-  }
-  if (words.length < 8 || uniqueWords.size < 6) {
-    return '참고할 문장 구조가 부족합니다.'
-  }
-  if (alphaNumericChars < 25 || koreanChars < 15) {
-    return '의미 있는 한국어 캡션 내용이 부족합니다.'
-  }
-  if (/^[ㄱ-ㅎㅏ-ㅣㅋㅎㅇㅠㅜ\s.,!?~]+$/.test(text) || /^(.{1,3})\1{2,}$/.test(compact)) {
-    return '반복 문자만 있어 레퍼런스로 사용할 수 없습니다.'
-  }
-  return ''
-}
-
 function ToolPage({ type }) {
   const isCaption = type === 'caption'
   const { currentAccount, isCurrentAccountConfigured } = useAppState()
@@ -2872,20 +2849,6 @@ function ToolPage({ type }) {
 
     if (!captionA.trim() || !captionB.trim()) {
       setToolError('레퍼런스 캡션 A와 B를 모두 입력해주세요.')
-      return
-    }
-
-    const captionAError = getReferenceCaptionQualityError(captionA)
-    const captionBError = getReferenceCaptionQualityError(captionB)
-    if (captionAError || captionBError) {
-      setToolError(
-        `레퍼런스 캡션 ${[
-          captionAError ? `A(${captionAError})` : null,
-          captionBError ? `B(${captionBError})` : null,
-        ]
-          .filter(Boolean)
-          .join(', ')}가 너무 부실합니다. 실제로 올렸거나 참고할 캡션 문장을 A/B에 붙여넣어주세요.`,
-      )
       return
     }
 
@@ -3377,6 +3340,21 @@ function ToolPage({ type }) {
                 <p className="mt-3 rounded-2xl border border-[#2F3543] bg-[#121821] px-4 py-3 text-xs leading-5 text-[#AEB6C5]">
                   반영 포인트: {captionResult.rationale}
                 </p>
+              ) : null}
+              {captionResult.referenceQuality ? (
+                <div className="mt-3 rounded-2xl border border-[#2F3543] bg-[#121821] px-4 py-3 text-xs leading-5 text-[#AEB6C5]">
+                  <div className="font-semibold text-[#D1D5DB]">
+                    A/B 구조 반영도: {captionResult.referenceQuality.level || 'unknown'} · {captionResult.referenceQuality.score ?? 0}점
+                  </div>
+                  {captionResult.referenceStructure?.averageTextLength ? (
+                    <p className="mt-1">
+                      A/B 평균 길이 약 {captionResult.referenceStructure.averageTextLength}자 기준으로 생성했습니다.
+                    </p>
+                  ) : null}
+                  {Array.isArray(captionResult.warnings) && captionResult.warnings.length ? (
+                    <p className="mt-1">{captionResult.warnings[0]}</p>
+                  ) : null}
+                </div>
               ) : null}
               {captionResult.safetyCheck?.referenceContamination ? (
                 <p className="mt-3 rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-xs leading-5 text-[#FCA5A5]">
