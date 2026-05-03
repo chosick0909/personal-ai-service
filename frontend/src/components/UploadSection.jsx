@@ -189,7 +189,7 @@ export default function UploadSection() {
   return (
     <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-[linear-gradient(180deg,#0D0F14_0%,#141821_100%)] px-4 pb-6 pt-2 md:px-8 md:pb-16 md:pt-20">
       <div className="w-full max-w-[1024px]">
-        <div className="mx-auto hidden h-[42px] items-center justify-center rounded-full border border-[#3A414F] bg-[#1B202A] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:inline-flex">
+        <div className="mx-auto flex h-[42px] w-fit items-center justify-center rounded-full border border-[#3A414F] bg-[#1B202A] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
           {currentStep === 'analyzing' ? 'Step 2: Analyzing Reference' : 'Step 2: Upload Reference'}
         </div>
 
