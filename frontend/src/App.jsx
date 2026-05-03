@@ -11,6 +11,7 @@ import { getAuthPersistMode, setAuthPersistMode, supabase } from './lib/supabase
 import { loadAccountProfile } from './lib/accountApi'
 import { analyzeThumbnailImage, generateCaptionDraft, generateThumbnailTitles, loadCaptionCategoryRule } from './lib/toolApi'
 import { getCaptionStrategyRule } from './lib/captionStrategyRules'
+import { downloadScriptPdf } from './lib/scriptApi'
 import logoWebp from './Logo.webp'
 // Deploy trigger: frontend touchpoint.
 import { AppStateProvider, useAppState } from './store/AppState'
@@ -2702,6 +2703,11 @@ function ToolPage({ type }) {
   const [isThumbnailAnalyzing, setIsThumbnailAnalyzing] = useState(false)
   const [toolError, setToolError] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isCaptionPdfExporting, setIsCaptionPdfExporting] = useState(false)
+  const [isCaptionCopied, setIsCaptionCopied] = useState(false)
+  const [copiedThumbnailTitleKey, setCopiedThumbnailTitleKey] = useState('')
+  const copiedCaptionTimerRef = useRef(null)
+  const copiedThumbnailTitleTimerRef = useRef(null)
   const accountSettings = accountProfile?.settings && typeof accountProfile.settings === 'object'
     ? accountProfile.settings
     : {}
@@ -2758,6 +2764,9 @@ function ToolPage({ type }) {
     setThumbnailAnalysis(null)
     setThumbnailTitleResult(null)
     setIsThumbnailAnalyzing(false)
+    setCopiedThumbnailTitleKey('')
+    setIsCaptionCopied(false)
+    setIsCaptionPdfExporting(false)
   }, [type])
 
   useEffect(() => {
@@ -2772,7 +2781,21 @@ function ToolPage({ type }) {
     setThumbnailAnalysis(null)
     setThumbnailTitleResult(null)
     setIsThumbnailAnalyzing(false)
+    setCopiedThumbnailTitleKey('')
+    setIsCaptionCopied(false)
+    setIsCaptionPdfExporting(false)
   }, [currentAccount?.id])
+
+  useEffect(() => {
+    return () => {
+      if (copiedCaptionTimerRef.current) {
+        window.clearTimeout(copiedCaptionTimerRef.current)
+      }
+      if (copiedThumbnailTitleTimerRef.current) {
+        window.clearTimeout(copiedThumbnailTitleTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!thumbnailFile) {
@@ -2907,6 +2930,104 @@ function ToolPage({ type }) {
       setToolError(error.message || '썸네일 제목 생성에 실패했습니다.')
     } finally {
       setIsGenerating(false)
+    }
+  }
+
+  const writeClipboardText = async (text) => {
+    const normalizedText = String(text || '').trim()
+    if (!normalizedText) {
+      return false
+    }
+
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(normalizedText)
+      return true
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = normalizedText
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return true
+  }
+
+  const copyCaptionDraft = async () => {
+    try {
+      const copied = await writeClipboardText(editableCaptionDraft)
+      if (!copied) {
+        return
+      }
+
+      setIsCaptionCopied(true)
+      if (copiedCaptionTimerRef.current) {
+        window.clearTimeout(copiedCaptionTimerRef.current)
+      }
+      copiedCaptionTimerRef.current = window.setTimeout(() => {
+        setIsCaptionCopied(false)
+        copiedCaptionTimerRef.current = null
+      }, 1400)
+    } catch {
+      setToolError('캡션 복사에 실패했습니다.')
+    }
+  }
+
+  const exportCaptionPdf = async () => {
+    const normalizedCaption = editableCaptionDraft.trim()
+    if (!normalizedCaption) {
+      return
+    }
+
+    setToolError('')
+    setIsCaptionPdfExporting(true)
+    try {
+      await downloadScriptPdf({
+        title: `${topic.trim() || '캡션'} · 캡션 생성결과`,
+        sections: {
+          hook: topic.trim() || '캡션 생성결과',
+          body: normalizedCaption,
+          cta: displayedHashtags.length ? displayedHashtags.join(' ') : '해시태그 없음',
+        },
+      })
+    } catch {
+      setToolError('PDF 내보내기에 실패했습니다.')
+    } finally {
+      setIsCaptionPdfExporting(false)
+    }
+  }
+
+  const resetCaptionDraftInputs = () => {
+    setCaptionA('')
+    setCaptionB('')
+    setCaptionResult(null)
+    setEditableCaptionDraft('')
+    setToolError('')
+    setIsCaptionCopied(false)
+  }
+
+  const copyThumbnailTitle = async (titleText, copyKey) => {
+    const normalizedTitle = String(titleText || '').trim()
+    if (!normalizedTitle) {
+      return
+    }
+
+    try {
+      await writeClipboardText(normalizedTitle)
+
+      setCopiedThumbnailTitleKey(copyKey)
+      if (copiedThumbnailTitleTimerRef.current) {
+        window.clearTimeout(copiedThumbnailTitleTimerRef.current)
+      }
+      copiedThumbnailTitleTimerRef.current = window.setTimeout(() => {
+        setCopiedThumbnailTitleKey('')
+        copiedThumbnailTitleTimerRef.current = null
+      }, 1400)
+    } catch {
+      setToolError('제목 복사에 실패했습니다.')
     }
   }
 
@@ -3070,7 +3191,7 @@ function ToolPage({ type }) {
           ) : (
             <div className="grid gap-4">
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-[#E5E7EB]">썸네일 이미지</span>
+                <span className="text-sm font-semibold text-[#E5E7EB]">레퍼런스 썸네일 이미지</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -3175,7 +3296,27 @@ function ToolPage({ type }) {
           {isCaption && captionResult ? (
             <div className="mt-8 border-t border-[#2F3543] pt-6">
               <div className="rounded-[24px] border border-[#485064] bg-[#111722] p-5 shadow-[0_18px_42px_rgba(0,0,0,0.22)]">
-              <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">내 계정에 맞는 캡션 생성결과</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">내 계정에 맞는 캡션 생성결과</div>
+                <button
+                  type="button"
+                  onClick={copyCaptionDraft}
+                  disabled={!editableCaptionDraft.trim()}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isCaptionCopied
+                      ? 'border-[#34D399] bg-[#10231B] text-[#A7F3D0]'
+                      : 'border-[#3A414F] bg-[#121821] text-[#AEB6C5] hover:border-[#6B7280] hover:text-[#F3F4F6]'
+                  }`}
+                  aria-label="캡션 복사"
+                  title="캡션 복사"
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+                    <path d="M7 6.5A2.5 2.5 0 0 1 9.5 4H14a2 2 0 0 1 2 2v7.5A2.5 2.5 0 0 1 13.5 16H9a2 2 0 0 1-2-2V6.5Z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M5 12.5H4.5A2.5 2.5 0 0 1 2 10V4.5A2.5 2.5 0 0 1 4.5 2H10a2.5 2.5 0 0 1 2.5 2.5V5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                  {isCaptionCopied ? '복사됨' : '복사'}
+                </button>
+              </div>
               <textarea
                 value={editableCaptionDraft}
                 onChange={(event) => setEditableCaptionDraft(event.target.value)}
@@ -3212,11 +3353,33 @@ function ToolPage({ type }) {
                   </p>
                 </div>
                 <div className="grid gap-3">
-                  {thumbnailTitleResult.recommendations.map((item) => (
-                    <article key={`${item.type}-${item.title}`} className="rounded-[20px] border border-[#2F3543] bg-[#0F131B] p-4">
+                  {thumbnailTitleResult.recommendations.map((item) => {
+                    const copyKey = `${item.type}-${item.title}`
+                    const copied = copiedThumbnailTitleKey === copyKey
+                    return (
+                    <article key={copyKey} className="rounded-[20px] border border-[#2F3543] bg-[#0F131B] p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">
-                          추천 {item.type} · {item.label}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">
+                            추천 {item.type} · {item.label}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copyThumbnailTitle(item.title, copyKey)}
+                            className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition ${
+                              copied
+                                ? 'border-[#34D399] bg-[#10231B] text-[#A7F3D0]'
+                                : 'border-[#3A414F] bg-[#121821] text-[#AEB6C5] hover:border-[#6B7280] hover:text-[#F3F4F6]'
+                            }`}
+                            aria-label={`추천 ${item.type} 제목 복사`}
+                            title="제목 복사"
+                          >
+                            <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+                              <path d="M7 6.5A2.5 2.5 0 0 1 9.5 4H14a2 2 0 0 1 2 2v7.5A2.5 2.5 0 0 1 13.5 16H9a2 2 0 0 1-2-2V6.5Z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                              <path d="M5 12.5H4.5A2.5 2.5 0 0 1 2 10V4.5A2.5 2.5 0 0 1 4.5 2H10a2.5 2.5 0 0 1 2.5 2.5V5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            </svg>
+                            {copied ? '복사됨' : '복사'}
+                          </button>
                         </div>
                         {item.strategy ? (
                           <div className="rounded-full border border-[#3A414F] bg-[#121821] px-3 py-1 text-xs text-[#AEB6C5]">
@@ -3229,7 +3392,8 @@ function ToolPage({ type }) {
                         <p className="mt-2 text-sm leading-6 text-[#AEB6C5]">{item.reason}</p>
                       ) : null}
                     </article>
-                  ))}
+                    )
+                  })}
                 </div>
                 {thumbnailTitleResult.safetyCheck?.imageTextRepeated ? (
                   <div className="rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-xs leading-5 text-[#FCA5A5]">
@@ -3240,14 +3404,24 @@ function ToolPage({ type }) {
             </div>
           ) : null}
 
-          <div className="mt-5 flex justify-end">
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            {isCaption && captionResult ? (
+              <button
+                type="button"
+                onClick={exportCaptionPdf}
+                disabled={isCaptionPdfExporting || !editableCaptionDraft.trim()}
+                className="inline-flex rounded-full border border-[#3A414F] bg-[#121821] px-6 py-3 text-sm font-semibold text-[#D1D5DB] transition hover:border-[#6B7280] hover:text-[#F3F4F6] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCaptionPdfExporting ? '내보내는 중...' : 'PDF로 내보내기'}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={isCaption ? handleGenerateCaption : handleGenerateThumbnailTitles}
+              onClick={isCaption && captionResult ? resetCaptionDraftInputs : isCaption ? handleGenerateCaption : handleGenerateThumbnailTitles}
               disabled={isGenerating || (!isCaption && isThumbnailAnalyzing)}
               className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isGenerating ? '생성 중...' : isCaption ? '초안 생성' : '제목 추천 생성'}
+              {isGenerating ? '생성 중...' : isCaption && captionResult ? '다시 쓰기' : isCaption ? '초안 생성' : '제목 추천 생성'}
             </button>
           </div>
         </section>
