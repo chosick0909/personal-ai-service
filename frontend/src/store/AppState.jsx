@@ -2398,7 +2398,6 @@ export function AppStateProvider({ children }) {
         return next
       })
       showToast('버전 저장 완료')
-      window.alert('버전 저장이 완료되었습니다.')
     } catch (error) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -2417,8 +2416,6 @@ export function AppStateProvider({ children }) {
 
   const openVersionHistory = () => {
     setIsVersionModalOpen(true)
-    showToast(versions.length ? '저장 내역을 열었습니다.' : '아직 저장된 버전이 없습니다.')
-    window.alert(versions.length ? '저장 내역을 열었습니다.' : '아직 저장된 버전이 없습니다.')
   }
 
   const requestFeedback = async () => {
