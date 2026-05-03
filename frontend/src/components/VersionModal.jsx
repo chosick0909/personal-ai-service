@@ -26,6 +26,7 @@ export default function VersionModal() {
   const { versions, setIsVersionModalOpen, restoreVersion } = useAppState()
   const labelByType = {
     ai_generation: 'AI 생성',
+    feedback_before: '피드백 반영 전',
     feedback_apply: '피드백 반영',
     manual_save: '수동 저장',
   }

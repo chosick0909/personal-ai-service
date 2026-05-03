@@ -108,12 +108,6 @@ function createPdfExportError(message, cause) {
   return error
 }
 
-function wait(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
-}
-
 function normalizePdfSections(sections = {}) {
   if (Array.isArray(sections)) {
     return sections.map((section) => [
@@ -129,121 +123,97 @@ function normalizePdfSections(sections = {}) {
   ]
 }
 
+async function fetchFontAsBase64(path) {
+  const response = await fetch(path)
+  if (!response.ok) {
+    throw createPdfExportError('PDF 한글 폰트를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.')
+  }
+
+  const buffer = await response.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return window.btoa(binary)
+}
+
 export async function downloadScriptPdf({ title, sections }) {
   if (typeof document === 'undefined' || typeof window === 'undefined') {
     throw createPdfExportError('현재 환경에서는 브라우저 PDF 내보내기를 사용할 수 없습니다.')
   }
 
-  let html2canvas
   let jsPDF
   try {
-    const modules = await Promise.all([import('html2canvas'), import('jspdf')])
-    html2canvas = modules[0].default
-    jsPDF = modules[1].jsPDF
+    const module = await import('jspdf')
+    jsPDF = module.jsPDF
   } catch (error) {
     throw createPdfExportError('PDF 생성 모듈을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.', error)
   }
 
-  const container = document.createElement('div')
-  container.style.position = 'fixed'
-  container.style.left = '-99999px'
-  container.style.top = '0'
-  container.style.width = '794px'
-  container.style.padding = '48px'
-  container.style.background = '#ffffff'
-  container.style.color = '#111111'
-  container.style.fontFamily =
-    'Apple SD Gothic Neo, Pretendard, Noto Sans KR, Malgun Gothic, sans-serif'
-  container.style.lineHeight = '1.7'
-  container.style.boxSizing = 'border-box'
-
-  const escapeHtml = (value = '') =>
-    value
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll('\n', '<br />')
-
-  container.innerHTML = `
-    <div style="font-size: 28px; font-weight: 700; margin-bottom: 28px;">
-      ${escapeHtml(title || 'AI Script Export')}
-    </div>
-    ${normalizePdfSections(sections)
-      .map(
-        ([label, value]) => `
-          <section style="margin-bottom: 28px;">
-            <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: #666; margin-bottom: 10px;">
-              ${label}
-            </div>
-            <div style="border: 1px solid #ddd; border-radius: 18px; padding: 18px 20px; font-size: 15px; white-space: normal; word-break: keep-all;">
-              ${escapeHtml(value || '-')}
-            </div>
-          </section>
-        `,
-      )
-      .join('')}
-  `
-
-  document.body.appendChild(container)
-
   try {
-    if (document.fonts?.ready) {
-      await Promise.race([document.fonts.ready, wait(1200)])
-    }
+    const fontBase64 = await fetchFontAsBase64('/fonts/NanumGothic-Regular.ttf')
+    const pdf = new jsPDF({
+      unit: 'pt',
+      format: 'a4',
+    })
+    pdf.addFileToVFS('NanumGothic-Regular.ttf', fontBase64)
+    pdf.addFont('NanumGothic-Regular.ttf', 'NanumGothic', 'normal')
+    pdf.setFont('NanumGothic', 'normal')
 
-    let canvas
-    try {
-      canvas = await html2canvas(container, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-      })
-    } catch (error) {
-      throw createPdfExportError('브라우저가 PDF 캡처를 완료하지 못했습니다. Safari/iOS 또는 저사양 기기에서는 긴 내용 캡처가 실패할 수 있습니다.', error)
-    }
-
-    if (!canvas?.width || !canvas?.height) {
-      throw createPdfExportError('PDF로 변환할 화면을 캡처하지 못했습니다. 내용을 줄이거나 새로고침 후 다시 시도해주세요.')
-    }
-
-    let imgData
-    try {
-      imgData = canvas.toDataURL('image/png')
-    } catch (error) {
-      throw createPdfExportError('PDF 이미지 변환에 실패했습니다. 외부 이미지나 브라우저 보안 설정 때문에 막혔을 수 있습니다.', error)
-    }
-
-    let pdf
-    try {
-      pdf = new jsPDF({
-        unit: 'pt',
-        format: 'a4',
-      })
-    } catch (error) {
-      throw createPdfExportError('PDF 문서를 만드는 중 오류가 발생했습니다.', error)
-    }
     const pageWidth = pdf.internal.pageSize.getWidth()
     const pageHeight = pdf.internal.pageSize.getHeight()
-    const imgWidth = pageWidth
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
+    const margin = 48
+    const contentWidth = pageWidth - margin * 2
+    let y = margin
 
-    let heightLeft = imgHeight
-    let position = 0
-
-    try {
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-        heightLeft -= pageHeight
+    const ensureSpace = (height) => {
+      if (y + height <= pageHeight - margin) {
+        return
       }
-    } catch (error) {
-      throw createPdfExportError('PDF 페이지 구성 중 오류가 발생했습니다. 내용이 너무 길면 나눠서 다시 시도해주세요.', error)
+      pdf.addPage()
+      pdf.setFont('NanumGothic', 'normal')
+      y = margin
     }
+
+    const writeLines = (lines, { fontSize = 12, lineHeight = 18, color = '#111111' } = {}) => {
+      pdf.setFontSize(fontSize)
+      pdf.setTextColor(color)
+      lines.forEach((line) => {
+        ensureSpace(lineHeight)
+        pdf.text(line || ' ', margin, y)
+        y += lineHeight
+      })
+    }
+
+    writeLines(pdf.splitTextToSize(title || 'AI Script Export', contentWidth), {
+      fontSize: 22,
+      lineHeight: 30,
+      color: '#111111',
+    })
+    y += 12
+
+    normalizePdfSections(sections).forEach(([label, value]) => {
+      const normalizedValue = String(value || '-')
+      const valueLines = pdf.splitTextToSize(normalizedValue, contentWidth)
+      ensureSpace(34)
+
+      writeLines([String(label || 'SECTION').toUpperCase()], {
+        fontSize: 10,
+        lineHeight: 16,
+        color: '#555555',
+      })
+      pdf.setDrawColor('#DDDDDD')
+      pdf.line(margin, y, pageWidth - margin, y)
+      y += 18
+      writeLines(valueLines, {
+        fontSize: 12,
+        lineHeight: 18,
+        color: '#111111',
+      })
+      y += 20
+    })
 
     let blob
     try {
@@ -272,7 +242,5 @@ export async function downloadScriptPdf({ title, sections }) {
       throw error
     }
     throw createPdfExportError('PDF 내보내기 중 알 수 없는 오류가 발생했습니다.', error)
-  } finally {
-    document.body.removeChild(container)
   }
 }

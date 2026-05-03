@@ -2529,20 +2529,36 @@ export function AppStateProvider({ children }) {
       return
     }
     setIsApplyingFeedback(true)
-    const serializedContent = serializeEditorSections(feedback.suggestedSections)
-    setEditorSections(createEditorSections(feedback.suggestedSections))
-    setPendingSuggestion(null)
+    const beforeSections = createEditorSections(editorSections)
+    const nextSections = createEditorSections(feedback.suggestedSections)
+    const serializedContent = serializeEditorSections(nextSections)
     if (!activeScriptId) {
+      setEditorSections(nextSections)
+      setPendingSuggestion(null)
       setIsApplyingFeedback(false)
       return
     }
 
     try {
+      const beforeVersion = await saveVersionRecord({
+        accountId: requestAccountId,
+        scriptId: activeScriptId,
+        title: '피드백 반영 전',
+        sections: beforeSections,
+        versionType: 'feedback_before',
+        score: selectedScript?.score ?? versions[0]?.score ?? null,
+        metadata: {
+          referenceId: referenceData?.id,
+          selectedLabel: selectedScript?.label,
+          feedbackSummary: feedback.summary,
+          pairedFeedbackApply: true,
+        },
+      })
       const nextVersion = await saveVersionRecord({
         accountId: requestAccountId,
         scriptId: activeScriptId,
         title: '피드백 반영본',
-        sections: feedback.suggestedSections,
+        sections: nextSections,
         versionType: 'feedback_apply',
         score: feedback.score,
         metadata: {
@@ -2555,10 +2571,13 @@ export function AppStateProvider({ children }) {
         return
       }
 
+      setEditorSections(nextSections)
+      setPendingSuggestion(null)
+
       const appliedMessage = {
         id: `feedback-applied-${Date.now()}`,
         role: 'assistant',
-        content: '피드백을 반영해서 대본을 수정했습니다. 새로운 버전으로 저장되었어요!',
+        content: '피드백 반영 전/후 버전을 저장하고 대본을 수정했습니다.',
       }
 
       const appliedFeedback = {
@@ -2569,7 +2588,7 @@ export function AppStateProvider({ children }) {
       setFeedback(appliedFeedback)
 
       setVersions((current) => {
-        const next = [nextVersion, ...current]
+        const next = [nextVersion, beforeVersion, ...current]
         setCachedScriptVersions(requestAccountId, activeScriptId, next)
         syncHistory(activeReferenceIdRef.current, {
           activeScriptId,
@@ -2594,7 +2613,7 @@ export function AppStateProvider({ children }) {
         return next
       })
 
-      showToast('피드백 반영 저장 완료')
+      showToast('피드백 반영 전/후 버전 저장 완료')
     } catch (error) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -2800,7 +2819,6 @@ export function AppStateProvider({ children }) {
         lastStep: 'editor',
       })
       showToast('버전 복원 완료')
-      window.alert('버전 복원이 완료되었습니다.')
     } catch (error) {
       showToast(error.message || '버전 복원에 실패했습니다.', 'error')
       setChatMessages((current) => [
@@ -2826,7 +2844,6 @@ export function AppStateProvider({ children }) {
         sections: editorSections,
       })
       showToast('PDF 다운로드를 시작했습니다')
-      window.alert('PDF 다운로드를 시작했습니다.')
     } catch (error) {
       const message = error.message || 'PDF 다운로드에 실패했습니다.'
       const fallbackMessage = `${message}\n\nPDF가 계속 실패하면 에디터의 Hook, Body, CTA 텍스트를 먼저 복사해서 보관해주세요.`

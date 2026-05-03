@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { useAppState } from '../store/AppState'
 
 function countCharacters(text = '') {
@@ -76,6 +77,53 @@ export default function Editor({ embedded = false }) {
   const feedbackRemainingLabel = Number.isFinite(copilotRemaining.feedback) ? `${copilotRemaining.feedback}회` : '무제한'
   const isFeedbackLimitReached = Number.isFinite(copilotRemaining.feedback) && copilotRemaining.feedback <= 0
   const isFeedbackButtonDisabled = isFeedbackLoading || isFeedbackLimitReached
+  const [isScriptCopied, setIsScriptCopied] = useState(false)
+  const copiedTimerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) {
+        window.clearTimeout(copiedTimerRef.current)
+      }
+    }
+  }, [])
+
+  const copyCurrentScriptText = async () => {
+    const text = [
+      editorSections.hook,
+      '',
+      editorSections.body,
+      '',
+      editorSections.cta,
+    ].join('\n').trim()
+
+    if (!text) {
+      return
+    }
+
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.left = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+
+    setIsScriptCopied(true)
+    if (copiedTimerRef.current) {
+      window.clearTimeout(copiedTimerRef.current)
+    }
+    copiedTimerRef.current = window.setTimeout(() => {
+      setIsScriptCopied(false)
+      copiedTimerRef.current = null
+    }, 1400)
+  }
 
   return (
     <div
@@ -191,14 +239,28 @@ export default function Editor({ embedded = false }) {
             >
               다시 선택하기
             </button>
-            <button
-              type="button"
-              onClick={exportCurrentScriptPdf}
-              disabled={isEditorPreparing || isPdfExporting}
-              className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold shadow-[0_20px_44px_rgba(0,0,0,0.25)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isPdfExporting ? '내보내는 중...' : '완성 및 내보내기'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={copyCurrentScriptText}
+                disabled={isEditorPreparing || !totalLength}
+                className={`rounded-full border px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  isScriptCopied
+                    ? 'border-[#34D399] bg-[#10231B] text-[#A7F3D0]'
+                    : 'border-[#3A414F] bg-[#1B202A] text-[#D1D5DB] hover:bg-[#232833]'
+                }`}
+              >
+                {isScriptCopied ? '복사됨' : '텍스트 복사'}
+              </button>
+              <button
+                type="button"
+                onClick={exportCurrentScriptPdf}
+                disabled={isEditorPreparing || isPdfExporting}
+                className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold shadow-[0_20px_44px_rgba(0,0,0,0.25)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isPdfExporting ? '내보내는 중...' : '완성 및 내보내기'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
