@@ -2690,7 +2690,8 @@ function ToolPage({ type }) {
   const { currentAccount, isCurrentAccountConfigured } = useAppState()
   const [captionA, setCaptionA] = useState('')
   const [captionB, setCaptionB] = useState('')
-  const [topic, setTopic] = useState('')
+  const [captionTopic, setCaptionTopic] = useState('')
+  const [thumbnailTopic, setThumbnailTopic] = useState('')
   const [accountProfile, setAccountProfile] = useState(null)
   const [monetizationModel, setMonetizationModel] = useState(CAPTION_MONETIZATION_MODELS[0].id)
   const [captionResult, setCaptionResult] = useState(null)
@@ -2774,7 +2775,8 @@ function ToolPage({ type }) {
     setIsGenerating(false)
     setCaptionResult(null)
     setEditableCaptionDraft('')
-    setTopic('')
+    setCaptionTopic('')
+    setThumbnailTopic('')
     setCaptionA('')
     setCaptionB('')
     setThumbnailFile(null)
@@ -2840,7 +2842,7 @@ function ToolPage({ type }) {
     setCaptionResult(null)
     setEditableCaptionDraft('')
 
-    if (!topic.trim()) {
+    if (!captionTopic.trim()) {
       setToolError('내 영상 주제를 입력해주세요.')
       return
     }
@@ -2853,7 +2855,7 @@ function ToolPage({ type }) {
     setIsGenerating(true)
     try {
       const result = await generateCaptionDraft({
-        topic,
+        topic: captionTopic,
         captionA,
         captionB,
         monetizationModel: selectedMonetization.label,
@@ -2890,7 +2892,7 @@ function ToolPage({ type }) {
     try {
       const payload = await analyzeThumbnailImage({
         image: file,
-        topic,
+        topic: thumbnailTopic,
       })
       setThumbnailAnalysis(payload?.analysis || null)
     } catch (error) {
@@ -2909,7 +2911,7 @@ function ToolPage({ type }) {
       return
     }
 
-    if (!topic.trim()) {
+    if (!thumbnailTopic.trim()) {
       setToolError('영상 주제를 입력해주세요.')
       return
     }
@@ -2922,7 +2924,7 @@ function ToolPage({ type }) {
     setIsGenerating(true)
     try {
       const result = await generateThumbnailTitles({
-        topic,
+        topic: thumbnailTopic,
         imageAnalysis: thumbnailAnalysis,
       })
       setThumbnailTitleResult(result)
@@ -2986,9 +2988,9 @@ function ToolPage({ type }) {
     setIsCaptionPdfExporting(true)
     try {
       await downloadScriptPdf({
-        title: `${topic.trim() || '캡션'} · 캡션 생성결과`,
+        title: `${captionTopic.trim() || '캡션'} · 캡션 생성결과`,
         sections: {
-          hook: topic.trim() || '캡션 생성결과',
+          hook: captionTopic.trim() || '캡션 생성결과',
           body: normalizedCaption,
           cta: displayedHashtags.length ? displayedHashtags.join(' ') : '해시태그 없음',
         },
@@ -3150,9 +3152,9 @@ function ToolPage({ type }) {
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[#E5E7EB]">내 영상 주제</span>
                   <input
-                    value={topic}
+                    value={captionTopic}
                     onChange={(event) => {
-                      setTopic(event.target.value)
+                      setCaptionTopic(event.target.value)
                       setToolError('')
                     }}
                     className="h-12 rounded-[16px] border border-[#2F3543] bg-[#0F131B] px-4 text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
@@ -3274,9 +3276,9 @@ function ToolPage({ type }) {
               <label className="grid gap-2">
                 <span className="text-sm font-semibold text-[#E5E7EB]">영상 주제</span>
                 <input
-                  value={topic}
+                  value={thumbnailTopic}
                   onChange={(event) => {
-                    setTopic(event.target.value)
+                    setThumbnailTopic(event.target.value)
                     setToolError('')
                     setThumbnailTitleResult(null)
                   }}
