@@ -101,11 +101,34 @@ export async function restoreScriptVersionRecord({ accountId, scriptId, versionI
   return payload
 }
 
+function createPdfExportError(message, cause) {
+  const error = new Error(message)
+  error.name = 'PdfExportError'
+  error.cause = cause
+  return error
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
 export async function downloadScriptPdf({ title, sections }) {
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-    import('html2canvas'),
-    import('jspdf'),
-  ])
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    throw createPdfExportError('현재 환경에서는 브라우저 PDF 내보내기를 사용할 수 없습니다.')
+  }
+
+  let html2canvas
+  let jsPDF
+  try {
+    const modules = await Promise.all([import('html2canvas'), import('jspdf')])
+    html2canvas = modules[0].default
+    jsPDF = modules[1].jsPDF
+  } catch (error) {
+    throw createPdfExportError('PDF 생성 모듈을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.', error)
+  }
+
   const container = document.createElement('div')
   container.style.position = 'fixed'
   container.style.left = '-99999px'
@@ -154,17 +177,41 @@ export async function downloadScriptPdf({ title, sections }) {
   document.body.appendChild(container)
 
   try {
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-    })
+    if (document.fonts?.ready) {
+      await Promise.race([document.fonts.ready, wait(1200)])
+    }
 
-    const imgData = canvas.toDataURL('image/png')
-    const pdf = new jsPDF({
-      unit: 'pt',
-      format: 'a4',
-    })
+    let canvas
+    try {
+      canvas = await html2canvas(container, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      })
+    } catch (error) {
+      throw createPdfExportError('브라우저가 PDF 캡처를 완료하지 못했습니다. Safari/iOS 또는 저사양 기기에서는 긴 내용 캡처가 실패할 수 있습니다.', error)
+    }
+
+    if (!canvas?.width || !canvas?.height) {
+      throw createPdfExportError('PDF로 변환할 화면을 캡처하지 못했습니다. 내용을 줄이거나 새로고침 후 다시 시도해주세요.')
+    }
+
+    let imgData
+    try {
+      imgData = canvas.toDataURL('image/png')
+    } catch (error) {
+      throw createPdfExportError('PDF 이미지 변환에 실패했습니다. 외부 이미지나 브라우저 보안 설정 때문에 막혔을 수 있습니다.', error)
+    }
+
+    let pdf
+    try {
+      pdf = new jsPDF({
+        unit: 'pt',
+        format: 'a4',
+      })
+    } catch (error) {
+      throw createPdfExportError('PDF 문서를 만드는 중 오류가 발생했습니다.', error)
+    }
     const pageWidth = pdf.internal.pageSize.getWidth()
     const pageHeight = pdf.internal.pageSize.getHeight()
     const imgWidth = pageWidth
@@ -173,18 +220,32 @@ export async function downloadScriptPdf({ title, sections }) {
     let heightLeft = imgHeight
     let position = 0
 
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-    heightLeft -= pageHeight
-
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
+    try {
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
       heightLeft -= pageHeight
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+      }
+    } catch (error) {
+      throw createPdfExportError('PDF 페이지 구성 중 오류가 발생했습니다. 내용이 너무 길면 나눠서 다시 시도해주세요.', error)
+    }
+
+    let blob
+    try {
+      blob = pdf.output('blob')
+    } catch (error) {
+      throw createPdfExportError('PDF 파일 생성에 실패했습니다. 브라우저 메모리가 부족할 수 있습니다.', error)
+    }
+
+    if (!blob?.size) {
+      throw createPdfExportError('빈 PDF가 생성되어 다운로드를 중단했습니다. 새로고침 후 다시 시도해주세요.')
     }
 
     const filename = `${(title || 'script').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'script'}.pdf`
-    const blob = pdf.output('blob')
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
 
@@ -195,6 +256,11 @@ export async function downloadScriptPdf({ title, sections }) {
     link.click()
     link.remove()
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    if (error?.name === 'PdfExportError') {
+      throw error
+    }
+    throw createPdfExportError('PDF 내보내기 중 알 수 없는 오류가 발생했습니다.', error)
   } finally {
     document.body.removeChild(container)
   }

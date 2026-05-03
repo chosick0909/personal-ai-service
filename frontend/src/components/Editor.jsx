@@ -56,6 +56,7 @@ export default function Editor({ embedded = false }) {
     selectedScript,
     editorSections,
     isEditorPreparing,
+    isPdfExporting,
     updateEditorSection,
     openVersionHistory,
     saveVersion,
@@ -193,10 +194,10 @@ export default function Editor({ embedded = false }) {
             <button
               type="button"
               onClick={exportCurrentScriptPdf}
-              disabled={isEditorPreparing}
+              disabled={isEditorPreparing || isPdfExporting}
               className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold shadow-[0_20px_44px_rgba(0,0,0,0.25)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              완성 및 내보내기
+              {isPdfExporting ? '내보내는 중...' : '완성 및 내보내기'}
             </button>
           </div>
         </div>

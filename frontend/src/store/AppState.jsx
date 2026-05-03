@@ -678,6 +678,7 @@ export function AppStateProvider({ children }) {
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
   const [isApplyingFeedback, setIsApplyingFeedback] = useState(false)
   const [isEditorPreparing, setIsEditorPreparing] = useState(false)
+  const [isPdfExporting, setIsPdfExporting] = useState(false)
   const [viewTransition, setViewTransition] = useState('idle')
   const [isEditorEntering, setIsEditorEntering] = useState(false)
   const [isResultEntering, setIsResultEntering] = useState(false)
@@ -2817,6 +2818,11 @@ export function AppStateProvider({ children }) {
   }
 
   const exportCurrentScriptPdf = async () => {
+    if (isPdfExporting) {
+      return
+    }
+
+    setIsPdfExporting(true)
     try {
       await downloadScriptPdf({
         title: `${referenceData?.title || '스크립트'} · ${selectedScript?.label || 'Export'}`,
@@ -2825,14 +2831,19 @@ export function AppStateProvider({ children }) {
       showToast('PDF 다운로드를 시작했습니다')
       window.alert('PDF 다운로드를 시작했습니다.')
     } catch (error) {
+      const message = error.message || 'PDF 다운로드에 실패했습니다.'
+      const fallbackMessage = `${message}\n\nPDF가 계속 실패하면 에디터의 Hook, Body, CTA 텍스트를 먼저 복사해서 보관해주세요.`
+      showToast('PDF 내보내기에 실패했습니다. 텍스트 복사를 이용해주세요.', 'error')
       setChatMessages((current) => [
         ...current,
         {
           id: `pdf-export-error-${Date.now()}`,
           role: 'assistant',
-          content: error.message || 'PDF 다운로드에 실패했습니다.',
+          content: fallbackMessage,
         },
       ])
+    } finally {
+      setIsPdfExporting(false)
     }
   }
 
@@ -2904,6 +2915,7 @@ export function AppStateProvider({ children }) {
       isFeedbackLoading,
       isApplyingFeedback,
       isEditorPreparing,
+      isPdfExporting,
       viewTransition,
       isEditorEntering,
       isResultEntering,
@@ -2978,6 +2990,7 @@ export function AppStateProvider({ children }) {
       isFeedbackLoading,
       isApplyingFeedback,
       isEditorPreparing,
+      isPdfExporting,
       isEditorEntering,
       isLoggedIn,
       isResultEntering,

@@ -2979,6 +2979,10 @@ function ToolPage({ type }) {
   }
 
   const exportCaptionPdf = async () => {
+    if (isCaptionPdfExporting) {
+      return
+    }
+
     const normalizedCaption = editableCaptionDraft.trim()
     if (!normalizedCaption) {
       return
@@ -2995,8 +2999,9 @@ function ToolPage({ type }) {
           cta: displayedHashtags.length ? displayedHashtags.join(' ') : '해시태그 없음',
         },
       })
-    } catch {
-      setToolError('PDF 내보내기에 실패했습니다.')
+    } catch (error) {
+      const reason = error?.message || 'PDF 내보내기에 실패했습니다.'
+      setToolError(`${reason} PDF가 계속 실패하면 결과 상단의 복사 버튼으로 텍스트를 먼저 보관해주세요.`)
     } finally {
       setIsCaptionPdfExporting(false)
     }
