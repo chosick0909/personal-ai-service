@@ -133,6 +133,7 @@ function normalizeSearchText(value = '') {
 const PROJECT_PREVIEW_LIMIT = 5
 const ADMIN_UNLIMITED_EMAILS = new Set([
   'hsbhyj0127@gmail.com',
+  'leeham0109@naver.com',
   'lab.dotory@gmail.com',
   'seojy1932@naver.com',
   'lgye322@gmail.com',
