@@ -835,12 +835,16 @@ export function AppStateProvider({ children }) {
 
   const getEffectiveCopilotLimit = (kind) => {
     const limits = entitlementStatus?.usage?.limits || entitlementStatus?.entitlement?.limits || {}
+    const planType = entitlementStatus?.entitlement?.planType
     const planLimit =
       kind === 'feedback'
         ? limits.perReferenceFeedbackLimit
         : limits.perReferenceCopilotLimit
 
-    if (entitlementStatus?.hasAccess && planLimit === null) {
+    if (
+      entitlementStatus?.hasAccess &&
+      (planType === 'open_beta' || planType === 'paid' || planLimit === null)
+    ) {
       return Infinity
     }
 
@@ -2462,10 +2466,6 @@ export function AppStateProvider({ children }) {
     }
 
     setIsFeedbackLoading(true)
-    setCopilotUsage((current) => ({
-      ...current,
-      feedbackUsed: current.feedbackUsed + 1,
-    }))
     setChatMessages((current) => {
       const next = [...current, userFeedbackRequestMessage]
       syncHistory(activeReferenceIdRef.current, {
@@ -2488,6 +2488,10 @@ export function AppStateProvider({ children }) {
       }
       const normalizedFeedback = { ...result, applied: false }
       setFeedback(normalizedFeedback)
+      setCopilotUsage((current) => ({
+        ...current,
+        feedbackUsed: current.feedbackUsed + 1,
+      }))
       void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
       setChatMessages((current) => {
         const next = [
@@ -2509,6 +2513,7 @@ export function AppStateProvider({ children }) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
       }
+      void refreshEntitlement({ referenceId: referenceData?.id, silent: true, forceRefresh: true })
       setChatMessages((current) => {
         const next = [
           ...current,

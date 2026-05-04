@@ -2,6 +2,7 @@ import { apiFetch, createApiError, parseApiResponse } from './api'
 import { supabase } from './supabase'
 
 const ENTITLEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const ENTITLEMENT_CACHE_VERSION = 2
 
 async function getEntitlementCacheKey() {
   const {
@@ -18,7 +19,8 @@ function readCachedEntitlement(cacheKey) {
 
   try {
     const cached = JSON.parse(window.localStorage.getItem(cacheKey) || 'null')
-    if (!cached?.status || !cached?.cachedAt) {
+    if (!cached?.status || !cached?.cachedAt || cached.version !== ENTITLEMENT_CACHE_VERSION) {
+      window.localStorage.removeItem(cacheKey)
       return null
     }
 
@@ -50,6 +52,7 @@ function writeCachedEntitlement(cacheKey, status) {
   window.localStorage.setItem(
     cacheKey,
     JSON.stringify({
+      version: ENTITLEMENT_CACHE_VERSION,
       cachedAt: Date.now(),
       status,
     }),
