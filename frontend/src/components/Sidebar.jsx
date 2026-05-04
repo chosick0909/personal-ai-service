@@ -131,6 +131,24 @@ function normalizeSearchText(value = '') {
 }
 
 const PROJECT_PREVIEW_LIMIT = 5
+const ADMIN_UNLIMITED_EMAILS = new Set([
+  'lab.dotory@gmail.com',
+  'seojy1932@naver.com',
+  'lgye322@gmail.com',
+  'jangjaeung5@gmail.com',
+])
+
+function isAdminUnlimitedEmail(email) {
+  return ADMIN_UNLIMITED_EMAILS.has(String(email || '').trim().toLowerCase())
+}
+
+function getEntitlementPlanLabel(planType, isAdminUnlimited) {
+  if (isAdminUnlimited) return '관리자 무제한'
+  if (planType === 'student') return '수강생 이용권'
+  if (planType === 'open_beta') return '오픈베타 이용권'
+  if (planType === 'paid') return '유료 이용권'
+  return '이용권 없음'
+}
 
 export default function Sidebar({ onRequestClose = () => {} }) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -179,6 +197,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   } = useAppState()
 
   const normalizedQuery = String(searchQuery || '').normalize('NFC').trim().toLowerCase()
+  const isAdminUnlimited = isAdminUnlimitedEmail(currentUser?.email)
   const hasMoreProjects = projects.length > PROJECT_PREVIEW_LIMIT
   const shouldShowExpandedProjects = isProjectListExpanded && hasMoreProjects
 
@@ -341,14 +360,10 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       : Infinity
 
     return {
-      planLabel:
-        entitlementStatus?.entitlement?.planType === 'student'
-          ? '수강생 이용권'
-          : entitlementStatus?.entitlement?.planType === 'open_beta'
-            ? '오픈베타 이용권'
-            : entitlementStatus?.entitlement?.planType === 'paid'
-              ? '유료 이용권'
-              : '이용권 없음',
+      planLabel: getEntitlementPlanLabel(
+        entitlementStatus?.entitlement?.planType,
+        isAdminUnlimited,
+      ),
       reference: {
         used: monthlyReferenceUsed,
         limit: monthlyReferenceLimit,
@@ -379,7 +394,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
           : '현재 레퍼런스 피드백 제한 없음',
       },
     }
-  }, [copilotLimits, copilotRemaining, copilotUsage, entitlementStatus])
+  }, [copilotLimits, copilotRemaining, copilotUsage, entitlementStatus, isAdminUnlimited])
 
   useEffect(() => {
     if (!isAccountSwitchOpen && !isAccountActionsOpen) {
@@ -971,9 +986,13 @@ export default function Sidebar({ onRequestClose = () => {} }) {
               </div>
               {entitlementStatus?.hasAccess ? (
                 <div className="mt-1 truncate text-[10px] font-medium text-[#8E97A6]">
-                  {entitlementStatus.entitlement?.planType === 'student'
-                    ? `분석 ${entitlementStatus.usage?.monthlyReferenceUsed ?? 0}/${entitlementStatus.usage?.limits?.monthlyReferenceLimit ?? 30}`
-                    : '오픈베타 무제한'}
+                  {isAdminUnlimited
+                    ? '관리자 무제한'
+                    : entitlementStatus.entitlement?.planType === 'student'
+                      ? `분석 ${entitlementStatus.usage?.monthlyReferenceUsed ?? 0}/${entitlementStatus.usage?.limits?.monthlyReferenceLimit ?? 30}`
+                      : entitlementStatus.entitlement?.planType === 'paid'
+                        ? '유료 무제한'
+                        : '오픈베타 무제한'}
                 </div>
               ) : null}
               {currentAccountNeedsSetup ? (
