@@ -59,6 +59,7 @@ import { logAIError } from './lib/ai-error-logger.js'
 import { assertBackendEnv } from './lib/env-validation.js'
 import {
   applyCouponToUser,
+  assertEntitlementAccess,
   assertUsageAllowed,
   getUserEntitlementStatus,
   recordUsageEvent,
@@ -528,6 +529,7 @@ app.post(
 app.post(
   '/api/tools/caption',
   asyncHandler(async (req, res) => {
+    await assertEntitlementAccess({ userId: req.auth?.userId })
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id)
     const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
@@ -612,6 +614,7 @@ app.post(
   '/api/tools/thumbnail/analyze',
   uploadImage.single('image'),
   asyncHandler(async (req, res) => {
+    await assertEntitlementAccess({ userId: req.auth?.userId })
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id)
     const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
@@ -650,6 +653,7 @@ app.post(
 app.post(
   '/api/tools/thumbnail/titles',
   asyncHandler(async (req, res) => {
+    await assertEntitlementAccess({ userId: req.auth?.userId })
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id)
     const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'

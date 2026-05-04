@@ -57,6 +57,7 @@ export default function Editor({ embedded = false }) {
     selectedScript,
     editorSections,
     isEditorPreparing,
+    isSavingVersion,
     isPdfExporting,
     updateEditorSection,
     openVersionHistory,
@@ -155,10 +156,10 @@ export default function Editor({ embedded = false }) {
               <button
                 type="button"
                 onClick={() => saveVersion('USER')}
-                disabled={isEditorPreparing}
+                disabled={isEditorPreparing || isSavingVersion}
                 className="btn-solid-contrast rounded-full px-5 py-2.5 text-sm font-semibold transition hover:bg-[#D1D5DB] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                버전 저장
+                {isSavingVersion ? '저장 중...' : '버전 저장'}
               </button>
             </div>
           </div>

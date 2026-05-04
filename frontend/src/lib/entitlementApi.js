@@ -65,10 +65,10 @@ export function readCachedEntitlementForUser(userId) {
   return readCachedEntitlement(`hookai:entitlement:${normalizedUserId}`)
 }
 
-export async function loadMyEntitlement({ referenceId } = {}) {
+export async function loadMyEntitlement({ referenceId, forceRefresh = false } = {}) {
   const query = referenceId ? `?referenceId=${encodeURIComponent(referenceId)}` : ''
   const cacheKey = referenceId ? '' : await getEntitlementCacheKey()
-  const cached = cacheKey ? readCachedEntitlement(cacheKey) : null
+  const cached = !forceRefresh && cacheKey ? readCachedEntitlement(cacheKey) : null
   if (cached) {
     return cached
   }

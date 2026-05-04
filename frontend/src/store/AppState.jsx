@@ -678,6 +678,7 @@ export function AppStateProvider({ children }) {
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
   const [isApplyingFeedback, setIsApplyingFeedback] = useState(false)
   const [isEditorPreparing, setIsEditorPreparing] = useState(false)
+  const [isSavingVersion, setIsSavingVersion] = useState(false)
   const [isPdfExporting, setIsPdfExporting] = useState(false)
   const [viewTransition, setViewTransition] = useState('idle')
   const [isEditorEntering, setIsEditorEntering] = useState(false)
@@ -699,6 +700,7 @@ export function AppStateProvider({ children }) {
   const analysisAbortControllerRef = useRef(null)
   const canceledAnalysisTokensRef = useRef(new Set())
   const currentUserIdRef = useRef(null)
+  const isSavingVersionRef = useRef(false)
   const isCurrentAccountRequest = (accountId) =>
     Boolean(accountId) && activeAccountIdRef.current === accountId
 
@@ -795,7 +797,7 @@ export function AppStateProvider({ children }) {
     }, 2200)
   }
 
-  const refreshEntitlement = async ({ referenceId, silent = false } = {}) => {
+  const refreshEntitlement = async ({ referenceId, silent = false, forceRefresh = false } = {}) => {
     if (!isLoggedIn) {
       setEntitlementStatus(null)
       setIsEntitlementReady(true)
@@ -806,7 +808,7 @@ export function AppStateProvider({ children }) {
       setIsEntitlementReady(false)
     }
     try {
-      const status = await loadMyEntitlement({ referenceId })
+      const status = await loadMyEntitlement({ referenceId, forceRefresh })
       setEntitlementStatus(status)
       return status
     } catch (error) {
@@ -2360,13 +2362,19 @@ export function AppStateProvider({ children }) {
   }
 
   const saveVersion = async (source = 'USER') => {
+    if (isSavingVersionRef.current) {
+      return
+    }
+
     const requestAccountId = currentAccount?.id
     if (!requestAccountId || !activeScriptId) {
       showToast('저장할 스크립트가 없습니다.', 'error')
       return
     }
 
-    showToast('버전을 저장하고 있습니다...')
+    isSavingVersionRef.current = true
+    setIsSavingVersion(true)
+    showToast('버전을 저장하고 있습니다...', 'loading')
 
     try {
       const serializedContent = serializeEditorSections(editorSections)
@@ -2397,7 +2405,7 @@ export function AppStateProvider({ children }) {
         })
         return next
       })
-      showToast('버전 저장 완료')
+      showToast('버전 저장이 완료됐습니다.', 'success')
     } catch (error) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -2411,6 +2419,9 @@ export function AppStateProvider({ children }) {
           content: error.message || '버전 저장에 실패했습니다.',
         },
       ])
+    } finally {
+      isSavingVersionRef.current = false
+      setIsSavingVersion(false)
     }
   }
 
@@ -2929,6 +2940,7 @@ export function AppStateProvider({ children }) {
       isFeedbackLoading,
       isApplyingFeedback,
       isEditorPreparing,
+      isSavingVersion,
       isPdfExporting,
       viewTransition,
       isEditorEntering,
@@ -3004,6 +3016,7 @@ export function AppStateProvider({ children }) {
       isFeedbackLoading,
       isApplyingFeedback,
       isEditorPreparing,
+      isSavingVersion,
       isPdfExporting,
       isEditorEntering,
       isLoggedIn,

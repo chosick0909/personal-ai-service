@@ -89,6 +89,7 @@ export default function ResultCards() {
     openVersionHistory,
     saveVersion,
     isEditorPreparing,
+    isSavingVersion,
   } = useAppState()
   const editorSectionRef = useRef(null)
   const draftSectionRef = useRef(null)
@@ -382,10 +383,10 @@ export default function ResultCards() {
                 <button
                   type="button"
                   onClick={() => saveVersion('USER')}
-                  disabled={isEditorPreparing}
+                  disabled={isEditorPreparing || isSavingVersion}
                   className="btn-solid-contrast rounded-full px-5 py-2.5 text-sm font-semibold transition hover:bg-[#D1D5DB] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  버전 저장
+                  {isSavingVersion ? '저장 중...' : '버전 저장'}
                 </button>
               </div>
             </div>

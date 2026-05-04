@@ -52,6 +52,10 @@ function normalizeVersionType(versionType) {
   return 'manual_save'
 }
 
+function isUniqueViolation(error) {
+  return String(error?.code || '').trim() === '23505'
+}
+
 function mapVersion(version) {
   return {
     id: version.id,
@@ -317,69 +321,86 @@ export async function saveScriptVersion({
 
   const script = await getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId)
 
-  const { count, error: countError } = await supabaseAdmin
-    .from('script_versions')
-    .select('*', { count: 'exact', head: true })
-    .eq('account_id', accountId)
-    .eq('script_id', scriptId)
-
-  if (countError) {
-    throw new AppError('Failed to count script versions', {
-      code: 'SCRIPT_VERSION_COUNT_FAILED',
-      statusCode: 500,
-      cause: countError,
-    })
-  }
-
-  const versionNumber = (count || 0) + 1
   const nextTitle = title?.trim() || script.title
+  let version = null
+  let versionError = null
 
-  const { data: latestVersionRows } = await supabaseAdmin
-    .from('script_versions')
-    .select('id, version_number, version_type, title, content, score, created_at')
-    .eq('account_id', accountId)
-    .eq('script_id', scriptId)
-    .order('version_number', { ascending: false })
-    .limit(1)
-  const latestVersion = Array.isArray(latestVersionRows) ? latestVersionRows[0] : null
-  if (
-    latestVersion &&
-    String(latestVersion.content || '').trim() === String(content || '').trim() &&
-    String(latestVersion.version_type || '').trim() === normalizedVersionType
-  ) {
-    return {
-      version: mapVersion(latestVersion),
-      deduplicated: true,
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const { data: latestVersionRows, error: latestVersionError } = await supabaseAdmin
+      .from('script_versions')
+      .select('id, version_number, version_type, title, content, score, created_at')
+      .eq('account_id', accountId)
+      .eq('script_id', scriptId)
+      .order('version_number', { ascending: false })
+      .limit(1)
+
+    if (latestVersionError) {
+      throw new AppError('Failed to load latest script version', {
+        code: 'SCRIPT_VERSION_LATEST_FETCH_FAILED',
+        statusCode: 500,
+        cause: latestVersionError,
+      })
+    }
+
+    const latestVersion = Array.isArray(latestVersionRows) ? latestVersionRows[0] : null
+    if (
+      latestVersion &&
+      String(latestVersion.content || '').trim() === String(content || '').trim() &&
+      String(latestVersion.version_type || '').trim() === normalizedVersionType
+    ) {
+      return {
+        version: mapVersion(latestVersion),
+        deduplicated: true,
+      }
+    }
+
+    const versionNumber = Number(latestVersion?.version_number || 0) + 1
+    const insertResult = await supabaseAdmin
+      .from('script_versions')
+      .insert({
+        account_id: accountId,
+        script_id: scriptId,
+        version_number: versionNumber,
+        version_type: normalizedVersionType,
+        title: nextTitle,
+        content,
+        category: script.category,
+        tone: script.tone,
+        score,
+        status: 'active',
+        metadata: {
+          ...metadata,
+          sections: normalizedSections,
+        },
+      })
+      .select('id, version_number, version_type, title, content, score, created_at')
+      .single()
+
+    version = insertResult.data
+    versionError = insertResult.error
+
+    if (!versionError) {
+      break
+    }
+
+    if (!isUniqueViolation(versionError)) {
+      break
     }
   }
 
-  const { data: version, error: versionError } = await supabaseAdmin
-    .from('script_versions')
-    .insert({
-      account_id: accountId,
-      script_id: scriptId,
-      version_number: versionNumber,
-      version_type: normalizedVersionType,
-      title: nextTitle,
-      content,
-      category: script.category,
-      tone: script.tone,
-      score,
-      status: 'active',
-      metadata: {
-        ...metadata,
-        sections: normalizedSections,
+  if (versionError || !version) {
+    const isVersionCollision = isUniqueViolation(versionError)
+    throw new AppError(
+      isVersionCollision
+        ? '저장 요청이 겹쳤습니다. 잠시 후 다시 시도해주세요.'
+        : 'Failed to save script version',
+      {
+        code: 'SCRIPT_VERSION_SAVE_FAILED',
+        statusCode: isVersionCollision ? 409 : 500,
+        exposeMessage: isVersionCollision,
+        cause: versionError,
       },
-    })
-    .select('id, version_number, version_type, title, content, score, created_at')
-    .single()
-
-  if (versionError) {
-    throw new AppError('Failed to save script version', {
-      code: 'SCRIPT_VERSION_SAVE_FAILED',
-      statusCode: 500,
-      cause: versionError,
-    })
+    )
   }
 
   const { error: updateError } = await supabaseAdmin

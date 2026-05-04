@@ -92,6 +92,21 @@ function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }
   )
 }
 
+function LoadingBubble({ label }) {
+  return (
+    <div className="flex min-w-0 justify-start">
+      <div className="inline-flex max-w-[88%] items-center gap-2 rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm font-medium text-[#D1D5DB]">
+        <span>{label}</span>
+        <span className="inline-flex gap-1" aria-hidden="true">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8E97A6]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8E97A6] [animation-delay:120ms]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8E97A6] [animation-delay:240ms]" />
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function ChatPanel({ embedded = false, fixedHeight = null }) {
   const {
     chatMessages,
@@ -101,6 +116,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     setEditTarget,
     sendChatMessage,
     isChatLoading,
+    isFeedbackLoading,
     applyFeedback,
     isApplyingFeedback,
     pendingSuggestion,
@@ -111,7 +127,19 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
   const feedbackRemainingLabel = Number.isFinite(copilotRemaining.feedback) ? `${copilotRemaining.feedback}회` : '무제한'
   const isChatLimitReached = Number.isFinite(copilotRemaining.chat) && copilotRemaining.chat <= 0
   const isSendDisabled = isChatLoading || isChatLimitReached
-  const shouldShowWelcomePrompt = !pendingSuggestion && !isChatLoading && chatMessages.length === 0
+  const loadingLabel = isFeedbackLoading
+    ? '피드백 생성 중'
+    : isApplyingFeedback
+      ? '피드백 반영 중'
+      : isChatLoading
+        ? '답변 생성 중'
+        : ''
+  const shouldShowWelcomePrompt =
+    !pendingSuggestion &&
+    !isChatLoading &&
+    !isFeedbackLoading &&
+    !isApplyingFeedback &&
+    chatMessages.length === 0
   const editTargetOptions = [
     ['all', '전체'],
     ['hook', 'HOOK'],
@@ -181,11 +209,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
                   isApplyingFeedback={isApplyingFeedback}
                 />
               ))}
-              {isChatLoading ? (
-                <div className="rounded-[22px] border border-[#2F3543] bg-[#161B24] px-4 py-3 text-sm text-[#D1D5DB]">
-                  AI가 수정안을 정리하고 있습니다...
-                </div>
-              ) : null}
+              {loadingLabel ? <LoadingBubble label={loadingLabel} /> : null}
             </div>
           </div>
         </div>

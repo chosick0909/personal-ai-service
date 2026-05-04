@@ -2243,6 +2243,7 @@ function PurchaseScreen() {
   const [isCheckoutSubmitting, setIsCheckoutSubmitting] = useState(false)
   const [selectedPlanId, setSelectedPlanId] = useState('student')
   const couponInputRef = useRef(null)
+  const forcedEntitlementRefreshKeyRef = useRef('')
 
   useEffect(() => {
     if (isAuthReady && !isLoggedIn) {
@@ -2255,6 +2256,20 @@ function PurchaseScreen() {
       void refreshEntitlement()
     }
   }, [entitlementStatus, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
+
+  useEffect(() => {
+    if (!isAuthReady || !isLoggedIn || !isEntitlementReady || !entitlementStatus) {
+      return
+    }
+
+    const refreshKey = entitlementStatus?.entitlement?.id || 'no-entitlement'
+    if (forcedEntitlementRefreshKeyRef.current === refreshKey) {
+      return
+    }
+    forcedEntitlementRefreshKeyRef.current = refreshKey
+
+    void refreshEntitlement({ silent: true, forceRefresh: true })
+  }, [entitlementStatus, entitlementStatus?.entitlement?.id, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
 
   useEffect(() => {
     if (isAuthReady && isEntitlementReady && entitlementStatus?.hasAccess && !success) {
@@ -2300,25 +2315,24 @@ function PurchaseScreen() {
         throw new Error('쿠폰 코드를 입력해주세요.')
       }
 
-      const couponBenefits = {
-        WELCOME2OPENBETA_0425: {
-          label: '체험단 할인',
-          description: '7일 무제한 이용권',
-        },
-        WELCOME2INSTACAMPUS_0425: {
-          label: '수강생 할인',
-          description: '3개월 무료 · 월 분석 30회 · 분석당 코파일럿 5회/피드백 2회',
-        },
-      }
-
-      const appliedBenefit = couponBenefits[normalizedCouponCode]
-      if (!appliedBenefit) {
-        throw new Error('유효하지 않은 쿠폰 코드입니다.')
-      }
+      const appliedBenefit = normalizedCouponCode.includes('INSTACAMPUS')
+        ? {
+            label: '수강생 쿠폰',
+            description: '서버에서 쿠폰을 확인한 뒤 수강생 이용권을 활성화합니다.',
+          }
+        : normalizedCouponCode.includes('OPENBETA')
+          ? {
+              label: '오픈베타 쿠폰',
+              description: '서버에서 쿠폰을 확인한 뒤 오픈베타 이용권을 활성화합니다.',
+            }
+          : {
+              label: '쿠폰',
+              description: '서버에서 쿠폰을 확인한 뒤 이용권을 활성화합니다.',
+            }
 
       setAppliedCouponBenefit(appliedBenefit)
       setAppliedCouponCode(normalizedCouponCode)
-      setSuccess(`${appliedBenefit.label}이 적용되었습니다. 결제하기를 누르면 이용권이 활성화됩니다.`)
+      setSuccess(`${appliedBenefit.label} 번호를 확인했습니다. 결제하기를 누르면 서버에서 유효성을 확인하고 이용권을 활성화합니다.`)
     } catch (nextError) {
       setError(nextError.message || '쿠폰 적용에 실패했습니다.')
     } finally {
@@ -3482,12 +3496,32 @@ function StudioShell() {
     isEntitlementReady,
     refreshEntitlement,
   } = useAppState()
+  const forcedEntitlementRefreshKeyRef = useRef('')
+  const toastToneClass = {
+    loading: 'border-[#2F5F8F] bg-[#102033]/95 text-[#D8E9FF]',
+    success: 'border-[#2F6B55] bg-[#10281F]/95 text-[#DCFCE7]',
+    error: 'border-[#7F1D1D] bg-[#2A1515]/95 text-[#FECACA]',
+  }[toast?.tone || 'success'] || 'border-[#374151] bg-[#12151D]/95 text-[#E5E7EB]'
 
   useEffect(() => {
     if (isAuthReady && isLoggedIn && isEntitlementReady && !entitlementStatus) {
       void refreshEntitlement()
     }
   }, [entitlementStatus, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
+
+  useEffect(() => {
+    if (!isAuthReady || !isLoggedIn || !isEntitlementReady || !entitlementStatus) {
+      return
+    }
+
+    const refreshKey = entitlementStatus?.entitlement?.id || 'no-entitlement'
+    if (forcedEntitlementRefreshKeyRef.current === refreshKey) {
+      return
+    }
+    forcedEntitlementRefreshKeyRef.current = refreshKey
+
+    void refreshEntitlement({ silent: true, forceRefresh: true })
+  }, [entitlementStatus, entitlementStatus?.entitlement?.id, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
 
   if (!isAuthReady || !isEntitlementReady || (isLoggedIn && !entitlementStatus)) {
     return (
@@ -3516,8 +3550,8 @@ function StudioShell() {
       mobileVariant={!activeToolPage && (currentStep === 'upload' || currentStep === 'analyzing') ? 'upload' : 'default'}
     >
       {toast ? (
-        <div className="pointer-events-none fixed left-1/2 top-6 z-[60] -translate-x-1/2">
-          <div className="min-w-[280px] rounded-[22px] border border-[#374151] bg-[#12151D]/95 px-5 py-4 text-center text-sm font-medium text-[#E5E7EB] shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+        <div className="pointer-events-none fixed left-1/2 top-1/2 z-[60] -translate-x-1/2 -translate-y-1/2 px-4">
+          <div className={`min-w-[280px] rounded-[22px] border px-5 py-4 text-center text-sm font-semibold shadow-[0_24px_70px_rgba(0,0,0,0.46)] backdrop-blur-xl ${toastToneClass}`}>
             {toast.message}
           </div>
         </div>

@@ -24,6 +24,12 @@ const PLAN_LIMITS = {
   },
 }
 
+const PLAN_PRIORITY = {
+  paid: 3,
+  student: 2,
+  open_beta: 1,
+}
+
 const EVENT_TYPES = new Set(['reference_analysis', 'copilot_message', 'feedback_request'])
 
 function requireSupabaseAdmin() {
@@ -59,6 +65,33 @@ function getMonthStartIso(now = new Date()) {
 
 function getPlanLimits(planType) {
   return PLAN_LIMITS[planType] || PLAN_LIMITS.paid
+}
+
+function getPlanPriority(planType) {
+  return PLAN_PRIORITY[planType] || 0
+}
+
+function compareActiveEntitlements(left, right) {
+  const planPriorityDelta = getPlanPriority(right?.plan_type) - getPlanPriority(left?.plan_type)
+  if (planPriorityDelta !== 0) {
+    return planPriorityDelta
+  }
+
+  const leftUnlimited = !left?.ends_at
+  const rightUnlimited = !right?.ends_at
+  if (leftUnlimited !== rightUnlimited) {
+    return leftUnlimited ? -1 : 1
+  }
+
+  const leftEndsAt = left?.ends_at ? new Date(left.ends_at).getTime() : Number.POSITIVE_INFINITY
+  const rightEndsAt = right?.ends_at ? new Date(right.ends_at).getTime() : Number.POSITIVE_INFINITY
+  if (leftEndsAt !== rightEndsAt) {
+    return rightEndsAt - leftEndsAt
+  }
+
+  const leftCreatedAt = left?.created_at ? new Date(left.created_at).getTime() : 0
+  const rightCreatedAt = right?.created_at ? new Date(right.created_at).getTime() : 0
+  return rightCreatedAt - leftCreatedAt
 }
 
 async function runEntitlementQuery(action, operation) {
@@ -123,9 +156,7 @@ async function loadActiveEntitlementRows(supabaseAdmin, userId) {
       .eq('status', 'active')
       .lte('starts_at', nowIso)
       .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
-      .order('ends_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(1),
+      .order('created_at', { ascending: false }),
   )
 
   if (error) {
@@ -137,7 +168,9 @@ async function loadActiveEntitlementRows(supabaseAdmin, userId) {
     })
   }
 
-  return data?.[0] || null
+  return Array.isArray(data) && data.length
+    ? [...data].sort(compareActiveEntitlements)[0]
+    : null
 }
 
 async function loadEntitlementLimits(supabaseAdmin, entitlementId) {
@@ -481,6 +514,20 @@ export async function assertUsageAllowed({ userId, eventType, referenceId = null
         used: status.usage.currentReferenceFeedbackUsed,
         limit: limits.perReferenceFeedbackLimit,
       },
+    })
+  }
+
+  return status
+}
+
+export async function assertEntitlementAccess({ userId }) {
+  const status = await getUserEntitlementStatus({ userId })
+
+  if (!status.hasAccess || !status.entitlement) {
+    throw new AppError('이용권이 필요합니다. 쿠폰을 적용하거나 이용권을 활성화해주세요.', {
+      code: 'ENTITLEMENT_REQUIRED',
+      statusCode: 402,
+      exposeMessage: true,
     })
   }
 
