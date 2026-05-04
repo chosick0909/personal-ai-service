@@ -5,6 +5,12 @@ const SCRIPT_CREATE_DEDUPE_WINDOW_SECONDS = Number.parseInt(
   String(process.env.SCRIPT_CREATE_DEDUPE_WINDOW_SECONDS || '120'),
   10,
 )
+const SCRIPT_VERSION_TYPES = new Set([
+  'ai_generation',
+  'feedback_before',
+  'feedback_apply',
+  'manual_save',
+])
 
 function requireSupabaseAdmin() {
   if (!hasSupabaseAdminConfig()) {
@@ -36,6 +42,14 @@ function normalizeSections(sections = {}) {
 
 function serializeSections(sections = {}) {
   return [sections.hook || '', '', sections.body || '', '', sections.cta || ''].join('\n')
+}
+
+function normalizeVersionType(versionType) {
+  const normalized = String(versionType || '').trim()
+  if (SCRIPT_VERSION_TYPES.has(normalized)) {
+    return normalized
+  }
+  return 'manual_save'
 }
 
 function mapVersion(version) {
@@ -299,6 +313,7 @@ export async function saveScriptVersion({
   const supabaseAdmin = requireSupabaseAdmin()
   const normalizedSections = normalizeSections(sections)
   const content = serializeSections(normalizedSections)
+  const normalizedVersionType = normalizeVersionType(versionType)
 
   const script = await getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId)
 
@@ -330,7 +345,7 @@ export async function saveScriptVersion({
   if (
     latestVersion &&
     String(latestVersion.content || '').trim() === String(content || '').trim() &&
-    String(latestVersion.version_type || '').trim() === String(versionType || '').trim()
+    String(latestVersion.version_type || '').trim() === normalizedVersionType
   ) {
     return {
       version: mapVersion(latestVersion),
@@ -344,7 +359,7 @@ export async function saveScriptVersion({
       account_id: accountId,
       script_id: scriptId,
       version_number: versionNumber,
-      version_type: versionType,
+      version_type: normalizedVersionType,
       title: nextTitle,
       content,
       category: script.category,
