@@ -40,13 +40,17 @@ function setPostAuthRedirectPath(path) {
   }
 }
 
-function getAuthRedirectUrl() {
+function getAuthRedirectUrl(redirectPath = getPostAuthRedirectPath('/analyze')) {
+  if (redirectPath !== '/analyze') {
+    return `${window.location.origin}${redirectPath}`
+  }
+
   const configuredRedirectUrl = import.meta.env.VITE_AUTH_REDIRECT_URL?.trim()
   if (configuredRedirectUrl) {
     return configuredRedirectUrl
   }
 
-  return `${window.location.origin}${getPostAuthRedirectPath('/analyze')}`
+  return `${window.location.origin}${redirectPath}`
 }
 
 function getPostAuthRedirectPath(defaultPath = '/purchase') {
@@ -1028,6 +1032,8 @@ function AuthScreen({
   secondaryHref,
   secondaryLabel,
   onSubmit,
+  redirectAfterSubmit = true,
+  authRedirectPath,
 }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -1183,7 +1189,9 @@ function AuthScreen({
                 setError('이미 가입된 계정입니다. 회원가입이 아니라 로그인으로 이동해서 진행해주세요.')
                 return
               }
-              window.location.assign(consumePostAuthRedirectPath(result?.nextPath || '/purchase'))
+              if (redirectAfterSubmit) {
+                window.location.assign(consumePostAuthRedirectPath(result?.nextPath || '/purchase'))
+              }
             } catch (nextError) {
               setError(nextError.message || `${primaryLabel}에 실패했습니다.`)
             } finally {
@@ -1209,7 +1217,7 @@ function AuthScreen({
               setIsOAuthSubmitting(true)
               setError('')
               setAuthPersistMode(mode === 'login' ? rememberMe : true)
-              const redirectTo = getAuthRedirectUrl()
+              const redirectTo = getAuthRedirectUrl(authRedirectPath)
               const { error: oauthError } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
@@ -2346,6 +2354,8 @@ function PurchaseScreen() {
         primaryLabel="로그인"
         secondaryHref="/signup"
         secondaryLabel="회원가입"
+        redirectAfterSubmit={false}
+        authRedirectPath="/purchase"
         onSubmit={async (credentials) => {
           setPostAuthRedirectPath('/purchase')
           const result = await login(credentials)
