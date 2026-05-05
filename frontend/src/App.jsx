@@ -2754,6 +2754,21 @@ function PurchaseScreen() {
             </p>
           ) : null}
         </section>
+
+        <div className="mx-auto mt-6 flex max-w-[760px] flex-col gap-3 sm:flex-row">
+          <a
+            href="/"
+            className="inline-flex h-12 flex-1 items-center justify-center rounded-[16px] border border-[#3A3D43] bg-transparent text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#1B1E24] hover:text-[#FAF9F6]"
+          >
+            홈으로 가기
+          </a>
+          <a
+            href="/analyze"
+            className="btn-solid-contrast inline-flex h-12 flex-1 items-center justify-center rounded-[16px] text-sm font-bold transition hover:bg-white"
+          >
+            레퍼런스 분석 시작하기
+          </a>
+        </div>
       </div>
     </main>
   )
