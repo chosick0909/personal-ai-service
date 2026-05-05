@@ -14,6 +14,7 @@ import { getCaptionStrategyRule } from './lib/captionStrategyRules'
 import { downloadScriptPdf } from './lib/scriptApi'
 import logoWebp from './Logo.webp'
 // Deploy trigger: frontend touchpoint.
+// Comment-only test change for branch commit.
 import { AppStateProvider, useAppState } from './store/AppState'
 
 const FABRIC_DARK_BACKGROUND = {
