@@ -67,6 +67,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // Deploy trigger: backend touchpoint.
+// Comment-only test change for direct main push.
 dotenv.config({ path: resolve(__dirname, '../../.env') })
 assertBackendEnv()
 
