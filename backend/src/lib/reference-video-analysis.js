@@ -41,6 +41,7 @@ const DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS = Number.parseInt(
   process.env.REFERENCE_ANALYSIS_AUDIO_MAX_SECONDS || '90',
   10,
 )
+const CURRENT_CONTENT_YEAR = String(process.env.CURRENT_CONTENT_YEAR || '2026').trim() || '2026'
 
 const ACCOUNT_GOAL_LABELS = {
   'personal-influencer': '퍼스널 인플루언싱',
@@ -102,7 +103,7 @@ const REFERENCE_SURFACE_STOPWORDS = new Set([
 ])
 const MAX_REFERENCE_SURFACE_TERMS = 16
 
-const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v2').trim() || 'v2'
+const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v4').trim() || 'v4'
 const ANALYZE_DEDUPE_WINDOW_MINUTES = Number.parseInt(
   String(process.env.ANALYZE_DEDUPE_WINDOW_MINUTES || '30'),
   10,
@@ -751,6 +752,37 @@ function clampText(text = '', maxLength = 800) {
   return `${normalized.slice(0, maxLength)}...`
 }
 
+function normalizeGeneratedYearReferences(text = '') {
+  return String(text || '').replace(/\b2024년/g, `${CURRENT_CONTENT_YEAR}년`)
+}
+
+function normalizeAnalysisYearReferences(analysisResult = {}) {
+  if (!analysisResult || typeof analysisResult !== 'object') {
+    return analysisResult
+  }
+
+  return {
+    ...analysisResult,
+    structureAnalysis: normalizeGeneratedYearReferences(analysisResult.structureAnalysis || ''),
+    hookAnalysis: normalizeGeneratedYearReferences(analysisResult.hookAnalysis || ''),
+    psychologyAnalysis: normalizeGeneratedYearReferences(analysisResult.psychologyAnalysis || ''),
+    aiFeedback: normalizeGeneratedYearReferences(analysisResult.aiFeedback || ''),
+  }
+}
+
+function normalizeVariationYearReferences(variation = {}) {
+  if (!variation || typeof variation !== 'object') {
+    return variation
+  }
+
+  return {
+    ...variation,
+    hook: normalizeGeneratedYearReferences(variation.hook || ''),
+    body: normalizeGeneratedYearReferences(variation.body || ''),
+    cta: normalizeGeneratedYearReferences(variation.cta || ''),
+  }
+}
+
 function extractCueKeywords(text = '', max = 4) {
   const tokens = String(text || '')
     .toLowerCase()
@@ -1298,7 +1330,7 @@ async function regenerateVariationWithGPT({
       {
         role: 'system',
         content:
-          '당신은 숏폼 스크립트 재생성 편집자다. 계정 세팅을 최우선으로 자연스러운 HOOK/BODY/CTA를 새로 작성한다. 출력은 JSON만 반환한다.',
+          `당신은 숏폼 스크립트 재생성 편집자다. 계정 세팅을 최우선으로 자연스러운 HOOK/BODY/CTA를 새로 작성한다. 현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이며 2024년은 쓰지 않는다. 출력은 JSON만 반환한다.`,
       },
       {
         role: 'user',
@@ -1348,6 +1380,7 @@ async function regenerateVariationWithGPT({
           `캐릭터 세팅:\n${characterSystemPrompt || '없음'}\n\n` +
           '작성 조건:\n' +
           '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 함\n' +
+          `- 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 않음\n` +
           '- 레퍼런스 표면 주제/키워드/문장 변형 사용 금지(패러프레이즈 포함)\n' +
           '- 레퍼런스는 논리 구조만 참고하고 내용은 현재 계정 도메인으로 완전 재창조\n' +
           '- HOOK만 레퍼런스의 시작 방식, 문장 호흡, 긴장 형성 순서를 참고해 비슷한 구조로 작성 가능\n' +
@@ -1809,14 +1842,15 @@ export async function analyzeReferenceVideo({
   const openai = getOpenAIClient()
   const { chatModel } = getOpenAIModels()
   const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey)
-  const analysisFingerprint = await computeUploadedFileFingerprint(file)
+  const fileFingerprint = await computeUploadedFileFingerprint(file)
+  const analysisFingerprint = hashText(`${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}`)
   const topicFocusPrompt = buildTopicFocusPrompt(normalizedTopic, normalizedTitle)
   const analysisReuseCacheKey = buildAnalysisReuseCacheKey({
     accountId,
     topic: normalizedTopic,
     title: normalizedTitle,
     originalFilename: normalizedOriginalName,
-    fileFingerprint: analysisFingerprint,
+    fileFingerprint,
     characterSystemPrompt,
   })
   const inFlightKey = [accountId, normalizedIdempotencyKey || analysisFingerprint].join(':')
@@ -2127,20 +2161,6 @@ export async function analyzeReferenceVideo({
       stageHooks,
     )
 
-    const globalKnowledge = await runStage(
-      'retrieve-global-knowledge',
-      baseContext,
-      async () =>
-        retrieveGlobalKnowledgeContext({
-          title: normalizedTitle,
-          topic: normalizedTopic,
-          transcript: normalizedTranscript || '',
-          frameSummary,
-          topK: 4,
-        }),
-      stageHooks,
-    )
-
     const analysisResponse = await runStage(
       'analysis-gpt',
       baseContext,
@@ -2153,10 +2173,12 @@ export async function analyzeReferenceVideo({
             role: 'system',
             content: [
               '당신은 숏폼 레퍼런스 영상을 분석하는 한국어 전략가다. 전사와 첫 3초 프레임 분석을 함께 보고 구조, 후킹 포인트, 심리기제, AI 피드백을 JSON으로만 반환한다.',
+              `현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이다.`,
               '중요: structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback은 전사(텍스트) 기준으로만 분석한다.',
               '프레임(시각) 정보는 구조 보조 참고용으로만 사용하고, 위 4개 텍스트 필드의 핵심 근거는 반드시 전사에 둔다.',
-              '검색된 지식 자료는 분석 관점 참고용일 뿐이며, 전사/프레임에 없는 사실, 숫자, 플랫폼명, 사례, CTA를 새로 만들면 안 된다.',
+              '분석 단계에서는 외부 지식/일반 템플릿을 사용하지 않는다.',
               '레퍼런스에 명시되지 않은 연도, 통계, 기능명, 인스타그램 설정, 알림, 팔로워/완주율 같은 소재를 추론해서 쓰지 마라.',
+              `연도를 새로 제시해야 하는 경우에는 ${CURRENT_CONTENT_YEAR}년만 사용하고, 2024년을 쓰지 마라.`,
               '전사가 짧거나 불명확하면 부족하다고 말하고, 없는 내용을 채워서 분석하지 마라.',
               characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             ]
@@ -2166,10 +2188,8 @@ export async function analyzeReferenceVideo({
           {
             role: 'user',
             content:
-              `검색된 글로벌 지식 자료 (우선 참고):\n${globalKnowledge.contextText || '검색된 글로벌 지식 자료 없음'}\n\n` +
               `전사:\n${normalizedTranscript || '전사 추출 없음'}\n\n` +
               `첫 3초 프레임 분석:\n${JSON.stringify(frameAnalysis, null, 2)}\n\n` +
-              `검색된 지식 카테고리: ${globalKnowledge.categories.join(', ') || '없음'}\n` +
               '응답 포맷 규칙:\n' +
               '- JSON 구조는 절대 변경하지 마세요.\n' +
               '- 각 필드 텍스트는 사람이 읽기 좋게 자연스럽게 작성하세요.\n' +
@@ -2178,7 +2198,8 @@ export async function analyzeReferenceVideo({
               '- structureAnalysis / hookAnalysis / psychologyAnalysis는 내부 설명을 구조적으로 나눠 작성하세요. 예: 도입, 전개, 결론.\n' +
               '- aiFeedback은 실제 사람이 주는 피드백처럼 구체적이고 개선 방향 중심으로 작성하세요.\n' +
               '- 금지: 전사/프레임에 없는 소재나 숫자를 예시처럼 추가하지 마세요.\n' +
-              '- 금지: 검색된 글로벌 지식 자료의 문장/사례를 레퍼런스 내용처럼 쓰지 마세요.\n' +
+              '- 금지: 외부 지식/일반 예시의 문장/사례를 레퍼런스 내용처럼 쓰지 마세요.\n' +
+              `- 연도 규칙: 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 마세요.\n` +
               '- 전사와 프레임이 서로 충돌하면 전사를 우선하고, 충돌 가능성을 aiFeedback에 짧게 언급하세요.\n' +
               '다음 JSON 형식으로만 답하세요: ' +
               '{"structureAnalysis":"","hookAnalysis":"","psychologyAnalysis":"","aiFeedback":""}',
@@ -2188,12 +2209,13 @@ export async function analyzeReferenceVideo({
       stageHooks,
     )
 
-    const analysisResult = await runStage(
+    const parsedAnalysisResult = await runStage(
       'parse-analysis-json',
       baseContext,
       async () => parseModelJson(analysisResponse.choices[0]?.message?.content || ''),
       stageHooks,
     )
+    const analysisResult = normalizeAnalysisYearReferences(parsedAnalysisResult)
     const generationGuides = buildGenerationGuides({ analysisResult })
     const referenceGuard = {
       surfaceTerms: extractReferenceSurfaceTerms({
@@ -2267,6 +2289,7 @@ export async function analyzeReferenceVideo({
 
           const systemContent = [
             '당신은 숏폼 콘텐츠 작가다. 지정된 전략에 맞는 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
+            `현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이다. 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 마라.`,
             '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 전략 라벨/전략 의도 > 레퍼런스 전사.',
             '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
             '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
@@ -2339,6 +2362,7 @@ export async function analyzeReferenceVideo({
             '- BODY/CTA는 레퍼런스 문장 구조를 따라 쓰지 말고 현재 계정 맥락으로 자연스럽게 새로 쓴다\n' +
             '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 작성\n' +
             '- 키워드를 억지로 끼워 넣지 말고, 자연스러운 주장과 흐름을 우선\n\n' +
+            `- 연도 규칙: 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 않는다\n\n` +
             `핵심 인사이트(우선 참고):\n${
               generationGuides.keyInsights.length
                 ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -2392,13 +2416,13 @@ export async function analyzeReferenceVideo({
           )
 
           const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
-          normalized = normalizeVariationDraft(parsed, config, generationGuides)
+          normalized = normalizeVariationYearReferences(normalizeVariationDraft(parsed, config, generationGuides))
           alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
 
           const structureState = isVariationStructureBroken(normalized, alignment, categoryGuard)
 
           if (ENABLE_COST_GUARD && structureState.broken) {
-            normalized = await regenerateVariationWithGPT({
+            normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
               openai,
               chatModel,
               config,
@@ -2417,7 +2441,7 @@ export async function analyzeReferenceVideo({
                   label: config.label,
                   angle: config.angle,
                 },
-              })
+              }))
             variationUsage = sumAIUsage(variationUsage, normalized?.usage)
             if (normalized?.usage) {
               delete normalized.usage
@@ -2427,7 +2451,7 @@ export async function analyzeReferenceVideo({
           } else if (ENABLE_COST_GUARD) {
             const qualityScore = scoreVariationQuality(normalized, config, categoryGuard)
             if (shouldRegenerateByQuality(qualityScore)) {
-              normalized = await regenerateVariationWithGPT({
+              normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
                 openai,
                 chatModel,
                 config,
@@ -2446,7 +2470,7 @@ export async function analyzeReferenceVideo({
                   label: config.label,
                   angle: config.angle,
                 },
-              })
+              }))
               variationUsage = sumAIUsage(variationUsage, normalized?.usage)
               if (normalized?.usage) {
                 delete normalized.usage
@@ -2457,7 +2481,7 @@ export async function analyzeReferenceVideo({
           } else {
             // Legacy path: if cost guard is off, keep a single fallback regenerate for hard misalignment only.
             if (normalized && !alignment.ok) {
-              normalized = await regenerateVariationWithGPT({
+              normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
                 openai,
                 chatModel,
                 config,
@@ -2476,7 +2500,7 @@ export async function analyzeReferenceVideo({
                   label: config.label,
                   angle: config.angle,
                 },
-              })
+              }))
               variationUsage = sumAIUsage(variationUsage, normalized?.usage)
               if (normalized?.usage) {
                 delete normalized.usage
@@ -2487,7 +2511,7 @@ export async function analyzeReferenceVideo({
           }
 
           if (!normalized) {
-            normalized = await regenerateVariationWithGPT({
+            normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
               openai,
               chatModel,
               config,
@@ -2506,7 +2530,7 @@ export async function analyzeReferenceVideo({
                 label: config.label,
                 angle: config.angle,
               },
-            })
+            }))
             variationUsage = sumAIUsage(variationUsage, normalized?.usage)
             if (normalized?.usage) {
               delete normalized.usage
@@ -2564,6 +2588,7 @@ export async function analyzeReferenceVideo({
                 body: String(polished?.body || normalized.body || '').trim(),
                 cta: String(polished?.cta || normalized.cta || '').trim(),
               }
+              normalized = normalizeVariationYearReferences(normalized)
               alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
             } catch (_error) {
               // Keep original draft when polish step fails.
@@ -2670,8 +2695,8 @@ export async function analyzeReferenceVideo({
 
     const output = {
       ...row,
-      global_knowledge_debug: mapGlobalKnowledgeDebug(globalKnowledge.items || []),
-      global_knowledge_categories: globalKnowledge.categories || [],
+      global_knowledge_debug: [],
+      global_knowledge_categories: [],
       category_playbook: playbookContext.payload,
       analysis_stage_metrics: stageMetrics,
     }
