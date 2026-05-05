@@ -2155,7 +2155,9 @@ export async function analyzeReferenceVideo({
               '당신은 숏폼 레퍼런스 영상을 분석하는 한국어 전략가다. 전사와 첫 3초 프레임 분석을 함께 보고 구조, 후킹 포인트, 심리기제, AI 피드백을 JSON으로만 반환한다.',
               '중요: structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback은 전사(텍스트) 기준으로만 분석한다.',
               '프레임(시각) 정보는 구조 보조 참고용으로만 사용하고, 위 4개 텍스트 필드의 핵심 근거는 반드시 전사에 둔다.',
-              '검색된 지식 자료가 주어지면 그 근거를 우선 사용하고, 부족한 연결만 합리적으로 보완한다.',
+              '검색된 지식 자료는 분석 관점 참고용일 뿐이며, 전사/프레임에 없는 사실, 숫자, 플랫폼명, 사례, CTA를 새로 만들면 안 된다.',
+              '레퍼런스에 명시되지 않은 연도, 통계, 기능명, 인스타그램 설정, 알림, 팔로워/완주율 같은 소재를 추론해서 쓰지 마라.',
+              '전사가 짧거나 불명확하면 부족하다고 말하고, 없는 내용을 채워서 분석하지 마라.',
               characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             ]
               .filter(Boolean)
@@ -2175,6 +2177,9 @@ export async function analyzeReferenceVideo({
               '- 기계적인 나열 문장보다 실제 설명하듯 작성하세요.\n' +
               '- structureAnalysis / hookAnalysis / psychologyAnalysis는 내부 설명을 구조적으로 나눠 작성하세요. 예: 도입, 전개, 결론.\n' +
               '- aiFeedback은 실제 사람이 주는 피드백처럼 구체적이고 개선 방향 중심으로 작성하세요.\n' +
+              '- 금지: 전사/프레임에 없는 소재나 숫자를 예시처럼 추가하지 마세요.\n' +
+              '- 금지: 검색된 글로벌 지식 자료의 문장/사례를 레퍼런스 내용처럼 쓰지 마세요.\n' +
+              '- 전사와 프레임이 서로 충돌하면 전사를 우선하고, 충돌 가능성을 aiFeedback에 짧게 언급하세요.\n' +
               '다음 JSON 형식으로만 답하세요: ' +
               '{"structureAnalysis":"","hookAnalysis":"","psychologyAnalysis":"","aiFeedback":""}',
           },
