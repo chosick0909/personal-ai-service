@@ -4,6 +4,9 @@ import Editor from './Editor'
 import ChatPanel from './ChatPanel'
 import { useAppState } from '../store/AppState'
 
+const REFERENCE_SCRIPT_SECTION_TITLE = '레퍼런스 스크립트'
+const REFERENCE_SCRIPT_SECTION_DESCRIPTION = '업로드한 레퍼런스 영상에서 추출한 전체 스크립트입니다.'
+
 function BackIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4">
@@ -286,8 +289,10 @@ export default function ResultCards() {
 
         <section className="mt-8 rounded-[24px] border border-[#2F3543] bg-[#0F131B] p-5 shadow-[0px_1px_3px_rgba(0,0,0,0.30)] md:mt-10 md:rounded-[32px] md:p-10">
           <SmallBadge>Reference Script</SmallBadge>
-          <h2 className="mt-4 text-2xl font-bold leading-8 text-[#F3F4F6] md:mt-6 md:text-[32px] md:leading-10">레퍼런스 스크립트</h2>
-          <p className="mt-2 text-sm text-[#8E97A6]">분석된 레퍼런스 영상의 전체 스크립트와 심리 장치입니다.</p>
+          <h2 className="mt-4 text-2xl font-bold leading-8 text-[#F3F4F6] md:mt-6 md:text-[32px] md:leading-10">
+            {REFERENCE_SCRIPT_SECTION_TITLE}
+          </h2>
+          <p className="mt-2 text-sm text-[#8E97A6]">{REFERENCE_SCRIPT_SECTION_DESCRIPTION}</p>
 
           <div className="mt-8 overflow-hidden rounded-[14px] border border-[#2F3543] bg-[#131720]">
             <div className="border-b border-[#2F3543] px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
