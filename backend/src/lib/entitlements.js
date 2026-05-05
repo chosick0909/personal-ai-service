@@ -4,6 +4,7 @@ import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 export const COUPON_CODES = {
   openBeta: 'WELCOME2OPENBETA_0425',
   student: 'WELCOME2INSTACAMPUS_0425',
+  challenge: 'CHEER_TO_CHALLENGE',
 }
 
 const PLAN_LIMITS = {
@@ -17,6 +18,11 @@ const PLAN_LIMITS = {
     perReferenceCopilotLimit: 5,
     perReferenceFeedbackLimit: 2,
   },
+  challenge: {
+    monthlyReferenceLimit: null,
+    perReferenceCopilotLimit: null,
+    perReferenceFeedbackLimit: null,
+  },
   paid: {
     monthlyReferenceLimit: null,
     perReferenceCopilotLimit: null,
@@ -25,7 +31,8 @@ const PLAN_LIMITS = {
 }
 
 const PLAN_PRIORITY = {
-  paid: 3,
+  paid: 4,
+  challenge: 3,
   student: 2,
   open_beta: 1,
 }
@@ -57,6 +64,10 @@ function addMonths(date, months) {
   const next = new Date(date)
   next.setMonth(next.getMonth() + months)
   return next
+}
+
+function addMilliseconds(date, milliseconds) {
+  return new Date(date.getTime() + milliseconds)
 }
 
 function getMonthStartIso(now = new Date()) {
@@ -196,6 +207,105 @@ async function loadEntitlementLimits(supabaseAdmin, entitlementId) {
   }
 
   return data || null
+}
+
+async function loadActiveOrFutureEntitlements({ supabaseAdmin, userId, planType, nowIso }) {
+  let query = supabaseAdmin
+    .from('user_entitlements')
+    .select('id, user_id, coupon_id, plan_type, status, starts_at, ends_at, created_at')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
+    .order('starts_at', { ascending: true })
+
+  if (planType) {
+    query = query.eq('plan_type', planType)
+  }
+
+  const { data, error } = await runEntitlementQuery('loadActiveOrFutureEntitlements', () => query)
+
+  if (error) {
+    throw new AppError('예정 이용권 조회에 실패했습니다.', {
+      code: 'ENTITLEMENT_SCHEDULE_LOOKUP_FAILED',
+      statusCode: 500,
+      exposeMessage: true,
+      cause: error,
+    })
+  }
+
+  return Array.isArray(data) ? data : []
+}
+
+function getCouponPlanType(couponType) {
+  if (couponType === 'student') return 'student'
+  if (couponType === 'challenge') return 'challenge'
+  return 'open_beta'
+}
+
+function getEntitlementEndAt(planType, startsAt) {
+  if (planType === 'student') return addMonths(startsAt, 3)
+  if (planType === 'challenge') return addMonths(startsAt, 1)
+  return addDays(startsAt, 7)
+}
+
+async function getStudentStartAt({ supabaseAdmin, userId, now, nowIso }) {
+  const scheduledChallenges = await loadActiveOrFutureEntitlements({
+    supabaseAdmin,
+    userId,
+    planType: 'challenge',
+    nowIso,
+  })
+
+  const activeOrFutureChallengeEnds = scheduledChallenges
+    .map((row) => (row.ends_at ? new Date(row.ends_at) : null))
+    .filter((endsAt) => endsAt && endsAt.getTime() > now.getTime())
+    .sort((left, right) => right.getTime() - left.getTime())
+
+  return activeOrFutureChallengeEnds[0] || now
+}
+
+async function deferStudentEntitlementsUntil({ supabaseAdmin, userId, startsAt, now, nowIso }) {
+  const students = await loadActiveOrFutureEntitlements({
+    supabaseAdmin,
+    userId,
+    planType: 'student',
+    nowIso,
+  })
+
+  for (const row of students) {
+    if (!row.ends_at) {
+      continue
+    }
+
+    const currentStart = new Date(row.starts_at)
+    const currentEnd = new Date(row.ends_at)
+    if (currentEnd.getTime() <= now.getTime() || currentStart.getTime() >= startsAt.getTime()) {
+      continue
+    }
+
+    const remainingStart = currentStart.getTime() > now.getTime() ? currentStart : now
+    const remainingDurationMs = Math.max(0, currentEnd.getTime() - remainingStart.getTime())
+    const nextEndsAt = addMilliseconds(startsAt, remainingDurationMs)
+
+    const { error } = await runEntitlementQuery('deferStudentEntitlement', () =>
+      supabaseAdmin
+        .from('user_entitlements')
+        .update({
+          starts_at: startsAt.toISOString(),
+          ends_at: nextEndsAt.toISOString(),
+        })
+        .eq('id', row.id),
+    )
+
+    if (error) {
+      throw new AppError('수강생 이용권 대기 처리에 실패했습니다.', {
+        code: 'STUDENT_ENTITLEMENT_DEFER_FAILED',
+        statusCode: 500,
+        exposeMessage: true,
+        cause: error,
+      })
+    }
+  }
 }
 
 async function countUsageEvents({ supabaseAdmin, userId, entitlementId, eventType, referenceId, since }) {
@@ -376,8 +486,11 @@ export async function applyCouponToUser({ userId, couponCode }) {
     })
   }
 
-  const planType = coupon.type === 'student' ? 'student' : 'open_beta'
-  const endsAt = planType === 'student' ? addMonths(now, 3) : addDays(now, 7)
+  const planType = getCouponPlanType(coupon.type)
+  const startsAt = planType === 'student'
+    ? await getStudentStartAt({ supabaseAdmin, userId: normalizedUserId, now, nowIso })
+    : now
+  const endsAt = getEntitlementEndAt(planType, startsAt)
   const planLimits = getPlanLimits(planType)
 
   const { data: entitlement, error: insertError } = await runEntitlementQuery('createEntitlement', () =>
@@ -388,7 +501,7 @@ export async function applyCouponToUser({ userId, couponCode }) {
         coupon_id: coupon.id,
         plan_type: planType,
         status: 'active',
-        starts_at: nowIso,
+        starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
       })
       .select('id, user_id, coupon_id, plan_type, status, starts_at, ends_at, created_at')
@@ -423,6 +536,16 @@ export async function applyCouponToUser({ userId, couponCode }) {
       statusCode: 500,
       exposeMessage: true,
       cause: limitsError,
+    })
+  }
+
+  if (planType === 'challenge') {
+    await deferStudentEntitlementsUntil({
+      supabaseAdmin,
+      userId: normalizedUserId,
+      startsAt: endsAt,
+      now,
+      nowIso,
     })
   }
 

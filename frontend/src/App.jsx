@@ -17,9 +17,27 @@ import logoWebp from './Logo.webp'
 // Comment-only test change for branch commit.
 import { AppStateProvider, useAppState } from './store/AppState'
 
+const POST_AUTH_REDIRECT_STORAGE_KEY = 'postAuthRedirectPath'
+
 const FABRIC_DARK_BACKGROUND = {
   backgroundImage:
     'radial-gradient(ellipse 135% 90% at 14% 8%, rgba(250,249,246,0.08) 0%, rgba(250,249,246,0) 50%), radial-gradient(ellipse 115% 82% at 86% 80%, rgba(175,174,172,0.08) 0%, rgba(175,174,172,0) 54%), linear-gradient(180deg, #0D0F14 0%, #11151D 100%)',
+}
+
+function isSafeLocalPath(path) {
+  return Boolean(path && path.startsWith('/') && !path.startsWith('//'))
+}
+
+function setPostAuthRedirectPath(path) {
+  if (!isSafeLocalPath(path)) {
+    return
+  }
+
+  try {
+    window.sessionStorage.setItem(POST_AUTH_REDIRECT_STORAGE_KEY, path)
+  } catch {
+    // Ignore storage failures; the URL next param still carries the redirect.
+  }
 }
 
 function getAuthRedirectUrl() {
@@ -28,7 +46,37 @@ function getAuthRedirectUrl() {
     return configuredRedirectUrl
   }
 
-  return `${window.location.origin}/analyze`
+  return `${window.location.origin}${getPostAuthRedirectPath('/analyze')}`
+}
+
+function getPostAuthRedirectPath(defaultPath = '/purchase') {
+  const nextPath = new URLSearchParams(window.location.search).get('next')
+  if (isSafeLocalPath(nextPath)) {
+    return nextPath
+  }
+
+  try {
+    const storedPath = window.sessionStorage.getItem(POST_AUTH_REDIRECT_STORAGE_KEY)
+    if (isSafeLocalPath(storedPath)) {
+      return storedPath
+    }
+  } catch {
+    // Fall through to the default when sessionStorage is unavailable.
+  }
+
+  return defaultPath
+}
+
+function consumePostAuthRedirectPath(defaultPath = '/purchase') {
+  const redirectPath = getPostAuthRedirectPath(defaultPath)
+
+  try {
+    window.sessionStorage.removeItem(POST_AUTH_REDIRECT_STORAGE_KEY)
+  } catch {
+    // Nothing to clean up when storage is unavailable.
+  }
+
+  return redirectPath
 }
 
 function FabricBackgroundOverlay() {
@@ -68,7 +116,7 @@ function LandingScreen() {
                 window.alert(error.message || '로그아웃에 실패했습니다.')
               }
             }}
-            className="rounded-full border border-[#3A414F] bg-[#111827] px-4 py-2 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1F2937]"
+            className="rounded-full border border-[#3A414F] bg-[#111827] px-3 py-1.5 text-xs font-semibold text-[#E5E7EB] transition hover:bg-[#1F2937]"
           >
             로그아웃
           </button>
@@ -116,7 +164,17 @@ function LandingScreen() {
                 바로 시작하기
               </a>
             </div>
-            <p className="mt-6 text-sm font-medium text-[#9CA3AF]">Free trial · 신용카드 없이 시작</p>
+            <p className="mt-6 text-sm font-medium text-[#9CA3AF]">
+              Free trial · 신용카드 없이 시작
+              <span className="mx-2 text-[#4B5563]">·</span>
+              <a
+                href="/purchase"
+                onClick={() => setPostAuthRedirectPath('/purchase')}
+                className="font-semibold text-[#E5E7EB] underline-offset-4 transition hover:text-white hover:underline"
+              >
+                쿠폰/이용권 확인하기
+              </a>
+            </p>
           </div>
         </section>
       </div>
@@ -1125,7 +1183,7 @@ function AuthScreen({
                 setError('이미 가입된 계정입니다. 회원가입이 아니라 로그인으로 이동해서 진행해주세요.')
                 return
               }
-              window.location.assign(result?.nextPath || '/purchase')
+              window.location.assign(consumePostAuthRedirectPath(result?.nextPath || '/purchase'))
             } catch (nextError) {
               setError(nextError.message || `${primaryLabel}에 실패했습니다.`)
             } finally {
@@ -2161,12 +2219,13 @@ function RecommendScreenV2() {
 
 function LoginScreen() {
   const { login, isLoggedIn, isAuthReady } = useAppState()
+  const postAuthRedirectPath = getPostAuthRedirectPath('/analyze')
 
   useEffect(() => {
     if (isAuthReady && isLoggedIn) {
-      window.location.replace('/analyze')
+      window.location.replace(postAuthRedirectPath)
     }
-  }, [isAuthReady, isLoggedIn])
+  }, [isAuthReady, isLoggedIn, postAuthRedirectPath])
 
   if (isAuthReady && isLoggedIn) {
     return null
@@ -2228,6 +2287,7 @@ function formatDate(value) {
 
 function PurchaseScreen() {
   const {
+    login,
     isLoggedIn,
     isAuthReady,
     entitlementStatus,
@@ -2245,12 +2305,6 @@ function PurchaseScreen() {
   const [selectedPlanId, setSelectedPlanId] = useState('student')
   const couponInputRef = useRef(null)
   const forcedEntitlementRefreshKeyRef = useRef('')
-
-  useEffect(() => {
-    if (isAuthReady && !isLoggedIn) {
-      window.location.replace('/login')
-    }
-  }, [isAuthReady, isLoggedIn])
 
   useEffect(() => {
     if (isAuthReady && isLoggedIn && isEntitlementReady && !entitlementStatus) {
@@ -2272,13 +2326,40 @@ function PurchaseScreen() {
     void refreshEntitlement({ silent: true, forceRefresh: true })
   }, [entitlementStatus, entitlementStatus?.entitlement?.id, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
 
-  useEffect(() => {
-    if (isAuthReady && isEntitlementReady && entitlementStatus?.hasAccess && !success) {
-      window.location.replace('/analyze')
-    }
-  }, [entitlementStatus?.hasAccess, isAuthReady, isEntitlementReady, success])
+  if (!isAuthReady) {
+    return (
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
+        <FabricBackgroundOverlay />
+        <div className="relative z-10 rounded-[28px] border border-[#2F3543] bg-[#12151D]/90 px-6 py-5 text-sm text-[#AEB6C5]">
+          이용권 확인 중...
+        </div>
+      </main>
+    )
+  }
 
-  if (!isAuthReady || !isLoggedIn || !isEntitlementReady || !entitlementStatus) {
+  if (!isLoggedIn) {
+    return (
+      <AuthScreen
+        mode="login"
+        title="쿠폰/이용권 확인"
+        subtitle="로그인 후 쿠폰 입력과 이용권 결제를 이어서 진행합니다."
+        primaryLabel="로그인"
+        secondaryHref="/signup"
+        secondaryLabel="회원가입"
+        onSubmit={async (credentials) => {
+          setPostAuthRedirectPath('/purchase')
+          const result = await login(credentials)
+          setPostAuthRedirectPath('/purchase')
+          return {
+            ...result,
+            nextPath: '/purchase',
+          }
+        }}
+      />
+    )
+  }
+
+  if (!isEntitlementReady || !entitlementStatus) {
     return (
       <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
         <FabricBackgroundOverlay />
@@ -2316,7 +2397,12 @@ function PurchaseScreen() {
         throw new Error('쿠폰 코드를 입력해주세요.')
       }
 
-      const appliedBenefit = normalizedCouponCode.includes('INSTACAMPUS')
+      const appliedBenefit = normalizedCouponCode.includes('CHALLENGE')
+        ? {
+            label: '챌린지 쿠폰',
+            description: '서버에서 쿠폰을 확인한 뒤 1개월 무제한 챌린지 이용권을 우선 활성화합니다.',
+          }
+        : normalizedCouponCode.includes('INSTACAMPUS')
         ? {
             label: '수강생 쿠폰',
             description: '서버에서 쿠폰을 확인한 뒤 수강생 이용권을 활성화합니다.',
@@ -2359,7 +2445,11 @@ function PurchaseScreen() {
       }
 
       const status = await applyCoupon(appliedCouponCode)
-      const planLabel = status?.entitlement?.planType === 'student' ? '수강생 3개월 이용권' : '오픈베타 7일 이용권'
+      const planLabel = status?.entitlement?.planType === 'challenge'
+        ? '챌린지 1개월 무제한 이용권'
+        : status?.entitlement?.planType === 'student'
+          ? '수강생 3개월 이용권'
+          : '오픈베타 7일 이용권'
       setSuccess(`${planLabel}이 활성화되었습니다.`)
       window.location.replace('/analyze')
     } catch (nextError) {
