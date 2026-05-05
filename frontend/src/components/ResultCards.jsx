@@ -6,6 +6,7 @@ import { useAppState } from '../store/AppState'
 
 const REFERENCE_SCRIPT_SECTION_TITLE = '레퍼런스 스크립트'
 const REFERENCE_SCRIPT_SECTION_DESCRIPTION = '업로드한 레퍼런스 영상에서 추출한 전체 스크립트입니다.'
+// Deploy touchpoint: keep the reference script heading fixed.
 
 function BackIcon() {
   return (
