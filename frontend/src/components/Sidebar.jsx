@@ -147,7 +147,7 @@ function isAdminUnlimitedEmail(email) {
 
 function getEntitlementPlanLabel(planType, isAdminUnlimited) {
   if (isAdminUnlimited) return '관리자 무제한'
-  if (planType === 'challenge') return '챌린지 이용권'
+  if (planType === 'challenge') return '챌린지 무제한'
   if (planType === 'student') return '수강생 이용권'
   if (planType === 'open_beta') return '오픈베타 이용권'
   if (planType === 'paid') return '유료 이용권'
