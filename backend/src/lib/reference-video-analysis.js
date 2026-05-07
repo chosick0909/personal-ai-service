@@ -1324,6 +1324,47 @@ function inferSentenceShape(value = '') {
   return '균형 설명형'
 }
 
+function inferClauseProfile(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const clauseCount = text
+    .split(/[,，、]|(?:\s+(?:그리고|근데|그런데|하지만|그래서|그러면|그러니까|또|특히|결국)\s+)/u)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .length
+  if (clauseCount <= 1) return '단일 절'
+  if (clauseCount === 2) return '2절 연결'
+  if (clauseCount === 3) return '3절 연결'
+  return '여러 절로 길게 연결'
+}
+
+function inferEndingStyle(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/[?？]$/.test(text)) return '질문으로 끝남'
+  if (/[!！]$/.test(text)) return '강조로 끝남'
+  if (/(하세요|해보세요|보세요|남겨주세요|저장해두세요|확인해보세요)[.!。！？]?$/u.test(text)) {
+    return '행동 유도로 끝남'
+  }
+  if (/(거예요|겁니다|입니다|합니다|돼요|해요|있어요|없어요|죠|요)[.!。]?$/u.test(text)) {
+    return '대화체 단정으로 끝남'
+  }
+  if (/(다)[.!。]?$/u.test(text)) return '단정 서술로 끝남'
+  return '자연스럽게 이어지는 끝맺음'
+}
+
+function inferPunctuationProfile(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const marks = []
+  if (text.includes(',')) marks.push('쉼표 호흡')
+  if (/[?？]/.test(text)) marks.push('질문 부호')
+  if (/[!！]/.test(text)) marks.push('강조 부호')
+  if (/["“”'‘’]/.test(text)) marks.push('인용/강조 따옴표')
+  if (/[()]/.test(text)) marks.push('괄호 보충')
+  return marks.length ? marks.join(', ') : '구두점 적음'
+}
+
 function inferSentenceFeeling(value = '') {
   const text = String(value || '').trim()
   if (!text) return ''
@@ -1390,6 +1431,12 @@ function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence 
     buildTargetCharRange(referenceCharCount)
   const sentenceShape = String(item.sentenceShape || item.sentence_shape || '').trim() ||
     inferSentenceShape(sourceSentence)
+  const clauseProfile = String(item.clauseProfile || item.clause_profile || '').trim() ||
+    inferClauseProfile(sourceSentence)
+  const endingStyle = String(item.endingStyle || item.ending_style || '').trim() ||
+    inferEndingStyle(sourceSentence)
+  const punctuationProfile = String(item.punctuationProfile || item.punctuation_profile || '').trim() ||
+    inferPunctuationProfile(sourceSentence)
   const mustKeep = normalizeStringList(item.mustKeep || item.must_keep, 4)
   const mustReplace = normalizeStringList(item.mustReplace || item.must_replace, 4)
 
@@ -1401,6 +1448,9 @@ function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence 
     referenceCharCount,
     targetCharRange,
     sentenceShape,
+    clauseProfile,
+    endingStyle,
+    punctuationProfile,
     tone,
     feeling,
     rhythm,
@@ -1528,6 +1578,9 @@ function formatSentenceBlueprintPrompt(structureBlueprint = {}) {
         item.length ? `길이=${item.length}` : null,
         item.targetCharRange ? `목표분량=${item.targetCharRange}` : null,
         item.sentenceShape ? `문장형태=${item.sentenceShape}` : null,
+        item.clauseProfile ? `절구조=${item.clauseProfile}` : null,
+        item.endingStyle ? `끝맺음=${item.endingStyle}` : null,
+        item.punctuationProfile ? `구두점=${item.punctuationProfile}` : null,
         item.rhythm ? `리듬=${item.rhythm}` : null,
         item.tone ? `톤=${item.tone}` : null,
         item.feeling ? `느낌=${item.feeling}` : null,
@@ -1564,6 +1617,9 @@ function formatSentenceSubstitutionPrompt(structureBlueprint = {}) {
         item.desireTrigger ? `욕구 자리: ${item.desireTrigger}` : null,
         item.feeling ? `원본 느낌: ${item.feeling}` : null,
         item.sentenceShape ? `문장 형태: ${item.sentenceShape}` : null,
+        item.clauseProfile ? `절 구조: ${item.clauseProfile}` : null,
+        item.endingStyle ? `끝맺음: ${item.endingStyle}` : null,
+        item.punctuationProfile ? `구두점 호흡: ${item.punctuationProfile}` : null,
         item.targetCharRange ? `분량: ${item.targetCharRange}` : null,
       ].filter(Boolean)
 
@@ -1613,9 +1669,9 @@ async function buildStructureBlueprint({
           'hookSentencePattern에는 훅의 시작 방식, 문장 리듬, 긴장 형성 순서를 적되 원문 단어는 넣지 마라. ' +
           'sectionRhythm에는 HOOK/BODY/CTA의 문장 수, 줄바꿈, 짧고 긴 문장 배치, 반복 리듬을 적어라. ' +
           'lengthProfile에는 각 섹션이 짧은지/중간인지/긴지와 원문 대비 생성 시 유지해야 할 분량감을 적어라. ' +
-          'sentenceBlueprint에는 레퍼런스를 문장별로 쪼개 각 문장의 역할/길이/문장 형태/리듬/느낌/욕구 트리거/키워드 슬롯을 적어라. 원문 문장은 절대 넣지 말고 역할만 적어라. ' +
+          'sentenceBlueprint에는 레퍼런스를 문장별로 쪼개 각 문장의 역할/길이/문장 형태/절 구조/끝맺음/구두점 호흡/리듬/느낌/욕구 트리거/키워드 슬롯을 적어라. 원문 문장은 절대 넣지 말고 역할만 적어라. ' +
           'topicSlots에는 그 문장에서 원문 주제/상품/상황/업종이 들어가는 자리만 적어라. replaceTargets에는 생성 시 현재 계정 세팅과 이번 주제로 바꿔야 하는 표현의 역할만 적어라. ' +
-          '중요: 레퍼런스의 문장 골격, 절 배치, 강조 순서, 감정 흐름은 유지하고 topicSlots/replaceTargets에 해당하는 소재 자리만 바꾸는 설계로 뽑아라. ' +
+          '중요: 레퍼런스의 문장 골격, 절 배치, 쉼표 호흡, 질문/단정/명령 같은 끝맺음, 강조 순서, 감정 흐름은 유지하고 topicSlots/replaceTargets에 해당하는 소재 자리만 바꾸는 설계로 뽑아라. ' +
           'feeling에는 그 문장이 주는 체감만 적어라. 예: 단호한 결론, 불안 자극, 공감, 반전, 안심, 행동 압박, 실용적 정리. 원문 표현은 넣지 마라. ' +
           'referenceCharCount에는 원문 해당 문장 글자 수를 대략 적고, targetCharRange에는 생성 시 유지할 80~120% 분량 범위를 적어라. ' +
           'substitutionMap에는 원문 소재 자리를 현재 계정/영상 주제로 치환하기 위한 슬롯을 적어라. ' +
@@ -1630,7 +1686,7 @@ async function buildStructureBlueprint({
           `구조 분석:\n${analysisResult?.structureAnalysis || '-'}\n\n` +
           `후킹 분석:\n${analysisResult?.hookAnalysis || '-'}\n\n` +
           `심리 분석:\n${analysisResult?.psychologyAnalysis || '-'}\n\n` +
-          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[],"hookSentencePattern":[],"hookAdvantagePattern":[],"keywordSlots":[],"desireTriggers":[],"sectionRhythm":[],"lengthProfile":[],"substitutionRules":[],"sentenceBlueprint":[{"section":"hook","order":1,"role":"","length":"short","referenceCharCount":0,"targetCharRange":"","sentenceShape":"","tone":"","feeling":"","rhythm":"","desireTrigger":"","keywordSlot":"","topicSlots":[],"replaceTargets":[],"mustKeep":[],"mustReplace":[]}],"substitutionMap":[{"slot":"","preserve":"","replaceWith":""}]}',
+          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[],"hookSentencePattern":[],"hookAdvantagePattern":[],"keywordSlots":[],"desireTriggers":[],"sectionRhythm":[],"lengthProfile":[],"substitutionRules":[],"sentenceBlueprint":[{"section":"hook","order":1,"role":"","length":"short","referenceCharCount":0,"targetCharRange":"","sentenceShape":"","clauseProfile":"","endingStyle":"","punctuationProfile":"","tone":"","feeling":"","rhythm":"","desireTrigger":"","keywordSlot":"","topicSlots":[],"replaceTargets":[],"mustKeep":[],"mustReplace":[]}],"substitutionMap":[{"slot":"","preserve":"","replaceWith":""}]}',
       },
     ],
   })
@@ -3500,6 +3556,7 @@ export async function analyzeReferenceVideo({
             `문장별 소재 치환 작업표(실제 작성 기준):\n${formatSentenceSubstitutionPrompt(structureBlueprint)}\n\n` +
             `소재 치환표(원문 내용 대신 현재 주제로 채울 것):\n${formatSubstitutionMapPrompt(structureBlueprint)}\n\n` +
             '작성 강제 조건:\n' +
+            '- 최우선 목표: 사용자가 “레퍼런스랑 거의 같은 흐름인데 내 주제로 바뀌었다”고 느껴야 한다\n' +
             '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 한다\n' +
             '- 계정 카테고리는 큰 방향이고, 이번 릴스 주제는 실제 소재/상품/상황을 결정하는 우선값이다\n' +
             '- 1단계: 레퍼런스의 전개 순서/문장 기능/길이감/욕구 트리거를 잠근다\n' +
@@ -3507,11 +3564,13 @@ export async function analyzeReferenceVideo({
             '- 3단계: 비어 있는 키워드 슬롯을 이번 릴스 주제와 계정 세팅으로 채운다\n' +
             '- 4단계: 잠근 구조 그대로 HOOK/BODY/CTA를 작성한다\n' +
             '- 문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 수를 마음대로 줄이거나 합치지 않는다\n' +
-            '- 각 문장은 목표분량/문장형태/리듬/원본 느낌을 유지하고, 문장 안 소재/상황/상품명만 현재 주제로 치환한다\n' +
-            '- 변경 범위는 topicSlots/replaceTargets/mustReplace에 해당하는 주제 표현으로 제한한다. 문장 골격, 절 순서, 강조 순서, 감정 흐름은 유지한다\n' +
+            '- 각 문장은 목표분량/문장형태/절 구조/끝맺음/구두점 호흡/리듬/원본 느낌을 유지하고, 문장 안 소재/상황/상품명만 현재 주제로 치환한다\n' +
+            '- 변경 범위는 topicSlots/replaceTargets/mustReplace에 해당하는 주제 표현으로 제한한다. 문장 골격, 절 순서, 쉼표 호흡, 강조 순서, 감정 흐름은 유지한다\n' +
+            '- 레퍼런스가 질문으로 압박하면 결과도 같은 위치에서 질문으로 압박한다. 레퍼런스가 단호한 결론이면 결과도 같은 위치에서 단호하게 끝낸다\n' +
+            '- 레퍼런스가 짧게 툭 던지는 문장은 결과도 짧게 툭 던지고, 길게 누적 설명하는 문장은 결과도 비슷한 길이로 누적한다\n' +
             '- A/B/C는 서로 다른 새 아이디어 3개가 아니다. 같은 레퍼런스 blueprint를 타는 주제 치환 버전 3개다\n' +
             '- 원본 느낌이 단호함이면 단호하게, 공감이면 공감으로, 불안 자극이면 같은 심리 압박으로 치환한다\n' +
-            '- A안 원본형은 문장 수/길이/순서를 가장 엄격하게 맞춘다. B안 대화형은 구조를 유지하고 말투만 더 말하듯 자연스럽게 만든다. C안 후킹형은 구조를 유지하고 후킹/CTA만 강하게 만든다. 세 안 모두 구조 자체를 새로 만들지 않는다\n' +
+            '- A안 원본형은 문장 수/길이/절 구조/끝맺음/순서를 가장 엄격하게 맞춘다. B안 대화형은 구조를 유지하고 말투만 더 말하듯 자연스럽게 만든다. C안 후킹형은 구조를 유지하고 후킹/CTA만 강하게 만든다. 세 안 모두 구조 자체를 새로 만들지 않는다\n' +
             `- 이 안의 훅 차별화 지시: ${getVariationHookStyleInstruction(config)}\n` +
             '- A/B/C 모두 같은 첫 문장 시작어를 쓰면 실패다. 예: 세 안 모두 "결론부터 말해요"로 시작 금지\n' +
             '- 세 안은 같은 blueprint를 타되, A는 원본 흐름, B는 말하듯 부드러운 진입, C는 더 강한 긴장/반전 진입으로 구분한다\n' +
