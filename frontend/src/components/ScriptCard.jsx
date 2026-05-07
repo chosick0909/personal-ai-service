@@ -7,7 +7,36 @@ function SectionPreview({ label, value, tone, sizeClass = '' }) {
   )
 }
 
+const FALLBACK_ANGLE_BY_LABEL = {
+  A안: '원본형',
+  B안: '대화형',
+  C안: '후킹형',
+}
+
+const LEGACY_ANGLE_LABELS = {
+  구조밀착: '원본형',
+  '구조 밀착': '원본형',
+  자연화: '대화형',
+  자연형: '대화형',
+  '전환강화': '후킹형',
+  '전환 강화': '후킹형',
+}
+
+function getDisplayAngle(script = {}) {
+  const fallback = FALLBACK_ANGLE_BY_LABEL[script.label] || '초안'
+  const angle = String(script.angle || '').trim().replace(/\s+/g, ' ')
+
+  if (!angle) return fallback
+  if (LEGACY_ANGLE_LABELS[angle]) return LEGACY_ANGLE_LABELS[angle]
+  if (angle.length > 8) return fallback
+  if (/[.?!。！？]$/.test(angle)) return fallback
+
+  return angle
+}
+
 export default function ScriptCard({ script, onSelect, isSelected = false, hasSelection = false, disabled = false }) {
+  const displayAngle = getDisplayAngle(script)
+
   const handleSelect = () => {
     if (disabled) {
       return
@@ -47,7 +76,7 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
               </div>
             ) : null}
           </div>
-          <h3 className="mt-3 text-xl font-bold leading-8 text-[#F8FAFC]">{script.angle}</h3>
+          <h3 className="mt-3 text-xl font-bold leading-8 text-[#F8FAFC]">{displayAngle}</h3>
         </div>
       </div>
 

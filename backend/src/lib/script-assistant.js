@@ -444,7 +444,69 @@ function compactReferenceSignal(value = '', maxLength = 500) {
   return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
 }
 
-function buildReferenceStructureContext(reference) {
+function findSelectedVariation(reference = {}, selectedLabel = '') {
+  const variations = Array.isArray(reference.variations) ? reference.variations : []
+  if (!variations.length) return null
+  const normalizedLabel = String(selectedLabel || '').trim()
+  return (
+    variations.find((variation) => String(variation?.label || '').trim() === normalizedLabel) ||
+    variations[0] ||
+    null
+  )
+}
+
+function formatVariationBlueprintContext(variation = null) {
+  const blueprint = variation?.structureBlueprint
+  const sentenceBlueprint = Array.isArray(blueprint?.sentenceBlueprint)
+    ? blueprint.sentenceBlueprint.slice(0, 12)
+    : []
+  const substitutionMap = Array.isArray(blueprint?.substitutionMap)
+    ? blueprint.substitutionMap.slice(0, 8)
+    : []
+  const structureMatch = variation?.structureMatch
+
+  if (!sentenceBlueprint.length && !substitutionMap.length && !structureMatch) {
+    return ''
+  }
+
+  const sentenceLines = sentenceBlueprint.length
+    ? sentenceBlueprint
+        .map((item) => {
+          const pieces = [
+            item.length ? `길이=${item.length}` : null,
+            item.rhythm ? `리듬=${item.rhythm}` : null,
+            item.desireTrigger ? `욕구=${item.desireTrigger}` : null,
+            item.keywordSlot ? `키워드슬롯=${item.keywordSlot}` : null,
+          ]
+            .filter(Boolean)
+            .join(' / ')
+          return `${item.order}. [${String(item.section || '').toUpperCase()}] ${item.role || '-'}${pieces ? ` (${pieces})` : ''}`
+        })
+        .join('\n')
+    : '- 없음'
+
+  const substitutionLines = substitutionMap.length
+    ? substitutionMap
+        .map((item, index) =>
+          `${index + 1}. ${[item.slot, item.preserve, item.replaceWith].filter(Boolean).join(' / ')}`,
+        )
+        .join('\n')
+    : '- 없음'
+
+  return [
+    '선택 초안의 문장 단위 구조 설계도(피드백/수정에서도 유지):',
+    sentenceLines,
+    '소재 치환표:',
+    substitutionLines,
+    structureMatch
+      ? `최근 구조 유사도: ${structureMatch.score ?? '-'}점 · ${structureMatch.warnings?.join(', ') || '특이사항 없음'}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function buildReferenceStructureContext(reference, selectedLabel = '') {
   const frameNotes = (reference.frame_notes || [])
     .slice(0, 3)
     .map((frame) =>
@@ -453,6 +515,8 @@ function buildReferenceStructureContext(reference) {
         .join(' · '),
     )
     .join('\n')
+  const selectedVariation = findSelectedVariation(reference, selectedLabel)
+  const variationBlueprintContext = formatVariationBlueprintContext(selectedVariation)
 
   return [
     '레퍼런스 구조 참고(원문 내용/주제 복사 금지):',
@@ -462,8 +526,39 @@ function buildReferenceStructureContext(reference) {
     `- 심리 기제 신호: ${compactReferenceSignal(reference.psychology_analysis) || '-'}`,
     `프레임 인사이트: ${frameNotes || '-'}`,
     `기존 AI 피드백: ${compactReferenceSignal(reference.ai_feedback) || '-'}`,
+    variationBlueprintContext,
     '레퍼런스 전사: 제외됨(refine/feedback 단계에서는 reference transcript 전체를 포함하지 않음)',
-  ].join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function buildStructureDiagnosis(reference, selectedLabel = '', parsed = {}) {
+  const selectedVariation = findSelectedVariation(reference, selectedLabel)
+  const match = selectedVariation?.structureMatch || null
+  const score = Number(match?.score)
+  const referenceMatch = Number.isFinite(score) ? Math.round(score) : null
+  const problems = Array.isArray(match?.warnings)
+    ? match.warnings.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 4)
+    : []
+  const fixes = []
+
+  if (referenceMatch != null && referenceMatch < 70) {
+    fixes.push('레퍼런스의 문장 역할 순서와 길이감을 더 강하게 유지해야 합니다.')
+  }
+  if (String(parsed?.detail || '').includes('CTA')) {
+    fixes.push('CTA 위치와 행동 이유를 더 또렷하게 맞춥니다.')
+  }
+  if (String(parsed?.detail || '').includes('HOOK') || String(parsed?.summary || '').includes('훅')) {
+    fixes.push('첫 문장에서 문제/욕구를 더 빨리 찌릅니다.')
+  }
+
+  return {
+    referenceMatch,
+    level: referenceMatch == null ? '미확인' : referenceMatch >= 78 ? '높음' : referenceMatch >= 62 ? '보통' : '낮음',
+    problems,
+    fixes: fixes.length ? Array.from(new Set(fixes)).slice(0, 4) : ['선택 초안의 구조 설계도를 유지하면서 표현만 보정합니다.'],
+  }
 }
 
 function buildReferenceGuides(reference) {
@@ -513,8 +608,9 @@ function buildReferenceContaminationGuard() {
   return [
     '레퍼런스 오염 방지 규칙(절대 준수):',
     '- 편집 대상은 오직 현재 초안이다. 레퍼런스는 구조/리듬/전개 방식 참고용일 뿐이다.',
-    '- 레퍼런스의 주제, 업종, 상품명, 상황, 고유명사, 표면 단어, 문장 구조를 그대로 가져오지 않는다.',
+    '- 레퍼런스의 문장별 역할, 길이감, 전개 순서, 심리 트리거는 유지하되 원문 문장/주제/업종/상품명/상황/고유명사/표면 단어는 가져오지 않는다.',
     '- 레퍼런스 내용을 패러프레이즈하지 않는다.',
+    '- 표절 방지는 구조 삭제가 아니라 소재/상황/상품명/고유명사 치환으로 해결한다.',
     '- 현재 계정의 주제/타깃/상품/톤을 절대 변경하지 않는다.',
     '- 현재 초안에 없는 레퍼런스 소재를 새 핵심 소재로 추가하지 않는다.',
   ].join('\n')
@@ -650,7 +746,7 @@ export async function refineScriptWithAI({
 
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
-  const referenceContext = buildReferenceStructureContext(reference)
+  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
   const guides = buildReferenceGuides(reference)
   logPromptAssembly({
     stage: 'script-refine',
@@ -663,8 +759,9 @@ export async function refineScriptWithAI({
   })
 
   try {
+    const copilotModel = models.copilotModel || models.chatModel
     const response = await openai.chat.completions.create({
-      model: models.chatModel,
+      model: copilotModel,
       temperature: 0.5,
       messages: [
         {
@@ -681,6 +778,8 @@ export async function refineScriptWithAI({
             'BODY 규칙: 상황으로 시작하고 한 문장씩 끊어 전개한다. "많은 사람들이 ~ 하지만" 같은 문장을 금지한다.',
             'CTA 규칙: 행동 이유(손해/이득/궁금증)를 포함해 짧고 강하게 마무리한다. "좋아요/팔로우 부탁" 문구는 금지한다.',
             '연결성 규칙: HOOK에서 던진 문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
+            '구조 보존 규칙: 선택 초안에 문장 단위 구조 설계도가 있으면 문장 역할 순서, 길이감, 심리 트리거, CTA 위치를 유지한 채 요청받은 표현만 바꾼다.',
+            '구조 보존 규칙: 더 좋게 고치더라도 레퍼런스 구조에서 완전히 멀어지는 새 대본으로 재창작하지 않는다.',
             '아래 핵심 인사이트/체크포인트는 현재 초안의 주제와 충돌하지 않는 경우에만 구조 참고로 사용한다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             'message 규칙: "요청을 반영했습니다", "다시 정리했습니다"처럼 뭉뚱그린 말은 금지한다. 무엇을 어떤 식으로 바꿨는지 구체적으로 말한다.',
@@ -708,7 +807,7 @@ export async function refineScriptWithAI({
       ],
     })
     logAIUsage('copilot-refine', response, {
-      model: models.chatModel,
+      model: copilotModel,
       accountId,
       referenceId,
       selectedLabel: selectedLabel || '',
@@ -751,7 +850,7 @@ export async function refineScriptWithAI({
       referenceId,
       request: normalizedRequest,
       stage: 'script-refine',
-      model: models.chatModel,
+      model: models.copilotModel || models.chatModel,
     })
 
     throw new AppError('Script refinement failed', {
@@ -775,7 +874,7 @@ export async function generateScriptFeedback({
   const normalizedSections = normalizeSections(sections)
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
-  const referenceContext = buildReferenceStructureContext(reference)
+  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
   const guides = buildReferenceGuides(reference)
   logPromptAssembly({
     stage: 'script-feedback',
@@ -787,8 +886,9 @@ export async function generateScriptFeedback({
   })
 
   try {
+    const copilotModel = models.copilotModel || models.chatModel
     const response = await openai.chat.completions.create({
-      model: models.chatModel,
+      model: copilotModel,
       temperature: 0.4,
       messages: [
         {
@@ -799,6 +899,8 @@ export async function generateScriptFeedback({
             buildReferenceContaminationGuard(),
             'suggestedSections는 반드시 현재 초안을 개선한 결과여야 한다. 레퍼런스 전사/원문 내용을 기준으로 재생성하지 않는다.',
             'suggestedSections를 작성할 때는 설명형/교과서형 문장을 피하고, 실제 사람이 말하는 톤으로 다시 써라.',
+            'suggestedSections는 선택 초안의 문장 단위 구조 설계도, 길이감, 문장 역할 순서, 심리 트리거, CTA 위치를 가능한 한 유지한다.',
+            '피드백 반영안이 레퍼런스 구조를 버리고 새 대본처럼 바뀌면 실패다.',
             'HOOK은 긴장감 있게, BODY는 상황/경험형으로, CTA는 행동 이유를 담아 짧고 강하게 제안하라.',
             '평가 시 HOOK/BODY/CTA 연결성과 핵심 인사이트 반영 여부를 반드시 본다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
@@ -823,25 +925,27 @@ export async function generateScriptFeedback({
       ],
     })
     logAIUsage('copilot-feedback', response, {
-      model: models.chatModel,
+      model: copilotModel,
       accountId,
       referenceId,
       selectedLabel: selectedLabel || '',
     })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const structureDiagnosis = buildStructureDiagnosis(reference, selectedLabel, parsed)
 
     return {
       score: Number(parsed.score) || 0,
       summary: parsed.summary?.trim() || '전체 구조는 괜찮지만 더 압축할 여지가 있습니다.',
       detail: parsed.detail?.trim() || 'HOOK, BODY, CTA의 역할을 더 또렷하게 나누면 성능이 좋아질 수 있습니다.',
       suggestedSections: normalizeSections(parsed.suggestedSections),
+      structureDiagnosis,
     }
   } catch (error) {
     logAIError('gpt', error, {
       referenceId,
       stage: 'script-feedback',
-      model: models.chatModel,
+      model: models.copilotModel || models.chatModel,
     })
 
     throw new AppError('Script feedback generation failed', {

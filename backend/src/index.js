@@ -395,6 +395,20 @@ function readString(value, { field, maxLength = 2000, required = false } = {}) {
   return normalized
 }
 
+function readRequestCharacterId(req) {
+  return readString(
+    req.body?.characterId ||
+      req.body?.character_id ||
+      req.query?.characterId ||
+      req.query?.character_id ||
+      req.headers['x-character-id'],
+    {
+      field: 'characterId',
+      maxLength: 80,
+    },
+  )
+}
+
 function readTextList(value, { maxItems = 12 } = {}) {
   if (Array.isArray(value)) {
     return value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, maxItems)
@@ -532,7 +546,7 @@ app.post(
   asyncHandler(async (req, res) => {
     await assertEntitlementAccess({ userId: req.auth?.userId })
     const account = await resolveRequestAccount(req)
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
       ? character.profile.settings
       : {}
@@ -593,7 +607,7 @@ app.get(
   '/api/tools/caption/category-rule',
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req, { body: false, query: true })
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
       ? character.profile.settings
       : {}
@@ -617,7 +631,7 @@ app.post(
   asyncHandler(async (req, res) => {
     await assertEntitlementAccess({ userId: req.auth?.userId })
     const account = await resolveRequestAccount(req)
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
       ? character.profile.settings
       : {}
@@ -656,7 +670,7 @@ app.post(
   asyncHandler(async (req, res) => {
     await assertEntitlementAccess({ userId: req.auth?.userId })
     const account = await resolveRequestAccount(req)
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const profileSettings = character.profile?.settings && typeof character.profile.settings === 'object'
       ? character.profile.settings
       : {}
@@ -962,7 +976,7 @@ app.post(
       userId: req.auth?.userId,
       eventType: 'reference_analysis',
     })
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const analysisInput = {
       accountId: account.id,
       file: req.file,
@@ -1103,21 +1117,24 @@ app.post(
   askRateLimiter,
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const sessionId =
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
       `ask:${account.id}`
-    const personalization = await buildPersonalizationContext({
-      accountId: account.id,
-      sessionId,
-      fallbackSession: `ask:${account.id}`,
-    })
     const query = readString(req.body?.query, {
       field: 'query',
       required: true,
       maxLength: 2000,
+    })
+    const personalization = await buildPersonalizationContext({
+      accountId: account.id,
+      characterId: character.characterId,
+      sessionId,
+      fallbackSession: `ask:${account.id}`,
+      mode: 'ask',
+      query,
     })
     const matchCount = readNumber(req.body?.matchCount, {
       field: 'matchCount',
@@ -1134,10 +1151,13 @@ app.post(
     })
     const memoryUpdate = await updatePersonalizationMemory({
       accountId: account.id,
+      characterId: character.characterId,
       sessionId: personalization.sessionId,
       userInput: query,
       assistantOutput: result.answer,
       fallbackSession: `ask:${account.id}`,
+      mode: 'ask',
+      source: 'ask',
     })
 
     res.json({
@@ -1221,7 +1241,7 @@ app.post(
   refineRateLimiter,
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const requestText = readString(req.body?.message || req.body?.request, {
       field: 'message',
       required: true,
@@ -1232,20 +1252,32 @@ app.post(
       req.body?.session_id ||
       req.headers['x-session-id'] ||
       `copilot:${account.id}:${req.body?.referenceId || 'general'}`
-    const personalization = await buildPersonalizationContext({
+    const copilotFallbackSession = `copilot:${account.id}:${req.body?.referenceId || 'general'}`
+    const intentPersonalization = await buildPersonalizationContext({
       accountId: account.id,
+      characterId: character.characterId,
       sessionId,
-      fallbackSession: `copilot:${account.id}:${req.body?.referenceId || 'general'}`,
+      fallbackSession: copilotFallbackSession,
+      mode: 'default',
+      query: requestText,
     })
     const intent = await classifyCopilotIntent({
       message: requestText,
       sections: req.body?.sections,
       editTarget: req.body?.editTarget || req.body?.edit_target || '',
       characterSystemPrompt: character.systemPrompt,
-      personalizationContext: personalization.context,
+      personalizationContext: intentPersonalization.context,
     })
 
     if (intent.intent === 'feedback_request') {
+      const personalization = await buildPersonalizationContext({
+        accountId: account.id,
+        characterId: character.characterId,
+        sessionId,
+        fallbackSession: copilotFallbackSession,
+        mode: 'feedback',
+        query: requestText,
+      })
       const usageStatus = await assertUsageAllowed({
         userId: req.auth?.userId,
         eventType: 'feedback_request',
@@ -1284,34 +1316,86 @@ app.post(
         eventType: 'feedback_request',
         referenceId: req.body?.referenceId,
       })
+      const memoryUpdate = await updatePersonalizationMemory({
+        accountId: account.id,
+        characterId: character.characterId,
+        sessionId: personalization.sessionId,
+        userInput: requestText,
+        assistantOutput: result.summary || result.detail || '',
+        fallbackSession: copilotFallbackSession,
+        mode: 'feedback',
+        source: 'feedback_request',
+        metadata: {
+          selectedLabel: req.body?.selectedLabel || '',
+          referenceId: req.body?.referenceId || '',
+        },
+      })
 
       res.json({
         type: 'feedback',
+        mode: 'feedback',
+        autoApplied: false,
+        canUndo: false,
         intent,
         message: result.summary || `현재 초안은 ${result.score}점입니다.`,
         feedback: result,
         feedbackRecord,
+        proposedSections: result.suggestedSections,
+        structureDiagnosis: result.structureDiagnosis || null,
         personalization: {
           sessionId: personalization.sessionId,
           snapshot: personalization.snapshot,
+          memoryUpdate,
         },
       })
       return
     }
 
     if (!intent.shouldModifyScript || intent.intent !== 'edit_request') {
+      const personalization = await buildPersonalizationContext({
+        accountId: account.id,
+        characterId: character.characterId,
+        sessionId,
+        fallbackSession: copilotFallbackSession,
+        mode: 'question',
+        query: requestText,
+      })
+      const replyMessage = intent.reply || '어떤 부분을 도와드릴까요? 수정할 섹션과 방향을 알려주세요.'
+      const memoryUpdate = await updatePersonalizationMemory({
+        accountId: account.id,
+        characterId: character.characterId,
+        sessionId: personalization.sessionId,
+        userInput: requestText,
+        assistantOutput: replyMessage,
+        fallbackSession: copilotFallbackSession,
+        mode: 'question',
+        source: 'question',
+      })
       res.json({
         type: 'reply',
+        mode: 'question',
+        autoApplied: false,
+        canUndo: false,
         intent,
-        message: intent.reply || '어떤 부분을 도와드릴까요? 수정할 섹션과 방향을 알려주세요.',
+        message: replyMessage,
+        proposedSections: null,
         personalization: {
           sessionId: personalization.sessionId,
           snapshot: personalization.snapshot,
+          memoryUpdate,
         },
       })
       return
     }
 
+    const personalization = await buildPersonalizationContext({
+      accountId: account.id,
+      characterId: character.characterId,
+      sessionId,
+      fallbackSession: copilotFallbackSession,
+      mode: 'suggestion',
+      query: requestText,
+    })
     const usageStatus = await assertUsageAllowed({
       userId: req.auth?.userId,
       eventType: 'copilot_message',
@@ -1331,10 +1415,19 @@ app.post(
     })
     const memoryUpdate = await updatePersonalizationMemory({
       accountId: account.id,
+      characterId: character.characterId,
       sessionId: personalization.sessionId,
       userInput: requestText,
       assistantOutput: result.message || '',
-      fallbackSession: `copilot:${account.id}:${req.body?.referenceId || 'general'}`,
+      fallbackSession: copilotFallbackSession,
+      mode: 'suggestion',
+      source: 'copilot_suggestion',
+      metadata: {
+        editTarget: result.editTarget || '',
+        selectedLabel: req.body?.selectedLabel || '',
+        changedSections: result.changedSections || [],
+        referenceId: req.body?.referenceId || '',
+      },
     })
     await recordUsageEvent({
       userId: req.auth?.userId,
@@ -1345,11 +1438,19 @@ app.post(
 
     res.json({
       type: 'refine',
+      mode: 'suggestion',
+      autoApplied: false,
+      canUndo: false,
       intent,
       message: result.message,
       sections: result.sections,
+      proposedSections: result.sections,
       editTarget: result.editTarget,
       changedSections: result.changedSections,
+      diff: {
+        changedSections: result.changedSections,
+        reason: result.message,
+      },
       flowValidation: result.flowValidation,
       personalization: {
         sessionId: personalization.sessionId,
@@ -1370,21 +1471,24 @@ app.post(
       eventType: 'copilot_message',
       referenceId: req.body?.referenceId,
     })
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const sessionId =
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
       `refine:${account.id}:${req.body?.referenceId || 'general'}`
-    const personalization = await buildPersonalizationContext({
-      accountId: account.id,
-      sessionId,
-      fallbackSession: `refine:${account.id}:${req.body?.referenceId || 'general'}`,
-    })
     const requestText = readString(req.body?.request, {
       field: 'request',
       required: true,
       maxLength: 3000,
+    })
+    const personalization = await buildPersonalizationContext({
+      accountId: account.id,
+      characterId: character.characterId,
+      sessionId,
+      fallbackSession: `refine:${account.id}:${req.body?.referenceId || 'general'}`,
+      mode: 'suggestion',
+      query: requestText,
     })
     const result = await refineScriptWithAI({
       accountId: account.id,
@@ -1400,10 +1504,19 @@ app.post(
     })
     const memoryUpdate = await updatePersonalizationMemory({
       accountId: account.id,
+      characterId: character.characterId,
       sessionId: personalization.sessionId,
       userInput: requestText,
       assistantOutput: result.message || '',
       fallbackSession: `refine:${account.id}:${req.body?.referenceId || 'general'}`,
+      mode: 'suggestion',
+      source: 'copilot_suggestion',
+      metadata: {
+        editTarget: result.editTarget || '',
+        selectedLabel: req.body?.selectedLabel || '',
+        changedSections: result.changedSections || [],
+        referenceId: req.body?.referenceId || '',
+      },
     })
     await recordUsageEvent({
       userId: req.auth?.userId,
@@ -1413,10 +1526,18 @@ app.post(
     })
 
     res.json({
+      mode: 'suggestion',
+      autoApplied: false,
+      canUndo: false,
       message: result.message,
       sections: result.sections,
+      proposedSections: result.sections,
       editTarget: result.editTarget,
       changedSections: result.changedSections,
+      diff: {
+        changedSections: result.changedSections,
+        reason: result.message,
+      },
       flowValidation: result.flowValidation,
       personalization: {
         sessionId: personalization.sessionId,
@@ -1437,16 +1558,25 @@ app.post(
       eventType: 'feedback_request',
       referenceId: req.body?.referenceId,
     })
-    const character = await getAccountCharacterContext(account.id)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const sessionId =
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
       `feedback:${account.id}:${req.body?.referenceId || 'general'}`
+    const feedbackRequestText = readString(req.body?.request || '피드백 받기', {
+      field: 'request',
+      required: false,
+      maxLength: 3000,
+      fallback: '피드백 받기',
+    })
     const personalization = await buildPersonalizationContext({
       accountId: account.id,
+      characterId: character.characterId,
       sessionId,
       fallbackSession: `feedback:${account.id}:${req.body?.referenceId || 'general'}`,
+      mode: 'feedback',
+      query: feedbackRequestText,
     })
     const result = await generateScriptFeedback({
       accountId: account.id,
@@ -1480,13 +1610,33 @@ app.post(
       eventType: 'feedback_request',
       referenceId: req.body?.referenceId,
     })
+    const memoryUpdate = await updatePersonalizationMemory({
+      accountId: account.id,
+      characterId: character.characterId,
+      sessionId: personalization.sessionId,
+      userInput: feedbackRequestText,
+      assistantOutput: result.summary || result.detail || '',
+      fallbackSession: `feedback:${account.id}:${req.body?.referenceId || 'general'}`,
+      mode: 'feedback',
+      source: 'feedback_request',
+      metadata: {
+        selectedLabel: req.body?.selectedLabel || '',
+        referenceId: req.body?.referenceId || '',
+      },
+    })
 
     res.json({
+      mode: 'feedback',
+      autoApplied: false,
+      canUndo: false,
       feedback: result,
       feedbackRecord,
+      proposedSections: result.suggestedSections,
+      structureDiagnosis: result.structureDiagnosis || null,
       personalization: {
         sessionId: personalization.sessionId,
         snapshot: personalization.snapshot,
+        memoryUpdate,
       },
     })
   }),

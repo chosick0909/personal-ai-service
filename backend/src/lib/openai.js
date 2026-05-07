@@ -5,6 +5,10 @@ import { Agent, setGlobalDispatcher } from 'undici'
 function getOpenAIConfig() {
   const apiKey = process.env.OPENAI_API_KEY?.trim()
   const chatModel = process.env.OPENAI_CHAT_MODEL?.trim() || 'gpt-4.1'
+  const variationModel =
+    process.env.OPENAI_VARIATION_MODEL?.trim() || 'gpt-5.2'
+  const copilotModel =
+    process.env.OPENAI_COPILOT_MODEL?.trim() || variationModel
   const embeddingModel =
     process.env.OPENAI_EMBEDDING_MODEL?.trim() || 'text-embedding-3-small'
   const transcribeModel =
@@ -19,6 +23,8 @@ function getOpenAIConfig() {
   return {
     apiKey,
     chatModel,
+    variationModel,
+    copilotModel,
     embeddingModel,
     transcribeModel,
     visionModel,
@@ -79,11 +85,13 @@ export function hasOpenAIConfig() {
 }
 
 export function getOpenAIModels() {
-  const { chatModel, embeddingModel, transcribeModel, visionModel } =
+  const { chatModel, variationModel, copilotModel, embeddingModel, transcribeModel, visionModel } =
     getOpenAIConfig()
 
   return {
     chatModel,
+    variationModel,
+    copilotModel,
     embeddingModel,
     transcribeModel,
     visionModel,

@@ -21,6 +21,124 @@ function requireSupabaseAdmin() {
   return getSupabaseAdmin()
 }
 
+function isMissingCharacterSchema(error) {
+  if (!error) {
+    return false
+  }
+
+  return (
+    error.code === '42P01' ||
+    error.code === '42703' ||
+    error.code === 'PGRST205' ||
+    error.code === 'PGRST204' ||
+    String(error.message || '').includes('characters') ||
+    String(error.message || '').includes('schema cache')
+  )
+}
+
+function mergeProfileWithCharacter(profile = {}, character = null) {
+  if (!character) {
+    return profile
+  }
+
+  const profileSettings = profile?.settings && typeof profile.settings === 'object' ? profile.settings : {}
+  const characterSettings =
+    character?.settings && typeof character.settings === 'object' ? character.settings : {}
+
+  return {
+    ...profile,
+    settings: {
+      ...profileSettings,
+      ...characterSettings,
+    },
+  }
+}
+
+async function loadCharacterForAccount(supabaseAdmin, { account, profile, characterId }) {
+  const normalizedCharacterId = String(characterId || '').trim()
+
+  const buildQuery = () => {
+    const query = supabaseAdmin
+      .from('characters')
+      .select('id, account_id, name, slug, settings, is_default')
+      .eq('account_id', account.id)
+
+    if (normalizedCharacterId) {
+      return query.eq('id', normalizedCharacterId).maybeSingle()
+    }
+
+    return query.eq('is_default', true).maybeSingle()
+  }
+
+  const { data, error } = await buildQuery()
+  if (error) {
+    if (isMissingCharacterSchema(error)) {
+      return null
+    }
+
+    throw new AppError('Failed to load character', {
+      code: 'CHARACTER_FETCH_FAILED',
+      statusCode: 500,
+      cause: error,
+    })
+  }
+
+  if (data) {
+    return data
+  }
+
+  if (normalizedCharacterId) {
+    throw new AppError('Character not found for this account', {
+      code: 'CHARACTER_NOT_FOUND',
+      statusCode: 404,
+      details: {
+        accountId: account.id,
+        characterId: normalizedCharacterId,
+      },
+    })
+  }
+
+  const profileSettings = profile?.settings && typeof profile.settings === 'object' ? profile.settings : {}
+  const { data: created, error: createError } = await supabaseAdmin
+    .from('characters')
+    .insert({
+      account_id: account.id,
+      name: account.name || 'Default Character',
+      slug: account.slug || null,
+      settings: profileSettings,
+      is_default: true,
+    })
+    .select('id, account_id, name, slug, settings, is_default')
+    .single()
+
+  if (createError) {
+    if (createError.code === '23505') {
+      const retry = await supabaseAdmin
+        .from('characters')
+        .select('id, account_id, name, slug, settings, is_default')
+        .eq('account_id', account.id)
+        .eq('is_default', true)
+        .maybeSingle()
+
+      if (!retry.error && retry.data) {
+        return retry.data
+      }
+    }
+
+    if (isMissingCharacterSchema(createError)) {
+      return null
+    }
+
+    throw new AppError('Failed to create default character', {
+      code: 'DEFAULT_CHARACTER_CREATE_FAILED',
+      statusCode: 500,
+      cause: createError,
+    })
+  }
+
+  return created
+}
+
 function buildCharacterSystemPrompt({ account, profile }) {
   const settings = profile?.settings && typeof profile.settings === 'object' ? profile.settings : {}
   const customPrompt = typeof settings.characterPrompt === 'string' ? settings.characterPrompt.trim() : ''
@@ -109,7 +227,7 @@ function buildCharacterSystemPrompt({ account, profile }) {
     .join('\n\n')
 }
 
-export async function getAccountCharacterContext(accountId) {
+export async function getAccountCharacterContext(accountId, { characterId } = {}) {
   const supabaseAdmin = requireSupabaseAdmin()
   const profile = await getAccountProfile(accountId)
 
@@ -127,9 +245,25 @@ export async function getAccountCharacterContext(accountId) {
     })
   }
 
-  return {
+  const character = await loadCharacterForAccount(supabaseAdmin, {
     account,
     profile,
-    systemPrompt: buildCharacterSystemPrompt({ account, profile }),
+    characterId,
+  })
+  const characterAccount = character
+    ? {
+        ...account,
+        name: character.name || account.name,
+        slug: character.slug || account.slug,
+      }
+    : account
+  const characterProfile = mergeProfileWithCharacter(profile, character)
+
+  return {
+    account,
+    character,
+    characterId: character?.id || '',
+    profile: characterProfile,
+    systemPrompt: buildCharacterSystemPrompt({ account: characterAccount, profile: characterProfile }),
   }
 }

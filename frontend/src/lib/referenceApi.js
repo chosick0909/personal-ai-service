@@ -173,6 +173,14 @@ export function mapReferenceAnalysisToUi(analysis) {
       transcript: analysis.transcript || '',
       aiFeedback: analysis.ai_feedback || '',
       errorMessage: analysis.error_message || '',
+      analysisStageMetrics:
+        analysis.analysis_stage_metrics && typeof analysis.analysis_stage_metrics === 'object'
+          ? analysis.analysis_stage_metrics
+          : {},
+      transcriptQuality:
+        analysis.transcript_quality && typeof analysis.transcript_quality === 'object'
+          ? analysis.transcript_quality
+          : {},
       globalKnowledgeDebug: Array.isArray(analysis.global_knowledge_debug)
         ? analysis.global_knowledge_debug
         : [],
@@ -254,6 +262,14 @@ export async function listReferenceVideoHistory(accountId) {
     createdAt: item.created_at,
     status: item.processing_status || 'ready',
     projectId: item.project_id || null,
+    analysisStageMetrics:
+      item.analysis_stage_metrics && typeof item.analysis_stage_metrics === 'object'
+        ? item.analysis_stage_metrics
+        : {},
+    transcriptQuality:
+      item.transcript_quality && typeof item.transcript_quality === 'object'
+        ? item.transcript_quality
+        : {},
   }))
 }
 
@@ -367,12 +383,17 @@ export async function generateChatReply({
 
   return {
     type: payload.type || 'refine',
+    mode: payload.mode || payload.type || 'suggestion',
+    autoApplied: Boolean(payload.autoApplied),
+    canUndo: Boolean(payload.canUndo),
     intent: payload.intent || null,
     message: payload.message,
-    proposedSections: payload.sections,
+    proposedSections: payload.proposedSections || payload.sections,
     feedback: payload.feedback,
+    structureDiagnosis: payload.structureDiagnosis || payload.feedback?.structureDiagnosis || null,
     editTarget: payload.editTarget,
     changedSections: payload.changedSections,
+    diff: payload.diff || null,
     flowValidation: payload.flowValidation,
   }
 }

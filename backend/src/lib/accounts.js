@@ -58,6 +58,39 @@ function raiseSchemaMismatchIfNeeded(error, action) {
   )
 }
 
+function isMissingCharacterSchema(error) {
+  if (!error) {
+    return false
+  }
+
+  return (
+    error.code === '42P01' ||
+    error.code === '42703' ||
+    error.code === 'PGRST205' ||
+    error.code === 'PGRST204' ||
+    String(error.message || '').includes('characters') ||
+    String(error.message || '').includes('schema cache')
+  )
+}
+
+async function createDefaultCharacterForAccount(supabaseAdmin, account) {
+  const { error } = await supabaseAdmin.from('characters').insert({
+    account_id: account.id,
+    name: account.name,
+    slug: account.slug,
+    settings: {},
+    is_default: true,
+  })
+
+  if (error && !isMissingCharacterSchema(error) && error.code !== '23505') {
+    throw new AppError('Failed to create default character', {
+      code: 'DEFAULT_CHARACTER_CREATE_FAILED',
+      statusCode: 500,
+      cause: error,
+    })
+  }
+}
+
 function slugifyAccountName(value = '') {
   const normalized = value
     .trim()
@@ -371,6 +404,8 @@ export async function createAccount(input = {}, userId) {
       cause: error,
     })
   }
+
+  await createDefaultCharacterForAccount(supabaseAdmin, data)
 
   return data
 }

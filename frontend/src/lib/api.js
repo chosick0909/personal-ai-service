@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 
 const ACCOUNT_STORAGE_KEY = 'studio:selected-account-id'
+const CHARACTER_STORAGE_KEY = 'studio:selected-character-id'
 const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim()
 const DEFAULT_API_BASE_URL = 'https://api.hookai.kr'
 
@@ -69,24 +70,55 @@ export function setStoredAccountId(accountId) {
     return
   }
 
+  const previousAccountId = getStoredAccountId()
   if (!accountId) {
     window.localStorage.removeItem(ACCOUNT_STORAGE_KEY)
+    window.localStorage.removeItem(CHARACTER_STORAGE_KEY)
     return
   }
 
   window.localStorage.setItem(ACCOUNT_STORAGE_KEY, accountId)
+  if (previousAccountId && previousAccountId !== accountId) {
+    window.localStorage.removeItem(CHARACTER_STORAGE_KEY)
+  }
+}
+
+export function getStoredCharacterId() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return window.localStorage.getItem(CHARACTER_STORAGE_KEY) || ''
+}
+
+export function setStoredCharacterId(characterId) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  if (!characterId) {
+    window.localStorage.removeItem(CHARACTER_STORAGE_KEY)
+    return
+  }
+
+  window.localStorage.setItem(CHARACTER_STORAGE_KEY, characterId)
 }
 
 export async function apiFetch(input, init = {}) {
   const { timeoutMs, ...requestInit } = init
   const headers = new Headers(init.headers || {})
   const accountId = getStoredAccountId()
+  const characterId = getStoredCharacterId()
   const {
     data: { session },
   } = await supabase.auth.getSession()
 
   if (accountId) {
     headers.set('x-account-id', accountId)
+  }
+
+  if (characterId) {
+    headers.set('x-character-id', characterId)
   }
 
   if (session?.access_token) {

@@ -1978,15 +1978,14 @@ export function AppStateProvider({ children }) {
     const normalizedTopic = typeof options.topic === 'string'
       ? options.topic.trim()
       : uploadTopic.trim()
-    const fallbackTopic = uploadTitle.trim() || file.name.replace(/\.[^.]+$/, '') || '일반'
-    const effectiveTopic = normalizedTopic || fallbackTopic
+    const displayTopic = normalizedTopic || '일반'
 
     const createdAt = new Date().toISOString()
     const localReference = {
       id: `reference-${Date.now()}`,
       title: uploadTitle.trim() || file.name.replace(/\.[^.]+$/, ''),
       fileName: file.name,
-      topic: effectiveTopic,
+      topic: displayTopic,
       projectId: getPersistedCurrentProjectId(),
       createdAt,
       status: 'processing',
@@ -2018,7 +2017,7 @@ export function AppStateProvider({ children }) {
       const analysis = await analyzeReferenceVideo({
         file,
         accountId: requestAccountId,
-        topic: effectiveTopic,
+        topic: normalizedTopic,
         title: uploadTitle,
         projectId: getPersistedCurrentProjectId(),
         signal: requestAbortController.signal,

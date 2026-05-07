@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 const PRICE_MAP = {
+  'gpt-5.2': { inputPer1M: 1.75, outputPer1M: 14 },
   'gpt-4o': { inputPer1M: 2.5, outputPer1M: 10 },
   'gpt-4.1': { inputPer1M: 2, outputPer1M: 8 },
   'gpt-4.1-mini': { inputPer1M: 0.4, outputPer1M: 1.6 },

@@ -34,6 +34,8 @@ import {
 const VARIATION_CONTEXT_TEXT_MAX = 800
 const MAX_PROMPT_SETTING_CUES = 3
 const ENABLE_COST_GUARD = String(process.env.FEATURE_COST_GUARD || 'true') !== 'false'
+const ENABLE_QUALITY_REGEN = String(process.env.FEATURE_ABC_QUALITY_REGEN || 'false') === 'true'
+const ENABLE_ABC_POLISH = String(process.env.FEATURE_ABC_POLISH || 'false') === 'true'
 const QUALITY_REGEN_AVERAGE_THRESHOLD = Number.parseFloat(
   String(process.env.QUALITY_REGEN_AVERAGE_THRESHOLD || '3.2'),
 )
@@ -58,6 +60,21 @@ const TRANSCRIPT_RELIABILITY_LOW_THRESHOLD = Number.parseInt(
   process.env.TRANSCRIPT_RELIABILITY_LOW_THRESHOLD || '45',
   10,
 )
+const DEFAULT_REFERENCE_TITLE = '레퍼런스 영상'
+const MAX_VARIATION_ANGLE_LENGTH = 8
+const MAX_SENTENCE_BLUEPRINT_ITEMS = 12
+const STRUCTURE_MATCH_RETRY_THRESHOLD = 68
+const STRICT_STRUCTURE_MATCH_RETRY_THRESHOLD = 74
+const STRUCTURE_MATCH_HARD_RETRY_THRESHOLD = Number.parseInt(
+  String(process.env.STRUCTURE_MATCH_HARD_RETRY_THRESHOLD || '45'),
+  10,
+)
+const RECORDING_METADATA_PATTERN =
+  /(screen\s*record(?:ing)?|screenrecording|screen\s*shot|screenshot|스크린\s*샷|스크린샷|화면\s*기록|화면기록|녹화|녹화본|recording)/gi
+const DATE_TIME_METADATA_PATTERN =
+  /(?:20\d{2}[-./년]\s*\d{1,2}[-./월]\s*\d{1,2}(?:일)?(?:\s*(?:오전|오후|am|pm|at)?\s*\d{1,2}[:.시]\s*\d{2}(?:[:.분]\s*\d{2})?(?:초)?)?|\d{1,2}[-._]\d{1,2}[-._]\d{1,4}|\d{1,2}\s*월\s*\d{1,2}\s*일(?:\s*(?:오전|오후)?\s*\d{1,2}\s*시\s*\d{1,2}\s*분?(?:\s*\d{1,2}\s*초)?)?|\b\d{1,2}[:.]\d{2}(?:[:.]\d{2})?\b)/gi
+const GENERATED_METADATA_LEAK_PATTERN =
+  /(20\d{2}[-./년]\s*\d{1,2}[-./월]\s*\d{1,2}|\d{1,2}\s*월\s*\d{1,2}\s*일\s*(?:오전|오후)?\s*\d{1,2}\s*시|\d{1,2}[:.]\d{2}[:.]\d{2}|찍힌|촬영일|녹화일|업로드일|파일명|screen\s*record|screenrecording|화면\s*기록)/i
 
 const ACCOUNT_GOAL_LABELS = {
   'personal-influencer': '퍼스널 인플루언싱',
@@ -119,7 +136,7 @@ const REFERENCE_SURFACE_STOPWORDS = new Set([
 ])
 const MAX_REFERENCE_SURFACE_TERMS = 16
 
-const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v4').trim() || 'v4'
+const ANALYSIS_PROMPT_VERSION = String(process.env.ANALYSIS_PROMPT_VERSION || 'v5').trim() || 'v5'
 const ANALYZE_DEDUPE_WINDOW_MINUTES = Number.parseInt(
   String(process.env.ANALYZE_DEDUPE_WINDOW_MINUTES || '30'),
   10,
@@ -196,6 +213,8 @@ function getReferenceVideoSelectColumnList({ includeProjectId = true, detail = f
         'document_id',
         'processing_status',
         'error_message',
+        'analysis_stage_metrics',
+        'transcript_quality',
         'created_at',
       ]
     : [
@@ -212,6 +231,8 @@ function getReferenceVideoSelectColumnList({ includeProjectId = true, detail = f
         'ai_feedback',
         'processing_status',
         'error_message',
+        'analysis_stage_metrics',
+        'transcript_quality',
         'created_at',
       ]
 
@@ -1000,12 +1021,50 @@ function isUsableScriptGuideLine(line = '') {
   // Script generation guides should avoid visual/meta-analysis jargon.
   const bannedMetaPattern =
     /(첫\s*\d+초|클로즈업|화면|자막|컷\s*전환|프레임|장면|시선\s*집중|문구|도입부에서는|전개에서는|결론에서는|영상|편집|연출)/i
-  return !bannedMetaPattern.test(text)
+  return !bannedMetaPattern.test(text) && !GENERATED_METADATA_LEAK_PATTERN.test(text)
 }
 
-function extractReferenceSurfaceTerms({ title = '', topic = '', transcript = '' } = {}) {
-  const corpus = `${title}\n${topic}\n${transcript}`
-  const tokens = String(corpus || '')
+function removeFileExtension(value = '') {
+  return String(value || '').replace(/\.[a-z0-9]{1,8}$/i, '')
+}
+
+function stripReferenceMetadataText(value = '') {
+  return removeFileExtension(value)
+    .replace(RECORDING_METADATA_PATTERN, ' ')
+    .replace(DATE_TIME_METADATA_PATTERN, ' ')
+    .replace(/\b(?:am|pm|at)\b/gi, ' ')
+    .replace(/\b(?:mov|mp4|m4v|webm|avi|mkv)\b/gi, ' ')
+    .replace(/[()[\]{}_,]+/g, ' ')
+    .replace(/\s*[-–—]\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isMeaningfulReferenceTitle(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (!/[a-zA-Z가-힣]/.test(text)) return false
+  if (text.length <= 2 && !/[가-힣]{2,}|[a-zA-Z]{3,}/.test(text)) return false
+  return true
+}
+
+function normalizeReferenceTitle({ title = '', originalFilename = '' } = {}) {
+  const explicitTitle = String(title || '').trim()
+  const sanitizedExplicitTitle = stripReferenceMetadataText(explicitTitle)
+  if (isMeaningfulReferenceTitle(sanitizedExplicitTitle)) {
+    return sanitizedExplicitTitle.slice(0, 200)
+  }
+
+  const sanitizedFilenameTitle = stripReferenceMetadataText(originalFilename)
+  if (isMeaningfulReferenceTitle(sanitizedFilenameTitle)) {
+    return sanitizedFilenameTitle.slice(0, 200)
+  }
+
+  return DEFAULT_REFERENCE_TITLE
+}
+
+function tokenizeReferenceSurfaceText(value = '') {
+  return String(value || '')
     .toLowerCase()
     .split(/[\s,./!?|()[\]{}:;"'`~<>+=_*&^%$#@\-–—→\n\r\t]+/)
     .map((token) => token.trim())
@@ -1013,22 +1072,84 @@ function extractReferenceSurfaceTerms({ title = '', topic = '', transcript = '' 
     .filter((token) => token.length >= 2 && token.length <= 20)
     .filter((token) => !/^\d+$/.test(token))
     .filter((token) => !REFERENCE_SURFACE_STOPWORDS.has(token))
+}
+
+function extractReferenceTitleSurfaceTerms(title = '') {
+  const rawTitle = removeFileExtension(title)
+    .replace(/[()[\]{}_,]+/g, ' ')
+    .replace(/\s*[-–—]\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const cleanedTitle = stripReferenceMetadataText(title)
+  const candidates = [cleanedTitle, rawTitle]
+    .map((item) => String(item || '').toLowerCase().trim())
+    .filter(Boolean)
+    .filter((item) => item !== DEFAULT_REFERENCE_TITLE.toLowerCase())
+    .filter((item) => item.length >= 2 && item.length <= 40)
+    .filter((item) => !GENERATED_METADATA_LEAK_PATTERN.test(item))
+
+  const terms = []
+  for (const candidate of candidates) {
+    terms.push(candidate)
+    terms.push(...tokenizeReferenceSurfaceText(candidate))
+  }
+
+  return Array.from(new Set(terms)).slice(0, 8)
+}
+
+function extractReferenceSurfaceTerms({ title = '', topic = '', transcript = '' } = {}) {
+  const explicitTitleTerms = extractReferenceTitleSurfaceTerms(title)
+  const corpus = stripReferenceMetadataText(`${topic}\n${transcript}`)
+  const tokens = tokenizeReferenceSurfaceText(corpus)
 
   const counts = new Map()
   for (const token of tokens) {
     counts.set(token, (counts.get(token) || 0) + 1)
   }
 
-  return Array.from(counts.entries())
+  const frequentTerms = Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([token]) => token)
-    .slice(0, MAX_REFERENCE_SURFACE_TERMS)
+
+  const deduped = []
+  for (const term of [...explicitTitleTerms, ...frequentTerms]) {
+    if (deduped.includes(term)) continue
+    deduped.push(term)
+    if (deduped.length >= MAX_REFERENCE_SURFACE_TERMS) break
+  }
+
+  return deduped
 }
 
 function findReferenceSurfaceLeakage(text = '', referenceSurfaceTerms = []) {
   const normalized = String(text || '').toLowerCase()
   if (!normalized) return null
-  return (referenceSurfaceTerms || []).find((term) => containsTerm(normalized, term)) || null
+  const compact = normalized.replace(/\s+/g, '')
+  return (
+    (referenceSurfaceTerms || []).find((term) => {
+      const normalizedTerm = String(term || '').toLowerCase().trim()
+      if (!normalizedTerm) return false
+      if (containsTerm(normalized, normalizedTerm)) return true
+      const compactTerm = normalizedTerm.replace(/\s+/g, '')
+      return compactTerm.length >= 3 && compact.includes(compactTerm)
+    }) || null
+  )
+}
+
+function normalizeGenerationTopic(topic = '', normalizedReferenceTitle = DEFAULT_REFERENCE_TITLE) {
+  const explicitTopic = stripReferenceMetadataText(topic).slice(0, 200)
+  if (!explicitTopic) return '일반'
+
+  const referenceTitle = String(normalizedReferenceTitle || '').trim()
+  if (
+    referenceTitle &&
+    referenceTitle !== DEFAULT_REFERENCE_TITLE &&
+    explicitTopic.toLowerCase() === referenceTitle.toLowerCase()
+  ) {
+    return '일반'
+  }
+
+  return explicitTopic
 }
 
 function scoreTranscriptReliability({ text = '', segments = [], durationSeconds = null, hasAudio = false } = {}) {
@@ -1148,6 +1269,304 @@ function buildTranscriptReliabilityPrompt(transcriptQuality = {}) {
     .join('\n')
 }
 
+function splitScriptSentences(value = '', maxItems = 30) {
+  const normalized = String(value || '')
+    .replace(/\r/g, '\n')
+    .replace(/([.!?。！？])\s*/g, '$1\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+
+  if (!normalized) return []
+
+  const pieces = normalized
+    .split(/\n+/)
+    .flatMap((line) => {
+      const compact = line.trim()
+      if (!compact) return []
+      if (compact.length <= 110) return [compact]
+      return compact
+        .split(/(?<=고|며|서|데|요|다)[,\s]+/u)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    })
+    .map((item) => item.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  return pieces.slice(0, maxItems)
+}
+
+function inferBlueprintSection(order, total, rawSection = '') {
+  const section = String(rawSection || '').trim().toLowerCase()
+  if (section === 'hook' || section === 'body' || section === 'cta') return section
+  if (order <= Math.max(1, Math.ceil(total * 0.18))) return 'hook'
+  if (order > Math.max(1, Math.floor(total * 0.82))) return 'cta'
+  return 'body'
+}
+
+function normalizeLengthBand(value = '', fallbackText = '') {
+  const raw = String(value || '').trim().toLowerCase()
+  if (['short', 'medium', 'long'].includes(raw)) return raw
+  const length = String(fallbackText || '').trim().length
+  if (length <= 35) return 'short'
+  if (length >= 90) return 'long'
+  return 'medium'
+}
+
+function inferSentenceShape(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/[?？]$/.test(text)) return '질문형'
+  if (/(하지만|그런데|근데|반면|오히려|문제는)/.test(text)) return '반전형'
+  if (/(하세요|해보세요|보세요|확인|저장|눌러|남겨)/.test(text)) return '행동유도형'
+  if (/(이유|때문|그래서|결국|핵심은)/.test(text)) return '이유제시형'
+  if (text.length <= 35) return '짧은 단정형'
+  if (text.length >= 90) return '긴 설명형'
+  return '균형 설명형'
+}
+
+function inferSentenceFeeling(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/(왜|문제|실수|안\s*되는|못하는|망가|놓치|손해|위험|불안)/.test(text)) {
+    return '문제를 찌르며 긴장감을 만드는 느낌'
+  }
+  if (/(사실|결론|핵심|진짜|중요한|기준)/.test(text)) {
+    return '단호하게 핵심을 정리하는 느낌'
+  }
+  if (/(저도|나도|그럴|답답|고민|힘들|괜찮)/.test(text)) {
+    return '공감하면서 편하게 말을 거는 느낌'
+  }
+  if (/(지금|오늘|바로|먼저|확인|체크|저장|남겨|보세요|하세요)/.test(text)) {
+    return '다음 행동으로 밀어주는 느낌'
+  }
+  if (/(편해|쉬워|달라|바뀌|해결|좋아|줄어)/.test(text)) {
+    return '변화와 이득을 기대하게 하는 느낌'
+  }
+  if (text.length <= 35) return '짧고 툭 던지는 느낌'
+  return '차분히 설명을 이어가는 느낌'
+}
+
+function buildTargetCharRange(referenceCharCount = 0) {
+  const count = Number(referenceCharCount)
+  if (!Number.isFinite(count) || count <= 0) {
+    return ''
+  }
+
+  const min = Math.max(12, Math.round(count * 0.8))
+  const max = Math.max(min + 6, Math.round(count * 1.2))
+  return `${min}-${max}자`
+}
+
+function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence = '') {
+  const order = Number.isFinite(Number(item.order)) ? Number(item.order) : index + 1
+  const section = inferBlueprintSection(order, total || 1, item.section)
+  const role = String(item.role || '').trim()
+  const keywordSlot = String(item.keywordSlot || item.keyword_slot || '').trim()
+  const topicSlots = normalizeStringList(
+    item.topicSlots || item.topic_slots || item.topicExpressions || item.topic_expressions,
+    5,
+  )
+  const replaceTargets = normalizeStringList(
+    item.replaceTargets ||
+      item.replace_targets ||
+      item.topicReplaceTargets ||
+      item.topic_replace_targets,
+    5,
+  )
+  const desireTrigger = String(item.desireTrigger || item.desire_trigger || '').trim()
+  const tone = String(item.tone || '').trim()
+  const feeling = String(item.feeling || item.originalFeel || item.original_feel || item.emotionalTone || item.emotional_tone || '').trim() ||
+    inferSentenceFeeling(sourceSentence)
+  const rhythm = String(item.rhythm || '').trim()
+  const length = normalizeLengthBand(item.length, role)
+  const referenceCharCount = Math.max(
+    0,
+    Math.round(
+      Number(item.referenceCharCount || item.reference_char_count || item.charCount || item.char_count || 0) ||
+        String(sourceSentence || '').trim().length,
+    ),
+  )
+  const targetCharRange = String(item.targetCharRange || item.target_char_range || '').trim() ||
+    buildTargetCharRange(referenceCharCount)
+  const sentenceShape = String(item.sentenceShape || item.sentence_shape || '').trim() ||
+    inferSentenceShape(sourceSentence)
+  const mustKeep = normalizeStringList(item.mustKeep || item.must_keep, 4)
+  const mustReplace = normalizeStringList(item.mustReplace || item.must_replace, 4)
+
+  return {
+    order,
+    section,
+    role: role || `${section.toUpperCase()} ${order}번 문장 역할`,
+    length,
+    referenceCharCount,
+    targetCharRange,
+    sentenceShape,
+    tone,
+    feeling,
+    rhythm,
+    desireTrigger,
+    keywordSlot,
+    topicSlots,
+    replaceTargets,
+    mustKeep,
+    mustReplace,
+  }
+}
+
+function normalizeSentenceBlueprint(rawBlueprint, transcript = '', transcriptQuality = {}) {
+  const sourceSentences = transcriptQuality?.reliable
+    ? splitScriptSentences(transcript, MAX_SENTENCE_BLUEPRINT_ITEMS)
+    : []
+  const sourceTotalChars = sourceSentences.join(' ').length
+  const rawItems = Array.isArray(rawBlueprint) ? rawBlueprint : []
+  const normalized = rawItems
+    .slice(0, MAX_SENTENCE_BLUEPRINT_ITEMS)
+    .map((item, index) =>
+      normalizeBlueprintItem(item, index, rawItems.length, sourceSentences[index] || ''),
+    )
+    .filter((item) => item.role || item.keywordSlot || item.desireTrigger)
+
+  if (normalized.length) {
+    return {
+      mode: transcriptQuality?.reliable ? 'sentence' : 'section',
+      items: normalized,
+      referenceStats: {
+        sentenceCount: sourceSentences.length || normalized.length,
+        totalChars: sourceTotalChars || null,
+        transcriptQuality: transcriptQuality?.level || 'unknown',
+      },
+    }
+  }
+
+  if (sourceSentences.length >= 4) {
+    const fallbackItems = sourceSentences.map((sentence, index) => {
+      const order = index + 1
+      return normalizeBlueprintItem(
+        {
+          order,
+          section: inferBlueprintSection(order, sourceSentences.length),
+          role:
+            index === 0
+              ? '문제를 찌르는 첫 문장'
+              : index === sourceSentences.length - 1
+                ? '다음 행동을 유도하는 마무리'
+                : '앞 문장의 긴장을 이어 구체화하는 문장',
+          length: normalizeLengthBand('', sentence),
+        },
+        index,
+        sourceSentences.length,
+        sentence,
+      )
+    })
+
+    return {
+      mode: 'sentence',
+      items: fallbackItems,
+      referenceStats: {
+        sentenceCount: sourceSentences.length,
+        totalChars: sourceTotalChars || null,
+        transcriptQuality: transcriptQuality?.level || 'unknown',
+      },
+    }
+  }
+
+  return {
+    mode: 'section',
+    items: [],
+    referenceStats: {
+      sentenceCount: sourceSentences.length,
+      totalChars: sourceTotalChars || null,
+      transcriptQuality: transcriptQuality?.level || 'unknown',
+    },
+  }
+}
+
+function normalizeSubstitutionMap(rawMap) {
+  if (!Array.isArray(rawMap)) return []
+  return rawMap
+    .map((item) => ({
+      slot: String(item?.slot || item?.sourceSlot || item?.source_slot || '').trim(),
+      preserve: String(item?.preserve || item?.keep || '').trim(),
+      replaceWith: String(item?.replaceWith || item?.replace_with || item?.replacement || '').trim(),
+    }))
+    .filter((item) => item.slot || item.preserve || item.replaceWith)
+    .slice(0, 8)
+}
+
+function formatSentenceBlueprintPrompt(structureBlueprint = {}) {
+  const items = structureBlueprint?.sentenceBlueprint || []
+  if (!items.length) {
+    return '- 문장 단위 blueprint 없음. 섹션 리듬/길이감만 참고.'
+  }
+
+  return items
+    .map((item) => {
+      const extras = [
+        item.length ? `길이=${item.length}` : null,
+        item.targetCharRange ? `목표분량=${item.targetCharRange}` : null,
+        item.sentenceShape ? `문장형태=${item.sentenceShape}` : null,
+        item.rhythm ? `리듬=${item.rhythm}` : null,
+        item.tone ? `톤=${item.tone}` : null,
+        item.feeling ? `느낌=${item.feeling}` : null,
+        item.desireTrigger ? `욕구=${item.desireTrigger}` : null,
+        item.keywordSlot ? `키워드슬롯=${item.keywordSlot}` : null,
+        item.topicSlots?.length ? `주제표현자리=${item.topicSlots.join(', ')}` : null,
+        item.replaceTargets?.length ? `치환대상=${item.replaceTargets.join(', ')}` : null,
+        item.mustKeep?.length ? `유지=${item.mustKeep.join(', ')}` : null,
+        item.mustReplace?.length ? `치환=${item.mustReplace.join(', ')}` : null,
+      ]
+        .filter(Boolean)
+        .join(' / ')
+
+      return `${item.order}. [${item.section.toUpperCase()}] ${item.role}${extras ? ` (${extras})` : ''}`
+    })
+    .join('\n')
+}
+
+function formatSentenceSubstitutionPrompt(structureBlueprint = {}) {
+  const items = structureBlueprint?.sentenceBlueprint || []
+  if (!items.length) {
+    return '- 문장별 치환표 없음. 단, 섹션별 전개 순서와 길이감은 유지.'
+  }
+
+  return items
+    .map((item) => {
+      const pieces = [
+        `${item.order}번 문장`,
+        `[${String(item.section || '').toUpperCase()}]`,
+        `역할 유지: ${item.role || '-'}`,
+        item.keywordSlot ? `키워드 자리: ${item.keywordSlot}` : null,
+        item.topicSlots?.length ? `주제 표현 자리: ${item.topicSlots.join(', ')}` : null,
+        item.replaceTargets?.length ? `치환할 표현: ${item.replaceTargets.join(', ')}` : null,
+        item.desireTrigger ? `욕구 자리: ${item.desireTrigger}` : null,
+        item.feeling ? `원본 느낌: ${item.feeling}` : null,
+        item.sentenceShape ? `문장 형태: ${item.sentenceShape}` : null,
+        item.targetCharRange ? `분량: ${item.targetCharRange}` : null,
+      ].filter(Boolean)
+
+      return `- ${pieces.join(' / ')}`
+    })
+    .join('\n')
+}
+
+function formatSubstitutionMapPrompt(structureBlueprint = {}) {
+  const items = structureBlueprint?.substitutionMap || []
+  if (!items.length) {
+    return '- 원문 표면 소재/상황/상품명은 현재 주제로 치환'
+  }
+
+  return items
+    .map((item, index) => {
+      const pieces = [
+        item.slot ? `슬롯: ${item.slot}` : null,
+        item.preserve ? `유지할 역할: ${item.preserve}` : null,
+        item.replaceWith ? `치환 방향: ${item.replaceWith}` : null,
+      ].filter(Boolean)
+      return `${index + 1}. ${pieces.join(' / ')}`
+    })
+    .join('\n')
+}
+
 async function buildStructureBlueprint({
   openai,
   chatModel,
@@ -1165,7 +1584,19 @@ async function buildStructureBlueprint({
       {
         role: 'system',
         content:
-          '너는 레퍼런스에서 논리 구조만 추출하는 분석기다. 주제/업종/키워드는 제거하고 추상 구조만 JSON으로 반환한다. 특히 hookSentencePattern에는 훅의 시작 방식, 문장 리듬, 긴장 형성 순서만 추상적으로 적고 원문 단어는 넣지 마라. hookAdvantagePattern에는 레퍼런스 훅의 강점(주의 환기 방식, 갈등 제시 방식, 감정 트리거)을 일반화해서 적어라. 전사 신뢰도가 낮으면 전사 문장 구조를 억지로 추출하지 말고 분석 결과와 프레임 단서에서 확인되는 추상 구조만 사용하라.',
+          '너는 레퍼런스에서 성과를 만든 대본 구조를 추출하는 분석기다. 원문 상품명/고유명사/상황은 제거하되, 전개 순서, 문장 기능, 길이감, 심리/욕구 트리거, 핵심 키워드 역할은 반드시 보존한다. ' +
+          'keywordSlots에는 원문 단어가 아니라 "문제 키워드 자리", "욕구 키워드 자리", "결과 키워드 자리"처럼 새 주제로 치환해야 할 슬롯을 적어라. ' +
+          'desireTriggers에는 시간 절약, 실패 회피, 손해 회피, 편해짐, 자신감, 불안 해소처럼 보편적으로 재사용 가능한 심리/욕구 트리거를 적어라. ' +
+          'hookSentencePattern에는 훅의 시작 방식, 문장 리듬, 긴장 형성 순서를 적되 원문 단어는 넣지 마라. ' +
+          'sectionRhythm에는 HOOK/BODY/CTA의 문장 수, 줄바꿈, 짧고 긴 문장 배치, 반복 리듬을 적어라. ' +
+          'lengthProfile에는 각 섹션이 짧은지/중간인지/긴지와 원문 대비 생성 시 유지해야 할 분량감을 적어라. ' +
+          'sentenceBlueprint에는 레퍼런스를 문장별로 쪼개 각 문장의 역할/길이/문장 형태/리듬/느낌/욕구 트리거/키워드 슬롯을 적어라. 원문 문장은 절대 넣지 말고 역할만 적어라. ' +
+          'topicSlots에는 그 문장에서 원문 주제/상품/상황/업종이 들어가는 자리만 적어라. replaceTargets에는 생성 시 현재 계정 세팅과 이번 주제로 바꿔야 하는 표현의 역할만 적어라. ' +
+          '중요: 레퍼런스의 문장 골격, 절 배치, 강조 순서, 감정 흐름은 유지하고 topicSlots/replaceTargets에 해당하는 소재 자리만 바꾸는 설계로 뽑아라. ' +
+          'feeling에는 그 문장이 주는 체감만 적어라. 예: 단호한 결론, 불안 자극, 공감, 반전, 안심, 행동 압박, 실용적 정리. 원문 표현은 넣지 마라. ' +
+          'referenceCharCount에는 원문 해당 문장 글자 수를 대략 적고, targetCharRange에는 생성 시 유지할 80~120% 분량 범위를 적어라. ' +
+          'substitutionMap에는 원문 소재 자리를 현재 계정/영상 주제로 치환하기 위한 슬롯을 적어라. ' +
+          'substitutionRules에는 무엇을 유지하고 무엇을 바꿔야 하는지 명확히 적어라. 전사 신뢰도가 낮으면 전사 문장 구조를 억지로 추출하지 말고 분석 결과와 프레임 단서에서 확인되는 구조만 사용하라.',
       },
       {
         role: 'user',
@@ -1176,7 +1607,7 @@ async function buildStructureBlueprint({
           `구조 분석:\n${analysisResult?.structureAnalysis || '-'}\n\n` +
           `후킹 분석:\n${analysisResult?.hookAnalysis || '-'}\n\n` +
           `심리 분석:\n${analysisResult?.psychologyAnalysis || '-'}\n\n` +
-          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[],"hookSentencePattern":[],"hookAdvantagePattern":[]}',
+          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[],"hookSentencePattern":[],"hookAdvantagePattern":[],"keywordSlots":[],"desireTriggers":[],"sectionRhythm":[],"lengthProfile":[],"substitutionRules":[],"sentenceBlueprint":[{"section":"hook","order":1,"role":"","length":"short","referenceCharCount":0,"targetCharRange":"","sentenceShape":"","tone":"","feeling":"","rhythm":"","desireTrigger":"","keywordSlot":"","topicSlots":[],"replaceTargets":[],"mustKeep":[],"mustReplace":[]}],"substitutionMap":[{"slot":"","preserve":"","replaceWith":""}]}',
       },
     ],
   })
@@ -1187,7 +1618,33 @@ async function buildStructureBlueprint({
   const messageStructure = normalizeStringList(parsed?.messageStructure, 4)
   const hookSentencePattern = normalizeStringList(parsed?.hookSentencePattern, 4)
   const hookAdvantagePattern = normalizeStringList(parsed?.hookAdvantagePattern, 4)
-  return { logicFlow, persuasionPattern, messageStructure, hookSentencePattern, hookAdvantagePattern }
+  const keywordSlots = normalizeStringList(parsed?.keywordSlots, 5)
+  const desireTriggers = normalizeStringList(parsed?.desireTriggers, 5)
+  const sectionRhythm = normalizeStringList(parsed?.sectionRhythm, 5)
+  const lengthProfile = normalizeStringList(parsed?.lengthProfile, 5)
+  const substitutionRules = normalizeStringList(parsed?.substitutionRules, 5)
+  const normalizedSentenceBlueprint = normalizeSentenceBlueprint(
+    parsed?.sentenceBlueprint,
+    reliableTranscript || transcript || '',
+    transcriptQuality,
+  )
+  const substitutionMap = normalizeSubstitutionMap(parsed?.substitutionMap)
+  return {
+    logicFlow,
+    persuasionPattern,
+    messageStructure,
+    hookSentencePattern,
+    hookAdvantagePattern,
+    keywordSlots,
+    desireTriggers,
+    sectionRhythm,
+    lengthProfile,
+    substitutionRules,
+    sentenceBlueprint: normalizedSentenceBlueprint.items,
+    blueprintMode: normalizedSentenceBlueprint.mode,
+    referenceStats: normalizedSentenceBlueprint.referenceStats,
+    substitutionMap,
+  }
 }
 
 function normalizeVariationDraft(parsed, fallback, guides = {}) {
@@ -1206,15 +1663,9 @@ function normalizeVariationDraft(parsed, fallback, guides = {}) {
     3,
   )
 
-  const rawAngle = String(parsed?.angle || '').trim()
-  const safeAngle =
-    rawAngle && rawAngle.length <= 18 && !AWKWARD_KOREAN_PATTERN.test(rawAngle)
-      ? rawAngle
-      : fallback.angle
-
   return {
     label: fallback.label,
-    angle: safeAngle,
+    angle: normalizeVariationAngle(parsed?.angle, fallback.angle),
     coreMessage: parsed?.coreMessage?.trim() || '',
     hookIntent: parsed?.hookIntent?.trim() || '',
     bodyLogic: parsed?.bodyLogic?.trim() || '',
@@ -1228,6 +1679,159 @@ function normalizeVariationDraft(parsed, fallback, guides = {}) {
       : normalizeStringList(guides.checkpoints, 2),
     usedChunkIds: [],
     usedKnowledge: [],
+  }
+}
+
+function normalizeVariationAngle(rawAngle, fallbackAngle = '') {
+  const fallback = String(fallbackAngle || '').trim()
+  const angle = String(rawAngle || '').trim().replace(/\s+/g, ' ')
+  const legacyAngleLabels = {
+    구조밀착: '원본형',
+    '구조 밀착': '원본형',
+    자연화: '대화형',
+    자연형: '대화형',
+    전환강화: '후킹형',
+    '전환 강화': '후킹형',
+  }
+
+  if (!angle) return fallback
+  if (legacyAngleLabels[angle]) return legacyAngleLabels[angle]
+  if (angle.length > MAX_VARIATION_ANGLE_LENGTH) return fallback
+  if (AWKWARD_KOREAN_PATTERN.test(angle)) return fallback
+  if (/[.?!。！？]$/.test(angle)) return fallback
+  if (/(이유|방법|정리|전달|알게|실패하는|해결법).{3,}/.test(angle)) return fallback
+  if (/(초보|사람|루틴|헬스장|운동|피부|캡션|콘텐츠).{3,}/.test(angle)) return fallback
+
+  return angle
+}
+
+function getVariationSectionSentenceCounts(variation = {}) {
+  return {
+    hook: splitScriptSentences(variation.hook || '', 8).length,
+    body: splitScriptSentences(variation.body || '', 20).length,
+    cta: splitScriptSentences(variation.cta || '', 8).length,
+  }
+}
+
+function getBlueprintSectionCounts(sentenceBlueprint = []) {
+  return sentenceBlueprint.reduce(
+    (acc, item) => {
+      const section = inferBlueprintSection(item.order || 1, sentenceBlueprint.length, item.section)
+      acc[section] = (acc[section] || 0) + 1
+      return acc
+    },
+    { hook: 0, body: 0, cta: 0 },
+  )
+}
+
+function validateSentenceBlueprintMatch(variation = {}, structureBlueprint = {}, config = {}) {
+  const sentenceBlueprint = Array.isArray(structureBlueprint?.sentenceBlueprint)
+    ? structureBlueprint.sentenceBlueprint
+    : []
+  const referenceStats = structureBlueprint?.referenceStats || {}
+  const hasSentenceBlueprint = sentenceBlueprint.length >= 4 && structureBlueprint?.blueprintMode === 'sentence'
+  const sectionCounts = getVariationSectionSentenceCounts(variation)
+  const generatedTotalSentences = sectionCounts.hook + sectionCounts.body + sectionCounts.cta
+  const generatedChars = [variation.hook, variation.body, variation.cta]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .length
+  const warnings = []
+  let score = 100
+
+  if (hasSentenceBlueprint) {
+    const blueprintCounts = getBlueprintSectionCounts(sentenceBlueprint)
+    const expectedTotal = sentenceBlueprint.length
+    const sentenceDelta = Math.abs(generatedTotalSentences - expectedTotal)
+    if (sentenceDelta === 1) {
+      warnings.push(`문장 수 약간 다름: 기준 ${expectedTotal}, 생성 ${generatedTotalSentences}`)
+      score -= 4
+    }
+    if (sentenceDelta > 1) {
+      warnings.push(`문장 수 차이 큼: 기준 ${expectedTotal}, 생성 ${generatedTotalSentences}`)
+      score -= Math.min(28, sentenceDelta * 7)
+    }
+
+    for (const section of ['hook', 'body', 'cta']) {
+      const expected = blueprintCounts[section] || 0
+      if (!expected) continue
+      const actual = sectionCounts[section] || 0
+      const delta = Math.abs(actual - expected)
+      if (delta === 1) {
+        score -= 3
+      }
+      if (delta > 1) {
+        warnings.push(`${section.toUpperCase()} 문장 수 불일치: 기준 ${expected}, 생성 ${actual}`)
+        score -= Math.min(18, delta * 6)
+      }
+    }
+  } else {
+    if (!variation.hook || !variation.body || !variation.cta) {
+      warnings.push('HOOK/BODY/CTA 중 비어 있는 섹션 있음')
+      score -= 35
+    }
+  }
+
+  const referenceChars = Number(referenceStats?.totalChars)
+  if (Number.isFinite(referenceChars) && referenceChars >= 120 && generatedChars > 0) {
+    const ratio = generatedChars / referenceChars
+    if (ratio < 0.85) {
+      warnings.push(`레퍼런스보다 짧음: ${Math.round(ratio * 100)}%`)
+      score -= Math.min(28, Math.round((0.85 - ratio) * 90))
+    } else if (ratio > 1.2) {
+      warnings.push(`레퍼런스보다 김: ${Math.round(ratio * 100)}%`)
+      score -= Math.min(14, Math.round((ratio - 1.2) * 35))
+    }
+  }
+
+  const text = [variation.hook, variation.body, variation.cta].filter(Boolean).join('\n')
+  const desireTriggers = normalizeStringList(structureBlueprint?.desireTriggers, 6)
+  if (desireTriggers.length) {
+    const hitCount = desireTriggers.filter((trigger) => {
+      const compact = trigger.replace(/\s+/g, '')
+      return compact.length >= 2 && text.replace(/\s+/g, '').includes(compact.slice(0, Math.min(6, compact.length)))
+    }).length
+    if (hitCount === 0) {
+      warnings.push('심리/욕구 트리거 반영 약함')
+      score -= 12
+    }
+  }
+
+  if (config?.label === 'A안' && hasSentenceBlueprint && generatedTotalSentences !== sentenceBlueprint.length) {
+    warnings.push('A안은 원본형이라 문장 수를 더 맞춰야 함')
+    score -= 8
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)))
+  return {
+    ok: score >= (config?.label === 'A안' ? STRICT_STRUCTURE_MATCH_RETRY_THRESHOLD : STRUCTURE_MATCH_RETRY_THRESHOLD),
+    score,
+    mode: hasSentenceBlueprint ? 'sentence' : 'section',
+    warnings,
+    referenceSentenceCount: hasSentenceBlueprint ? sentenceBlueprint.length : referenceStats?.sentenceCount || null,
+    generatedSentenceCount: generatedTotalSentences,
+    referenceChars: Number.isFinite(referenceChars) ? referenceChars : null,
+    generatedChars,
+  }
+}
+
+function attachStructureMetadata(variation = {}, structureBlueprint = {}, structureMatch = null) {
+  const blueprintPayload = {
+    mode: structureBlueprint?.blueprintMode || 'section',
+    sentenceBlueprint: Array.isArray(structureBlueprint?.sentenceBlueprint)
+      ? structureBlueprint.sentenceBlueprint.slice(0, MAX_SENTENCE_BLUEPRINT_ITEMS)
+      : [],
+    substitutionMap: Array.isArray(structureBlueprint?.substitutionMap)
+      ? structureBlueprint.substitutionMap.slice(0, 8)
+      : [],
+    referenceStats: structureBlueprint?.referenceStats || {},
+  }
+
+  return {
+    ...variation,
+    structureBlueprint: blueprintPayload,
+    structureMatch: structureMatch || validateSentenceBlueprintMatch(variation, structureBlueprint),
   }
 }
 
@@ -1434,27 +2038,23 @@ function buildPlaybookPrompt(playbook, mode = '') {
     .join('\n')
 }
 
-function buildTopicFocusPrompt(topic = '', title = '') {
-  const normalizedTopic = String(topic || '').trim()
-  const normalizedTitle = String(title || '').trim()
-  const topicOnly = normalizedTopic && normalizedTopic !== normalizedTitle ? normalizedTopic : ''
+function buildTopicFocusPrompt(topic = '', _title = '') {
+  const normalizedTopic = stripReferenceMetadataText(topic).trim()
 
-  if (!normalizedTopic) {
+  if (!normalizedTopic || normalizedTopic === '일반' || normalizedTopic === DEFAULT_REFERENCE_TITLE) {
     return ''
   }
 
   return [
     `이번 릴스 주제(반드시 반영): ${normalizedTopic}`,
-    topicOnly
-      ? `중요: 계정의 큰 카테고리는 유지하되, 이번 결과물의 실제 소재/상품/상황은 "${topicOnly}" 기준으로 구체화하세요.`
-      : '중요: 계정의 큰 카테고리는 유지하되, 이번 결과물의 실제 소재/상품/상황은 위 주제를 기준으로 구체화하세요.',
+    `중요: 계정의 큰 카테고리는 유지하되, 이번 결과물의 실제 소재/상품/상황은 "${normalizedTopic}" 기준으로 구체화하세요.`,
     '이번 릴스 주제는 분위기 참고용이 아니라 실제 주장, 예시, 표현, CTA가 모여야 하는 중심 소재입니다.',
   ].join('\n')
 }
 
 async function regenerateVariationWithGPT({
   openai,
-  chatModel,
+  variationModel,
   config,
   categoryGuard,
   guardPromptSummary,
@@ -1469,13 +2069,13 @@ async function regenerateVariationWithGPT({
 }) {
   const topicFocusPrompt = buildTopicFocusPrompt(focusTopic, referenceTitle)
   const response = await openai.chat.completions.create({
-    model: chatModel,
+    model: variationModel,
     temperature: 0.35,
     messages: [
       {
         role: 'system',
         content:
-          `당신은 숏폼 스크립트 재생성 편집자다. 계정 세팅을 최우선으로 자연스러운 HOOK/BODY/CTA를 새로 작성한다. 현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이며 2024년은 쓰지 않는다. 출력은 JSON만 반환한다.`,
+          `당신은 숏폼 스크립트 재생성 편집자다. 새 대본을 자유롭게 창작하지 말고, 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 HOOK/BODY/CTA를 작성한다. 현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이며 2024년은 쓰지 않는다. 파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간은 절대 대본 소재로 쓰지 않는다. 출력은 JSON만 반환한다.`,
       },
       {
         role: 'user',
@@ -1512,6 +2112,34 @@ async function regenerateVariationWithGPT({
               ? structureBlueprint.hookAdvantagePattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
               : '- 없음'
           }\n\n` +
+          `핵심 키워드 슬롯(원문 단어가 아니라 역할을 유지):\n${
+            structureBlueprint?.keywordSlots?.length
+              ? structureBlueprint.keywordSlots.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `심리/욕구 트리거(강하게 유지):\n${
+            structureBlueprint?.desireTriggers?.length
+              ? structureBlueprint.desireTriggers.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `섹션 리듬/길이감(유지):\n${
+            [
+              ...(structureBlueprint?.sectionRhythm || []),
+              ...(structureBlueprint?.lengthProfile || []),
+            ].length
+              ? [...(structureBlueprint?.sectionRhythm || []), ...(structureBlueprint?.lengthProfile || [])]
+                  .map((item, idx) => `${idx + 1}. ${item}`)
+                  .join('\n')
+              : '- 없음'
+          }\n\n` +
+          `치환 규칙(반드시 준수):\n${
+            structureBlueprint?.substitutionRules?.length
+              ? structureBlueprint.substitutionRules.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `문장 단위 구조 설계도(최우선 잠금):\n${formatSentenceBlueprintPrompt(structureBlueprint)}\n\n` +
+          `문장별 소재 치환 작업표(실제 작성 기준):\n${formatSentenceSubstitutionPrompt(structureBlueprint)}\n\n` +
+          `소재 치환표(원문 내용 대신 현재 주제로 채울 것):\n${formatSubstitutionMapPrompt(structureBlueprint)}\n\n` +
           `핵심 인사이트:\n${
             generationGuides.keyInsights.length
               ? generationGuides.keyInsights.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -1527,11 +2155,21 @@ async function regenerateVariationWithGPT({
           '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 함\n' +
           `- 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 않음\n` +
           '- 레퍼런스 표면 주제/키워드/문장 변형 사용 금지(패러프레이즈 포함)\n' +
-          '- 레퍼런스는 논리 구조만 참고하고 내용은 현재 계정 도메인으로 완전 재창조\n' +
-          '- HOOK만 레퍼런스의 시작 방식, 문장 호흡, 긴장 형성 순서를 참고해 비슷한 구조로 작성 가능\n' +
+          '- 파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간은 절대 쓰지 않음\n' +
+          '- 레퍼런스의 구조, 전개 순서, 문장 기능, 길이감, 심리/욕구 트리거는 강하게 유지\n' +
+          '- 바꾸는 것은 상품명/상황/업종/고유명사/구체 사례이고, 구조 자체를 새로 만들면 실패\n' +
+          '- 문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다\n' +
+          '- 각 문장의 목표분량/문장형태/리듬/원본 느낌을 최대한 유지하고, 문장 안 소재만 현재 주제로 바꾼다\n' +
+          '- 변경 범위는 topicSlots/replaceTargets/mustReplace에 해당하는 주제 표현으로 제한한다. 문장 골격, 절 순서, 강조 순서, 감정 흐름은 유지한다\n' +
+          '- 새 아이디어를 만들지 말고, 원본 문장별 슬롯에 현재 계정 세팅과 이번 주제를 끼워 넣는다\n' +
+          '- 원본 느낌이 단호함이면 단호하게, 공감이면 공감으로, 불안 자극이면 같은 심리 압박으로 치환한다\n' +
+          '- 원문 대비 길이는 80~120% 범위에 가깝게 유지하고 요약하지 않음\n' +
+          '- HOOK/BODY/CTA 모두 레퍼런스의 섹션 역할과 리듬을 따라가되 현재 계정 도메인과 이번 주제로 치환\n' +
+          '- 핵심 키워드 슬롯은 이번 릴스 주제의 키워드로 채우고, 욕구 트리거는 가능한 한 유지\n' +
+          '- 원문보다 눈에 띄게 짧아지지 않게 섹션 리듬/길이감을 유지\n' +
           '- HOOK은 위 장점 항목 중 최소 2개를 문장에 드러나게 반영\n' +
           '- 단, HOOK에서도 레퍼런스 원문 단어/주제/상황/고유명사 복사 금지\n' +
-          '- BODY/CTA는 HOOK 이후 흐름만 자연스럽게 이어가고, 문장 구조는 현재 계정 도메인에 맞게 새로 작성\n' +
+          '- BODY/CTA도 레퍼런스의 역할 순서와 설득 흐름을 유지하고, 소재만 현재 계정 도메인으로 치환\n' +
           '- 분석 메타 표현(첫 3초, 프레임, 클로즈업, 화면, 자막, 연출) 금지\n' +
           `${VARIATION_NATURAL_VOICE_RULES}\n` +
           '- HOOK/BODY/CTA 흐름을 분명히 연결\n' +
@@ -1541,7 +2179,7 @@ async function regenerateVariationWithGPT({
     ],
   })
   const usage = logAIUsage('abc-regenerate', response, {
-    model: chatModel,
+    model: variationModel,
     ...usageContext,
     retryReason,
   })
@@ -1567,6 +2205,7 @@ function enforceVariationDiversity(variations = [], guard = {}) {
   return variations.map((item, index) => {
     const normalized = {
       ...item,
+      angle: normalizeVariationAngle(item?.angle, VARIATION_CONFIGS[index]?.angle || ''),
       hook: String(item?.hook || '').trim(),
       body: String(item?.body || '').trim(),
       cta: String(item?.cta || '').trim(),
@@ -1600,6 +2239,212 @@ function enforceVariationDiversity(variations = [], guard = {}) {
   })
 }
 
+function normalizeHookForSimilarity(value = '') {
+  return String(value || '')
+    .replace(/[“”‘’"'`~!@#$%^&*()[\]{}<>+=_|\\/:;,.?。！？…·]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getHookLeadSentence(value = '') {
+  const normalized = normalizeHookForSimilarity(value)
+  return normalized.split(/(?:요|다|죠|네)\s+/)[0]?.trim() || normalized.slice(0, 80)
+}
+
+function tokenizeHook(value = '') {
+  return Array.from(
+    new Set(
+      normalizeHookForSimilarity(value)
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2),
+    ),
+  )
+}
+
+function getTokenOverlapRatio(a = '', b = '') {
+  const aTokens = tokenizeHook(a)
+  const bTokens = tokenizeHook(b)
+  if (!aTokens.length || !bTokens.length) {
+    return 0
+  }
+
+  const bSet = new Set(bTokens)
+  const intersection = aTokens.filter((token) => bSet.has(token)).length
+  return intersection / Math.min(aTokens.length, bTokens.length)
+}
+
+function areHooksTooSimilar(a = '', b = '') {
+  const first = normalizeHookForSimilarity(a)
+  const second = normalizeHookForSimilarity(b)
+  if (!first || !second) {
+    return false
+  }
+
+  const firstLead = getHookLeadSentence(first)
+  const secondLead = getHookLeadSentence(second)
+  const sameOpening =
+    firstLead.slice(0, 10) &&
+    secondLead.slice(0, 10) &&
+    firstLead.slice(0, 10) === secondLead.slice(0, 10)
+  const sameLeadPhrase =
+    firstLead.slice(0, 16) &&
+    secondLead.slice(0, 16) &&
+    firstLead.slice(0, 16) === secondLead.slice(0, 16)
+  const overlapRatio = getTokenOverlapRatio(firstLead, secondLead)
+
+  return sameOpening || sameLeadPhrase || overlapRatio >= 0.7
+}
+
+function getVariationHookStyleInstruction(config = {}) {
+  const label = String(config?.label || '')
+  const angle = String(config?.angle || '')
+
+  if (label === 'A안' || angle.includes('원본형')) {
+    return '원본형: 레퍼런스의 시작 방식과 문장 수를 가장 보수적으로 유지하되 현재 주제로 치환한다.'
+  }
+
+  if (label === 'B안' || angle.includes('대화형')) {
+    return '대화형: 레퍼런스 문장 골격은 유지하고, 같은 슬롯 치환 안에서 말투만 더 대화체로 둔다. A안과 같은 시작어만 피한다.'
+  }
+
+  if (label === 'C안' || angle.includes('후킹형')) {
+    return '후킹형: 레퍼런스 문장 골격은 유지하고, 같은 슬롯 치환 안에서 긴장감만 조금 더 강하게 둔다. A/B안과 같은 시작어만 피한다.'
+  }
+
+  return '같은 구조는 유지하되 다른 안과 첫 문장 시작어를 겹치지 않는다.'
+}
+
+async function regenerateHookForDiversity({
+  openai,
+  variationModel,
+  variation,
+  config,
+  categoryGuard,
+  guardPromptSummary,
+  characterSystemPrompt,
+  structureBlueprint,
+  previousHooks = [],
+  focusTopic = '',
+  usageContext = {},
+}) {
+  const response = await openai.chat.completions.create({
+    model: variationModel,
+    temperature: 0.7,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '당신은 숏폼 스크립트 HOOK만 다시 쓰는 편집자다. BODY/CTA는 바꾸지 않고 HOOK만 JSON으로 반환한다. ' +
+          '레퍼런스 문장 골격과 현재 주제는 유지하되, 다른 초안들과 첫 문장 시작어만 겹치지 않게 만든다. ' +
+          '완전히 새 훅을 만들지 말고 같은 문장 역할/분량/느낌 안에서 소재 표현만 조정한다. ' +
+          '출력은 JSON만 반환한다.',
+      },
+      {
+        role: 'user',
+        content:
+          `전략 라벨: ${config.label}\n` +
+          `전략 방향: ${config.angle}\n` +
+          `훅 차별화 지시: ${getVariationHookStyleInstruction(config)}\n` +
+          `${focusTopic ? `이번 릴스 주제: ${focusTopic}\n` : ''}` +
+          `카테고리: ${categoryGuard.category || '기타'}\n` +
+          `세팅 신호: ${guardPromptSummary.settingCues.join(', ') || '없음'}\n\n` +
+          `캐릭터 고정 규칙:\n${characterSystemPrompt || '설정 없음'}\n\n` +
+          `HOOK 문장 구조 참고:\n${
+            structureBlueprint.hookSentencePattern.length
+              ? structureBlueprint.hookSentencePattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+              : '- 없음'
+          }\n\n` +
+          `문장 단위 구조 설계도:\n${formatSentenceBlueprintPrompt(structureBlueprint)}\n\n` +
+          `겹치면 안 되는 기존 HOOK:\n${
+            previousHooks.length ? previousHooks.map((hook, idx) => `${idx + 1}. ${hook}`).join('\n') : '- 없음'
+          }\n\n` +
+          `현재 HOOK:\n${variation.hook || ''}\n\n` +
+          `현재 BODY:\n${variation.body || ''}\n\n` +
+          `현재 CTA:\n${variation.cta || ''}\n\n` +
+          '수정 조건:\n' +
+          '- HOOK만 다시 쓴다\n' +
+          '- BODY/CTA와 자연스럽게 이어져야 한다\n' +
+          '- 레퍼런스의 문장 역할/길이감은 유지한다\n' +
+          '- 기존 HOOK들과 같은 시작어, 같은 첫 절, 같은 핵심 문장 구조를 쓰지 않는다\n' +
+          '- 그래도 완전히 새 구조로 튀지 말고 현재 주제에 맞게 소재만 치환한다\n\n' +
+          '다음 JSON 형식으로만 답하세요: {"hook":""}',
+      },
+    ],
+  })
+
+  logAIUsage('abc-hook-diversify', response, {
+    model: variationModel,
+    ...usageContext,
+    label: config.label,
+    angle: config.angle,
+  })
+
+  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+  return String(parsed?.hook || '').trim()
+}
+
+async function diversifySimilarHooks({
+  variations = [],
+  openai,
+  variationModel,
+  categoryGuard,
+  guardPromptSummary,
+  characterSystemPrompt,
+  structureBlueprint,
+  focusTopic,
+  referenceGuard,
+  usageContext = {},
+}) {
+  const nextVariations = [...variations]
+  const acceptedHooks = []
+
+  for (let index = 0; index < nextVariations.length; index += 1) {
+    const config = VARIATION_CONFIGS[index] || {}
+    const current = nextVariations[index]
+    const currentHook = String(current?.hook || '').trim()
+    const isSimilar = acceptedHooks.some((hook) => areHooksTooSimilar(currentHook, hook))
+
+    if (!isSimilar || index === 0) {
+      acceptedHooks.push(currentHook)
+      continue
+    }
+
+    try {
+      const regeneratedHook = await regenerateHookForDiversity({
+        openai,
+        variationModel,
+        variation: current,
+        config,
+        categoryGuard,
+        guardPromptSummary,
+        characterSystemPrompt,
+        structureBlueprint,
+        previousHooks: acceptedHooks,
+        focusTopic,
+        usageContext,
+      })
+
+      const normalizedHook = normalizeGeneratedYearReferences(regeneratedHook)
+      const revised = {
+        ...current,
+        hook: normalizedHook || currentHook,
+      }
+      const alignment = validateVariationAlignment(revised, categoryGuard, referenceGuard)
+      const structureMatch = validateSentenceBlueprintMatch(revised, structureBlueprint, config)
+      nextVariations[index] = {
+        ...attachStructureMetadata(revised, structureBlueprint, structureMatch),
+        alignment,
+      }
+      acceptedHooks.push(nextVariations[index].hook)
+    } catch (_error) {
+      acceptedHooks.push(currentHook)
+    }
+  }
+
+  return nextVariations
+}
+
 function needsFlowPolish(variation = {}) {
   const text = [variation?.hook, variation?.body, variation?.cta]
     .map((item) => String(item || '').trim())
@@ -1609,10 +2454,15 @@ function needsFlowPolish(variation = {}) {
 
   const awkwardPattern =
     /(첫\s*\d+초|클로즈업|화면|자막|문구|프레임|장면|시선\s*집중|도입부에서는|전개에서는|결론에서는|영상|편집|연출|저\s*원래부터|즉각\s*사로잡)/i
-  return awkwardPattern.test(text) || AWKWARD_KOREAN_PATTERN.test(text) || REPORT_STYLE_PATTERN.test(text)
+  return (
+    awkwardPattern.test(text) ||
+    GENERATED_METADATA_LEAK_PATTERN.test(text) ||
+    AWKWARD_KOREAN_PATTERN.test(text) ||
+    REPORT_STYLE_PATTERN.test(text)
+  )
 }
 
-function isVariationStructureBroken(variation = {}, alignment = {}, guard = {}) {
+function isVariationStructureBroken(variation = {}, alignment = {}, guard = {}, structureMatch = null) {
   const hook = String(variation?.hook || '').trim()
   const body = String(variation?.body || '').trim()
   const cta = String(variation?.cta || '').trim()
@@ -1622,6 +2472,18 @@ function isVariationStructureBroken(variation = {}, alignment = {}, guard = {}) 
   }
   if (!alignment?.ok) {
     return { broken: true, reason: alignment?.reason || '정합성 실패' }
+  }
+  if (
+    structureMatch &&
+    !structureMatch.ok &&
+    Number(structureMatch.score || 0) < STRUCTURE_MATCH_HARD_RETRY_THRESHOLD
+  ) {
+    return {
+      broken: true,
+      reason: `레퍼런스 문장 구조 유사도 낮음(${structureMatch.score}/100): ${
+        structureMatch.warnings?.[0] || '문장 역할/길이감 불일치'
+      }`,
+    }
   }
 
   const coreText = `${hook}\n${body}`
@@ -1684,9 +2546,9 @@ function scoreVariationQuality(variation = {}, config = {}, guard = {}) {
 
   let toneMatch = 3
   const angle = String(config?.angle || '')
-  if (angle.includes('문제 제기') && /(문제|손해|실수|위험|무너)/.test(fullText)) toneMatch += 1
-  if (angle.includes('정보 압축') && /(단계|기준|정리|체크|순서)/.test(fullText)) toneMatch += 1
-  if (angle.includes('공감 유도') && /(저도|나도|공감|답답|겪어|이랬)/.test(fullText)) toneMatch += 1
+  if (angle.includes('원본형') && /(문제|손해|실수|위험|기준|저장|지금|오늘)/.test(fullText)) toneMatch += 1
+  if (angle.includes('대화형') && /(저도|나도|그럴|답답|해보|바꿔)/.test(fullText)) toneMatch += 1
+  if (angle.includes('후킹형') && /(지금|오늘|바로|저장|신청|상담|구매|확인|시작)/.test(fullText)) toneMatch += 1
   if (Array.isArray(guard?.settingCues) && guard.settingCues.length) {
     const cueHit = guard.settingCues.some((cue) => containsTerm(fullText, cue))
     if (!cueHit) toneMatch -= 1
@@ -1731,7 +2593,7 @@ function normalizeVariationForValidation(rawVariation, index = 0) {
   if (rawVariation && typeof rawVariation === 'object' && !Array.isArray(rawVariation)) {
     return {
       label: String(rawVariation.label || `안${index + 1}`),
-      angle: String(rawVariation.angle || ''),
+      angle: normalizeVariationAngle(rawVariation.angle, VARIATION_CONFIGS[index]?.angle || ''),
       hook: String(rawVariation.hook || '').trim(),
       body: String(rawVariation.body || '').trim(),
       cta: String(rawVariation.cta || '').trim(),
@@ -1750,7 +2612,7 @@ function normalizeVariationForValidation(rawVariation, index = 0) {
 
   return {
     label: `안${index + 1}`,
-    angle: '',
+    angle: VARIATION_CONFIGS[index]?.angle || '',
     hook: lines[0] || '',
     body: lines.slice(1, -1).join(' ') || lines[1] || '',
     cta: lines[lines.length - 1] || '',
@@ -1779,6 +2641,9 @@ function validateVariationAlignment(variation, guard, referenceGuard = {}) {
   const metaLeakPattern = /(첫\s*\d+초|프레임|장면|클로즈업|화면|자막|영상|편집|연출|컷\s*전환)/i
   if (metaLeakPattern.test(text)) {
     return { ok: false, reason: '분석 메타 표현 누출', warnings: [] }
+  }
+  if (GENERATED_METADATA_LEAK_PATTERN.test(text)) {
+    return { ok: false, reason: '파일명/녹화일 메타데이터 누출', warnings: [] }
   }
 
   const evidenceProfile = inferEvidenceProfile(guard)
@@ -1926,6 +2791,8 @@ async function persistReusedReferenceVideo({
     failure_stage: null,
     failure_code: null,
     failure_message: null,
+    analysis_stage_metrics: cachedAnalysis.analysis_stage_metrics || {},
+    transcript_quality: cachedAnalysis.transcript_quality || {},
     processing_completed_at: new Date().toISOString(),
     document_id: cachedAnalysis.document_id || null,
   }
@@ -1941,6 +2808,8 @@ async function persistReusedReferenceVideo({
       'failure_stage',
       'failure_code',
       'failure_message',
+      'analysis_stage_metrics',
+      'transcript_quality',
       'processing_completed_at',
     ],
     detail: true,
@@ -1990,12 +2859,15 @@ export async function analyzeReferenceVideo({
   }
 
   const normalizedOriginalName = normalizeUploadedText(file.originalname)
-  const normalizedTitle = title?.trim() || normalizedOriginalName
-  const normalizedTopic = topic?.trim() || normalizedTitle || '일반'
+  const normalizedTitle = normalizeReferenceTitle({
+    title,
+    originalFilename: normalizedOriginalName,
+  })
+  const normalizedTopic = normalizeGenerationTopic(topic, normalizedTitle)
   const normalizedProjectId = normalizeOptionalProjectId(projectId) ?? null
   const supabaseAdmin = getSupabaseAdmin()
   const openai = getOpenAIClient()
-  const { chatModel } = getOpenAIModels()
+  const { chatModel, variationModel } = getOpenAIModels()
   const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey)
   const fileFingerprint = await computeUploadedFileFingerprint(file)
   const analysisFingerprint = hashText(`${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}`)
@@ -2238,50 +3110,65 @@ export async function analyzeReferenceVideo({
       async () => hasAudioStream(created.videoPath),
       stageHooks,
     )
-    const audioPath = hasAudio
-      ? await runStage(
-          'extract-audio',
-          baseContext,
-          async () =>
-            extractAudioTrack(created.videoPath, workspace, {
-              maxDurationSeconds: cappedAudioSeconds,
-            }),
-          stageHooks,
-        )
-      : null
-    const transcript = hasAudio
-      ? await runStage(
-          'transcription',
-          baseContext,
-          async () =>
-            transcribeVideoAudio(audioPath, {
-              title: normalizedTitle,
-              topic: normalizedTopic,
-            }),
-          stageHooks,
-        )
-      : {
+    const transcriptPromise = hasAudio
+      ? (async () => {
+          const audioPath = await runStage(
+            'extract-audio',
+            baseContext,
+            async () =>
+              extractAudioTrack(created.videoPath, workspace, {
+                maxDurationSeconds: cappedAudioSeconds,
+              }),
+            stageHooks,
+          )
+
+          return runStage(
+            'transcription',
+            baseContext,
+            async () =>
+              transcribeVideoAudio(audioPath, {
+                title: normalizedTitle,
+                topic: normalizedTopic,
+              }),
+            stageHooks,
+          )
+        })()
+      : Promise.resolve({
           text: '',
           segments: [],
           duration: null,
           model: null,
-        }
-    const frames = await runStage(
-      'extract-frames',
-      { ...baseContext, durationSeconds },
-      async () => extractFrames(created.videoPath, workspace, durationSeconds),
-      stageHooks,
-    )
-    const frameAnalysis = await runStage(
-      'vision',
-      { ...baseContext, frameCount: frames.length },
-      async () =>
-        analyzeVideoFrames(frames, {
-          title: normalizedTitle,
-          topic: normalizedTopic,
-        }),
-      stageHooks,
-    )
+        })
+
+    const frameAnalysisPromise = (async () => {
+      const extractedFrames = await runStage(
+        'extract-frames',
+        { ...baseContext, durationSeconds },
+        async () => extractFrames(created.videoPath, workspace, durationSeconds),
+        stageHooks,
+      )
+      const analyzedFrames = await runStage(
+        'vision',
+        { ...baseContext, frameCount: extractedFrames.length },
+        async () =>
+          analyzeVideoFrames(extractedFrames, {
+            title: normalizedTitle,
+            topic: normalizedTopic,
+          }),
+        stageHooks,
+      )
+
+      return {
+        frames: extractedFrames,
+        frameAnalysis: analyzedFrames,
+      }
+    })()
+
+    const [transcript, frameAnalysisBundle] = await Promise.all([
+      transcriptPromise,
+      frameAnalysisPromise,
+    ])
+    const { frames, frameAnalysis } = frameAnalysisBundle
     const normalizedTranscript = transcript.text?.trim()
     const frameSummary = [
       frameAnalysis.summary?.trim(),
@@ -2353,6 +3240,7 @@ export async function analyzeReferenceVideo({
                 : '전사에서 알아들을 수 있는 문장만 제한적으로 참고하고, 불명확한 부분은 “전사 근거 부족”으로 표현한다.',
               '분석 단계에서는 외부 지식/일반 템플릿을 사용하지 않는다.',
               '레퍼런스에 명시되지 않은 연도, 통계, 기능명, 인스타그램 설정, 알림, 팔로워/완주율 같은 소재를 추론해서 쓰지 마라.',
+              '파일명/녹화일/촬영일/업로드일/스크린레코딩 시간은 콘텐츠 내용이 아니다. structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback에 소재처럼 쓰지 마라.',
               `연도를 새로 제시해야 하는 경우에는 ${CURRENT_CONTENT_YEAR}년만 사용하고, 2024년을 쓰지 마라.`,
               '전사가 짧거나 불명확하면 부족하다고 말하고, 없는 내용을 채워서 분석하지 마라.',
               characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
@@ -2454,31 +3342,50 @@ export async function analyzeReferenceVideo({
       .filter(Boolean)
       .join('\n')
 
+    const variationKnowledge = await runStage(
+      'retrieve-global-knowledge',
+      baseContext,
+      async () =>
+        retrieveGlobalKnowledgeContext({
+          title: '',
+          topic: [
+            topicFocusPrompt || null,
+            `카테고리: ${categoryGuard.category}`,
+            `전략: ${VARIATION_CONFIGS.map((config) => config.angle).join(', ')}`,
+            `검색 힌트: ${VARIATION_CONFIGS.map((config) => config.retrievalHint).join(' / ')}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          transcript: '',
+          frameSummary: '',
+          topK: 5,
+        }),
+      stageHooks,
+    )
+    const compactKnowledgeContext = clampText(
+      variationKnowledge.contextText || '',
+      VARIATION_CONTEXT_TEXT_MAX,
+    )
+    const sharedKnowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
+
     const generatedVariationsRaw = await Promise.all(
       VARIATION_CONFIGS.map((config) =>
         runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
-          const variationKnowledge = await retrieveGlobalKnowledgeContext({
-            title: '',
-            topic: `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}카테고리: ${categoryGuard.category}\n전략: ${config.angle}\n검색 힌트: ${config.retrievalHint}`,
-            transcript: '',
-            frameSummary: '',
-            topK: 4,
-          })
-          const compactKnowledgeContext = clampText(
-            variationKnowledge.contextText || '',
-            VARIATION_CONTEXT_TEXT_MAX,
-          )
-
           const systemContent = [
-            '당신은 숏폼 콘텐츠 작가다. 지정된 전략에 맞는 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
+            '당신은 숏폼 콘텐츠 작가다. 새 대본을 자유롭게 창작하지 말고, 잘 만든 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
             `현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이다. 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 마라.`,
-            '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 전략 라벨/전략 의도 > 레퍼런스 전사.',
+            '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 레퍼런스 구조 잠금 > 전략 라벨/전략 의도.',
             '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
-            '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식 참고용이다.',
+            '파일명, 녹화일, 촬영일, 업로드일, 스크린레코딩 날짜/시간은 절대 대본 소재로 사용하지 마라.',
+            '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식/심리 트리거/길이감 참고용이다.',
             '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
             '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
             'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
-            'HOOK은 레퍼런스의 문장 구조와 리듬을 가장 강하게 참고하되, BODY/CTA는 계정 도메인 기준으로 새로 전개하라.',
+            'HOOK/BODY/CTA 모두 레퍼런스의 문장 기능, 전개 순서, 리듬, 길이감을 강하게 참고하라.',
+            '문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다.',
+            '사용자가 원하는 것은 완전 재창조가 아니라 레퍼런스와 비슷한 흐름/분량/리듬에 소재만 바뀐 결과다.',
+            '핵심 키워드 역할과 욕구 키워드는 유지하고, 상품명/상황/업종/고유명사/구체 사례만 현재 주제로 치환하라.',
+            '단, A/B/C 초안의 HOOK 첫 문장 시작어와 표현은 서로 달라야 한다. 구조는 같아도 사용자가 보기엔 다른 선택지처럼 보여야 한다.',
             'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
             '아래 인사이트/체크포인트는 필요한 만큼 자연스럽게 반영하고, usedInsights/usedCheckpoints에는 실제로 참고한 항목만 기록하라.',
             '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
@@ -2530,23 +3437,62 @@ export async function analyzeReferenceVideo({
                 ? structureBlueprint.hookAdvantagePattern.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
                 : '- 없음'
             }\n\n` +
+            `핵심 키워드 슬롯(반드시 현재 주제로 치환해서 유지):\n${
+              structureBlueprint.keywordSlots.length
+                ? structureBlueprint.keywordSlots.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `심리/욕구 트리거(가장 중요, 가능한 한 유지):\n${
+              structureBlueprint.desireTriggers.length
+                ? structureBlueprint.desireTriggers.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `섹션 리듬/길이감(원문보다 짧아지지 않게 유지):\n${
+              [...structureBlueprint.sectionRhythm, ...structureBlueprint.lengthProfile].length
+                ? [...structureBlueprint.sectionRhythm, ...structureBlueprint.lengthProfile]
+                    .map((item, idx) => `${idx + 1}. ${item}`)
+                    .join('\n')
+                : '- 없음'
+            }\n\n` +
+            `치환 규칙(반드시 준수):\n${
+              structureBlueprint.substitutionRules.length
+                ? structureBlueprint.substitutionRules.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+                : '- 없음'
+            }\n\n` +
+            `문장 단위 구조 설계도(최우선 잠금):\n${formatSentenceBlueprintPrompt(structureBlueprint)}\n\n` +
+            `문장별 소재 치환 작업표(실제 작성 기준):\n${formatSentenceSubstitutionPrompt(structureBlueprint)}\n\n` +
+            `소재 치환표(원문 내용 대신 현재 주제로 채울 것):\n${formatSubstitutionMapPrompt(structureBlueprint)}\n\n` +
             '작성 강제 조건:\n' +
             '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 한다\n' +
             '- 계정 카테고리는 큰 방향이고, 이번 릴스 주제는 실제 소재/상품/상황을 결정하는 우선값이다\n' +
-            '- 1단계: 논리 구조만 사용\n' +
-            '- 2단계: 현재 계정 도메인으로 완전 변환\n' +
-            '- 2.5단계: 이번 릴스 주제에 맞게 구체 소재를 좁힌다\n' +
-            '- 3단계: 완전히 새로운 주장(thesis) 생성\n' +
-            '- 4단계: thesis 기반으로 HOOK/BODY/CTA 작성\n' +
+            '- 1단계: 레퍼런스의 전개 순서/문장 기능/길이감/욕구 트리거를 잠근다\n' +
+            '- 2단계: 원문 상품명/상황/고유명사/구체 사례만 제거한다\n' +
+            '- 3단계: 비어 있는 키워드 슬롯을 이번 릴스 주제와 계정 세팅으로 채운다\n' +
+            '- 4단계: 잠근 구조 그대로 HOOK/BODY/CTA를 작성한다\n' +
+            '- 문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 수를 마음대로 줄이거나 합치지 않는다\n' +
+            '- 각 문장은 목표분량/문장형태/리듬/원본 느낌을 유지하고, 문장 안 소재/상황/상품명만 현재 주제로 치환한다\n' +
+            '- 변경 범위는 topicSlots/replaceTargets/mustReplace에 해당하는 주제 표현으로 제한한다. 문장 골격, 절 순서, 강조 순서, 감정 흐름은 유지한다\n' +
+            '- A/B/C는 서로 다른 새 아이디어 3개가 아니다. 같은 레퍼런스 blueprint를 타는 주제 치환 버전 3개다\n' +
+            '- 원본 느낌이 단호함이면 단호하게, 공감이면 공감으로, 불안 자극이면 같은 심리 압박으로 치환한다\n' +
+            '- A안 원본형은 문장 수/길이/순서를 가장 엄격하게 맞춘다. B안 대화형은 구조를 유지하고 말투만 더 말하듯 자연스럽게 만든다. C안 후킹형은 구조를 유지하고 후킹/CTA만 강하게 만든다. 세 안 모두 구조 자체를 새로 만들지 않는다\n' +
+            `- 이 안의 훅 차별화 지시: ${getVariationHookStyleInstruction(config)}\n` +
+            '- A/B/C 모두 같은 첫 문장 시작어를 쓰면 실패다. 예: 세 안 모두 "결론부터 말해요"로 시작 금지\n' +
+            '- 세 안은 같은 blueprint를 타되, A는 원본 흐름, B는 말하듯 부드러운 진입, C는 더 강한 긴장/반전 진입으로 구분한다\n' +
             '- 레퍼런스 표면 단어/문장 변형/원문 주제 복사 금지\n' +
+            '- 파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간은 절대 쓰지 않는다\n' +
+            '- 구조를 완전히 새로 만들지 마라. 표절 방지는 소재 치환으로 해결하고, 뼈대는 유지한다\n' +
             '- HOOK은 위의 HOOK 문장 구조 참고를 따라 시작 방식과 문장 호흡을 최대한 비슷하게 맞춘다\n' +
             '- HOOK은 레퍼런스 HOOK 장점 항목 중 최소 2개를 명확히 반영한다\n' +
             '- 단, HOOK도 원문 단어/원문 상황/고유명사는 절대 사용 금지\n' +
-            '- BODY/CTA는 레퍼런스 문장 구조를 따라 쓰지 말고 현재 계정 맥락으로 자연스럽게 새로 쓴다\n' +
+            '- BODY/CTA도 레퍼런스의 문장 기능과 설득 순서를 따라가고, 소재만 현재 계정 맥락으로 치환한다\n' +
+            '- 핵심 키워드 슬롯과 심리/욕구 트리거가 결과물에서 사라지면 실패다\n' +
+            '- 원문보다 25% 이상 짧아지지 않게 한다. 길이를 줄여 요약하지 마라\n' +
             '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 작성\n' +
             '- 키워드를 억지로 끼워 넣지 말고, 자연스러운 주장과 흐름을 우선\n\n' +
-            '- angle은 화면에 보이는 짧은 분류명이다. 18자 이하로 쓰고, 설명문/문장/추상 표현은 금지한다\n' +
-            '- angle이 애매하면 전략 방향 그대로 사용한다\n\n' +
+            '- angle은 카드 상단에 보이는 짧은 이름이다. 8자 이하 명사형으로만 쓴다\n' +
+            '- angle 예시: 원본형, 대화형, 후킹형\n' +
+            '- angle에 영상 주제, 긴 문장, 설명문, "1분 만에" 같은 문구를 넣지 않는다\n' +
+            '- angle이 애매하면 전략 방향의 짧은 이름만 사용한다\n\n' +
             `- 연도 규칙: 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 않는다\n\n` +
             `핵심 인사이트(우선 참고):\n${
               generationGuides.keyInsights.length
@@ -2562,21 +3508,20 @@ export async function analyzeReferenceVideo({
               guardPromptSummary.settingCues.join(', ') || '없음'
             }\n\n` +
             `참고 글로벌 지식(요약본):\n${compactKnowledgeContext || '검색된 지식 없음'}\n\n` +
-            '분량 규칙(중요): 1분 릴스 기준으로 충분히 길게 작성하세요.\n' +
-            '- 목표 길이: 약 50~70초\n' +
-            '- hook: 약 8~12초 (45~90자)\n' +
-            '- body: 약 35~45초 (220~320자)\n' +
-            '- cta: 약 8~12초 (40~80자)\n' +
+            '분량 규칙(중요): 레퍼런스 문장 blueprint의 길이감을 1순위로 맞추세요.\n' +
+            '- 목표 길이: 레퍼런스 대비 80~120% 안쪽\n' +
+            '- 문장 단위 blueprint가 있으면 문장 수를 임의로 줄이지 않음\n' +
+            '- blueprint가 약한 경우에만 1분 릴스 기준 hook 45~90자, body 220~320자, cta 40~80자를 참고\n' +
             '다음 JSON 형식으로만 답하세요: ' +
             '{"label":"","angle":"","coreMessage":"","hookIntent":"","bodyLogic":"","ctaReason":"","hook":"","body":"","cta":"","usedInsights":[],"usedCheckpoints":[]}'
 
           let normalized = null
           let alignment = { ok: false, reason: '초기 상태' }
-          let didRegenerate = false
+          let structureMatch = null
           let variationUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
           const variationResponse = await openai.chat.completions.create({
-            model: chatModel,
+            model: variationModel,
             temperature: 0.6,
             messages: [
               {
@@ -2592,7 +3537,7 @@ export async function analyzeReferenceVideo({
           variationUsage = sumAIUsage(
             variationUsage,
             logAIUsage('abc-generate', variationResponse, {
-              model: chatModel,
+              model: variationModel,
               accountId,
               referenceId: processingReference.id,
               label: config.label,
@@ -2603,42 +3548,43 @@ export async function analyzeReferenceVideo({
           const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
           normalized = normalizeVariationYearReferences(normalizeVariationDraft(parsed, config, generationGuides))
           alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+          structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
 
-          const structureState = isVariationStructureBroken(normalized, alignment, categoryGuard)
+          const structureState = isVariationStructureBroken(normalized, alignment, categoryGuard, structureMatch)
 
           if (ENABLE_COST_GUARD && structureState.broken) {
             normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
               openai,
-              chatModel,
+              variationModel,
               config,
               categoryGuard,
-                guardPromptSummary,
-                characterSystemPrompt,
-                generationGuides,
-                structureBlueprint,
-                referenceSurfaceTerms: referenceGuard.surfaceTerms,
-                focusTopic: normalizedTopic,
-                referenceTitle: normalizedTitle,
-                retryReason: structureState.reason,
-                usageContext: {
-                  accountId,
-                  referenceId: processingReference.id,
-                  label: config.label,
-                  angle: config.angle,
-                },
-              }))
+              guardPromptSummary,
+              characterSystemPrompt,
+              generationGuides,
+              structureBlueprint,
+              referenceSurfaceTerms: referenceGuard.surfaceTerms,
+              focusTopic: normalizedTopic,
+              referenceTitle: normalizedTitle,
+              retryReason: structureState.reason,
+              usageContext: {
+                accountId,
+                referenceId: processingReference.id,
+                label: config.label,
+                angle: config.angle,
+              },
+            }))
             variationUsage = sumAIUsage(variationUsage, normalized?.usage)
             if (normalized?.usage) {
               delete normalized.usage
             }
             alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
-            didRegenerate = true
-          } else if (ENABLE_COST_GUARD) {
+            structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
+          } else if (ENABLE_COST_GUARD && ENABLE_QUALITY_REGEN) {
             const qualityScore = scoreVariationQuality(normalized, config, categoryGuard)
             if (shouldRegenerateByQuality(qualityScore)) {
               normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
                 openai,
-                chatModel,
+                variationModel,
                 config,
                 categoryGuard,
                 guardPromptSummary,
@@ -2661,14 +3607,14 @@ export async function analyzeReferenceVideo({
                 delete normalized.usage
               }
               alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
-              didRegenerate = true
+              structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
             }
           } else {
             // Legacy path: if cost guard is off, keep a single fallback regenerate for hard misalignment only.
             if (normalized && !alignment.ok) {
               normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
                 openai,
-                chatModel,
+                variationModel,
                 config,
                 categoryGuard,
                 guardPromptSummary,
@@ -2691,14 +3637,14 @@ export async function analyzeReferenceVideo({
                 delete normalized.usage
               }
               alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
-              didRegenerate = true
+              structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
             }
           }
 
           if (!normalized) {
             normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
               openai,
-              chatModel,
+              variationModel,
               config,
               categoryGuard,
               guardPromptSummary,
@@ -2721,14 +3667,14 @@ export async function analyzeReferenceVideo({
               delete normalized.usage
             }
             alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
-            didRegenerate = true
+            structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
           }
 
           // 문장 말투가 깨진 초안은 재생성 이후라도 한 번 더 다듬어 사용자에게 노출되는 번역투를 줄인다.
-          if (normalized && alignment.ok && needsFlowPolish(normalized)) {
+          if (ENABLE_ABC_POLISH && normalized && alignment.ok && needsFlowPolish(normalized)) {
             try {
               const polishResponse = await openai.chat.completions.create({
-                model: chatModel,
+                model: variationModel,
                 temperature: 0.2,
                 messages: [
                   {
@@ -2736,6 +3682,7 @@ export async function analyzeReferenceVideo({
                     content:
                       '당신은 숏폼 스크립트 문장 다듬기 편집자다. 의미는 유지하고 문장만 더 자연스럽게 고친다. ' +
                       '영상 분석 메타 표현(예: 첫 3초, 자막, 클로즈업, 화면, 장면, 문구)을 절대 쓰지 마라. ' +
+                      '파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간도 절대 쓰지 마라. ' +
                       `${VARIATION_NATURAL_VOICE_RULES} ` +
                       '출력은 JSON만 반환한다.',
                   },
@@ -2761,7 +3708,7 @@ export async function analyzeReferenceVideo({
               variationUsage = sumAIUsage(
                 variationUsage,
                 logAIUsage('abc-polish', polishResponse, {
-                  model: chatModel,
+                  model: variationModel,
                   accountId,
                   referenceId: processingReference.id,
                   label: config.label,
@@ -2777,30 +3724,50 @@ export async function analyzeReferenceVideo({
               }
               normalized = normalizeVariationYearReferences(normalized)
               alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+              structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
             } catch (_error) {
               // Keep original draft when polish step fails.
             }
           }
 
-          const knowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
           logAIUsage('abc-total', variationUsage, {
-            model: chatModel,
+            model: variationModel,
             accountId,
             referenceId: processingReference.id,
             label: config.label,
             angle: config.angle,
           })
+          const structuredNormalized = attachStructureMetadata(
+            normalized,
+            structureBlueprint,
+            structureMatch || validateSentenceBlueprintMatch(normalized, structureBlueprint, config),
+          )
 
           return {
-            ...normalized,
+            ...structuredNormalized,
             alignment,
-            usedChunkIds: knowledgeItems.map((item) => item.id),
-            usedKnowledge: knowledgeItems,
+            usedChunkIds: sharedKnowledgeItems.map((item) => item.id),
+            usedKnowledge: sharedKnowledgeItems,
           }
         }, stageHooks),
       ),
     )
-    const generatedVariations = enforceVariationDiversity(generatedVariationsRaw, categoryGuard)
+    const hookDiversifiedVariations = await diversifySimilarHooks({
+      variations: generatedVariationsRaw,
+      openai,
+      variationModel,
+      categoryGuard,
+      guardPromptSummary,
+      characterSystemPrompt,
+      structureBlueprint,
+      focusTopic: normalizedTopic,
+      referenceGuard,
+      usageContext: {
+        accountId,
+        referenceId: processingReference.id,
+      },
+    })
+    const generatedVariations = enforceVariationDiversity(hookDiversifiedVariations, categoryGuard)
 
     const { data: row, error } = await runStage(
       'save-reference-video',
@@ -2827,6 +3794,8 @@ export async function analyzeReferenceVideo({
           failure_stage: null,
           failure_code: null,
           failure_message: null,
+          analysis_stage_metrics: stageMetrics,
+          transcript_quality: transcriptQuality,
           processing_completed_at: new Date().toISOString(),
           document_id: ingestedDocument.document.id,
         }
@@ -2843,6 +3812,8 @@ export async function analyzeReferenceVideo({
             'failure_stage',
             'failure_code',
             'failure_message',
+            'analysis_stage_metrics',
+            'transcript_quality',
             'processing_completed_at',
           ],
           detail: true,
@@ -2984,6 +3955,8 @@ async function syncReferenceAnalysis({
         topic,
         originalFilename: legacyReferenceVideo.original_filename,
         variations: legacyReferenceVideo.variations,
+        analysisStageMetrics: legacyReferenceVideo.analysis_stage_metrics || {},
+        transcriptQuality: legacyReferenceVideo.transcript_quality || {},
       },
     })
     .select('id')
@@ -3150,47 +4123,43 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
   }
 
   try {
-    const globalKnowledge = await retrieveGlobalKnowledgeContext({
-      title: data.title,
-      topic: data.topic,
-      transcript: data.transcript || '',
-      frameSummary,
-      topK: 4,
-    })
+    const existingKnowledgeItems = enrichedVariations
+      .flatMap((variation) => (Array.isArray(variation?.usedKnowledge) ? variation.usedKnowledge : []))
+      .filter(Boolean)
+    const existingKnowledgeMap = new Map()
+    for (const item of existingKnowledgeItems) {
+      if (!item?.id || existingKnowledgeMap.has(item.id)) continue
+      existingKnowledgeMap.set(item.id, item)
+    }
 
-    globalKnowledgeDebug = mapGlobalKnowledgeDebug(globalKnowledge.items || [])
-    globalKnowledgeCategories = globalKnowledge.categories || []
+    if (existingKnowledgeMap.size) {
+      globalKnowledgeDebug = Array.from(existingKnowledgeMap.values())
+      globalKnowledgeCategories = Array.from(
+        new Set(globalKnowledgeDebug.map((item) => item.category).filter(Boolean)),
+      )
+    } else {
+      const globalKnowledge = await retrieveGlobalKnowledgeContext({
+        title: data.title,
+        topic: data.topic,
+        transcript: data.transcript || '',
+        frameSummary,
+        topK: 4,
+      })
 
-    const needsPerVariationKnowledge = enrichedVariations.some(
+      globalKnowledgeDebug = mapGlobalKnowledgeDebug(globalKnowledge.items || [])
+      globalKnowledgeCategories = globalKnowledge.categories || []
+    }
+
+    const needsVariationKnowledge = enrichedVariations.some(
       (variation) => !Array.isArray(variation?.usedKnowledge) || variation.usedKnowledge.length === 0,
     )
 
-    if (needsPerVariationKnowledge && enrichedVariations.length) {
-      const perVariationKnowledge = await Promise.all(
-        enrichedVariations.map(async (variation, index) => {
-          const config = VARIATION_CONFIGS[index] || VARIATION_CONFIGS[0]
-          const angle = variation?.angle?.trim() || config.angle
-          const hint = config.retrievalHint
-          const result = await retrieveGlobalKnowledgeContext({
-            title: data.title,
-            topic: `${data.topic}\n전략: ${angle}\n검색 힌트: ${hint}`,
-            transcript: data.transcript || '',
-            frameSummary,
-            topK: 4,
-          })
-
-          const knowledgeItems = mapGlobalKnowledgeDebug(result.items || [])
-
-          return {
-            ...variation,
-            angle,
-            usedChunkIds: knowledgeItems.map((item) => item.id),
-            usedKnowledge: knowledgeItems,
-          }
-        }),
-      )
-
-      enrichedVariations = perVariationKnowledge
+    if (needsVariationKnowledge && enrichedVariations.length && globalKnowledgeDebug.length) {
+      enrichedVariations = enrichedVariations.map((variation) => ({
+        ...variation,
+        usedChunkIds: globalKnowledgeDebug.map((item) => item.id),
+        usedKnowledge: globalKnowledgeDebug,
+      }))
     }
   } catch (error) {
     logAIError('analysis', error, {
@@ -3319,7 +4288,7 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
 
   const payload = {}
   if (title !== undefined) {
-    const normalizedTitle = String(title || '').trim()
+    const normalizedTitle = normalizeReferenceTitle({ title })
     if (!normalizedTitle) {
       throw new AppError('title is required', {
         code: 'INVALID_REFERENCE_VIDEO_TITLE',
@@ -3413,4 +4382,12 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
   }
 
   return data
+}
+
+export const __referenceVideoAnalysisTest = {
+  buildTopicFocusPrompt,
+  extractReferenceSurfaceTerms,
+  findReferenceSurfaceLeakage,
+  normalizeGenerationTopic,
+  normalizeReferenceTitle,
 }
