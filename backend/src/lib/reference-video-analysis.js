@@ -42,6 +42,22 @@ const DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS = Number.parseInt(
   10,
 )
 const CURRENT_CONTENT_YEAR = String(process.env.CURRENT_CONTENT_YEAR || '2026').trim() || '2026'
+const VARIATION_NATURAL_VOICE_RULES = [
+  '말투 규칙(절대 준수): 실제 릴스에서 말하는 짧은 해요체/대화체로 쓴다.',
+  '하십시오체/보고서체/강의안체를 금지한다. "~합니다", "~드립니다", "~제공합니다"로 문장을 끝내지 않는다.',
+  '번역투와 어색한 조합을 금지한다. "개인용 환경", "특수한 고민 해결법", "압축 제공", "직접적으로 공유", "완전히 버리겠습니다" 같은 표현을 쓰지 않는다.',
+  '추상 명사보다 실제 상황을 쓴다. "정보를 제공한다"가 아니라 "무엇을 어떻게 하면 달라지는지"로 쓴다.',
+  '없는 지역명/상품명/원인/상황을 지어내지 않는다. 계정 설정이나 이번 릴스 주제에 있는 소재만 구체화한다.',
+  'HOOK/BODY/CTA는 각각 읽었을 때 바로 이해되는 자연스러운 한국어여야 한다.',
+].join('\n')
+
+const AWKWARD_KOREAN_PATTERN =
+  /(개인용\s*환경|특수한\s*[^\n]{0,12}고민|압축\s*제공|직접적으로\s*공유|완전히\s*버리겠습니다|반사되는\s*게\s*두려|대전\s*얼굴|난\s*때문에|다시\s*그늘|자료를\s*관리|이\s*자료로|수많은\s*제품과\s*방법|것이\s*아니라\s*스스로|관리하는\s*루틴을\s*더\s*이상\s*좋아하지)/i
+const REPORT_STYLE_PATTERN = /(?:제공|공유|관리|적용|제시|유도|활용)(?:합니다|하세요|할\s*수\s*있습니다|된다)\.?$/i
+const TRANSCRIPT_RELIABILITY_LOW_THRESHOLD = Number.parseInt(
+  process.env.TRANSCRIPT_RELIABILITY_LOW_THRESHOLD || '45',
+  10,
+)
 
 const ACCOUNT_GOAL_LABELS = {
   'personal-influencer': '퍼스널 인플루언싱',
@@ -1015,12 +1031,133 @@ function findReferenceSurfaceLeakage(text = '', referenceSurfaceTerms = []) {
   return (referenceSurfaceTerms || []).find((term) => containsTerm(normalized, term)) || null
 }
 
+function scoreTranscriptReliability({ text = '', segments = [], durationSeconds = null, hasAudio = false } = {}) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim()
+  const chars = normalized.length
+  const hangulChars = (normalized.match(/[가-힣]/g) || []).length
+  const alphaNumericChars = (normalized.match(/[a-zA-Z0-9가-힣]/g) || []).length
+  const sentences = normalized
+    .split(/[.!?。！？\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const tokens = normalized
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const uniqueTokens = new Set(tokens.map((item) => item.toLowerCase()))
+  const uniqueRatio = tokens.length ? uniqueTokens.size / tokens.length : 0
+  const repeatedShortTokenCount = tokens.filter((token, index, array) => {
+    if (token.length > 4) return false
+    return array.indexOf(token) !== index
+  }).length
+  const meaninglessPattern =
+    /(^(?:ㅋ|ㅎ|아|어|음|응|네|예|오|우|라|나|다|마|바|사|자|하|\s)+$|(?:ㅋㅋ|ㅎㅎ|음악|노래|박수|소리|구독|좋아요)\s*(?:음악|노래|박수|소리|구독|좋아요))/i
+  const longRepeatedPattern = /(.{1,6})\1{4,}/
+  const segmentCount = Array.isArray(segments) ? segments.length : 0
+  const duration = Number(durationSeconds || 0)
+  const density = duration > 0 ? chars / Math.max(duration, 1) : null
+  const reasons = []
+  let score = hasAudio ? 55 : 15
+
+  if (!hasAudio) reasons.push('오디오 스트림 없음')
+  if (!chars) {
+    reasons.push('전사 없음')
+    score -= 45
+  } else if (chars < 30) {
+    reasons.push('전사가 너무 짧음')
+    score -= 30
+  } else if (chars < 80) {
+    reasons.push('전사가 짧음')
+    score -= 12
+  } else {
+    score += 15
+  }
+
+  if (sentences.length >= 3) score += 10
+  if (sentences.length <= 1 && chars < 140) {
+    reasons.push('문장 구조 부족')
+    score -= 10
+  }
+  if (segmentCount >= 3) score += 8
+  if (segmentCount === 0 && chars > 0) {
+    reasons.push('STT 세그먼트 없음')
+    score -= 5
+  }
+  if (alphaNumericChars > 0 && hangulChars / alphaNumericChars < 0.25) {
+    reasons.push('한국어 발화 비중 낮음')
+    score -= 12
+  }
+  if (tokens.length >= 8 && uniqueRatio < 0.45) {
+    reasons.push('반복 단어 비율 높음')
+    score -= 18
+  }
+  if (repeatedShortTokenCount >= 4) {
+    reasons.push('짧은 단어 반복 많음')
+    score -= 12
+  }
+  if (meaninglessPattern.test(normalized) || longRepeatedPattern.test(normalized)) {
+    reasons.push('무의미/반복 발화 의심')
+    score -= 25
+  }
+  if (density !== null && duration >= 20 && density < 0.8) {
+    reasons.push('영상 길이 대비 전사 밀도 낮음')
+    score -= 10
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)))
+  const threshold = Number.isFinite(TRANSCRIPT_RELIABILITY_LOW_THRESHOLD)
+    ? TRANSCRIPT_RELIABILITY_LOW_THRESHOLD
+    : 45
+  const level = score < threshold ? 'low' : score < 70 ? 'medium' : 'high'
+  return {
+    score,
+    level,
+    reliable: score >= threshold,
+    reasons,
+    stats: {
+      chars,
+      sentences: sentences.length,
+      tokens: tokens.length,
+      uniqueRatio: Number(uniqueRatio.toFixed(2)),
+      segmentCount,
+      density: density === null ? null : Number(density.toFixed(2)),
+    },
+  }
+}
+
+function buildTranscriptReliabilityPrompt(transcriptQuality = {}) {
+  const level = transcriptQuality?.level || 'unknown'
+  const score = Number.isFinite(transcriptQuality?.score) ? transcriptQuality.score : null
+  const reasons = Array.isArray(transcriptQuality?.reasons) ? transcriptQuality.reasons : []
+  if (transcriptQuality?.reliable) {
+    return [
+      `전사 신뢰도: ${level}${score === null ? '' : ` (${score}/100)`}`,
+      '전사가 충분히 읽히므로 구조/후킹/심리 분석의 핵심 근거로 사용해도 된다.',
+    ].join('\n')
+  }
+
+  return [
+    `전사 신뢰도: 낮음${score === null ? '' : ` (${score}/100)`}`,
+    reasons.length ? `낮게 판단한 이유: ${reasons.join(', ')}` : null,
+    '중요: BGM/효과음/작은 음성 때문에 전사가 깨졌을 가능성이 있다.',
+    '전사를 사실처럼 단정하지 말고, 알아들을 수 있는 문장만 제한적으로 참고하라.',
+    '전사가 짧거나 무의미하면 structureAnalysis/hookAnalysis/psychologyAnalysis에서 “전사 근거 부족”을 명시하고, 첫 3초 프레임 분석/사용자 입력 주제/자막 단서를 더 우선하라.',
+    '전사에 없는 구체 단어, 상품명, 원인, 상황은 새로 만들지 마라.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 async function buildStructureBlueprint({
   openai,
   chatModel,
   analysisResult,
   transcript,
+  transcriptQuality = {},
+  frameSummary = '',
 }) {
+  const transcriptReliabilityPrompt = buildTranscriptReliabilityPrompt(transcriptQuality)
+  const reliableTranscript = transcriptQuality?.reliable ? transcript : ''
   const response = await openai.chat.completions.create({
     model: chatModel,
     temperature: 0.1,
@@ -1028,12 +1165,14 @@ async function buildStructureBlueprint({
       {
         role: 'system',
         content:
-          '너는 레퍼런스에서 논리 구조만 추출하는 분석기다. 주제/업종/키워드는 제거하고 추상 구조만 JSON으로 반환한다. 특히 hookSentencePattern에는 훅의 시작 방식, 문장 리듬, 긴장 형성 순서만 추상적으로 적고 원문 단어는 넣지 마라. hookAdvantagePattern에는 레퍼런스 훅의 강점(주의 환기 방식, 갈등 제시 방식, 감정 트리거)을 일반화해서 적어라.',
+          '너는 레퍼런스에서 논리 구조만 추출하는 분석기다. 주제/업종/키워드는 제거하고 추상 구조만 JSON으로 반환한다. 특히 hookSentencePattern에는 훅의 시작 방식, 문장 리듬, 긴장 형성 순서만 추상적으로 적고 원문 단어는 넣지 마라. hookAdvantagePattern에는 레퍼런스 훅의 강점(주의 환기 방식, 갈등 제시 방식, 감정 트리거)을 일반화해서 적어라. 전사 신뢰도가 낮으면 전사 문장 구조를 억지로 추출하지 말고 분석 결과와 프레임 단서에서 확인되는 추상 구조만 사용하라.',
       },
       {
         role: 'user',
         content:
-          `레퍼런스 전사:\n${transcript || '-'}\n\n` +
+          `${transcriptReliabilityPrompt}\n\n` +
+          `레퍼런스 전사(신뢰도 낮으면 제한 참고):\n${reliableTranscript || '신뢰 가능한 전사 없음'}\n\n` +
+          `시각 분석 요약:\n${frameSummary || '-'}\n\n` +
           `구조 분석:\n${analysisResult?.structureAnalysis || '-'}\n\n` +
           `후킹 분석:\n${analysisResult?.hookAnalysis || '-'}\n\n` +
           `심리 분석:\n${analysisResult?.psychologyAnalysis || '-'}\n\n` +
@@ -1067,9 +1206,15 @@ function normalizeVariationDraft(parsed, fallback, guides = {}) {
     3,
   )
 
+  const rawAngle = String(parsed?.angle || '').trim()
+  const safeAngle =
+    rawAngle && rawAngle.length <= 18 && !AWKWARD_KOREAN_PATTERN.test(rawAngle)
+      ? rawAngle
+      : fallback.angle
+
   return {
     label: fallback.label,
-    angle: parsed?.angle?.trim() || fallback.angle,
+    angle: safeAngle,
     coreMessage: parsed?.coreMessage?.trim() || '',
     hookIntent: parsed?.hookIntent?.trim() || '',
     bodyLogic: parsed?.bodyLogic?.trim() || '',
@@ -1388,7 +1533,7 @@ async function regenerateVariationWithGPT({
           '- 단, HOOK에서도 레퍼런스 원문 단어/주제/상황/고유명사 복사 금지\n' +
           '- BODY/CTA는 HOOK 이후 흐름만 자연스럽게 이어가고, 문장 구조는 현재 계정 도메인에 맞게 새로 작성\n' +
           '- 분석 메타 표현(첫 3초, 프레임, 클로즈업, 화면, 자막, 연출) 금지\n' +
-          '- 사람 말투로 자연스럽게 작성\n' +
+          `${VARIATION_NATURAL_VOICE_RULES}\n` +
           '- HOOK/BODY/CTA 흐름을 분명히 연결\n' +
           '- 세팅 신호와 키워드는 억지 삽입보다 자연스러운 반영을 우선\n\n' +
           '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
@@ -1464,7 +1609,7 @@ function needsFlowPolish(variation = {}) {
 
   const awkwardPattern =
     /(첫\s*\d+초|클로즈업|화면|자막|문구|프레임|장면|시선\s*집중|도입부에서는|전개에서는|결론에서는|영상|편집|연출|저\s*원래부터|즉각\s*사로잡)/i
-  return awkwardPattern.test(text)
+  return awkwardPattern.test(text) || AWKWARD_KOREAN_PATTERN.test(text) || REPORT_STYLE_PATTERN.test(text)
 }
 
 function isVariationStructureBroken(variation = {}, alignment = {}, guard = {}) {
@@ -1548,14 +1693,23 @@ function scoreVariationQuality(variation = {}, config = {}, guard = {}) {
   }
   toneMatch = Math.max(1, Math.min(5, toneMatch))
 
-  const average = (hookStrength + clarity + flow + ctaPower + toneMatch) / 5
+  let naturalness = 4
+  if (AWKWARD_KOREAN_PATTERN.test(fullText)) naturalness -= 2
+  if (REPORT_STYLE_PATTERN.test(hook) || REPORT_STYLE_PATTERN.test(body) || REPORT_STYLE_PATTERN.test(cta)) {
+    naturalness -= 1
+  }
+  if (/(합니다|드립니다|제공합니다|공유합니다|유도합니다)/.test(fullText)) naturalness -= 1
+  if (/(개인용|특수한|직접적으로|자료|환경)/.test(fullText)) naturalness -= 1
+  naturalness = Math.max(1, Math.min(5, naturalness))
+
   return {
     hook_strength: hookStrength,
     clarity,
     flow,
     cta_power: ctaPower,
     tone_match: toneMatch,
-    average,
+    naturalness,
+    average: (hookStrength + clarity + flow + ctaPower + toneMatch + naturalness) / 6,
   }
 }
 
@@ -1569,6 +1723,7 @@ function shouldRegenerateByQuality(score = {}) {
   if ((score.clarity || 0) <= 2) return true
   if ((score.tone_match || 0) <= 2) return true
   if ((score.cta_power || 0) <= 2) return true
+  if ((score.naturalness || 0) <= 2) return true
   return false
 }
 
@@ -2134,14 +2289,27 @@ export async function analyzeReferenceVideo({
     ]
       .filter(Boolean)
       .join('\n')
+    const transcriptQuality = scoreTranscriptReliability({
+      text: normalizedTranscript || '',
+      segments: transcript.segments || [],
+      durationSeconds: transcript.duration || durationSeconds,
+      hasAudio,
+    })
+    const transcriptReliabilityPrompt = buildTranscriptReliabilityPrompt(transcriptQuality)
+    const transcriptForAnalysis = transcriptQuality.reliable ? normalizedTranscript : ''
 
-    const transcriptDocumentContent =
-      normalizedTranscript ||
-      `전사 추출 없음\n\n시각 분석 요약:\n${frameSummary || '첫 3초 프레임에서 유효한 음성 전사를 얻지 못했습니다.'}`
+    const transcriptDocumentContent = transcriptQuality.reliable
+      ? normalizedTranscript
+      : [
+          '전사 품질 낮음',
+          transcriptReliabilityPrompt,
+          normalizedTranscript ? `불안정 전사(제한 참고):\n${normalizedTranscript}` : '전사 추출 없음',
+          `시각 분석 요약:\n${frameSummary || '첫 3초 프레임에서 유효한 음성 전사를 얻지 못했습니다.'}`,
+        ].join('\n\n')
 
     const ingestedDocument = await runStage(
       'ingest-document',
-      { ...baseContext, transcriptEmpty: !normalizedTranscript },
+      { ...baseContext, transcriptEmpty: !normalizedTranscript, transcriptQuality: transcriptQuality.level },
       async () =>
         ingestDocument({
           accountId,
@@ -2152,6 +2320,9 @@ export async function analyzeReferenceVideo({
             topic: normalizedTopic,
             originalFilename: normalizedOriginalName,
             transcriptEmpty: !normalizedTranscript,
+            transcriptQuality: transcriptQuality.level,
+            transcriptQualityScore: transcriptQuality.score,
+            transcriptQualityReasons: transcriptQuality.reasons,
             hasAudio,
             transcriptCapped,
             transcriptCapSeconds: cappedAudioSeconds,
@@ -2174,8 +2345,12 @@ export async function analyzeReferenceVideo({
             content: [
               '당신은 숏폼 레퍼런스 영상을 분석하는 한국어 전략가다. 전사와 첫 3초 프레임 분석을 함께 보고 구조, 후킹 포인트, 심리기제, AI 피드백을 JSON으로만 반환한다.',
               `현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이다.`,
-              '중요: structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback은 전사(텍스트) 기준으로만 분석한다.',
-              '프레임(시각) 정보는 구조 보조 참고용으로만 사용하고, 위 4개 텍스트 필드의 핵심 근거는 반드시 전사에 둔다.',
+              transcriptQuality.reliable
+                ? '중요: structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback은 전사(텍스트) 기준으로 분석한다.'
+                : '중요: 전사 신뢰도가 낮다. structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback에서 전사를 핵심 근거로 과신하지 말고, 첫 3초 프레임/사용자 입력 주제/확인 가능한 자막 단서를 우선한다.',
+              transcriptQuality.reliable
+                ? '프레임(시각) 정보는 구조 보조 참고용으로만 사용하고, 위 4개 텍스트 필드의 핵심 근거는 반드시 전사에 둔다.'
+                : '전사에서 알아들을 수 있는 문장만 제한적으로 참고하고, 불명확한 부분은 “전사 근거 부족”으로 표현한다.',
               '분석 단계에서는 외부 지식/일반 템플릿을 사용하지 않는다.',
               '레퍼런스에 명시되지 않은 연도, 통계, 기능명, 인스타그램 설정, 알림, 팔로워/완주율 같은 소재를 추론해서 쓰지 마라.',
               `연도를 새로 제시해야 하는 경우에는 ${CURRENT_CONTENT_YEAR}년만 사용하고, 2024년을 쓰지 마라.`,
@@ -2188,7 +2363,10 @@ export async function analyzeReferenceVideo({
           {
             role: 'user',
             content:
-              `전사:\n${normalizedTranscript || '전사 추출 없음'}\n\n` +
+              `${transcriptReliabilityPrompt}\n\n` +
+              `전사${transcriptQuality.reliable ? '' : '(불안정, 제한 참고)'}:\n${
+                transcriptForAnalysis || normalizedTranscript || '전사 추출 없음'
+              }\n\n` +
               `첫 3초 프레임 분석:\n${JSON.stringify(frameAnalysis, null, 2)}\n\n` +
               '응답 포맷 규칙:\n' +
               '- JSON 구조는 절대 변경하지 마세요.\n' +
@@ -2200,7 +2378,9 @@ export async function analyzeReferenceVideo({
               '- 금지: 전사/프레임에 없는 소재나 숫자를 예시처럼 추가하지 마세요.\n' +
               '- 금지: 외부 지식/일반 예시의 문장/사례를 레퍼런스 내용처럼 쓰지 마세요.\n' +
               `- 연도 규칙: 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 마세요.\n` +
-              '- 전사와 프레임이 서로 충돌하면 전사를 우선하고, 충돌 가능성을 aiFeedback에 짧게 언급하세요.\n' +
+              (transcriptQuality.reliable
+                ? '- 전사와 프레임이 서로 충돌하면 전사를 우선하고, 충돌 가능성을 aiFeedback에 짧게 언급하세요.\n'
+                : '- 전사와 프레임이 서로 충돌하거나 전사가 불명확하면 프레임/사용자 입력 주제를 우선하고, 전사 근거가 약하다고 aiFeedback에 짧게 언급하세요.\n') +
               '다음 JSON 형식으로만 답하세요: ' +
               '{"structureAnalysis":"","hookAnalysis":"","psychologyAnalysis":"","aiFeedback":""}',
           },
@@ -2221,7 +2401,7 @@ export async function analyzeReferenceVideo({
       surfaceTerms: extractReferenceSurfaceTerms({
         title: normalizedTitle,
         topic: normalizedTopic,
-        transcript: normalizedTranscript || '',
+        transcript: transcriptForAnalysis || '',
       }),
     }
     const structureBlueprint = await runStage(
@@ -2233,6 +2413,8 @@ export async function analyzeReferenceVideo({
           chatModel,
           analysisResult,
           transcript: normalizedTranscript || '',
+          transcriptQuality,
+          frameSummary,
         }),
       stageHooks,
     )
@@ -2301,6 +2483,7 @@ export async function analyzeReferenceVideo({
             '아래 인사이트/체크포인트는 필요한 만큼 자연스럽게 반영하고, usedInsights/usedCheckpoints에는 실제로 참고한 항목만 기록하라.',
             '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
             '공통: 설명체보다 대화체. 문장은 짧게 끊고 리듬감 있게. 추상적 표현 금지.',
+            VARIATION_NATURAL_VOICE_RULES,
             'HOOK 금지: "~하시나요?" 같은 평범한 질문, 너무 일반적인 문제 제기.',
             'HOOK 규칙: 첫 문장에서 긴장감/반전/궁금증을 만들고 한 문장으로 강하게 시작.',
             'BODY 금지: "많은 사람들이 ~ 하지만" 같은 교과서 문장, 긴 한 문장 설명.',
@@ -2362,6 +2545,8 @@ export async function analyzeReferenceVideo({
             '- BODY/CTA는 레퍼런스 문장 구조를 따라 쓰지 말고 현재 계정 맥락으로 자연스럽게 새로 쓴다\n' +
             '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 작성\n' +
             '- 키워드를 억지로 끼워 넣지 말고, 자연스러운 주장과 흐름을 우선\n\n' +
+            '- angle은 화면에 보이는 짧은 분류명이다. 18자 이하로 쓰고, 설명문/문장/추상 표현은 금지한다\n' +
+            '- angle이 애매하면 전략 방향 그대로 사용한다\n\n' +
             `- 연도 규칙: 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 않는다\n\n` +
             `핵심 인사이트(우선 참고):\n${
               generationGuides.keyInsights.length
@@ -2539,8 +2724,8 @@ export async function analyzeReferenceVideo({
             didRegenerate = true
           }
 
-          // Guard mode: regenerate와 polish를 동시 실행하지 않는다.
-          if (normalized && alignment.ok && !didRegenerate && needsFlowPolish(normalized)) {
+          // 문장 말투가 깨진 초안은 재생성 이후라도 한 번 더 다듬어 사용자에게 노출되는 번역투를 줄인다.
+          if (normalized && alignment.ok && needsFlowPolish(normalized)) {
             try {
               const polishResponse = await openai.chat.completions.create({
                 model: chatModel,
@@ -2551,6 +2736,7 @@ export async function analyzeReferenceVideo({
                     content:
                       '당신은 숏폼 스크립트 문장 다듬기 편집자다. 의미는 유지하고 문장만 더 자연스럽게 고친다. ' +
                       '영상 분석 메타 표현(예: 첫 3초, 자막, 클로즈업, 화면, 장면, 문구)을 절대 쓰지 마라. ' +
+                      `${VARIATION_NATURAL_VOICE_RULES} ` +
                       '출력은 JSON만 반환한다.',
                   },
                   {
@@ -2566,6 +2752,7 @@ export async function analyzeReferenceVideo({
                       '- 훅/바디/CTA 연결 흐름 유지\n' +
                       '- 의미는 유지하고 문장만 자연스럽게\n' +
                       '- 설명문 말투보다 실제 말하는 톤으로\n' +
+                      '- 어색한 번역투, 보고서체, "~합니다/~드립니다" 말투는 짧은 해요체로 바꾸기\n' +
                       '- 전략 라벨 톤은 유지\n\n' +
                       '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
                   },
@@ -2699,6 +2886,7 @@ export async function analyzeReferenceVideo({
       global_knowledge_categories: [],
       category_playbook: playbookContext.payload,
       analysis_stage_metrics: stageMetrics,
+      transcript_quality: transcriptQuality,
     }
 
     if (cacheConfig.enableAnalysisResultReuse) {

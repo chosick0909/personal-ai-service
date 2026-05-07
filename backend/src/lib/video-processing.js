@@ -16,6 +16,11 @@ const ffmpegPath = ffmpegInstaller.path
 const ffprobePath = ffprobeInstaller.path
 const VISION_FRAME_COUNT = Number.parseInt(process.env.VISION_FRAME_COUNT || '3', 10)
 const VISION_FRAME_MAX_WIDTH = Number.parseInt(process.env.VISION_FRAME_MAX_WIDTH || '720', 10)
+const ENABLE_SPEECH_AUDIO_FILTER =
+  String(process.env.REFERENCE_AUDIO_SPEECH_FILTER || 'true').toLowerCase() !== 'false'
+const SPEECH_AUDIO_FILTER_CHAIN =
+  process.env.REFERENCE_AUDIO_FILTER_CHAIN?.trim() ||
+  'highpass=f=120,lowpass=f=3800,afftdn=nf=-25,dynaudnorm=f=150:g=15,volume=1.35'
 
 function summarizeStderr(stderr) {
   const text = stderr?.toString() || ''
@@ -147,24 +152,44 @@ export async function extractAudioTrack(videoPath, workspace, options = {}) {
   const audioPath = join(workspace, 'audio.wav')
   const maxDurationSeconds = Number(options.maxDurationSeconds || 0)
   const shouldLimitDuration = Number.isFinite(maxDurationSeconds) && maxDurationSeconds > 0
+  const buildArgs = (withSpeechFilter = true) => [
+    '-y',
+    '-i',
+    videoPath,
+    ...(shouldLimitDuration ? ['-t', String(Math.floor(maxDurationSeconds))] : []),
+    '-vn',
+    ...(withSpeechFilter && ENABLE_SPEECH_AUDIO_FILTER ? ['-af', SPEECH_AUDIO_FILTER_CHAIN] : []),
+    '-ac',
+    '1',
+    '-ar',
+    '16000',
+    '-c:a',
+    'pcm_s16le',
+    audioPath,
+  ]
 
   try {
-    const args = [
-      '-y',
-      '-i',
-      videoPath,
-      ...(shouldLimitDuration ? ['-t', String(Math.floor(maxDurationSeconds))] : []),
-      '-vn',
-      '-ac',
-      '1',
-      '-ar',
-      '16000',
-      '-c:a',
-      'pcm_s16le',
-      audioPath,
-    ]
-    await execFile(ffmpegPath, args)
+    await execFile(ffmpegPath, buildArgs(true))
   } catch (error) {
+    if (ENABLE_SPEECH_AUDIO_FILTER) {
+      try {
+        await execFile(ffmpegPath, buildArgs(false))
+        return audioPath
+      } catch (fallbackError) {
+        throw new AppError('Failed to extract audio track from video', {
+          code: 'AUDIO_EXTRACTION_FAILED',
+          statusCode: 500,
+          details: {
+            stage: 'extract-audio',
+            maxDurationSeconds: shouldLimitDuration ? Math.floor(maxDurationSeconds) : null,
+            speechFilter: SPEECH_AUDIO_FILTER_CHAIN,
+            stderr: summarizeStderr(fallbackError.stderr || error.stderr),
+          },
+          cause: fallbackError,
+        })
+      }
+    }
+
     throw new AppError('Failed to extract audio track from video', {
       code: 'AUDIO_EXTRACTION_FAILED',
       statusCode: 500,
