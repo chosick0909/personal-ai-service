@@ -1398,9 +1398,16 @@ function buildTargetCharRange(referenceCharCount = 0) {
   return `${min}-${max}자`
 }
 
+function normalizeBlueprintSourceSentence(value = '') {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!normalized) return ''
+  return normalized.length > 180 ? `${normalized.slice(0, 180)}...` : normalized
+}
+
 function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence = '') {
   const order = Number.isFinite(Number(item.order)) ? Number(item.order) : index + 1
   const section = inferBlueprintSection(order, total || 1, item.section)
+  const normalizedSourceSentence = normalizeBlueprintSourceSentence(sourceSentence)
   const role = String(item.role || '').trim()
   const keywordSlot = String(item.keywordSlot || item.keyword_slot || '').trim()
   const topicSlots = normalizeStringList(
@@ -1424,7 +1431,7 @@ function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence 
     0,
     Math.round(
       Number(item.referenceCharCount || item.reference_char_count || item.charCount || item.char_count || 0) ||
-        String(sourceSentence || '').trim().length,
+        normalizedSourceSentence.length,
     ),
   )
   const targetCharRange = String(item.targetCharRange || item.target_char_range || '').trim() ||
@@ -1443,6 +1450,7 @@ function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence 
   return {
     order,
     section,
+    sourceSentence: normalizedSourceSentence,
     role: role || `${section.toUpperCase()} ${order}번 문장 역할`,
     length,
     referenceCharCount,
@@ -1610,6 +1618,7 @@ function formatSentenceSubstitutionPrompt(structureBlueprint = {}) {
       const pieces = [
         `${item.order}번 문장`,
         `[${String(item.section || '').toUpperCase()}]`,
+        item.sourceSentence ? `원문 골격 참고(복사 금지): "${item.sourceSentence}"` : null,
         `역할 유지: ${item.role || '-'}`,
         item.keywordSlot ? `키워드 자리: ${item.keywordSlot}` : null,
         item.topicSlots?.length ? `주제 표현 자리: ${item.topicSlots.join(', ')}` : null,
@@ -1899,7 +1908,10 @@ function attachStructureMetadata(variation = {}, structureBlueprint = {}, struct
   const blueprintPayload = {
     mode: structureBlueprint?.blueprintMode || 'section',
     sentenceBlueprint: Array.isArray(structureBlueprint?.sentenceBlueprint)
-      ? structureBlueprint.sentenceBlueprint.slice(0, MAX_SENTENCE_BLUEPRINT_ITEMS)
+      ? structureBlueprint.sentenceBlueprint.slice(0, MAX_SENTENCE_BLUEPRINT_ITEMS).map((item) => {
+          const { sourceSentence: _sourceSentence, ...safeItem } = item || {}
+          return safeItem
+        })
       : [],
     substitutionMap: Array.isArray(structureBlueprint?.substitutionMap)
       ? structureBlueprint.substitutionMap.slice(0, 8)
@@ -3471,6 +3483,7 @@ export async function analyzeReferenceVideo({
             '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
             '파일명, 녹화일, 촬영일, 업로드일, 스크린레코딩 날짜/시간은 절대 대본 소재로 사용하지 마라.',
             '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식/심리 트리거/길이감 참고용이다.',
+            '문장별 소재 치환 작업표에 원문 골격 참고 문장이 있으면, 그 문장을 그대로 베끼지 말고 같은 문장 위치에서 같은 말맛/호흡/압박감으로 현재 주제 문장 1개로 바꾼다.',
             '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
             '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
             'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
@@ -3564,6 +3577,8 @@ export async function analyzeReferenceVideo({
             '- 3단계: 비어 있는 키워드 슬롯을 이번 릴스 주제와 계정 세팅으로 채운다\n' +
             '- 4단계: 잠근 구조 그대로 HOOK/BODY/CTA를 작성한다\n' +
             '- 문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 수를 마음대로 줄이거나 합치지 않는다\n' +
+            '- 문장별 소재 치환 작업표의 “원문 골격 참고”는 반드시 같은 번호 결과 문장으로 대응시킨다. 예: 1번 원문 질문형이면 1번 결과도 현재 주제 질문형으로 시작한다\n' +
+            '- 원문 문장의 단어를 그대로 쓰지 말고, 같은 위치의 문제/상황/욕구/반전/증거/CTA 기능을 현재 계정 주제로 바꾼다\n' +
             '- 각 문장은 목표분량/문장형태/절 구조/끝맺음/구두점 호흡/리듬/원본 느낌을 유지하고, 문장 안 소재/상황/상품명만 현재 주제로 치환한다\n' +
             '- 변경 범위는 topicSlots/replaceTargets/mustReplace에 해당하는 주제 표현으로 제한한다. 문장 골격, 절 순서, 쉼표 호흡, 강조 순서, 감정 흐름은 유지한다\n' +
             '- 레퍼런스가 질문으로 압박하면 결과도 같은 위치에서 질문으로 압박한다. 레퍼런스가 단호한 결론이면 결과도 같은 위치에서 단호하게 끝낸다\n' +
