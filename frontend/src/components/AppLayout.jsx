@@ -53,7 +53,7 @@ export default function AppLayout({ sidebar, main, panel, children, mobileVarian
     : sidebar
 
   return (
-    <main className="h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]">
+    <main className="notranslate h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]" translate="no">
       <div className="flex h-full flex-col md:hidden">
         {mobileVariant === 'upload' ? (
           <header className="grid grid-cols-[46px_minmax(0,1fr)_84px] items-center gap-2.5 bg-[#0D0F14] px-4 pb-2.5 pt-3">
@@ -66,7 +66,7 @@ export default function AppLayout({ sidebar, main, panel, children, mobileVarian
               <IconMenu />
             </button>
 
-            <div className="inline-flex h-[46px] min-w-0 items-center justify-center rounded-[18px] border border-[#2F3543] bg-[#171B24] px-4 text-center text-[17px] font-bold tracking-[-0.03em] text-[#F8FAFC] shadow-[0_8px_20px_rgba(0,0,0,0.22)]">
+            <div className="notranslate inline-flex h-[46px] min-w-0 items-center justify-center rounded-[18px] border border-[#2F3543] bg-[#171B24] px-4 text-center text-[17px] font-bold tracking-[-0.03em] text-[#F8FAFC] shadow-[0_8px_20px_rgba(0,0,0,0.22)]" translate="no">
               <span className="translate-y-[-0.5px]">HookAI</span>
             </div>
 

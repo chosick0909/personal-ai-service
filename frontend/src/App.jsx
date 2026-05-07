@@ -3738,5 +3738,9 @@ export default function App() {
     content = <RecommendApp />
   }
 
-  return <AppStateProvider>{content}</AppStateProvider>
+  return (
+    <div className="notranslate h-full" translate="no">
+      <AppStateProvider>{content}</AppStateProvider>
+    </div>
+  )
 }

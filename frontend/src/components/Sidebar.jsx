@@ -576,7 +576,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   }
 
   return (
-    <div className="relative flex h-full flex-col bg-[#12151D] text-[#E5E7EB]">
+    <div className="notranslate relative flex h-full flex-col bg-[#12151D] text-[#E5E7EB]" translate="no">
       <div className="shrink-0">
         <div className="px-3 pb-3 pt-4">
           <button
@@ -629,7 +629,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                   item.active ? 'font-semibold text-[#F3F4F6]' : 'text-[#E5E7EB]'
                 }`}
               >
-                <span className="truncate">{item.title}</span>
+                <span className="notranslate truncate" translate="no">{item.title}</span>
               </button>
               <button
                 type="button"
@@ -710,7 +710,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                 }`}
               >
                 <RecentItemIcon />
-                <span className="truncate">{item.title}</span>
+                <span className="notranslate truncate" translate="no">{item.title}</span>
                 {item.isProcessing ? (
                   <span className="inline-flex shrink-0 whitespace-nowrap items-center gap-1 rounded-full border border-[#6B7280] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-[#D1D5DB]">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#60A5FA]" />
@@ -809,7 +809,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                             }
                           }}
                         >
-                          {project.name}
+                          <span className="notranslate truncate" translate="no">{project.name}</span>
                         </button>
                       ))}
                     </div>
@@ -864,7 +864,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                         </svg>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold leading-5 text-[#F3F4F6]">
+                        <div className="notranslate truncate text-sm font-semibold leading-5 text-[#F3F4F6]" translate="no">
                           {account.name}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-[#8E97A6]">
@@ -985,7 +985,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
               {(currentUser?.email || currentAccount?.name || 'H').slice(0, 1).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-[#F3F4F6]">
+              <div className="notranslate truncate text-sm font-semibold text-[#F3F4F6]" translate="no">
                 {currentAccount?.name || currentUser?.email || '계정'}
               </div>
               {entitlementStatus?.hasAccess ? (
@@ -1184,7 +1184,8 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       {isSearchOpen
         ? createPortal(
             <div
-              className="fixed inset-0 z-[130] bg-[rgba(6,8,12,0.62)] backdrop-blur-[2px]"
+              className="notranslate fixed inset-0 z-[130] bg-[rgba(6,8,12,0.62)] backdrop-blur-[2px]"
+              translate="no"
               onClick={(event) => {
                 if (event.target === event.currentTarget) {
                   setIsSearchOpen(false)
@@ -1243,7 +1244,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                                 }`}
                               >
                                 <IconChatBubble />
-                                <span className="truncate text-[16px] text-[#F3F4F6]">{item.title}</span>
+                                <span className="notranslate truncate text-[16px] text-[#F3F4F6]" translate="no">{item.title}</span>
                               </button>
                             ))}
                           </div>

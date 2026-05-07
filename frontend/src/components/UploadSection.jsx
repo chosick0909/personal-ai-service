@@ -187,10 +187,10 @@ export default function UploadSection() {
   }
 
   return (
-    <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-[linear-gradient(180deg,#0D0F14_0%,#141821_100%)] px-4 pb-6 pt-2 md:px-8 md:pb-16 md:pt-20">
+    <div className="notranslate flex h-full w-full items-start justify-center overflow-y-auto bg-[linear-gradient(180deg,#0D0F14_0%,#141821_100%)] px-4 pb-6 pt-2 md:px-8 md:pb-16 md:pt-20" translate="no">
       <div className="w-full max-w-[1024px]">
         <div className="mx-auto flex h-[42px] w-fit items-center justify-center rounded-full border border-[#3A414F] bg-[#1B202A] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
-          {currentStep === 'analyzing' ? 'Step 2: Analyzing Reference' : 'Step 2: Upload Reference'}
+          {currentStep === 'analyzing' ? '2단계 · 레퍼런스 분석 중' : '2단계 · 레퍼런스 업로드'}
         </div>
 
         <h1 className="mt-1 text-center text-[28px] font-bold leading-[1.1] tracking-[-0.03em] text-[#F3F4F6] md:mt-6 md:text-[42px] md:leading-[63px]">
@@ -282,7 +282,7 @@ export default function UploadSection() {
             </div>
 
             <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:mt-8 md:text-xs">
-              {currentStep === 'analyzing' ? `Analyzing ${displayedAnalyzeProgress}%` : 'Drag & Drop'}
+              {currentStep === 'analyzing' ? `분석 중 ${displayedAnalyzeProgress}%` : '파일 선택'}
             </div>
 
             <h2 className="mt-2.5 text-[23px] font-bold leading-[1.14] tracking-[-0.03em] text-[#F3F4F6] md:mt-4 md:text-2xl md:leading-8">
