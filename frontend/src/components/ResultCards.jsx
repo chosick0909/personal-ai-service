@@ -6,6 +6,8 @@ import { useAppState } from '../store/AppState'
 
 const REFERENCE_SCRIPT_SECTION_TITLE = '레퍼런스 스크립트'
 const REFERENCE_SCRIPT_SECTION_DESCRIPTION = '업로드한 레퍼런스 영상에서 추출한 전체 스크립트입니다.'
+const MISSING_TRANSCRIPT_DRAFT_MESSAGE =
+  '전사 텍스트를 추출하지 못해서 초안을 생성할 수 없습니다. 음성이 또렷한 영상이나 자막이 있는 영상을 업로드해주세요.'
 // Deploy touchpoint: keep the reference script heading fixed.
 
 function BackIcon() {
@@ -102,12 +104,14 @@ export default function ResultCards() {
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
   const [editorPanelHeight, setEditorPanelHeight] = useState(null)
   const [isDesktopEditorLayout, setIsDesktopEditorLayout] = useState(false)
+  const hasTranscript = Boolean((referenceData?.transcript || '').trim())
+  const shouldBlockDraftsForMissingTranscript = !hasTranscript && generatedScripts.length === 0
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
       return normalized
     }
-    return '전사 텍스트가 없습니다. (오디오가 없거나 전사 추출에 실패한 파일일 수 있습니다.)'
+    return MISSING_TRANSCRIPT_DRAFT_MESSAGE
   }, [referenceData?.transcript])
   const categoryPlaybook = referenceData?.categoryPlaybook || null
   const monetizationInsight =
@@ -283,8 +287,9 @@ export default function ResultCards() {
           <SmallBadge>Analysis Results</SmallBadge>
           <h1 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-5xl">분석 완료</h1>
           <p className="mt-3 text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">
-            레퍼런스 영상을 다각도로 분석했습니다. 구조, 후킹 포인트, 심리 기제, 시각적 연출까지 세밀하게 파악했으며,
-            이를 바탕으로 A/B/C 세 가지 초안을 준비했습니다.
+            {shouldBlockDraftsForMissingTranscript
+              ? '레퍼런스 영상 분석은 완료했지만, 전사 텍스트가 없어 A/B/C 초안 생성은 진행하지 않았습니다.'
+              : '레퍼런스 영상을 다각도로 분석했습니다. 구조, 후킹 포인트, 심리 기제, 시각적 연출까지 세밀하게 파악했으며, 이를 바탕으로 A/B/C 세 가지 초안을 준비했습니다.'}
           </p>
         </div>
 
@@ -327,42 +332,56 @@ export default function ResultCards() {
 
         <section ref={draftSectionRef} className="mt-10 md:mt-12">
           <SmallBadge tone="pink">Select Draft</SmallBadge>
-          <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-4xl">A/B/C 초안 선택</h2>
-          <p className="mt-2 text-sm text-[#8E97A6]">원하는 스타일을 선택하여 에디터로 이동하세요</p>
-          <div className="mt-6 grid gap-4 md:mt-7">
-            <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
-          </div>
-          <div className="mt-6 grid gap-4 md:mt-7">
-            <PlaybookNoticeCard title="전환을 만드는 흐름" body={viralInsight} />
-          </div>
-          {categoryPlaybook?.insight || categoryPlaybook?.hookAiRule ? (
-            <div className="mt-6 grid gap-4 md:mt-7">
-              {categoryPlaybook?.insight ? (
-                <PlaybookNoticeCard
-                  title={categoryPlaybook.label ? `${categoryPlaybook.label} 업종 인사이트` : '업종 인사이트'}
-                  body={categoryPlaybook.insight}
-                />
-              ) : null}
-              {categoryPlaybook?.hookAiRule ? (
-                <PlaybookNoticeCard title="HookAI의 팁" body={categoryPlaybook.hookAiRule} tone="rule" />
-              ) : null}
+          <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-4xl">
+            {shouldBlockDraftsForMissingTranscript ? '초안 생성 불가' : 'A/B/C 초안 선택'}
+          </h2>
+          <p className="mt-2 text-sm text-[#8E97A6]">
+            {shouldBlockDraftsForMissingTranscript
+              ? MISSING_TRANSCRIPT_DRAFT_MESSAGE
+              : '원하는 스타일을 선택하여 에디터로 이동하세요'}
+          </p>
+          {shouldBlockDraftsForMissingTranscript ? (
+            <div className="mt-6 rounded-[20px] border border-[#3A414F] bg-[#121722] px-5 py-5 text-sm leading-6 text-[#D1D5DB]">
+              {MISSING_TRANSCRIPT_DRAFT_MESSAGE}
             </div>
-          ) : null}
-          <div className="mt-6 grid gap-5 md:mt-8 md:gap-6 xl:grid-cols-3">
-            {generatedScripts.map((script) => (
-              <ScriptCard
-                key={script.id}
-                script={script}
-                onSelect={(scriptId) => {
-                  setShouldScrollToEditor(true)
-                  selectScript(scriptId)
-                }}
-                isSelected={selectedScript?.id === script.id}
-                hasSelection={Boolean(selectedScript)}
-                disabled={isEditorPreparing}
-              />
-            ))}
-          </div>
+          ) : (
+            <>
+              <div className="mt-6 grid gap-4 md:mt-7">
+                <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
+              </div>
+              <div className="mt-6 grid gap-4 md:mt-7">
+                <PlaybookNoticeCard title="전환을 만드는 흐름" body={viralInsight} />
+              </div>
+              {categoryPlaybook?.insight || categoryPlaybook?.hookAiRule ? (
+                <div className="mt-6 grid gap-4 md:mt-7">
+                  {categoryPlaybook?.insight ? (
+                    <PlaybookNoticeCard
+                      title={categoryPlaybook.label ? `${categoryPlaybook.label} 업종 인사이트` : '업종 인사이트'}
+                      body={categoryPlaybook.insight}
+                    />
+                  ) : null}
+                  {categoryPlaybook?.hookAiRule ? (
+                    <PlaybookNoticeCard title="HookAI의 팁" body={categoryPlaybook.hookAiRule} tone="rule" />
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="mt-6 grid gap-5 md:mt-8 md:gap-6 xl:grid-cols-3">
+                {generatedScripts.map((script) => (
+                  <ScriptCard
+                    key={script.id}
+                    script={script}
+                    onSelect={(scriptId) => {
+                      setShouldScrollToEditor(true)
+                      selectScript(scriptId)
+                    }}
+                    isSelected={selectedScript?.id === script.id}
+                    hasSelection={Boolean(selectedScript)}
+                    disabled={isEditorPreparing}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </section>
 
         {currentStep === 'editor' && selectedScript ? (

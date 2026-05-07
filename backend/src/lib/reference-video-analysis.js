@@ -1490,7 +1490,30 @@ function normalizeSubstitutionMap(rawMap) {
       replaceWith: String(item?.replaceWith || item?.replace_with || item?.replacement || '').trim(),
     }))
     .filter((item) => item.slot || item.preserve || item.replaceWith)
-    .slice(0, 8)
+      .slice(0, 8)
+}
+
+function createEmptyStructureBlueprint(transcriptQuality = {}) {
+  return {
+    logicFlow: [],
+    persuasionPattern: [],
+    messageStructure: [],
+    hookSentencePattern: [],
+    hookAdvantagePattern: [],
+    keywordSlots: [],
+    desireTriggers: [],
+    sectionRhythm: [],
+    lengthProfile: [],
+    substitutionRules: [],
+    sentenceBlueprint: [],
+    substitutionMap: [],
+    blueprintMode: 'none',
+    referenceStats: {
+      sentenceCount: 0,
+      totalChars: null,
+      transcriptQuality: transcriptQuality?.level || 'missing',
+    },
+  }
 }
 
 function formatSentenceBlueprintPrompt(structureBlueprint = {}) {
@@ -3292,20 +3315,31 @@ export async function analyzeReferenceVideo({
         transcript: transcriptForAnalysis || '',
       }),
     }
-    const structureBlueprint = await runStage(
-      'extract-structure-blueprint',
-      baseContext,
-      async () =>
-        buildStructureBlueprint({
-          openai,
-          chatModel,
-          analysisResult,
-          transcript: normalizedTranscript || '',
-          transcriptQuality,
-          frameSummary,
-        }),
-      stageHooks,
-    )
+    const shouldGenerateDrafts = Boolean(normalizedTranscript)
+    let structureBlueprint = createEmptyStructureBlueprint(transcriptQuality)
+    if (shouldGenerateDrafts) {
+      structureBlueprint = await runStage(
+        'extract-structure-blueprint',
+        baseContext,
+        async () =>
+          buildStructureBlueprint({
+            openai,
+            chatModel,
+            analysisResult,
+            transcript: normalizedTranscript || '',
+            transcriptQuality,
+            frameSummary,
+          }),
+        stageHooks,
+      )
+    } else {
+      await runStage(
+        'skip-draft-generation',
+        { ...baseContext, reason: 'missing-transcript' },
+        async () => ({ skipped: true }),
+        stageHooks,
+      )
+    }
 
     const categoryGuard = buildCategoryGuard({
       accountSettings,
@@ -3342,35 +3376,38 @@ export async function analyzeReferenceVideo({
       .filter(Boolean)
       .join('\n')
 
-    const variationKnowledge = await runStage(
-      'retrieve-global-knowledge',
-      baseContext,
-      async () =>
-        retrieveGlobalKnowledgeContext({
-          title: '',
-          topic: [
-            topicFocusPrompt || null,
-            `카테고리: ${categoryGuard.category}`,
-            `전략: ${VARIATION_CONFIGS.map((config) => config.angle).join(', ')}`,
-            `검색 힌트: ${VARIATION_CONFIGS.map((config) => config.retrievalHint).join(' / ')}`,
-          ]
-            .filter(Boolean)
-            .join('\n'),
-          transcript: '',
-          frameSummary: '',
-          topK: 5,
-        }),
-      stageHooks,
-    )
-    const compactKnowledgeContext = clampText(
-      variationKnowledge.contextText || '',
-      VARIATION_CONTEXT_TEXT_MAX,
-    )
-    const sharedKnowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
+    let generatedVariations = []
 
-    const generatedVariationsRaw = await Promise.all(
-      VARIATION_CONFIGS.map((config) =>
-        runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
+    if (shouldGenerateDrafts) {
+      const variationKnowledge = await runStage(
+        'retrieve-global-knowledge',
+        baseContext,
+        async () =>
+          retrieveGlobalKnowledgeContext({
+            title: '',
+            topic: [
+              topicFocusPrompt || null,
+              `카테고리: ${categoryGuard.category}`,
+              `전략: ${VARIATION_CONFIGS.map((config) => config.angle).join(', ')}`,
+              `검색 힌트: ${VARIATION_CONFIGS.map((config) => config.retrievalHint).join(' / ')}`,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            transcript: '',
+            frameSummary: '',
+            topK: 5,
+          }),
+        stageHooks,
+      )
+      const compactKnowledgeContext = clampText(
+        variationKnowledge.contextText || '',
+        VARIATION_CONTEXT_TEXT_MAX,
+      )
+      const sharedKnowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
+
+      const generatedVariationsRaw = await Promise.all(
+        VARIATION_CONFIGS.map((config) =>
+          runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
           const systemContent = [
             '당신은 숏폼 콘텐츠 작가다. 새 대본을 자유롭게 창작하지 말고, 잘 만든 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
             `현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이다. 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 마라.`,
@@ -3752,22 +3789,23 @@ export async function analyzeReferenceVideo({
         }, stageHooks),
       ),
     )
-    const hookDiversifiedVariations = await diversifySimilarHooks({
-      variations: generatedVariationsRaw,
-      openai,
-      variationModel,
-      categoryGuard,
-      guardPromptSummary,
-      characterSystemPrompt,
-      structureBlueprint,
-      focusTopic: normalizedTopic,
-      referenceGuard,
-      usageContext: {
-        accountId,
-        referenceId: processingReference.id,
-      },
-    })
-    const generatedVariations = enforceVariationDiversity(hookDiversifiedVariations, categoryGuard)
+      const hookDiversifiedVariations = await diversifySimilarHooks({
+        variations: generatedVariationsRaw,
+        openai,
+        variationModel,
+        categoryGuard,
+        guardPromptSummary,
+        characterSystemPrompt,
+        structureBlueprint,
+        focusTopic: normalizedTopic,
+        referenceGuard,
+        usageContext: {
+          accountId,
+          referenceId: processingReference.id,
+        },
+      })
+      generatedVariations = enforceVariationDiversity(hookDiversifiedVariations, categoryGuard)
+    }
 
     const { data: row, error } = await runStage(
       'save-reference-video',
