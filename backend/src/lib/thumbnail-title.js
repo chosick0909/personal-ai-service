@@ -10,6 +10,66 @@ function normalizeList(value) {
     : []
 }
 
+function supportsCustomTemperature(model = '') {
+  return !String(model || '').trim().toLowerCase().startsWith('gpt-5')
+}
+
+function isModelCompatibilityError(error) {
+  const message = String(error?.message || error || '')
+  const code = String(error?.code || '')
+
+  return (
+    error?.status === 400 ||
+    error?.status === 404 ||
+    /unsupported|unsupported_value|invalid_request|model|does not exist|not found|temperature/i.test(
+      `${code} ${message}`,
+    )
+  )
+}
+
+async function createThumbnailTitleCompletion(openai, { model, fallbackModel, messages }) {
+  const models = [model, fallbackModel]
+    .map((item) => String(item || '').trim())
+    .filter((item, index, list) => item && list.indexOf(item) === index)
+  let lastError = null
+
+  for (const candidateModel of models) {
+    const params = {
+      model: candidateModel,
+      messages,
+    }
+
+    if (supportsCustomTemperature(candidateModel)) {
+      params.temperature = 0.55
+    }
+
+    try {
+      const response = await openai.chat.completions.create(params)
+      return {
+        response,
+        modelUsed: candidateModel,
+        fallbackUsed: candidateModel !== model,
+      }
+    } catch (error) {
+      lastError = error
+
+      if (!isModelCompatibilityError(error)) {
+        throw error
+      }
+
+      console.warn('[thumbnail-title] model compatibility fallback', {
+        model: candidateModel,
+        fallbackModel,
+        status: error.status || null,
+        code: error.code || null,
+        message: String(error.message || error).slice(0, 240),
+      })
+    }
+  }
+
+  throw lastError
+}
+
 export async function analyzeThumbnailImage({
   imageBuffer,
   mimeType,
@@ -149,7 +209,7 @@ export async function generateThumbnailTitles({
   }
 
   const openai = getOpenAIClient()
-  const { thumbnailModel } = getOpenAIModels()
+  const { chatModel, thumbnailModel } = getOpenAIModels()
   const analysis = {
     detectedText: normalizeList(imageAnalysis.detectedText),
     mainObjects: normalizeList(imageAnalysis.mainObjects),
@@ -163,10 +223,7 @@ export async function generateThumbnailTitles({
   }
 
   try {
-    const response = await openai.chat.completions.create({
-      model: thumbnailModel,
-      temperature: 0.55,
-      messages: [
+    const messages = [
         {
           role: 'system',
           content: [
@@ -221,11 +278,16 @@ export async function generateThumbnailTitles({
             '}',
           ].join('\n'),
         },
-      ],
+      ]
+    const { response, modelUsed, fallbackUsed } = await createThumbnailTitleCompletion(openai, {
+      model: thumbnailModel,
+      fallbackModel: chatModel,
+      messages,
     })
 
     logAIUsage('thumbnail-title-generation', response, {
-      model: thumbnailModel,
+      model: modelUsed,
+      fallbackUsed,
       topic: normalizedTopic,
       category,
     })
@@ -261,17 +323,20 @@ export async function generateThumbnailTitles({
     logAIError('gpt', error, {
       stage: 'thumbnail-title-generation',
       model: thumbnailModel,
+      fallbackModel: chatModel,
       topic: normalizedTopic,
       category,
     })
 
-    throw new AppError('Thumbnail title generation failed', {
+    throw new AppError('썸네일 제목 생성 모델 호출에 실패했습니다. 잠시 후 다시 시도해주세요.', {
       code: 'THUMBNAIL_TITLE_GENERATION_FAILED',
       statusCode: 502,
       details: {
         stage: 'thumbnail-title-generation',
         model: thumbnailModel,
+        fallbackModel: chatModel,
       },
+      exposeMessage: true,
       cause: error,
     })
   }
