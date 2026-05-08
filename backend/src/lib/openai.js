@@ -9,6 +9,8 @@ function getOpenAIConfig() {
     process.env.OPENAI_VARIATION_MODEL?.trim() || 'gpt-5.2'
   const copilotModel =
     process.env.OPENAI_COPILOT_MODEL?.trim() || variationModel
+  const thumbnailModel =
+    process.env.OPENAI_THUMBNAIL_MODEL?.trim() || 'gpt-5-mini'
   const embeddingModel =
     process.env.OPENAI_EMBEDDING_MODEL?.trim() || 'text-embedding-3-small'
   const transcribeModel =
@@ -25,6 +27,7 @@ function getOpenAIConfig() {
     chatModel,
     variationModel,
     copilotModel,
+    thumbnailModel,
     embeddingModel,
     transcribeModel,
     visionModel,
@@ -85,13 +88,21 @@ export function hasOpenAIConfig() {
 }
 
 export function getOpenAIModels() {
-  const { chatModel, variationModel, copilotModel, embeddingModel, transcribeModel, visionModel } =
-    getOpenAIConfig()
+  const {
+    chatModel,
+    variationModel,
+    copilotModel,
+    thumbnailModel,
+    embeddingModel,
+    transcribeModel,
+    visionModel,
+  } = getOpenAIConfig()
 
   return {
     chatModel,
     variationModel,
     copilotModel,
+    thumbnailModel,
     embeddingModel,
     transcribeModel,
     visionModel,

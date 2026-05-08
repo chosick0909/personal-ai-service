@@ -149,7 +149,7 @@ export async function generateThumbnailTitles({
   }
 
   const openai = getOpenAIClient()
-  const { chatModel } = getOpenAIModels()
+  const { thumbnailModel } = getOpenAIModels()
   const analysis = {
     detectedText: normalizeList(imageAnalysis.detectedText),
     mainObjects: normalizeList(imageAnalysis.mainObjects),
@@ -164,7 +164,7 @@ export async function generateThumbnailTitles({
 
   try {
     const response = await openai.chat.completions.create({
-      model: chatModel,
+      model: thumbnailModel,
       temperature: 0.55,
       messages: [
         {
@@ -225,7 +225,7 @@ export async function generateThumbnailTitles({
     })
 
     logAIUsage('thumbnail-title-generation', response, {
-      model: chatModel,
+      model: thumbnailModel,
       topic: normalizedTopic,
       category,
     })
@@ -260,7 +260,7 @@ export async function generateThumbnailTitles({
   } catch (error) {
     logAIError('gpt', error, {
       stage: 'thumbnail-title-generation',
-      model: chatModel,
+      model: thumbnailModel,
       topic: normalizedTopic,
       category,
     })
@@ -270,7 +270,7 @@ export async function generateThumbnailTitles({
       statusCode: 502,
       details: {
         stage: 'thumbnail-title-generation',
-        model: chatModel,
+        model: thumbnailModel,
       },
       cause: error,
     })
