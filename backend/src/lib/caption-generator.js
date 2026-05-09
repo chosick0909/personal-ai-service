@@ -23,6 +23,13 @@ function truncateText(value, maxLength = 1200) {
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
 }
 
+function comparableCaptionLength(value = '') {
+  return normalizeCaption(value)
+    .replace(/#[^\s#]+/g, ' ')
+    .replace(/\s+/g, '')
+    .length
+}
+
 function supportsCustomTemperature(model = '') {
   return !String(model || '').trim().toLowerCase().startsWith('gpt-5')
 }
@@ -263,8 +270,8 @@ function mergeReferenceStructures(structures = []) {
   const averageTextLength = textLengths.length
     ? Math.round(textLengths.reduce((sum, item) => sum + item, 0) / textLengths.length)
     : 0
-  const targetMinLength = averageTextLength ? Math.max(10, Math.round(averageTextLength * 0.8)) : 0
-  const targetMaxLength = averageTextLength ? Math.max(targetMinLength, Math.round(averageTextLength * 1.2)) : 0
+  const targetMinLength = averageTextLength ? Math.max(10, Math.round(averageTextLength * 0.9)) : 0
+  const targetMaxLength = averageTextLength ? Math.max(targetMinLength, Math.round(averageTextLength * 1.15)) : 0
 
   return {
     openingStyle: pickMostStructured('openingStyle', 'plain'),
@@ -518,7 +525,7 @@ function buildCaptionBrief({
     referenceLengthRule:
       referenceQuality?.applicationStrength === 'minimal'
         ? 'A/B 구조 신뢰도가 낮으면 길이를 억지로 맞추지 말고 기본 캡션 길이로 보정한다.'
-        : `해시태그를 제외한 caption 본문 길이는 A/B 평균 길이와 비슷하게 맞춘다. 목표는 공백 제외 ${referenceStructure?.targetMinLength || 0}~${referenceStructure?.targetMaxLength || 0}자이며, 영상 주제 전달을 해치지 않는 선에서 이 범위를 우선한다.`,
+        : `해시태그를 제외한 caption 본문 길이는 A/B 평균 길이에 최대한 가깝게 맞춘다. 목표는 공백 제외 ${referenceStructure?.targetMinLength || 0}~${referenceStructure?.targetMaxLength || 0}자이며, 짧게 요약하거나 새 전개를 추가하지 말고 A/B의 정보 밀도와 호흡을 유지한다.`,
     hashtagRules: {
       targetCount: '기본 5개 내외',
       topicTags: '주제 핵심 태그 1~2개: 영상 내용 자체에서 뽑는다. 예: #스트랩추천, #운동루틴',
@@ -639,6 +646,58 @@ function validateCaption({
   }
 }
 
+function getCaptionLengthCheck({ caption, referenceStructure, referenceQuality }) {
+  const currentLength = comparableCaptionLength(caption)
+  const targetMinLength = Number(referenceStructure?.targetMinLength || 0)
+  const targetMaxLength = Number(referenceStructure?.targetMaxLength || 0)
+  const shouldEnforce =
+    referenceQuality?.applicationStrength !== 'minimal' &&
+    targetMinLength > 0 &&
+    targetMaxLength >= targetMinLength
+
+  if (!shouldEnforce) {
+    return {
+      currentLength,
+      targetMinLength,
+      targetMaxLength,
+      matched: true,
+      direction: 'ok',
+      enforced: false,
+    }
+  }
+
+  if (currentLength < targetMinLength) {
+    return {
+      currentLength,
+      targetMinLength,
+      targetMaxLength,
+      matched: false,
+      direction: 'expand',
+      enforced: true,
+    }
+  }
+
+  if (currentLength > targetMaxLength) {
+    return {
+      currentLength,
+      targetMinLength,
+      targetMaxLength,
+      matched: false,
+      direction: 'compress',
+      enforced: true,
+    }
+  }
+
+  return {
+    currentLength,
+    targetMinLength,
+    targetMaxLength,
+    matched: true,
+    direction: 'ok',
+    enforced: true,
+  }
+}
+
 function requireOpenAI() {
   if (!hasOpenAIConfig()) {
     throw new AppError('OpenAI API key is not configured', {
@@ -701,6 +760,7 @@ async function generateCaptionFromBrief({
   accountId,
   brief,
   characterSystemPrompt,
+  lengthCorrection = null,
 }) {
   const messages = [
     {
@@ -735,6 +795,15 @@ async function generateCaptionFromBrief({
         '아래 captionBrief만 기준으로 새 캡션을 작성해줘.',
         'captionBrief:',
         JSON.stringify(brief, null, 2),
+        lengthCorrection
+          ? [
+              '길이 보정 지시:',
+              `- 이전 결과 길이: 공백/해시태그 제외 ${lengthCorrection.currentLength}자`,
+              `- 목표 길이: 공백/해시태그 제외 ${lengthCorrection.targetMinLength}~${lengthCorrection.targetMaxLength}자`,
+              `- 조정 방향: ${lengthCorrection.direction === 'expand' ? 'A/B의 정보 밀도에 맞게 본문을 더 채운다.' : 'A/B보다 늘어진 부분을 압축한다.'}`,
+              '- 문장 수와 흐름은 A/B 구조를 유지하고, 새 논리 전개를 임의로 추가하지 않는다.',
+            ].join('\n')
+          : null,
         '작성 규칙:',
         '1. 첫줄 Hook',
         '2. 공감/문제 제기',
@@ -742,7 +811,7 @@ async function generateCaptionFromBrief({
         '4. 수익모델에 맞는 CTA',
         '5. 필요한 경우 고지/주의 문구',
         '6. 금지 표현 회피',
-      ].join('\n\n'),
+      ].filter(Boolean).join('\n\n'),
     },
   ]
 
@@ -859,7 +928,7 @@ export async function generateCaptionDraft({
     referenceStructure: referencePattern.referenceStructure || referenceAnalysis.referenceStructure,
   })
 
-  const parsed = await generateCaptionFromBrief({
+  let parsed = await generateCaptionFromBrief({
     openai,
     model: models.captionModel,
     fallbackModel: models.chatModel,
@@ -868,7 +937,34 @@ export async function generateCaptionDraft({
     characterSystemPrompt,
   })
 
-  const caption = normalizeCaption(parsed.caption)
+  let caption = normalizeCaption(parsed.caption)
+  let lengthCheck = getCaptionLengthCheck({
+    caption,
+    referenceStructure: brief.referenceStructure,
+    referenceQuality: referenceAnalysis.quality,
+  })
+
+  if (caption && !lengthCheck.matched) {
+    parsed = await generateCaptionFromBrief({
+      openai,
+      model: models.captionModel,
+      fallbackModel: models.chatModel,
+      accountId,
+      brief,
+      characterSystemPrompt,
+      lengthCorrection: lengthCheck,
+    })
+    caption = normalizeCaption(parsed.caption)
+    lengthCheck = {
+      ...getCaptionLengthCheck({
+        caption,
+        referenceStructure: brief.referenceStructure,
+        referenceQuality: referenceAnalysis.quality,
+      }),
+      corrected: true,
+    }
+  }
+
   const hook = normalizeCaption(parsed.hook)
   const body = normalizeCaption(parsed.body)
   const cta = normalizeCaption(parsed.cta)
@@ -906,6 +1002,14 @@ export async function generateCaptionDraft({
       accountCategory: normalizedCategory || '미지정',
       monetizationModel: normalizedMonetizationModel || '미지정',
       categoryRuleUsed: Boolean(categoryRule),
+      referenceLength: {
+        averageLength: brief.referenceStructure?.averageTextLength || 0,
+        targetMinLength: lengthCheck.targetMinLength,
+        targetMaxLength: lengthCheck.targetMaxLength,
+        generatedLength: lengthCheck.currentLength,
+        matched: lengthCheck.matched,
+        corrected: Boolean(lengthCheck.corrected),
+      },
       referenceUsage:
         referenceAnalysis.quality.applicationStrength === 'strong'
           ? 'A/B 원문은 구조 분석에만 사용했고, 줄바꿈·문장 길이·CTA 흐름을 강하게 반영했습니다.'
