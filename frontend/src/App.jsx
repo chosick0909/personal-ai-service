@@ -2815,6 +2815,29 @@ const CAPTION_MONETIZATION_MODELS = [
   },
 ]
 
+const CAPTION_GENERATION_PROGRESS_STEPS = [
+  {
+    title: '레퍼런스 캡션 구조를 읽는 중입니다',
+    description: 'A/B 캡션의 훅 방식, 문장 길이, 줄바꿈, 이모지 사용을 먼저 확인하고 있습니다.',
+  },
+  {
+    title: '계정 세팅과 영상 주제를 맞추는 중입니다',
+    description: '현재 계정 카테고리, 말투, 수익화 방향에 맞게 바꿀 기준을 잡고 있습니다.',
+  },
+  {
+    title: '레퍼런스 흐름을 유지해서 초안을 쓰는 중입니다',
+    description: '원문을 베끼지 않으면서 문장 호흡과 CTA 위치가 비슷하게 나오도록 생성하고 있습니다.',
+  },
+  {
+    title: 'A/B 길이와 이모지 결을 맞추는 중입니다',
+    description: '캡션이 너무 짧거나 딱딱해지지 않게 길이와 표현 밀도를 점검하고 있습니다.',
+  },
+  {
+    title: '마지막으로 자연스럽게 다듬는 중입니다',
+    description: '해시태그, 금지 표현, 계정 톤을 확인한 뒤 결과를 준비하고 있습니다.',
+  },
+]
+
 function ToolPage({ type }) {
   const isCaption = type === 'caption'
   const { currentAccount, isCurrentAccountConfigured } = useAppState()
@@ -2834,6 +2857,7 @@ function ToolPage({ type }) {
   const [isThumbnailAnalyzing, setIsThumbnailAnalyzing] = useState(false)
   const [toolError, setToolError] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  const [generationProgressIndex, setGenerationProgressIndex] = useState(0)
   const [isCaptionPdfExporting, setIsCaptionPdfExporting] = useState(false)
   const [isCaptionCopied, setIsCaptionCopied] = useState(false)
   const [copiedThumbnailTitleKey, setCopiedThumbnailTitleKey] = useState('')
@@ -2861,6 +2885,8 @@ function ToolPage({ type }) {
   const description = isCaption
     ? '캡션 2개를 참고해 계정 톤과 구조에 맞는 새 캡션 초안을 만듭니다.'
     : '썸네일 이미지와 영상 주제를 바탕으로 제목 카피 후보를 만듭니다.'
+  const generationProgress =
+    CAPTION_GENERATION_PROGRESS_STEPS[generationProgressIndex] || CAPTION_GENERATION_PROGRESS_STEPS[0]
 
   useEffect(() => {
     let ignore = false
@@ -2889,6 +2915,7 @@ function ToolPage({ type }) {
   useEffect(() => {
     setToolError('')
     setIsGenerating(false)
+    setGenerationProgressIndex(0)
     setCaptionResult(null)
     setEditableCaptionDraft('')
     setThumbnailFile(null)
@@ -2903,6 +2930,7 @@ function ToolPage({ type }) {
   useEffect(() => {
     setToolError('')
     setIsGenerating(false)
+    setGenerationProgressIndex(0)
     setCaptionResult(null)
     setEditableCaptionDraft('')
     setCaptionTopic('')
@@ -2928,6 +2956,30 @@ function ToolPage({ type }) {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!isCaption || !isGenerating) {
+      setGenerationProgressIndex(0)
+      return undefined
+    }
+
+    const startedAt = Date.now()
+    const updateProgress = () => {
+      const elapsed = Date.now() - startedAt
+      const nextIndex = Math.min(
+        CAPTION_GENERATION_PROGRESS_STEPS.length - 1,
+        Math.floor(elapsed / 7000),
+      )
+      setGenerationProgressIndex(nextIndex)
+    }
+
+    updateProgress()
+    const timer = window.setInterval(updateProgress, 1500)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [isCaption, isGenerating])
 
   useEffect(() => {
     if (!thumbnailFile) {
@@ -2983,6 +3035,7 @@ function ToolPage({ type }) {
     }
 
     setIsGenerating(true)
+    setGenerationProgressIndex(0)
     try {
       const result = await generateCaptionDraft({
         topic: captionTopic,
@@ -3427,6 +3480,29 @@ function ToolPage({ type }) {
           {toolError ? (
             <div className="mt-5 rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-sm leading-6 text-[#FCA5A5]">
               {toolError}
+            </div>
+          ) : null}
+
+          {isCaption && isGenerating ? (
+            <div className="mt-5 rounded-[22px] border border-[#2F5F8F] bg-[#101A27] px-4 py-4 text-sm leading-6 text-[#D8E9FF] shadow-[0_16px_38px_rgba(0,0,0,0.22)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 font-semibold text-[#E5F2FF]">
+                  <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[#60A5FA]" />
+                  {generationProgress.title}
+                </div>
+                <div className="text-xs font-semibold text-[#93C5FD]">
+                  {generationProgressIndex + 1} / {CAPTION_GENERATION_PROGRESS_STEPS.length}
+                </div>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[#AFC7E8]">{generationProgress.description}</p>
+              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#1C2A3D]">
+                <div
+                  className="h-full rounded-full bg-[#60A5FA] transition-all duration-700"
+                  style={{
+                    width: `${((generationProgressIndex + 1) / CAPTION_GENERATION_PROGRESS_STEPS.length) * 100}%`,
+                  }}
+                />
+              </div>
             </div>
           ) : null}
 
