@@ -58,12 +58,60 @@ function PlaybookNoticeCard({ title, body, tone = 'default' }) {
   )
 }
 
-function clampGuideText(value = '', maxLength = 180) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim()
-  if (!text) {
+function normalizeInsightText(value = '') {
+  return String(value || '')
+    .replace(/\*\*/g, '')
+    .replace(/^[\s•\-–—\d.)]+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function splitInsightSentences(value = '') {
+  return normalizeInsightText(value)
+    .split(/(?<=[.!?。！？])\s+|(?<=다\.)\s+|(?<=요\.)\s+/)
+    .map((sentence) =>
+      sentence
+        .replace(/^(도입부|도입|전개|결론|마지막|초반|중반|후반)(에서는|은|는|으로는)?\s*[:：,\-–—]?\s*/i, '')
+        .trim(),
+    )
+    .filter(Boolean)
+}
+
+function softenLongSentence(sentence = '', maxLength = 115) {
+  const text = normalizeInsightText(sentence)
+  if (text.length <= maxLength) {
+    return text
+  }
+
+  const cutCandidates = [',', '며 ', '고 ', '지만 ', '통해 ', '이어서 ', '마지막으로 ', '또한 ']
+    .map((token) => {
+      const index = text.lastIndexOf(token, maxLength)
+      return index > 36 ? index + token.trimEnd().length : -1
+    })
+    .filter((index) => index > 0)
+    .sort((a, b) => b - a)
+
+  const cutIndex = cutCandidates[0] || text.lastIndexOf(' ', maxLength)
+  const shortened = text.slice(0, cutIndex > 36 ? cutIndex : maxLength).replace(/[,\s]+$/g, '').trim()
+  if (!shortened) {
     return ''
   }
-  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
+  return /[.!?。！？]$/.test(shortened) ? shortened : `${shortened}.`
+}
+
+function summarizeInsightText(value = '', fallback = '') {
+  const sentences = splitInsightSentences(value)
+  const picked = sentences
+    .filter((sentence) => sentence.length >= 12)
+    .slice(0, 2)
+    .map((sentence) => softenLongSentence(sentence))
+    .filter(Boolean)
+
+  if (picked.length) {
+    return picked.join(' ')
+  }
+
+  return fallback
 }
 
 function DraftSkeletonCard({ label, title }) {
@@ -156,16 +204,25 @@ export default function ResultCards() {
       [
         {
           title: '구조 핵심',
-          body: clampGuideText(referenceData?.structureAnalysis, 170),
+          body: summarizeInsightText(
+            referenceData?.structureAnalysis,
+            '문제 제기에서 사례, 해결 기준, CTA로 자연스럽게 이어지는 구조입니다.',
+          ),
           tone: 'success',
         },
         {
           title: '후킹 포인트',
-          body: clampGuideText(referenceData?.hookAnalysis, 150),
+          body: summarizeInsightText(
+            referenceData?.hookAnalysis,
+            '초반에 공감 문제를 바로 꺼내 시청자가 자기 이야기처럼 느끼게 만듭니다.',
+          ),
         },
         {
           title: '심리 기제',
-          body: clampGuideText(referenceData?.psychologyAnalysis, 150),
+          body: summarizeInsightText(
+            referenceData?.psychologyAnalysis,
+            '불안, 공감, 변화 기대를 순서대로 건드려 끝까지 보게 만드는 흐름입니다.',
+          ),
         },
       ].filter((item) => item.body && !item.body.includes('분석이 없습니다')),
     [referenceData],
@@ -199,10 +256,7 @@ export default function ResultCards() {
     ],
     [isDraftGenerationPending, shouldBlockDraftsForMissingTranscript],
   )
-  const displayedResultStep =
-    currentStep === 'editor'
-      ? resultSteps.length - 1
-      : Math.min(activeResultStep, resultSteps.length - 1)
+  const displayedResultStep = Math.min(activeResultStep, resultSteps.length - 1)
   const activeStep = resultSteps[displayedResultStep]
   const resultProgress = Math.round(((displayedResultStep + 1) / resultSteps.length) * 100)
 
@@ -213,10 +267,12 @@ export default function ResultCards() {
     }
     setIsResultStepLeaving(true)
     resultStepTimerRef.current = window.setTimeout(() => {
+      if (currentStep === 'editor' && boundedStep < resultSteps.length - 1) {
+        clearScriptSelection()
+      }
       setActiveResultStep(boundedStep)
       setIsResultStepLeaving(false)
       resultStepTimerRef.current = null
-      scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
     }, 520)
   }
 
