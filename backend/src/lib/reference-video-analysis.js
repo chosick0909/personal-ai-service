@@ -42,7 +42,7 @@ const ENABLE_COST_GUARD = String(process.env.FEATURE_COST_GUARD || 'true') !== '
 const ENABLE_QUALITY_REGEN = String(process.env.FEATURE_ABC_QUALITY_REGEN || 'false') === 'true'
 const ENABLE_ABC_POLISH = String(process.env.FEATURE_ABC_POLISH || 'false') === 'true'
 const ENABLE_WRITING_PLAYBOOK_RAG =
-  String(process.env.FEATURE_WRITING_PLAYBOOK_RAG || 'true') !== 'false'
+  String(process.env.FEATURE_WRITING_PLAYBOOK_RAG || 'false') === 'true'
 const ENABLE_WRITING_PLAYBOOK_BATCH =
   String(process.env.FEATURE_WRITING_PLAYBOOK_BATCH || 'true') !== 'false'
 const QUALITY_REGEN_AVERAGE_THRESHOLD = Number.parseFloat(
@@ -2540,22 +2540,23 @@ async function applyWritingPlaybookBatchCorrection({
   const contexts = createBatchPlaybookContexts(variations, structureBlueprint)
   if (!contexts.length) return variations
 
-  const retrievals = await Promise.all(
-    contexts.map((context) =>
-      retrieveWritingPlaybookRulesForSentences({
-        sentences: context.rows,
-        variantLabel: context.config?.label || '',
-      }),
-    ),
-  )
+  const retrieval = await retrieveWritingPlaybookRulesForSentences({
+    sentences: contexts.flatMap((context) => context.rows),
+  })
   const rulesBySentenceId = new Map()
   const matchedRuleKeysByVariant = new Map()
-  contexts.forEach((context, index) => {
-    const retrieval = retrievals[index]
-    matchedRuleKeysByVariant.set(context.variantId, retrieval?.matchedRuleKeys || [])
-    for (const [sentenceId, rules] of retrieval?.rulesBySentenceId || new Map()) {
-      rulesBySentenceId.set(sentenceId, rules)
-    }
+  for (const [sentenceId, rules] of retrieval?.rulesBySentenceId || new Map()) {
+    rulesBySentenceId.set(sentenceId, rules)
+  }
+  contexts.forEach((context) => {
+    const matchedRuleKeys = new Set()
+    context.rows.forEach((row) => {
+      const rules = rulesBySentenceId.get(row.id) || []
+      rules.forEach((rule) => {
+        if (rule?.rule_key) matchedRuleKeys.add(rule.rule_key)
+      })
+    })
+    matchedRuleKeysByVariant.set(context.variantId, Array.from(matchedRuleKeys))
   })
 
   if (![...matchedRuleKeysByVariant.values()].some((items) => items.length)) {

@@ -11,6 +11,8 @@ const DEFAULT_RULE_MATCH_COUNT = Number.parseInt(
   process.env.WRITING_PLAYBOOK_RULE_MATCH_COUNT || '3',
   10,
 )
+const ENABLE_AUTO_BACKFILL =
+  String(process.env.FEATURE_WRITING_PLAYBOOK_AUTO_BACKFILL || 'false') === 'true'
 const VALID_STAGES = new Set(['HOOK', 'BODY', 'CTA', 'STYLE', 'VALIDATION'])
 const VALID_SENTENCE_ROLES = new Set([
   'HOOK_START',
@@ -231,13 +233,15 @@ export async function retrieveWritingPlaybookRulesForSentences({
     return { rulesBySentenceId: new Map(), matchedRuleKeys: [], skipped: false, reason: 'empty-sentences' }
   }
 
-  const backfillResult = await ensureWritingPlaybookRuleEmbeddings()
-  if (backfillResult?.reason === 'schema-missing' || backfillResult?.reason === 'missing-config') {
-    return {
-      rulesBySentenceId: new Map(),
-      matchedRuleKeys: [],
-      skipped: true,
-      reason: backfillResult.reason,
+  if (ENABLE_AUTO_BACKFILL) {
+    const backfillResult = await ensureWritingPlaybookRuleEmbeddings()
+    if (backfillResult?.reason === 'schema-missing' || backfillResult?.reason === 'missing-config') {
+      return {
+        rulesBySentenceId: new Map(),
+        matchedRuleKeys: [],
+        skipped: true,
+        reason: backfillResult.reason,
+      }
     }
   }
 
