@@ -23,6 +23,129 @@ function truncateText(value, maxLength = 1200) {
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
 }
 
+function supportsCustomTemperature(model = '') {
+  return !String(model || '').trim().toLowerCase().startsWith('gpt-5')
+}
+
+function isModelCompatibilityError(error) {
+  const message = String(error?.message || error || '')
+  const code = String(error?.code || '')
+
+  return (
+    error?.status === 400 ||
+    error?.status === 404 ||
+    /unsupported|unsupported_value|invalid_request|model|does not exist|not found|temperature/i.test(
+      `${code} ${message}`,
+    )
+  )
+}
+
+function createCaptionResponseError(message, details = {}) {
+  const error = new Error(message)
+  error.code = 'CAPTION_MODEL_RESPONSE_INVALID'
+  error.details = details
+  return error
+}
+
+function isCaptionResponseError(error) {
+  const message = String(error?.message || error || '')
+  const code = String(error?.code || '')
+
+  return (
+    code === 'CAPTION_MODEL_RESPONSE_INVALID' ||
+    /Model returned empty content|Model did not return JSON|Unexpected token|caption|hashtags/i.test(message)
+  )
+}
+
+function isRecoverableCaptionModelError(error) {
+  return isModelCompatibilityError(error) || isCaptionResponseError(error)
+}
+
+function parseCaptionJsonResponse(response, model, stage, validateParsed = null) {
+  const rawContent = response.choices[0]?.message?.content || ''
+  let parsed
+
+  try {
+    parsed = parseModelJson(rawContent)
+  } catch (error) {
+    throw createCaptionResponseError('Caption model returned invalid JSON', {
+      model,
+      stage,
+      parserMessage: String(error?.message || error),
+      rawPreview: String(rawContent || '').slice(0, 240),
+    })
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw createCaptionResponseError('Caption model returned invalid payload shape', {
+      model,
+      stage,
+      parsedType: Array.isArray(parsed) ? 'array' : typeof parsed,
+    })
+  }
+
+  if (typeof validateParsed === 'function') {
+    validateParsed(parsed, { model, stage })
+  }
+
+  return parsed
+}
+
+async function createCaptionJsonCompletion({
+  openai,
+  model,
+  fallbackModel,
+  temperature,
+  messages,
+  stage,
+  validateParsed,
+}) {
+  const models = [model, fallbackModel]
+    .map((item) => String(item || '').trim())
+    .filter((item, index, list) => item && list.indexOf(item) === index)
+  let lastError = null
+
+  for (const candidateModel of models) {
+    const params = {
+      model: candidateModel,
+      messages,
+    }
+
+    if (supportsCustomTemperature(candidateModel)) {
+      params.temperature = temperature
+    }
+
+    try {
+      const response = await openai.chat.completions.create(params)
+      const parsed = parseCaptionJsonResponse(response, candidateModel, stage, validateParsed)
+
+      return {
+        response,
+        parsed,
+        modelUsed: candidateModel,
+        fallbackUsed: candidateModel !== model,
+      }
+    } catch (error) {
+      lastError = error
+
+      if (!isRecoverableCaptionModelError(error)) {
+        throw error
+      }
+
+      console.warn('[caption-generator] generation fallback', {
+        stage,
+        model: candidateModel,
+        fallbackModel,
+        status: error.status || null,
+        code: error.code || null,
+        message: String(error.message || error).slice(0, 240),
+      })
+    }
+  }
+
+  throw lastError
+}
+
 function clampScore(value) {
   return Math.max(0, Math.min(100, Math.round(value)))
 }
@@ -530,98 +653,116 @@ function requireOpenAI() {
   }
 }
 
-async function extractReferencePattern({ openai, model, accountId, captionA, captionB, referenceAnalysis }) {
-  const response = await openai.chat.completions.create({
+async function extractReferencePattern({ openai, model, fallbackModel, accountId, captionA, captionB, referenceAnalysis }) {
+  const messages = [
+    {
+      role: 'system',
+      content: [
+        '당신은 인스타그램/숏폼 캡션 레퍼런스 분석가다. 출력은 JSON만 반환한다.',
+        '목표는 레퍼런스의 내용이 아니라 구조 신호만 추출하는 것이다.',
+        '상품명, 업종, 상황, 고유명사, 숫자, 문장 표현, 소재를 결과에 쓰지 마라.',
+        'JSON 스키마: {"hookType":"string","tonePattern":"string","flow":["string"],"ctaType":"string","sentenceLength":"string","usablePattern":"string","referenceStructure":{"openingStyle":"confession | question | warning | story | result_first | plain","averageSentenceLength":"short | medium | long","sentenceRhythm":"short_bursts | balanced | dense_long","tonePattern":["empathetic | urgent | casual | directive | informative | plain"],"ctaPosition":"none | beginning | middle | end","repetitionPattern":"none | word_repeat | phrase_repeat | structure_repeat","density":"low | medium | high","lengthType":"too_short | short | medium | long"}}',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: [
+        `레퍼런스 캡션 A:\n${truncateText(captionA)}`,
+        `레퍼런스 캡션 B:\n${truncateText(captionB)}`,
+        `룰 기반 1차 구조 분석:\n${JSON.stringify(referenceAnalysis?.referenceStructure || {}, null, 2)}`,
+        `룰 기반 품질 점수:\n${JSON.stringify(referenceAnalysis?.quality || {}, null, 2)}`,
+        '요청: 두 캡션에서 새 캡션에 참고 가능한 구조 패턴만 추출해줘. 원문 내용과 단어는 버려.',
+      ].join('\n\n'),
+    },
+  ]
+
+  const { response, parsed, modelUsed, fallbackUsed } = await createCaptionJsonCompletion({
+    openai,
     model,
+    fallbackModel,
     temperature: 0.2,
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '당신은 인스타그램/숏폼 캡션 레퍼런스 분석가다. 출력은 JSON만 반환한다.',
-          '목표는 레퍼런스의 내용이 아니라 구조 신호만 추출하는 것이다.',
-          '상품명, 업종, 상황, 고유명사, 숫자, 문장 표현, 소재를 결과에 쓰지 마라.',
-          'JSON 스키마: {"hookType":"string","tonePattern":"string","flow":["string"],"ctaType":"string","sentenceLength":"string","usablePattern":"string","referenceStructure":{"openingStyle":"confession | question | warning | story | result_first | plain","averageSentenceLength":"short | medium | long","sentenceRhythm":"short_bursts | balanced | dense_long","tonePattern":["empathetic | urgent | casual | directive | informative | plain"],"ctaPosition":"none | beginning | middle | end","repetitionPattern":"none | word_repeat | phrase_repeat | structure_repeat","density":"low | medium | high","lengthType":"too_short | short | medium | long"}}',
-        ].join('\n'),
-      },
-      {
-        role: 'user',
-        content: [
-          `레퍼런스 캡션 A:\n${truncateText(captionA)}`,
-          `레퍼런스 캡션 B:\n${truncateText(captionB)}`,
-          `룰 기반 1차 구조 분석:\n${JSON.stringify(referenceAnalysis?.referenceStructure || {}, null, 2)}`,
-          `룰 기반 품질 점수:\n${JSON.stringify(referenceAnalysis?.quality || {}, null, 2)}`,
-          '요청: 두 캡션에서 새 캡션에 참고 가능한 구조 패턴만 추출해줘. 원문 내용과 단어는 버려.',
-        ].join('\n\n'),
-      },
-    ],
+    messages,
+    stage: 'caption-reference-pattern',
   })
 
   logAIUsage('caption-reference-pattern', response, {
-    model,
+    model: modelUsed,
+    fallbackUsed,
     accountId,
   })
 
-  return normalizeReferencePattern(parseModelJson(response.choices[0]?.message?.content || ''), referenceAnalysis)
+  return normalizeReferencePattern(parsed, referenceAnalysis)
 }
 
 async function generateCaptionFromBrief({
   openai,
   model,
+  fallbackModel,
   accountId,
   brief,
   characterSystemPrompt,
 }) {
-  const response = await openai.chat.completions.create({
+  const messages = [
+    {
+      role: 'system',
+      content: [
+        '당신은 인스타그램/숏폼 캡션 카피라이터다. 출력은 JSON만 반환한다.',
+        '우선순위는 1. 영상 주제, 2. 계정 세팅, 3. A/B 레퍼런스 구조, 4. 수익화 모델, 5. 카테고리 전략이다.',
+        '가장 중요한 기준은 사용자의 영상 주제와 현재 계정 세팅값이며, A/B 구조가 이를 이기면 안 된다.',
+        '카테고리별 캡션 전략은 말하는 방식과 위험 표현 회피에만 사용한다.',
+        'A/B 캡션 원문은 제공되지 않는다. referencePattern은 구조 참고용일 뿐이다.',
+        'A/B 캡션은 구조 참고용이며, 내용·상품명·상황·업종·문장·고유 표현은 절대 가져오지 않는다.',
+        '레퍼런스의 주제, 업종, 상품명, 상황, 고유명사, 표면 단어를 가져오지 마라.',
+        '레퍼런스 내용을 패러프레이즈하지 마라.',
+        'referenceQuality.applicationStrength가 strong이면 줄바꿈, 문장 길이, 시작 방식, CTA 위치, 톤을 강하게 반영한다.',
+        'referenceQuality.applicationStrength가 partial이면 확실한 구조만 일부 반영한다.',
+        'referenceQuality.applicationStrength가 minimal이면 기본 구조를 사용하고 A/B는 약한 톤 힌트로만 반영한다.',
+        'referenceLengthRule이 목표 길이를 제공하면 해시태그를 제외한 caption 본문 길이를 그 범위에 가깝게 맞춘다.',
+        '단, 길이를 맞추려고 영상 주제와 계정 정체성을 희석하거나 불필요한 말을 늘리지 마라.',
+        '카테고리 규칙은 누구에게 어떻게 말할지를 정하고, 수익모델 규칙은 어떤 행동을 유도할지를 정한다.',
+        'caption은 hook, body, cta를 합친 완성형 본문이며 해시태그는 넣지 않는다. 해시태그는 hashtags 배열에만 넣는다.',
+        '해시태그는 captionBrief.hashtagRules를 반드시 따른다. 기본 5개 내외로 만들고, 주제 핵심/카테고리/상황·타깃 태그를 섞는다.',
+        '수익모델 태그는 기본적으로 넣지 않는다. 단, 제휴 표시가 꼭 필요한 맥락이면 #쿠팡파트너스 같은 태그를 최대 1개만 넣는다.',
+        'JSON 스키마: {"caption":"string","hook":"string","body":"string","cta":"string","hashtags":["string"],"rationale":"string"}',
+        characterSystemPrompt ? `계정 세팅 고정 규칙:\n${characterSystemPrompt}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    },
+    {
+      role: 'user',
+      content: [
+        '아래 captionBrief만 기준으로 새 캡션을 작성해줘.',
+        'captionBrief:',
+        JSON.stringify(brief, null, 2),
+        '작성 규칙:',
+        '1. 첫줄 Hook',
+        '2. 공감/문제 제기',
+        '3. 카테고리별 본문 강조점',
+        '4. 수익모델에 맞는 CTA',
+        '5. 필요한 경우 고지/주의 문구',
+        '6. 금지 표현 회피',
+      ].join('\n\n'),
+    },
+  ]
+
+  const { response, parsed, modelUsed, fallbackUsed } = await createCaptionJsonCompletion({
+    openai,
     model,
+    fallbackModel,
     temperature: 0.65,
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '당신은 인스타그램/숏폼 캡션 카피라이터다. 출력은 JSON만 반환한다.',
-          '우선순위는 1. 영상 주제, 2. 계정 세팅, 3. A/B 레퍼런스 구조, 4. 수익화 모델, 5. 카테고리 전략이다.',
-          '가장 중요한 기준은 사용자의 영상 주제와 현재 계정 세팅값이며, A/B 구조가 이를 이기면 안 된다.',
-          '카테고리별 캡션 전략은 말하는 방식과 위험 표현 회피에만 사용한다.',
-          'A/B 캡션 원문은 제공되지 않는다. referencePattern은 구조 참고용일 뿐이다.',
-          'A/B 캡션은 구조 참고용이며, 내용·상품명·상황·업종·문장·고유 표현은 절대 가져오지 않는다.',
-          '레퍼런스의 주제, 업종, 상품명, 상황, 고유명사, 표면 단어를 가져오지 마라.',
-          '레퍼런스 내용을 패러프레이즈하지 마라.',
-          'referenceQuality.applicationStrength가 strong이면 줄바꿈, 문장 길이, 시작 방식, CTA 위치, 톤을 강하게 반영한다.',
-          'referenceQuality.applicationStrength가 partial이면 확실한 구조만 일부 반영한다.',
-          'referenceQuality.applicationStrength가 minimal이면 기본 구조를 사용하고 A/B는 약한 톤 힌트로만 반영한다.',
-          'referenceLengthRule이 목표 길이를 제공하면 해시태그를 제외한 caption 본문 길이를 그 범위에 가깝게 맞춘다.',
-          '단, 길이를 맞추려고 영상 주제와 계정 정체성을 희석하거나 불필요한 말을 늘리지 마라.',
-          '카테고리 규칙은 누구에게 어떻게 말할지를 정하고, 수익모델 규칙은 어떤 행동을 유도할지를 정한다.',
-          'caption은 hook, body, cta를 합친 완성형 본문이며 해시태그는 넣지 않는다. 해시태그는 hashtags 배열에만 넣는다.',
-          '해시태그는 captionBrief.hashtagRules를 반드시 따른다. 기본 5개 내외로 만들고, 주제 핵심/카테고리/상황·타깃 태그를 섞는다.',
-          '수익모델 태그는 기본적으로 넣지 않는다. 단, 제휴 표시가 꼭 필요한 맥락이면 #쿠팡파트너스 같은 태그를 최대 1개만 넣는다.',
-          'JSON 스키마: {"caption":"string","hook":"string","body":"string","cta":"string","hashtags":["string"],"rationale":"string"}',
-          characterSystemPrompt ? `계정 세팅 고정 규칙:\n${characterSystemPrompt}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
-      },
-      {
-        role: 'user',
-        content: [
-          '아래 captionBrief만 기준으로 새 캡션을 작성해줘.',
-          'captionBrief:',
-          JSON.stringify(brief, null, 2),
-          '작성 규칙:',
-          '1. 첫줄 Hook',
-          '2. 공감/문제 제기',
-          '3. 카테고리별 본문 강조점',
-          '4. 수익모델에 맞는 CTA',
-          '5. 필요한 경우 고지/주의 문구',
-          '6. 금지 표현 회피',
-        ].join('\n\n'),
-      },
-    ],
+    messages,
+    stage: 'caption-generate',
+    validateParsed: (payload, context) => {
+      if (!normalizeCaption(payload.caption)) {
+        throw createCaptionResponseError('Caption model returned empty caption', context)
+      }
+    },
   })
 
   logAIUsage('caption-generate', response, {
-    model,
+    model: modelUsed,
+    fallbackUsed,
     accountId,
     topic: brief.topic,
     category: brief.category,
@@ -629,7 +770,7 @@ async function generateCaptionFromBrief({
     referencePatternOnly: true,
   })
 
-  return parseModelJson(response.choices[0]?.message?.content || '')
+  return parsed
 }
 
 export async function generateCaptionDraft({
@@ -687,7 +828,8 @@ export async function generateCaptionDraft({
   const referenceAnalysis = analyzeReferenceCaptions(referenceCaptionA, referenceCaptionB)
   const referencePattern = await extractReferencePattern({
     openai,
-    model: models.chatModel,
+    model: models.captionModel,
+    fallbackModel: models.chatModel,
     accountId,
     captionA: referenceCaptionA,
     captionB: referenceCaptionB,
@@ -719,7 +861,8 @@ export async function generateCaptionDraft({
 
   const parsed = await generateCaptionFromBrief({
     openai,
-    model: models.chatModel,
+    model: models.captionModel,
+    fallbackModel: models.chatModel,
     accountId,
     brief,
     characterSystemPrompt,

@@ -9,6 +9,8 @@ function getOpenAIConfig() {
     process.env.OPENAI_VARIATION_MODEL?.trim() || 'gpt-5.2'
   const copilotModel =
     process.env.OPENAI_COPILOT_MODEL?.trim() || variationModel
+  const captionModel =
+    process.env.OPENAI_CAPTION_MODEL?.trim() || 'gpt-5-mini'
   const thumbnailModel =
     process.env.OPENAI_THUMBNAIL_MODEL?.trim() || 'gpt-5-mini'
   const embeddingModel =
@@ -27,6 +29,7 @@ function getOpenAIConfig() {
     chatModel,
     variationModel,
     copilotModel,
+    captionModel,
     thumbnailModel,
     embeddingModel,
     transcribeModel,
@@ -92,6 +95,7 @@ export function getOpenAIModels() {
     chatModel,
     variationModel,
     copilotModel,
+    captionModel,
     thumbnailModel,
     embeddingModel,
     transcribeModel,
@@ -102,6 +106,7 @@ export function getOpenAIModels() {
     chatModel,
     variationModel,
     copilotModel,
+    captionModel,
     thumbnailModel,
     embeddingModel,
     transcribeModel,
