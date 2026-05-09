@@ -7,6 +7,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "test": "node --test",
+    "backfill:writing-playbook": "node scripts/backfill-writing-playbook-embeddings.js",
     "summarize-ai-usage": "node scripts/summarize-ai-usage.js"
   },
   "license": "ISC",

@@ -13,6 +13,8 @@ function getOpenAIConfig() {
     process.env.OPENAI_CAPTION_MODEL?.trim() || 'gpt-5-mini'
   const thumbnailModel =
     process.env.OPENAI_THUMBNAIL_MODEL?.trim() || 'gpt-5-mini'
+  const playbookModel =
+    process.env.OPENAI_PLAYBOOK_MODEL?.trim() || 'gpt-5-mini'
   const embeddingModel =
     process.env.OPENAI_EMBEDDING_MODEL?.trim() || 'text-embedding-3-small'
   const transcribeModel =
@@ -31,6 +33,7 @@ function getOpenAIConfig() {
     copilotModel,
     captionModel,
     thumbnailModel,
+    playbookModel,
     embeddingModel,
     transcribeModel,
     visionModel,
@@ -97,6 +100,7 @@ export function getOpenAIModels() {
     copilotModel,
     captionModel,
     thumbnailModel,
+    playbookModel,
     embeddingModel,
     transcribeModel,
     visionModel,
@@ -108,6 +112,7 @@ export function getOpenAIModels() {
     copilotModel,
     captionModel,
     thumbnailModel,
+    playbookModel,
     embeddingModel,
     transcribeModel,
     visionModel,

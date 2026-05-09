@@ -21,6 +21,11 @@ import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 import { retrieveGlobalKnowledgeContext } from './global-knowledge.js'
 import { normalizeUploadedText } from './text-normalize.js'
 import {
+  formatWritingPlaybookRulesForPrompt,
+  normalizeWritingSentenceRole,
+  retrieveWritingPlaybookRulesForSentences,
+} from './writing-playbook.js'
+import {
   analyzeVideoFrames,
   cleanupVideoWorkspace,
   createVideoWorkspace,
@@ -31,11 +36,15 @@ import {
   transcribeVideoAudio,
 } from './video-processing.js'
 
-const VARIATION_CONTEXT_TEXT_MAX = 800
+const VARIATION_CONTEXT_TEXT_MAX = 520
 const MAX_PROMPT_SETTING_CUES = 3
 const ENABLE_COST_GUARD = String(process.env.FEATURE_COST_GUARD || 'true') !== 'false'
 const ENABLE_QUALITY_REGEN = String(process.env.FEATURE_ABC_QUALITY_REGEN || 'false') === 'true'
 const ENABLE_ABC_POLISH = String(process.env.FEATURE_ABC_POLISH || 'false') === 'true'
+const ENABLE_WRITING_PLAYBOOK_RAG =
+  String(process.env.FEATURE_WRITING_PLAYBOOK_RAG || 'true') !== 'false'
+const ENABLE_WRITING_PLAYBOOK_BATCH =
+  String(process.env.FEATURE_WRITING_PLAYBOOK_BATCH || 'true') !== 'false'
 const QUALITY_REGEN_AVERAGE_THRESHOLD = Number.parseFloat(
   String(process.env.QUALITY_REGEN_AVERAGE_THRESHOLD || '3.2'),
 )
@@ -45,7 +54,9 @@ const DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS = Number.parseInt(
 )
 const CURRENT_CONTENT_YEAR = String(process.env.CURRENT_CONTENT_YEAR || '2026').trim() || '2026'
 const VARIATION_NATURAL_VOICE_RULES = [
-  '말투 규칙(절대 준수): 실제 릴스에서 말하는 짧은 해요체/대화체로 쓴다.',
+  '말투 규칙(절대 준수): 실제 릴스에서 말하는 자연스러운 말투로 쓰되, 한 초안 안에서 높임 수준을 섞지 않는다.',
+  '레퍼런스/계정 톤이 존댓말이면 HOOK부터 CTA까지 존댓말로, 반말이면 HOOK부터 CTA까지 반말로 끝까지 유지한다.',
+  'CTA만 갑자기 다른 높임으로 바꾸지 않는다. 존댓말 CTA면 요청/약속까지 존댓말, 반말 CTA면 요청/약속까지 반말로 맞춘다.',
   '하십시오체/보고서체/강의안체를 금지한다. "~합니다", "~드립니다", "~제공합니다"로 문장을 끝내지 않는다.',
   '번역투와 어색한 조합을 금지한다. "개인용 환경", "특수한 고민 해결법", "압축 제공", "직접적으로 공유", "완전히 버리겠습니다" 같은 표현을 쓰지 않는다.',
   '추상 명사보다 실제 상황을 쓴다. "정보를 제공한다"가 아니라 "무엇을 어떻게 하면 달라지는지"로 쓴다.',
@@ -56,6 +67,10 @@ const VARIATION_NATURAL_VOICE_RULES = [
 const AWKWARD_KOREAN_PATTERN =
   /(개인용\s*환경|특수한\s*[^\n]{0,12}고민|압축\s*제공|직접적으로\s*공유|완전히\s*버리겠습니다|반사되는\s*게\s*두려|대전\s*얼굴|난\s*때문에|다시\s*그늘|자료를\s*관리|이\s*자료로|수많은\s*제품과\s*방법|것이\s*아니라\s*스스로|관리하는\s*루틴을\s*더\s*이상\s*좋아하지)/i
 const REPORT_STYLE_PATTERN = /(?:제공|공유|관리|적용|제시|유도|활용)(?:합니다|하세요|할\s*수\s*있습니다|된다)\.?$/i
+const CASUAL_BANMAL_ENDING_PATTERN =
+  /(?:^|[\s\n"'“”‘’])(?:남겨|봐|해|줘|와|가|눌러|확인해|저장해|써봐|해봐|보내줄게|알려줄게|정리해줄게)(?:[.!?。！？\n]|$)/u
+const POLITE_SPEECH_ENDING_PATTERN =
+  /(해요|돼요|세요|주세요|드릴게요|보내드릴게요|알려드릴게요|남겨주세요|저장해두세요|확인해보세요|입니다|합니다|드립니다)/u
 const TRANSCRIPT_RELIABILITY_LOW_THRESHOLD = Number.parseInt(
   process.env.TRANSCRIPT_RELIABILITY_LOW_THRESHOLD || '45',
   10,
@@ -820,6 +835,12 @@ function normalizeVariationYearReferences(variation = {}) {
   }
 }
 
+function hasSpeechLevelDrift(text = '') {
+  const normalized = String(text || '').trim()
+  if (!normalized) return false
+  return CASUAL_BANMAL_ENDING_PATTERN.test(normalized) && POLITE_SPEECH_ENDING_PATTERN.test(normalized)
+}
+
 function extractCueKeywords(text = '', max = 4) {
   const tokens = String(text || '')
     .toLowerCase()
@@ -1409,6 +1430,12 @@ function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence 
   const section = inferBlueprintSection(order, total || 1, item.section)
   const normalizedSourceSentence = normalizeBlueprintSourceSentence(sourceSentence)
   const role = String(item.role || '').trim()
+  const sentenceRole = normalizeWritingSentenceRole(item.sentenceRole || item.sentence_role, {
+    section,
+    role,
+    index,
+    total,
+  })
   const keywordSlot = String(item.keywordSlot || item.keyword_slot || '').trim()
   const topicSlots = normalizeStringList(
     item.topicSlots || item.topic_slots || item.topicExpressions || item.topic_expressions,
@@ -1450,6 +1477,7 @@ function normalizeBlueprintItem(item = {}, index = 0, total = 0, sourceSentence 
   return {
     order,
     section,
+    sentenceRole,
     sourceSentence: normalizedSourceSentence,
     role: role || `${section.toUpperCase()} ${order}번 문장 역할`,
     length,
@@ -1583,6 +1611,7 @@ function formatSentenceBlueprintPrompt(structureBlueprint = {}) {
   return items
     .map((item) => {
       const extras = [
+        item.sentenceRole ? `sentenceRole=${item.sentenceRole}` : null,
         item.length ? `길이=${item.length}` : null,
         item.targetCharRange ? `목표분량=${item.targetCharRange}` : null,
         item.sentenceShape ? `문장형태=${item.sentenceShape}` : null,
@@ -1618,6 +1647,7 @@ function formatSentenceSubstitutionPrompt(structureBlueprint = {}) {
       const pieces = [
         `${item.order}번 문장`,
         `[${String(item.section || '').toUpperCase()}]`,
+        item.sentenceRole ? `sentenceRole: ${item.sentenceRole}` : null,
         item.sourceSentence ? `원문 골격 참고(복사 금지): "${item.sourceSentence}"` : null,
         `역할 유지: ${item.role || '-'}`,
         item.keywordSlot ? `키워드 자리: ${item.keywordSlot}` : null,
@@ -1679,6 +1709,7 @@ async function buildStructureBlueprint({
           'sectionRhythm에는 HOOK/BODY/CTA의 문장 수, 줄바꿈, 짧고 긴 문장 배치, 반복 리듬을 적어라. ' +
           'lengthProfile에는 각 섹션이 짧은지/중간인지/긴지와 원문 대비 생성 시 유지해야 할 분량감을 적어라. ' +
           'sentenceBlueprint에는 레퍼런스를 문장별로 쪼개 각 문장의 역할/길이/문장 형태/절 구조/끝맺음/구두점 호흡/리듬/느낌/욕구 트리거/키워드 슬롯을 적어라. 원문 문장은 절대 넣지 말고 역할만 적어라. ' +
+          'sentenceRole은 반드시 HOOK_START, HOOK_EXPAND, BODY_PROBLEM, BODY_CAUSE, BODY_SOLUTION, BODY_PROOF, BODY_TRANSITION, CTA 중 하나로 적어라. ' +
           'topicSlots에는 그 문장에서 원문 주제/상품/상황/업종이 들어가는 자리만 적어라. replaceTargets에는 생성 시 현재 계정 세팅과 이번 주제로 바꿔야 하는 표현의 역할만 적어라. ' +
           '중요: 레퍼런스의 문장 골격, 절 배치, 쉼표 호흡, 질문/단정/명령 같은 끝맺음, 강조 순서, 감정 흐름은 유지하고 topicSlots/replaceTargets에 해당하는 소재 자리만 바꾸는 설계로 뽑아라. ' +
           'feeling에는 그 문장이 주는 체감만 적어라. 예: 단호한 결론, 불안 자극, 공감, 반전, 안심, 행동 압박, 실용적 정리. 원문 표현은 넣지 마라. ' +
@@ -1695,7 +1726,7 @@ async function buildStructureBlueprint({
           `구조 분석:\n${analysisResult?.structureAnalysis || '-'}\n\n` +
           `후킹 분석:\n${analysisResult?.hookAnalysis || '-'}\n\n` +
           `심리 분석:\n${analysisResult?.psychologyAnalysis || '-'}\n\n` +
-          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[],"hookSentencePattern":[],"hookAdvantagePattern":[],"keywordSlots":[],"desireTriggers":[],"sectionRhythm":[],"lengthProfile":[],"substitutionRules":[],"sentenceBlueprint":[{"section":"hook","order":1,"role":"","length":"short","referenceCharCount":0,"targetCharRange":"","sentenceShape":"","clauseProfile":"","endingStyle":"","punctuationProfile":"","tone":"","feeling":"","rhythm":"","desireTrigger":"","keywordSlot":"","topicSlots":[],"replaceTargets":[],"mustKeep":[],"mustReplace":[]}],"substitutionMap":[{"slot":"","preserve":"","replaceWith":""}]}',
+          '다음 JSON 형식으로만 답하세요: {"logicFlow":[],"persuasionPattern":[],"messageStructure":[],"hookSentencePattern":[],"hookAdvantagePattern":[],"keywordSlots":[],"desireTriggers":[],"sectionRhythm":[],"lengthProfile":[],"substitutionRules":[],"sentenceBlueprint":[{"section":"hook","order":1,"sentenceRole":"HOOK_START","role":"","length":"short","referenceCharCount":0,"targetCharRange":"","sentenceShape":"","clauseProfile":"","endingStyle":"","punctuationProfile":"","tone":"","feeling":"","rhythm":"","desireTrigger":"","keywordSlot":"","topicSlots":[],"replaceTargets":[],"mustKeep":[],"mustReplace":[]}],"substitutionMap":[{"slot":"","preserve":"","replaceWith":""}]}',
       },
     ],
   })
@@ -1924,6 +1955,867 @@ function attachStructureMetadata(variation = {}, structureBlueprint = {}, struct
     structureBlueprint: blueprintPayload,
     structureMatch: structureMatch || validateSentenceBlueprintMatch(variation, structureBlueprint),
   }
+}
+
+function getBlueprintItemsBySection(structureBlueprint = {}, section = '') {
+  const targetSection = String(section || '').toLowerCase()
+  return Array.isArray(structureBlueprint?.sentenceBlueprint)
+    ? structureBlueprint.sentenceBlueprint
+        .filter((item) => String(item?.section || '').toLowerCase() === targetSection)
+        .sort((a, b) => Number(a?.order || 0) - Number(b?.order || 0))
+    : []
+}
+
+function buildVariationSentenceRows(variation = {}, structureBlueprint = {}) {
+  const sections = ['hook', 'body', 'cta']
+  const rows = []
+
+  sections.forEach((section) => {
+    const sectionSentences = splitScriptSentences(variation?.[section] || '', 24)
+    const blueprintItems = getBlueprintItemsBySection(structureBlueprint, section)
+    sectionSentences.forEach((text, index) => {
+      const blueprint = blueprintItems[index] || {}
+      rows.push({
+        id: `${section}-${index + 1}`,
+        section,
+        stage: section.toUpperCase(),
+        sectionIndex: index,
+        sectionTotal: sectionSentences.length,
+        globalIndex: rows.length,
+        text,
+        role: blueprint.role || '',
+        targetCharRange: blueprint.targetCharRange || '',
+        sentenceShape: blueprint.sentenceShape || '',
+        clauseProfile: blueprint.clauseProfile || '',
+        endingStyle: blueprint.endingStyle || '',
+        feeling: blueprint.feeling || '',
+        sentenceRole: normalizeWritingSentenceRole(blueprint.sentenceRole, {
+          section,
+          role: blueprint.role,
+          sectionIndex: index,
+          sectionTotal: sectionSentences.length,
+          index: rows.length,
+          total: sectionSentences.length,
+        }),
+      })
+    })
+  })
+
+  return rows
+}
+
+function reconstructVariationFromSentenceRows(variation = {}, rows = []) {
+  const sections = { hook: [], body: [], cta: [] }
+  rows.forEach((row) => {
+    const section = String(row?.section || '').toLowerCase()
+    if (!sections[section]) return
+    const text = String(row?.text || '').trim()
+    if (text) sections[section].push(text)
+  })
+
+  return {
+    ...variation,
+    hook: sections.hook.join(' ').trim() || variation.hook || '',
+    body: sections.body.join(' ').trim() || variation.body || '',
+    cta: sections.cta.join(' ').trim() || variation.cta || '',
+  }
+}
+
+function getSectionSentenceCounts(rows = []) {
+  return rows.reduce(
+    (acc, row) => {
+      const section = String(row?.section || '').toLowerCase()
+      if (section === 'hook' || section === 'body' || section === 'cta') {
+        acc[section] += 1
+      }
+      return acc
+    },
+    { hook: 0, body: 0, cta: 0 },
+  )
+}
+
+function isSameSectionSentenceShape(beforeRows = [], afterRows = []) {
+  if (beforeRows.length !== afterRows.length) return false
+  const beforeCounts = getSectionSentenceCounts(beforeRows)
+  const afterCounts = getSectionSentenceCounts(afterRows)
+  return (
+    beforeCounts.hook === afterCounts.hook &&
+    beforeCounts.body === afterCounts.body &&
+    beforeCounts.cta === afterCounts.cta
+  )
+}
+
+function getWritingPlaybookStrengthPrompt(config = {}) {
+  if (config?.label === 'A안') {
+    return [
+      'A안 원본형: 최소 보정만 한다.',
+      '레퍼런스 문장 수, 문장 길이, 문장 역할, CTA 위치 유지가 최우선이다.',
+      '어색한 말투만 살짝 자연스럽게 다듬고 새 논리나 새 소재는 넣지 않는다.',
+    ].join('\n')
+  }
+  if (config?.label === 'C안') {
+    return [
+      'C안 후킹형: 구조는 유지하고 훅, 전환, CTA 압력만 조금 더 선명하게 한다.',
+      '새로운 논리 단계 추가, 문장 수 증가, CTA 위치 변경은 실패다.',
+      '첫 문장/전환/CTA의 긴장감만 강화하고 BODY 흐름은 그대로 둔다.',
+    ].join('\n')
+  }
+  return [
+    'B안 대화형: 구조는 유지하고 실제 말하듯 자연스럽게 다듬는다.',
+    '공감 표현과 말맛을 보정하되 문장 역할과 순서는 유지한다.',
+    '광고문/보고서체를 줄이고 편한 대화체로 바꾼다.',
+  ].join('\n')
+}
+
+function formatWritingPlaybookRowsForPrompt(rows = [], rulesBySentenceId = new Map()) {
+  return rows
+    .map((row, index) => {
+      const rules = rulesBySentenceId.get(row.id) || []
+      const constraints = [
+        row.role ? `역할=${row.role}` : null,
+        row.sentenceRole ? `sentenceRole=${row.sentenceRole}` : null,
+        row.targetCharRange ? `목표분량=${row.targetCharRange}` : null,
+        row.sentenceShape ? `문장형태=${row.sentenceShape}` : null,
+        row.clauseProfile ? `절구조=${row.clauseProfile}` : null,
+        row.endingStyle ? `끝맺음=${row.endingStyle}` : null,
+        row.feeling ? `느낌=${row.feeling}` : null,
+      ]
+        .filter(Boolean)
+        .join(' / ')
+
+      return [
+        `### ${index + 1}. ${row.id} [${row.stage} / ${row.sentenceRole}]`,
+        constraints ? `구조 제약: ${constraints}` : null,
+        `입력 문장: ${row.text}`,
+        `적용 가능한 보정 규칙:\n${formatWritingPlaybookRulesForPrompt(rules)}`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    })
+    .join('\n\n')
+}
+
+async function applyWritingPlaybookCorrection({
+  openai,
+  variationModel,
+  variation,
+  config,
+  structureBlueprint,
+  categoryGuard,
+  referenceGuard,
+  guardPromptSummary,
+  topicFocusPrompt,
+  accountId,
+  referenceId,
+}) {
+  if (!ENABLE_WRITING_PLAYBOOK_RAG || !variation) {
+    return { variation, usage: null, metadata: { applied: false, reason: 'disabled' } }
+  }
+
+  const beforeRows = buildVariationSentenceRows(variation, structureBlueprint)
+  if (!beforeRows.length) {
+    return { variation, usage: null, metadata: { applied: false, reason: 'no-sentences' } }
+  }
+
+  const originalStructureMatch = validateSentenceBlueprintMatch(variation, structureBlueprint, config)
+  const retrieval = await retrieveWritingPlaybookRulesForSentences({
+    sentences: beforeRows,
+    variantLabel: config?.label || '',
+  })
+
+  if (!retrieval?.rulesBySentenceId?.size || !retrieval?.matchedRuleKeys?.length) {
+    return {
+      variation,
+      usage: null,
+      metadata: {
+        applied: false,
+        reason: retrieval?.reason || 'no-rules',
+        matchedRuleKeys: [],
+      },
+    }
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: variationModel,
+      temperature: config?.label === 'A안' ? 0.12 : 0.18,
+      messages: [
+        {
+          role: 'system',
+          content:
+            '너는 숏폼 대본의 문장별 보정 편집자다. 새 대본을 만들지 않는다. ' +
+            'writing_playbook_rules는 대본 생성 자료가 아니라 이미 생성된 문장을 더 자연스럽고 설득력 있게 다듬는 보조 규칙이다. ' +
+            '반드시 1 input sentence → 1 output sentence 원칙을 지킨다. 문장 수, 순서, HOOK/BODY/CTA 위치, CTA 위치를 바꾸면 실패다. ' +
+            '각 문장의 sentenceRole을 유지하고, 같은 id에 대응하는 문장만 수정한다. ' +
+            '규칙 때문에 레퍼런스 구조와 충돌하면 항상 레퍼런스 구조를 우선한다. ' +
+            'output_style_example, 책 원문, 레퍼런스 파일명/제목/녹화일/촬영일/업로드일을 절대 쓰지 않는다. ' +
+            '없는 실적, 상품, 사례, 숫자를 새로 만들지 않는다. 출력은 JSON만 반환한다.',
+        },
+        {
+          role: 'user',
+          content:
+            `${getWritingPlaybookStrengthPrompt(config)}\n\n` +
+            `카테고리: ${categoryGuard?.category || '기타'}\n` +
+            `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
+            `세팅 신호: ${guardPromptSummary?.settingCues?.join(', ') || '없음'}\n\n` +
+            '문장별 보정 대상:\n' +
+            `${formatWritingPlaybookRowsForPrompt(beforeRows, retrieval.rulesBySentenceId)}\n\n` +
+            '반환 조건:\n' +
+            `- sentences 배열 길이는 정확히 ${beforeRows.length}개\n` +
+            '- id는 입력 id와 완전히 동일\n' +
+            '- text에는 보정된 문장만 넣기\n' +
+            '- 한 id 문장을 두 문장으로 쪼개거나 다른 섹션으로 옮기지 않기\n\n' +
+            '다음 JSON 형식으로만 답하세요: {"sentences":[{"id":"hook-1","text":""}]}',
+        },
+      ],
+    })
+
+    const usage = logAIUsage('abc-writing-playbook-polish', response, {
+      model: variationModel,
+      accountId,
+      referenceId,
+      label: config?.label,
+      angle: config?.angle,
+    })
+    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const sentenceMap = new Map(
+      Array.isArray(parsed?.sentences)
+        ? parsed.sentences.map((item) => [String(item?.id || ''), String(item?.text || '').trim()])
+        : [],
+    )
+
+    if (sentenceMap.size !== beforeRows.length || beforeRows.some((row) => !sentenceMap.has(row.id))) {
+      return {
+        variation,
+        usage,
+        metadata: {
+          applied: false,
+          reason: 'sentence-count-mismatch',
+          matchedRuleKeys: retrieval.matchedRuleKeys || [],
+        },
+      }
+    }
+
+    const afterRows = beforeRows.map((row) => ({
+      ...row,
+      text: sentenceMap.get(row.id) || row.text,
+    }))
+    if (afterRows.some((row) => !String(row.text || '').trim())) {
+      return {
+        variation,
+        usage,
+        metadata: {
+          applied: false,
+          reason: 'empty-output-sentence',
+          matchedRuleKeys: retrieval.matchedRuleKeys || [],
+        },
+      }
+    }
+    if (!isSameSectionSentenceShape(beforeRows, afterRows)) {
+      return {
+        variation,
+        usage,
+        metadata: {
+          applied: false,
+          reason: 'section-shape-changed',
+          matchedRuleKeys: retrieval.matchedRuleKeys || [],
+        },
+      }
+    }
+
+    const corrected = normalizeVariationYearReferences(
+      reconstructVariationFromSentenceRows(variation, afterRows),
+    )
+    const correctedRows = buildVariationSentenceRows(corrected, structureBlueprint)
+    if (!isSameSectionSentenceShape(beforeRows, correctedRows)) {
+      return {
+        variation,
+        usage,
+        metadata: {
+          applied: false,
+          reason: 'corrected-sentence-shape-changed',
+          matchedRuleKeys: retrieval.matchedRuleKeys || [],
+        },
+      }
+    }
+    const alignment = validateVariationAlignment(corrected, categoryGuard, referenceGuard)
+    const correctedStructureMatch = validateSentenceBlueprintMatch(corrected, structureBlueprint, config)
+    if (!alignment.ok) {
+      return {
+        variation,
+        usage,
+        metadata: {
+          applied: false,
+          reason: `alignment-failed: ${alignment.reason}`,
+          matchedRuleKeys: retrieval.matchedRuleKeys || [],
+        },
+      }
+    }
+    if (
+      Number.isFinite(originalStructureMatch?.score) &&
+      Number.isFinite(correctedStructureMatch?.score) &&
+      correctedStructureMatch.score < originalStructureMatch.score - 6
+    ) {
+      return {
+        variation,
+        usage,
+        metadata: {
+          applied: false,
+          reason: 'structure-score-regressed',
+          beforeScore: originalStructureMatch.score,
+          afterScore: correctedStructureMatch.score,
+          matchedRuleKeys: retrieval.matchedRuleKeys || [],
+        },
+      }
+    }
+
+    return {
+      variation: corrected,
+      usage,
+      structureMatch: correctedStructureMatch,
+      alignment,
+      metadata: {
+        applied: true,
+        matchedRuleKeys: retrieval.matchedRuleKeys || [],
+        beforeScore: originalStructureMatch?.score ?? null,
+        afterScore: correctedStructureMatch?.score ?? null,
+      },
+    }
+  } catch (error) {
+    logAIError('abc-writing-playbook-polish', error, {
+      accountId,
+      referenceId,
+      label: config?.label,
+      angle: config?.angle,
+    })
+    return {
+      variation,
+      usage: null,
+      metadata: {
+        applied: false,
+        reason: 'correction-failed',
+      },
+    }
+  }
+}
+
+function getVariationId(value = '', index = 0) {
+  const label = String(value || '').trim().toUpperCase()
+  if (label.includes('A')) return 'A'
+  if (label.includes('B')) return 'B'
+  if (label.includes('C')) return 'C'
+  return ['A', 'B', 'C'][index] || `V${index + 1}`
+}
+
+function getWritingPlaybookDiffLimits(config = {}) {
+  if (config?.label === 'A안') {
+    return { maxDiffRatio: 0.3, maxLengthRatio: 1.15, minLengthRatio: 0.85 }
+  }
+  if (config?.label === 'C안') {
+    return { maxDiffRatio: 0.45, maxLengthRatio: 1.3, minLengthRatio: 0.7 }
+  }
+  return { maxDiffRatio: 0.4, maxLengthRatio: 1.25, minLengthRatio: 0.75 }
+}
+
+function normalizeForSimilarityDiff(value = '') {
+  return String(value || '')
+    .replace(/\s+/g, '')
+    .trim()
+}
+
+function getEditDistance(a = '', b = '') {
+  const left = normalizeForSimilarityDiff(a)
+  const right = normalizeForSimilarityDiff(b)
+  if (left === right) return 0
+  if (!left) return right.length
+  if (!right) return left.length
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+  const current = Array.from({ length: right.length + 1 }, () => 0)
+
+  for (let i = 1; i <= left.length; i += 1) {
+    current[0] = i
+    for (let j = 1; j <= right.length; j += 1) {
+      const substitutionCost = left[i - 1] === right[j - 1] ? 0 : 1
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + substitutionCost,
+      )
+    }
+    for (let j = 0; j <= right.length; j += 1) {
+      previous[j] = current[j]
+    }
+  }
+
+  return previous[right.length]
+}
+
+function getChangeRatio(before = '', after = '') {
+  const left = normalizeForSimilarityDiff(before)
+  const right = normalizeForSimilarityDiff(after)
+  const denominator = Math.max(left.length, right.length, 1)
+  return getEditDistance(left, right) / denominator
+}
+
+function extractNumericClaims(value = '') {
+  const matches = String(value || '').match(
+    /\d+(?:[.,]\d+)?\s*(?:%|퍼센트|배|명|건|회|원|만원|만\s*원|억|일|시간|분|개월|주|년)/g,
+  )
+  return new Set((matches || []).map((item) => item.replace(/\s+/g, '').trim()))
+}
+
+function hasNewNumericClaim(before = '', after = '') {
+  const beforeNumbers = extractNumericClaims(before)
+  const afterNumbers = extractNumericClaims(after)
+  for (const item of afterNumbers) {
+    if (!beforeNumbers.has(item)) return true
+  }
+  return false
+}
+
+function hasIntroducedRiskExpression(before = '', after = '') {
+  const riskPattern =
+    /(무조건|100\s*%|백\s*퍼|보장|확실히|하루\s*만에|단\s*\d+\s*(?:일|시간|분)|폭발|몇\s*배|매출\s*\d|문의\s*\d|수익\s*\d|\d+\s*배|\d+\s*만\s*원|\d+\s*명)/i
+  const beforeText = String(before || '')
+  const afterText = String(after || '')
+  return riskPattern.test(afterText) && !riskPattern.test(beforeText)
+}
+
+function validateWritingPlaybookSentenceCorrection(before = '', after = '', config = {}) {
+  const limits = getWritingPlaybookDiffLimits(config)
+  const beforeText = String(before || '').trim()
+  const afterText = String(after || '').trim()
+  if (!afterText) return { ok: false, reason: 'empty-sentence' }
+
+  const beforeLength = Math.max(1, normalizeForSimilarityDiff(beforeText).length)
+  const afterLength = normalizeForSimilarityDiff(afterText).length
+  if (afterLength > Math.ceil(beforeLength * limits.maxLengthRatio)) {
+    return { ok: false, reason: 'length-increased-too-much' }
+  }
+  if (afterLength < Math.floor(beforeLength * limits.minLengthRatio)) {
+    return { ok: false, reason: 'length-shrank-too-much' }
+  }
+
+  const changeRatio = getChangeRatio(beforeText, afterText)
+  if (changeRatio > limits.maxDiffRatio) {
+    return { ok: false, reason: 'diff-too-large', changeRatio }
+  }
+  if (hasIntroducedRiskExpression(beforeText, afterText)) {
+    return { ok: false, reason: 'introduced-risk-expression' }
+  }
+  if (hasNewNumericClaim(beforeText, afterText)) {
+    return { ok: false, reason: 'introduced-new-number' }
+  }
+
+  return { ok: true, changeRatio }
+}
+
+function createBatchPlaybookContexts(variations = [], structureBlueprint = {}) {
+  return (Array.isArray(variations) ? variations : [])
+    .map((variation, index) => {
+      const config =
+        VARIATION_CONFIGS.find((item) => item.label === variation?.label) ||
+        VARIATION_CONFIGS[index] ||
+        { label: variation?.label || `안${index + 1}`, angle: variation?.angle || '' }
+      const variantId = getVariationId(config.label || variation?.label, index)
+      const rows = buildVariationSentenceRows(variation, structureBlueprint).map((row) => ({
+        ...row,
+        localId: row.id,
+        id: `${variantId}-${row.id}`,
+        variantId,
+      }))
+      return {
+        variantId,
+        config,
+        index,
+        variation,
+        rows,
+        originalStructureMatch: validateSentenceBlueprintMatch(variation, structureBlueprint, config),
+      }
+    })
+    .filter((context) => context.variation && context.rows.length)
+}
+
+function formatBatchPlaybookPrompt(contexts = [], rulesBySentenceId = new Map()) {
+  return contexts
+    .map((context) => {
+      const variantRows = formatWritingPlaybookRowsForPrompt(context.rows, rulesBySentenceId)
+      return [
+        `## variantId=${context.variantId} / ${context.config.label} / ${context.config.angle}`,
+        getWritingPlaybookStrengthPrompt(context.config),
+        variantRows,
+      ].join('\n\n')
+    })
+    .join('\n\n')
+}
+
+function hasBatchPlaybookContractFailure(parsed = {}, contexts = []) {
+  const variants = Array.isArray(parsed?.variants) ? parsed.variants : []
+  if (variants.length < contexts.length) return true
+  const variantMap = new Map(variants.map((variant) => [String(variant?.variantId || ''), variant]))
+
+  return contexts.some((context) => {
+    const variant = variantMap.get(context.variantId)
+    if (!variant || !Array.isArray(variant.sentences)) return true
+    if (variant.sentences.length !== context.rows.length) return true
+    const sentenceIds = new Set(variant.sentences.map((item) => String(item?.sentenceId || '')))
+    return context.rows.some((row) => !sentenceIds.has(row.id))
+  })
+}
+
+async function requestBatchWritingPlaybookCorrection({
+  openai,
+  playbookModel,
+  contexts,
+  rulesBySentenceId,
+  categoryGuard,
+  guardPromptSummary,
+  topicFocusPrompt,
+  accountId,
+  referenceId,
+  retryReason = '',
+}) {
+  const response = await openai.chat.completions.create({
+    model: playbookModel,
+    temperature: 0.12,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '너는 숏폼 대본의 문장별 미세 보정 편집자다. 새 대본을 쓰지 않는다. ' +
+          '이미 생성된 A/B/C 문장의 어색한 표현, 말투 일관성, 호흡만 약하게 다듬는다. ' +
+          '더 매력적으로 다시 쓰지 말고, 보정이 필요 없으면 원문 그대로 반환한다. ' +
+          '반드시 1 input sentence → 1 output sentence 원칙을 지킨다. 문장 수, 문장 순서, section, sentenceRole, CTA 위치를 바꾸면 실패다. ' +
+          'A/B/C 전략을 서로 섞지 않는다. A는 최소 보정, B는 자연스러움, C는 기존 의미 안에서 훅/전환/CTA 압력만 약하게 보정한다. ' +
+          '새 주장, 새 소재, 새 사례, 새 숫자, 성과 보장, 과장 표현을 추가하지 않는다. 문장을 더 길게 만들지 않는다. 더 광고처럼 만들지 않는다. ' +
+          '레퍼런스 제목/파일명/녹화일/촬영일/업로드일과 output_style_example, 책 원문은 절대 쓰지 않는다. 출력은 JSON만 반환한다.',
+      },
+      {
+        role: 'user',
+        content:
+          `${retryReason ? `재시도 이유: ${retryReason}\n\n` : ''}` +
+          `카테고리: ${categoryGuard?.category || '기타'}\n` +
+          `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
+          `세팅 신호: ${guardPromptSummary?.settingCues?.join(', ') || '없음'}\n\n` +
+          '보정 대상:\n' +
+          `${formatBatchPlaybookPrompt(contexts, rulesBySentenceId)}\n\n` +
+          '반환 규칙:\n' +
+          '- variants 배열에는 입력된 variantId를 모두 포함한다\n' +
+          '- sentences 배열에는 입력된 sentenceId를 정확히 모두 포함한다\n' +
+          '- sentenceId는 절대 바꾸지 않는다\n' +
+          '- text에는 보정된 한 문장만 넣는다\n' +
+          '- 보정 필요 없으면 원문 그대로 넣는다\n\n' +
+          '다음 JSON 형식으로만 답하세요: {"variants":[{"variantId":"A","sentences":[{"sentenceId":"A-hook-1","text":""}]}]}',
+      },
+    ],
+  })
+
+  const usage = logAIUsage('abc-writing-playbook-batch', response, {
+    model: playbookModel,
+    accountId,
+    referenceId,
+    retry: Boolean(retryReason),
+  })
+  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+  return { parsed, usage }
+}
+
+async function applyWritingPlaybookBatchCorrection({
+  openai,
+  playbookModel,
+  variations = [],
+  structureBlueprint,
+  categoryGuard,
+  referenceGuard,
+  guardPromptSummary,
+  topicFocusPrompt,
+  accountId,
+  referenceId,
+}) {
+  if (!ENABLE_WRITING_PLAYBOOK_RAG || !ENABLE_WRITING_PLAYBOOK_BATCH || !variations.length) {
+    return variations
+  }
+
+  const contexts = createBatchPlaybookContexts(variations, structureBlueprint)
+  if (!contexts.length) return variations
+
+  const retrievals = await Promise.all(
+    contexts.map((context) =>
+      retrieveWritingPlaybookRulesForSentences({
+        sentences: context.rows,
+        variantLabel: context.config?.label || '',
+      }),
+    ),
+  )
+  const rulesBySentenceId = new Map()
+  const matchedRuleKeysByVariant = new Map()
+  contexts.forEach((context, index) => {
+    const retrieval = retrievals[index]
+    matchedRuleKeysByVariant.set(context.variantId, retrieval?.matchedRuleKeys || [])
+    for (const [sentenceId, rules] of retrieval?.rulesBySentenceId || new Map()) {
+      rulesBySentenceId.set(sentenceId, rules)
+    }
+  })
+
+  if (![...matchedRuleKeysByVariant.values()].some((items) => items.length)) {
+    return variations.map((variation, index) => ({
+      ...variation,
+      writingPlaybook: {
+        applied: false,
+        reason: 'no-rules',
+        matchedRuleKeys: [],
+        mode: 'batch',
+      },
+    }))
+  }
+  const correctionContexts = contexts.filter(
+    (context) => (matchedRuleKeysByVariant.get(context.variantId) || []).length,
+  )
+
+  let parsed = null
+  let usage = null
+  let retryUsed = false
+  try {
+    try {
+      const first = await requestBatchWritingPlaybookCorrection({
+        openai,
+        playbookModel,
+        contexts: correctionContexts,
+        rulesBySentenceId,
+        categoryGuard,
+        guardPromptSummary,
+        topicFocusPrompt,
+        accountId,
+        referenceId,
+      })
+      parsed = first.parsed
+      usage = first.usage
+    } catch (error) {
+      logAIError('abc-writing-playbook-batch', error, {
+        accountId,
+        referenceId,
+        stage: 'batch-correction-first-attempt',
+      })
+      const retry = await requestBatchWritingPlaybookCorrection({
+        openai,
+        playbookModel,
+        contexts: correctionContexts,
+        rulesBySentenceId,
+        categoryGuard,
+        guardPromptSummary,
+        topicFocusPrompt,
+        accountId,
+        referenceId,
+        retryReason: '첫 응답이 JSON으로 파싱되지 않음. JSON 형식을 지켜 다시 반환.',
+      })
+      parsed = retry.parsed
+      usage = retry.usage
+      retryUsed = true
+    }
+    if (!retryUsed && hasBatchPlaybookContractFailure(parsed, correctionContexts)) {
+      const retry = await requestBatchWritingPlaybookCorrection({
+        openai,
+        playbookModel,
+        contexts: correctionContexts,
+        rulesBySentenceId,
+        categoryGuard,
+        guardPromptSummary,
+        topicFocusPrompt,
+        accountId,
+        referenceId,
+        retryReason: 'JSON 계약 또는 sentenceId가 맞지 않음. 입력 id와 개수를 그대로 맞춰 다시 반환.',
+      })
+      parsed = retry.parsed
+      usage = sumAIUsage(usage, retry.usage)
+      retryUsed = true
+    }
+  } catch (error) {
+    logAIError('abc-writing-playbook-batch', error, {
+      accountId,
+      referenceId,
+      stage: 'batch-correction',
+    })
+    return variations.map((variation) => ({
+      ...variation,
+      writingPlaybook: {
+        applied: false,
+        reason: 'batch-failed',
+        mode: 'batch',
+      },
+    }))
+  }
+
+  const variantMap = new Map(
+    (Array.isArray(parsed?.variants) ? parsed.variants : []).map((variant) => [
+      String(variant?.variantId || ''),
+      variant,
+    ]),
+  )
+
+  return contexts.map((context) => {
+    const matchedRuleKeys = matchedRuleKeysByVariant.get(context.variantId) || []
+    if (!matchedRuleKeys.length) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: 'no-rules',
+          matchedRuleKeys: [],
+          mode: 'batch',
+        },
+      }
+    }
+    const variantPayload = variantMap.get(context.variantId)
+    if (!variantPayload || !Array.isArray(variantPayload.sentences)) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: 'variant-missing',
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+
+    const sentenceMap = new Map(
+      variantPayload.sentences.map((item) => [
+        String(item?.sentenceId || ''),
+        String(item?.text || '').trim(),
+      ]),
+    )
+    if (sentenceMap.size !== context.rows.length || context.rows.some((row) => !sentenceMap.has(row.id))) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: 'sentence-contract-failed',
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+
+    const validationFailures = []
+    const afterRows = context.rows.map((row) => {
+      const nextText = sentenceMap.get(row.id) || row.text
+      const validation = validateWritingPlaybookSentenceCorrection(row.text, nextText, context.config)
+      if (!validation.ok) {
+        validationFailures.push(`${row.id}:${validation.reason}`)
+      }
+      return { ...row, id: row.localId || row.id, text: nextText }
+    })
+    const beforeRows = context.rows.map((row) => ({ ...row, id: row.localId || row.id }))
+    if (validationFailures.length) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: validationFailures[0],
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+    if (!isSameSectionSentenceShape(beforeRows, afterRows)) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: 'section-shape-changed',
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+
+    const corrected = normalizeVariationYearReferences(
+      reconstructVariationFromSentenceRows(context.variation, afterRows),
+    )
+    const correctedRows = buildVariationSentenceRows(corrected, structureBlueprint)
+    if (!isSameSectionSentenceShape(beforeRows, correctedRows)) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: 'corrected-sentence-shape-changed',
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+    if (hasSpeechLevelDrift([corrected.hook, corrected.body, corrected.cta].join('\n'))) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: 'speech-level-drift',
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+
+    const alignment = validateVariationAlignment(corrected, categoryGuard, referenceGuard)
+    const correctedStructureMatch = validateSentenceBlueprintMatch(corrected, structureBlueprint, context.config)
+    if (!alignment.ok) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: `alignment-failed: ${alignment.reason}`,
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+    if (
+      Number.isFinite(context.originalStructureMatch?.score) &&
+      Number.isFinite(correctedStructureMatch?.score) &&
+      correctedStructureMatch.score < context.originalStructureMatch.score - 6
+    ) {
+      return {
+        ...context.variation,
+        writingPlaybook: {
+          applied: false,
+          reason: 'structure-score-regressed',
+          beforeScore: context.originalStructureMatch.score,
+          afterScore: correctedStructureMatch.score,
+          matchedRuleKeys,
+          mode: 'batch',
+        },
+      }
+    }
+
+    return {
+      ...attachStructureMetadata(corrected, structureBlueprint, correctedStructureMatch),
+      alignment,
+      writingPlaybook: {
+        applied: true,
+        matchedRuleKeys,
+        beforeScore: context.originalStructureMatch?.score ?? null,
+        afterScore: correctedStructureMatch?.score ?? null,
+        mode: 'batch',
+        model: playbookModel,
+      },
+      usedChunkIds: context.variation.usedChunkIds || [],
+      usedKnowledge: context.variation.usedKnowledge || [],
+    }
+  }).map((variation, index) => ({
+    ...variations[index],
+    ...variation,
+    writingPlaybook: {
+      ...(variation.writingPlaybook || {}),
+      usage: usage
+        ? {
+            promptTokens: usage.promptTokens || 0,
+            completionTokens: usage.completionTokens || 0,
+            totalTokens: usage.totalTokens || 0,
+          }
+        : undefined,
+    },
+  }))
 }
 
 function normalizeCategoryLabel(value) {
@@ -2242,29 +3134,15 @@ async function regenerateVariationWithGPT({
               : '- 없음'
           }\n\n` +
           `캐릭터 세팅:\n${characterSystemPrompt || '없음'}\n\n` +
-          '작성 조건:\n' +
-          '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 함\n' +
-          `- 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 않음\n` +
-          '- 레퍼런스 표면 주제/키워드/문장 변형 사용 금지(패러프레이즈 포함)\n' +
-          '- 파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간은 절대 쓰지 않음\n' +
-          '- 레퍼런스의 구조, 전개 순서, 문장 기능, 길이감, 심리/욕구 트리거는 강하게 유지\n' +
-          '- 바꾸는 것은 상품명/상황/업종/고유명사/구체 사례이고, 구조 자체를 새로 만들면 실패\n' +
-          '- 문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다\n' +
-          '- 각 문장의 목표분량/문장형태/리듬/원본 느낌을 최대한 유지하고, 문장 안 소재만 현재 주제로 바꾼다\n' +
-          '- 변경 범위는 topicSlots/replaceTargets/mustReplace에 해당하는 주제 표현으로 제한한다. 문장 골격, 절 순서, 강조 순서, 감정 흐름은 유지한다\n' +
-          '- 새 아이디어를 만들지 말고, 원본 문장별 슬롯에 현재 계정 세팅과 이번 주제를 끼워 넣는다\n' +
-          '- 원본 느낌이 단호함이면 단호하게, 공감이면 공감으로, 불안 자극이면 같은 심리 압박으로 치환한다\n' +
-          '- 원문 대비 길이는 80~120% 범위에 가깝게 유지하고 요약하지 않음\n' +
-          '- HOOK/BODY/CTA 모두 레퍼런스의 섹션 역할과 리듬을 따라가되 현재 계정 도메인과 이번 주제로 치환\n' +
-          '- 핵심 키워드 슬롯은 이번 릴스 주제의 키워드로 채우고, 욕구 트리거는 가능한 한 유지\n' +
-          '- 원문보다 눈에 띄게 짧아지지 않게 섹션 리듬/길이감을 유지\n' +
-          '- HOOK은 위 장점 항목 중 최소 2개를 문장에 드러나게 반영\n' +
-          '- 단, HOOK에서도 레퍼런스 원문 단어/주제/상황/고유명사 복사 금지\n' +
-          '- BODY/CTA도 레퍼런스의 역할 순서와 설득 흐름을 유지하고, 소재만 현재 계정 도메인으로 치환\n' +
-          '- 분석 메타 표현(첫 3초, 프레임, 클로즈업, 화면, 자막, 연출) 금지\n' +
+          '재생성 계약:\n' +
+          `- 연도는 ${CURRENT_CONTENT_YEAR}년만 사용하고 2024년은 금지\n` +
+          '- 레퍼런스 표면 주제/문장/키워드/파일명/날짜/분석 메타는 금지\n' +
+          '- 구조, 문장 기능, 길이감, 심리/욕구 트리거는 잠그고 소재/상황/상품명/업종/고유명사만 현재 주제로 치환\n' +
+          '- blueprint가 있으면 각 번호를 결과 문장 1개로 대응시키고 합치거나 생략하지 않음\n' +
+          '- 각 문장의 목표분량/문장형태/리듬/끝맺음/느낌과 HOOK/BODY/CTA 흐름, CTA 위치를 유지\n' +
+          '- topicSlots/replaceTargets 자리만 바꾸고, 단호함/공감/불안/행동압박 기능은 같은 위치에서 수행\n' +
+          '- 말투 높임은 초안 전체에서 통일하고 키워드는 억지 삽입보다 자연스러운 흐름을 우선\n' +
           `${VARIATION_NATURAL_VOICE_RULES}\n` +
-          '- HOOK/BODY/CTA 흐름을 분명히 연결\n' +
-          '- 세팅 신호와 키워드는 억지 삽입보다 자연스러운 반영을 우선\n\n' +
           '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
       },
     ],
@@ -2549,7 +3427,8 @@ function needsFlowPolish(variation = {}) {
     awkwardPattern.test(text) ||
     GENERATED_METADATA_LEAK_PATTERN.test(text) ||
     AWKWARD_KOREAN_PATTERN.test(text) ||
-    REPORT_STYLE_PATTERN.test(text)
+    REPORT_STYLE_PATTERN.test(text) ||
+    hasSpeechLevelDrift(text)
   )
 }
 
@@ -2651,6 +3530,7 @@ function scoreVariationQuality(variation = {}, config = {}, guard = {}) {
   if (REPORT_STYLE_PATTERN.test(hook) || REPORT_STYLE_PATTERN.test(body) || REPORT_STYLE_PATTERN.test(cta)) {
     naturalness -= 1
   }
+  if (hasSpeechLevelDrift(fullText)) naturalness -= 2
   if (/(합니다|드립니다|제공합니다|공유합니다|유도합니다)/.test(fullText)) naturalness -= 1
   if (/(개인용|특수한|직접적으로|자료|환경)/.test(fullText)) naturalness -= 1
   naturalness = Math.max(1, Math.min(5, naturalness))
@@ -2958,7 +3838,7 @@ export async function analyzeReferenceVideo({
   const normalizedProjectId = normalizeOptionalProjectId(projectId) ?? null
   const supabaseAdmin = getSupabaseAdmin()
   const openai = getOpenAIClient()
-  const { chatModel, variationModel } = getOpenAIModels()
+  const { chatModel, variationModel, playbookModel } = getOpenAIModels()
   const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey)
   const fileFingerprint = await computeUploadedFileFingerprint(file)
   const analysisFingerprint = hashText(`${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}`)
@@ -3477,32 +4357,17 @@ export async function analyzeReferenceVideo({
         VARIATION_CONFIGS.map((config) =>
           runStage(`variation-${config.label}`, { ...baseContext, angle: config.angle }, async () => {
           const systemContent = [
-            '당신은 숏폼 콘텐츠 작가다. 새 대본을 자유롭게 창작하지 말고, 잘 만든 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 1분 분량 스크립트를 작성한다. 출력은 JSON만 반환한다.',
-            `현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이다. 새 연도 표현이 필요하면 ${CURRENT_CONTENT_YEAR}년만 쓰고 2024년은 쓰지 마라.`,
-            '우선순위 규칙(절대 준수): 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 레퍼런스 구조 잠금 > 전략 라벨/전략 의도.',
-            '레퍼런스 제목/파일명/원문 주제는 콘텐츠 도메인 결정에 사용하지 마라.',
-            '파일명, 녹화일, 촬영일, 업로드일, 스크린레코딩 날짜/시간은 절대 대본 소재로 사용하지 마라.',
-            '레퍼런스 전사는 "내용 복사"가 아니라 구조/리듬/전개 방식/심리 트리거/길이감 참고용이다.',
-            '문장별 소재 치환 작업표에 원문 골격 참고 문장이 있으면, 그 문장을 그대로 베끼지 말고 같은 문장 위치에서 같은 말맛/호흡/압박감으로 현재 주제 문장 1개로 바꾼다.',
-            '레퍼런스 원문의 업종/소재/고유명사를 그대로 가져오지 마라. 계정 카테고리와 충돌하면 반드시 계정 카테고리로 재해석하라.',
-            '즉, 계정이 뷰티/패션이면 건축/부동산/공학 같은 이질 도메인으로 쓰지 말고 뷰티 도메인으로 전환해서 작성하라.',
-            'HOOK/BODY/CTA는 반드시 하나의 이야기 흐름으로 연결하라.',
-            'HOOK/BODY/CTA 모두 레퍼런스의 문장 기능, 전개 순서, 리듬, 길이감을 강하게 참고하라.',
-            '문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다.',
-            '사용자가 원하는 것은 완전 재창조가 아니라 레퍼런스와 비슷한 흐름/분량/리듬에 소재만 바뀐 결과다.',
-            '핵심 키워드 역할과 욕구 키워드는 유지하고, 상품명/상황/업종/고유명사/구체 사례만 현재 주제로 치환하라.',
-            '단, A/B/C 초안의 HOOK 첫 문장 시작어와 표현은 서로 달라야 한다. 구조는 같아도 사용자가 보기엔 다른 선택지처럼 보여야 한다.',
-            'HOOK에서 던진 긴장/문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환해야 한다.',
-            '아래 인사이트/체크포인트는 필요한 만큼 자연스럽게 반영하고, usedInsights/usedCheckpoints에는 실제로 참고한 항목만 기록하라.',
-            '촌스럽고 교과서적인 문장을 금지하고, 실제 사람이 말하듯 자연스럽게 쓴다.',
-            '공통: 설명체보다 대화체. 문장은 짧게 끊고 리듬감 있게. 추상적 표현 금지.',
+            '당신은 숏폼 콘텐츠 작가다. 새 대본을 창작하지 말고, 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 1분 스크립트를 만든다. 출력은 JSON만 반환한다.',
+            `연도 규칙: 새 연도 표현은 ${CURRENT_CONTENT_YEAR}년만 사용하고 2024년은 쓰지 않는다.`,
+            '우선순위: 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 레퍼런스 구조 잠금 > 전략 라벨.',
+            '레퍼런스 계약: 제목/파일명/녹화일/원문 주제/고유명사는 쓰지 않는다. 전사는 구조, 리듬, 문장 기능, 심리 트리거, 길이감만 참고한다.',
+            '문장 계약: blueprint가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다.',
+            '도메인 계약: 소재는 계정 카테고리와 이번 주제 기준으로 재해석한다. 계정과 충돌하는 업종/상황은 가져오지 않는다.',
+            '흐름 계약: HOOK의 긴장/문제를 BODY가 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
+            'A/B/C 계약: 같은 blueprint를 타되 A=원본형, B=대화형, C=후킹형으로만 차이를 둔다. 첫 문장 시작어는 서로 다르게 쓴다.',
+            '문체 계약: 촌스럽고 교과서적인 설명체를 피하고, 실제 사람이 말하듯 짧고 리듬 있게 쓴다.',
             VARIATION_NATURAL_VOICE_RULES,
-            'HOOK 금지: "~하시나요?" 같은 평범한 질문, 너무 일반적인 문제 제기.',
-            'HOOK 규칙: 첫 문장에서 긴장감/반전/궁금증을 만들고 한 문장으로 강하게 시작.',
-            'BODY 금지: "많은 사람들이 ~ 하지만" 같은 교과서 문장, 긴 한 문장 설명.',
-            'BODY 규칙: 상황으로 시작하고 실제 경험/발견처럼 한 문장씩 끊어 전개.',
-            'CTA 금지: "좋아요/팔로우 부탁" 같은 뻔한 마무리.',
-            'CTA 규칙: 왜 지금 행동해야 하는지(손해/이득/궁금증)를 넣어 짧고 강하게.',
+            '구간 규칙: HOOK은 일반 질문이 아니라 긴장/반전/궁금증으로 시작한다. BODY는 상황과 발견처럼 전개한다. CTA는 좋아요/팔로우가 아니라 지금 행동할 이유를 짧게 준다.',
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
           ]
             .filter(Boolean)
@@ -3568,38 +4433,21 @@ export async function analyzeReferenceVideo({
             `문장 단위 구조 설계도(최우선 잠금):\n${formatSentenceBlueprintPrompt(structureBlueprint)}\n\n` +
             `문장별 소재 치환 작업표(실제 작성 기준):\n${formatSentenceSubstitutionPrompt(structureBlueprint)}\n\n` +
             `소재 치환표(원문 내용 대신 현재 주제로 채울 것):\n${formatSubstitutionMapPrompt(structureBlueprint)}\n\n` +
-            '작성 강제 조건:\n' +
-            '- 최우선 목표: 사용자가 “레퍼런스랑 거의 같은 흐름인데 내 주제로 바뀌었다”고 느껴야 한다\n' +
-            '- 이번 릴스 주제가 주어졌다면 hook/body/cta 모두 그 주제를 직접 다뤄야 한다\n' +
-            '- 계정 카테고리는 큰 방향이고, 이번 릴스 주제는 실제 소재/상품/상황을 결정하는 우선값이다\n' +
-            '- 1단계: 레퍼런스의 전개 순서/문장 기능/길이감/욕구 트리거를 잠근다\n' +
-            '- 2단계: 원문 상품명/상황/고유명사/구체 사례만 제거한다\n' +
-            '- 3단계: 비어 있는 키워드 슬롯을 이번 릴스 주제와 계정 세팅으로 채운다\n' +
-            '- 4단계: 잠근 구조 그대로 HOOK/BODY/CTA를 작성한다\n' +
-            '- 문장 단위 구조 설계도가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 수를 마음대로 줄이거나 합치지 않는다\n' +
-            '- 문장별 소재 치환 작업표의 “원문 골격 참고”는 반드시 같은 번호 결과 문장으로 대응시킨다. 예: 1번 원문 질문형이면 1번 결과도 현재 주제 질문형으로 시작한다\n' +
-            '- 원문 문장의 단어를 그대로 쓰지 말고, 같은 위치의 문제/상황/욕구/반전/증거/CTA 기능을 현재 계정 주제로 바꾼다\n' +
-            '- 각 문장은 목표분량/문장형태/절 구조/끝맺음/구두점 호흡/리듬/원본 느낌을 유지하고, 문장 안 소재/상황/상품명만 현재 주제로 치환한다\n' +
-            '- 변경 범위는 topicSlots/replaceTargets/mustReplace에 해당하는 주제 표현으로 제한한다. 문장 골격, 절 순서, 쉼표 호흡, 강조 순서, 감정 흐름은 유지한다\n' +
-            '- 레퍼런스가 질문으로 압박하면 결과도 같은 위치에서 질문으로 압박한다. 레퍼런스가 단호한 결론이면 결과도 같은 위치에서 단호하게 끝낸다\n' +
-            '- 레퍼런스가 짧게 툭 던지는 문장은 결과도 짧게 툭 던지고, 길게 누적 설명하는 문장은 결과도 비슷한 길이로 누적한다\n' +
-            '- A/B/C는 서로 다른 새 아이디어 3개가 아니다. 같은 레퍼런스 blueprint를 타는 주제 치환 버전 3개다\n' +
-            '- 원본 느낌이 단호함이면 단호하게, 공감이면 공감으로, 불안 자극이면 같은 심리 압박으로 치환한다\n' +
-            '- A안 원본형은 문장 수/길이/절 구조/끝맺음/순서를 가장 엄격하게 맞춘다. B안 대화형은 구조를 유지하고 말투만 더 말하듯 자연스럽게 만든다. C안 후킹형은 구조를 유지하고 후킹/CTA만 강하게 만든다. 세 안 모두 구조 자체를 새로 만들지 않는다\n' +
+            '생성 계약:\n' +
+            '- 목표: “레퍼런스와 거의 같은 흐름/분량/리듬인데 내 주제로 바뀐 결과”를 만든다\n' +
+            '- 이번 릴스 주제가 있으면 HOOK/BODY/CTA 모두 그 주제를 실제 소재로 다룬다\n' +
+            '- 레퍼런스의 전개 순서, 문장 기능, 길이감, 욕구 트리거는 잠그고 소재/상황/상품명/업종/고유명사만 치환한다\n' +
+            '- 문장 blueprint가 있으면 각 번호를 결과 문장 1개로 대응시킨다. 문장 수를 줄이거나 합치지 않는다\n' +
+            '- 각 문장의 목표분량, 문장형태, 절 구조, 끝맺음, 구두점 호흡, 리듬, 원본 느낌을 최대한 유지한다\n' +
+            '- topicSlots/replaceTargets/mustReplace 자리만 현재 계정 세팅과 이번 주제로 바꾼다\n' +
+            '- 원문이 질문/단정/공감/불안/행동압박이면 결과도 같은 위치에서 같은 기능을 수행한다\n' +
+            '- A/B/C는 새 아이디어 3개가 아니라 같은 blueprint를 타는 3개 치환안이다\n' +
+            '- A안은 구조 보존 최우선, B안은 말하듯 자연스럽게, C안은 구조 안에서 훅/전환/CTA만 강하게 만든다\n' +
             `- 이 안의 훅 차별화 지시: ${getVariationHookStyleInstruction(config)}\n` +
-            '- A/B/C 모두 같은 첫 문장 시작어를 쓰면 실패다. 예: 세 안 모두 "결론부터 말해요"로 시작 금지\n' +
-            '- 세 안은 같은 blueprint를 타되, A는 원본 흐름, B는 말하듯 부드러운 진입, C는 더 강한 긴장/반전 진입으로 구분한다\n' +
-            '- 레퍼런스 표면 단어/문장 변형/원문 주제 복사 금지\n' +
-            '- 파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간은 절대 쓰지 않는다\n' +
-            '- 구조를 완전히 새로 만들지 마라. 표절 방지는 소재 치환으로 해결하고, 뼈대는 유지한다\n' +
-            '- HOOK은 위의 HOOK 문장 구조 참고를 따라 시작 방식과 문장 호흡을 최대한 비슷하게 맞춘다\n' +
-            '- HOOK은 레퍼런스 HOOK 장점 항목 중 최소 2개를 명확히 반영한다\n' +
-            '- 단, HOOK도 원문 단어/원문 상황/고유명사는 절대 사용 금지\n' +
-            '- BODY/CTA도 레퍼런스의 문장 기능과 설득 순서를 따라가고, 소재만 현재 계정 맥락으로 치환한다\n' +
-            '- 핵심 키워드 슬롯과 심리/욕구 트리거가 결과물에서 사라지면 실패다\n' +
-            '- 원문보다 25% 이상 짧아지지 않게 한다. 길이를 줄여 요약하지 마라\n' +
-            '- 계정 설정(카테고리/타겟/상품/톤)에 맞는 도메인으로 작성\n' +
-            '- 키워드를 억지로 끼워 넣지 말고, 자연스러운 주장과 흐름을 우선\n\n' +
+            '- 세 안의 첫 문장 시작어는 서로 다르게 한다\n' +
+            '- 말투 높임은 초안 안에서 끝까지 통일한다. CTA만 다른 높임으로 바꾸지 않는다\n' +
+            '- 레퍼런스 표면 단어/문장 변형/원문 주제/파일명/날짜 메타데이터는 절대 쓰지 않는다\n' +
+            '- 핵심 키워드 슬롯과 심리/욕구 트리거가 사라지면 실패다. 단, 키워드 억지 삽입보다 자연스러운 흐름을 우선한다\n\n' +
             '- angle은 카드 상단에 보이는 짧은 이름이다. 8자 이하 명사형으로만 쓴다\n' +
             '- angle 예시: 원본형, 대화형, 후킹형\n' +
             '- angle에 영상 주제, 긴 문장, 설명문, "1분 만에" 같은 문구를 넣지 않는다\n' +
@@ -3618,7 +4466,7 @@ export async function analyzeReferenceVideo({
             `세팅 신호(직접적이고 자연스럽게 반영): ${
               guardPromptSummary.settingCues.join(', ') || '없음'
             }\n\n` +
-            `참고 글로벌 지식(요약본):\n${compactKnowledgeContext || '검색된 지식 없음'}\n\n` +
+            `${compactKnowledgeContext ? `참고 글로벌 지식(보조):\n${compactKnowledgeContext}\n\n` : ''}` +
             '분량 규칙(중요): 레퍼런스 문장 blueprint의 길이감을 1순위로 맞추세요.\n' +
             '- 목표 길이: 레퍼런스 대비 80~120% 안쪽\n' +
             '- 문장 단위 blueprint가 있으면 문장 수를 임의로 줄이지 않음\n' +
@@ -3810,7 +4658,7 @@ export async function analyzeReferenceVideo({
                       '- 훅/바디/CTA 연결 흐름 유지\n' +
                       '- 의미는 유지하고 문장만 자연스럽게\n' +
                       '- 설명문 말투보다 실제 말하는 톤으로\n' +
-                      '- 어색한 번역투, 보고서체, "~합니다/~드립니다" 말투는 짧은 해요체로 바꾸기\n' +
+                      '- 어색한 번역투, 보고서체, "~합니다/~드립니다" 말투는 레퍼런스/계정 톤에 맞는 자연스러운 말투로 바꾸기\n' +
                       '- 전략 라벨 톤은 유지\n\n' +
                       '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
                   },
@@ -3878,7 +4726,26 @@ export async function analyzeReferenceVideo({
           referenceId: processingReference.id,
         },
       })
-      generatedVariations = enforceVariationDiversity(hookDiversifiedVariations, categoryGuard)
+      const diversifiedVariations = enforceVariationDiversity(hookDiversifiedVariations, categoryGuard)
+      const playbookCorrectedVariations = await runStage(
+        'writing-playbook-batch-correction',
+        baseContext,
+        async () =>
+          applyWritingPlaybookBatchCorrection({
+            openai,
+            playbookModel,
+            variations: diversifiedVariations,
+            structureBlueprint,
+            categoryGuard,
+            referenceGuard,
+            guardPromptSummary,
+            topicFocusPrompt,
+            accountId,
+            referenceId: processingReference.id,
+          }),
+        stageHooks,
+      )
+      generatedVariations = enforceVariationDiversity(playbookCorrectedVariations, categoryGuard)
     }
 
     const { data: row, error } = await runStage(
@@ -4168,7 +5035,7 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
     .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
     .eq('id', referenceVideoId)
     .eq('account_id', accountId)
-    .single()
+    .maybeSingle()
 
   if (isMissingProjectColumnError(error)) {
     const fallback = await supabaseAdmin
@@ -4176,27 +5043,24 @@ export async function getReferenceVideo(referenceVideoId, accountId) {
       .select(selectReferenceVideoColumns({ includeProjectId: false, detail: true }))
       .eq('id', referenceVideoId)
       .eq('account_id', accountId)
-      .single()
+      .maybeSingle()
     data = fallback.data ? { ...fallback.data, project_id: null } : fallback.data
     error = fallback.error
   }
 
   if (error) {
-    const statusCode = error.code === 'PGRST116' ? 404 : 500
+    throw new AppError('Failed to load reference video analysis', {
+      code: 'REFERENCE_VIDEO_FETCH_FAILED',
+      statusCode: 500,
+      cause: error,
+    })
+  }
 
-    throw new AppError(
-      statusCode === 404
-        ? 'Reference video analysis not found'
-        : 'Failed to load reference video analysis',
-      {
-        code:
-          statusCode === 404
-            ? 'REFERENCE_VIDEO_NOT_FOUND'
-            : 'REFERENCE_VIDEO_FETCH_FAILED',
-        statusCode,
-        cause: error,
-      },
-    )
+  if (!data) {
+    throw new AppError('Reference video analysis not found', {
+      code: 'REFERENCE_VIDEO_NOT_FOUND',
+      statusCode: 404,
+    })
   }
 
   const frameSummary = buildFrameSummaryFromNotes(data.frame_notes || [])
