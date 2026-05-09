@@ -2856,6 +2856,7 @@ function ToolPage({ type }) {
   const [thumbnailTitleResult, setThumbnailTitleResult] = useState(null)
   const [isThumbnailAnalyzing, setIsThumbnailAnalyzing] = useState(false)
   const [toolError, setToolError] = useState('')
+  const [toolNotice, setToolNotice] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationProgressIndex, setGenerationProgressIndex] = useState(0)
   const [isCaptionPdfExporting, setIsCaptionPdfExporting] = useState(false)
@@ -2914,6 +2915,7 @@ function ToolPage({ type }) {
 
   useEffect(() => {
     setToolError('')
+    setToolNotice('')
     setIsGenerating(false)
     setGenerationProgressIndex(0)
     setCaptionResult(null)
@@ -2929,6 +2931,7 @@ function ToolPage({ type }) {
 
   useEffect(() => {
     setToolError('')
+    setToolNotice('')
     setIsGenerating(false)
     setGenerationProgressIndex(0)
     setCaptionResult(null)
@@ -3021,6 +3024,7 @@ function ToolPage({ type }) {
 
   const handleGenerateCaption = async () => {
     setToolError('')
+    setToolNotice('')
     setCaptionResult(null)
     setEditableCaptionDraft('')
 
@@ -3061,6 +3065,7 @@ function ToolPage({ type }) {
 
   const handleThumbnailFile = async (file) => {
     setToolError('')
+    setToolNotice('')
     if (!file) {
       return
     }
@@ -3087,6 +3092,7 @@ function ToolPage({ type }) {
 
   const handleGenerateThumbnailTitles = async () => {
     setToolError('')
+    setToolNotice('')
     setThumbnailTitleResult(null)
 
     if (!thumbnailFile) {
@@ -3172,9 +3178,10 @@ function ToolPage({ type }) {
     }
 
     setToolError('')
+    setToolNotice('')
     setIsCaptionPdfExporting(true)
     try {
-      await downloadScriptPdf({
+      const result = await downloadScriptPdf({
         title: `${captionTopic.trim() || '캡션'} · 캡션 생성결과`,
         sections: [
           { label: '내 영상 주제', value: captionTopic.trim() || '입력된 영상 주제 없음' },
@@ -3182,8 +3189,14 @@ function ToolPage({ type }) {
           { label: '해시태그', value: displayedHashtags.length ? displayedHashtags.join(' ') : '해시태그 없음' },
         ],
       })
+      setToolNotice(
+        result?.delivery === 'new-tab'
+          ? 'PDF가 새 탭으로 열렸습니다. 저장이 필요하면 브라우저 공유/저장을 사용해주세요.'
+          : 'PDF 다운로드를 시작했습니다.',
+      )
     } catch (error) {
       const reason = error?.message || 'PDF 내보내기에 실패했습니다.'
+      setToolNotice('')
       setToolError(`${reason} PDF가 계속 실패하면 결과 상단의 복사 버튼으로 텍스트를 먼저 보관해주세요.`)
     } finally {
       setIsCaptionPdfExporting(false)
@@ -3196,6 +3209,7 @@ function ToolPage({ type }) {
     setCaptionResult(null)
     setEditableCaptionDraft('')
     setToolError('')
+    setToolNotice('')
     setIsCaptionCopied(false)
   }
 
@@ -3344,6 +3358,7 @@ function ToolPage({ type }) {
                     onChange={(event) => {
                       setCaptionTopic(event.target.value)
                       setToolError('')
+                      setToolNotice('')
                     }}
                     className="h-12 rounded-[16px] border border-[#2F3543] bg-[#0F131B] px-4 text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
                     placeholder="예: 헬스 초보 루틴 PDF 소개"
@@ -3356,6 +3371,7 @@ function ToolPage({ type }) {
                     onChange={(event) => {
                       setCaptionA(event.target.value)
                       setToolError('')
+                      setToolNotice('')
                     }}
                     rows={7}
                     className="resize-y rounded-[18px] border border-[#343B49] bg-[#0F131B] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
@@ -3369,6 +3385,7 @@ function ToolPage({ type }) {
                     onChange={(event) => {
                       setCaptionB(event.target.value)
                       setToolError('')
+                      setToolNotice('')
                     }}
                     rows={7}
                     className="resize-y rounded-[18px] border border-[#343B49] bg-[#0F131B] px-4 py-3 text-sm leading-7 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
@@ -3468,6 +3485,7 @@ function ToolPage({ type }) {
                   onChange={(event) => {
                     setThumbnailTopic(event.target.value)
                     setToolError('')
+                    setToolNotice('')
                     setThumbnailTitleResult(null)
                   }}
                   className="h-12 rounded-[16px] border border-[#2F3543] bg-[#0F131B] px-4 text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
@@ -3480,6 +3498,12 @@ function ToolPage({ type }) {
           {toolError ? (
             <div className="mt-5 rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-sm leading-6 text-[#FCA5A5]">
               {toolError}
+            </div>
+          ) : null}
+
+          {toolNotice ? (
+            <div className="mt-5 rounded-2xl border border-[#2F6B4F] bg-[#10251D] px-4 py-3 text-sm leading-6 text-[#A7F3D0]">
+              {toolNotice}
             </div>
           ) : null}
 

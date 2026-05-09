@@ -123,20 +123,123 @@ function normalizePdfSections(sections = {}) {
   ]
 }
 
-async function fetchFontAsBase64(path) {
-  const response = await fetch(path)
-  if (!response.ok) {
-    throw createPdfExportError('PDF 한글 폰트를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.')
+const PDF_FONT_PATH = 'fonts/NanumGothic-Regular.ttf'
+const MIN_FONT_BYTES = 100_000
+
+function getPdfFontUrlCandidates() {
+  const candidates = []
+  const addCandidate = (path) => {
+    if (!path || candidates.includes(path)) {
+      return
+    }
+    candidates.push(path)
   }
 
-  const buffer = await response.arrayBuffer()
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  const baseUrl = import.meta.env.BASE_URL || '/'
+  const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+
+  addCandidate(`${normalizedBaseUrl}${PDF_FONT_PATH}`)
+  addCandidate(`/${PDF_FONT_PATH}`)
+
+  if (typeof window !== 'undefined' && window.location?.protocol === 'file:') {
+    addCandidate(new URL(`./${PDF_FONT_PATH}`, window.location.href).href)
+    addCandidate(new URL(`./public/${PDF_FONT_PATH}`, window.location.href).href)
   }
-  return window.btoa(binary)
+
+  return candidates
+}
+
+function isPdfControlCharacter(codePoint) {
+  return codePoint <= 8
+    || codePoint === 11
+    || codePoint === 12
+    || (codePoint >= 14 && codePoint <= 31)
+    || codePoint === 127
+}
+
+function isUnsupportedPdfGlyph(codePoint) {
+  return codePoint === 0x200D
+    || codePoint === 0xFE0E
+    || codePoint === 0xFE0F
+    || (codePoint >= 0x1F000 && codePoint <= 0x1FAFF)
+    || (codePoint >= 0x2600 && codePoint <= 0x27BF)
+}
+
+function sanitizePdfText(value) {
+  let output = ''
+  for (const character of String(value ?? '').normalize('NFC')) {
+    const codePoint = character.codePointAt(0)
+    if (isPdfControlCharacter(codePoint) || isUnsupportedPdfGlyph(codePoint)) {
+      continue
+    }
+    output += character
+  }
+  return output.replace(/[ \t]{2,}/g, ' ')
+}
+
+async function fetchFontAsBase64(paths = getPdfFontUrlCandidates()) {
+  let lastError
+
+  for (const path of paths) {
+    try {
+      const response = await fetch(path, { cache: 'force-cache' })
+      if (!response.ok) {
+        throw new Error(`font request failed: ${response.status}`)
+      }
+
+      const buffer = await response.arrayBuffer()
+      if (buffer.byteLength < MIN_FONT_BYTES) {
+        throw new Error('font response was not a valid font file')
+      }
+
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      const chunkSize = 0x8000
+      for (let index = 0; index < bytes.length; index += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+      }
+      return window.btoa(binary)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw createPdfExportError('PDF 한글 폰트를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.', lastError)
+}
+
+function shouldOpenPdfInNewTab() {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+
+  const userAgent = navigator.userAgent || ''
+  const isIos = /iPad|iPhone|iPod/i.test(userAgent)
+  const isIpadDesktopMode = /Macintosh/i.test(userAgent) && Number(navigator.maxTouchPoints || 0) > 1
+  return isIos || isIpadDesktopMode
+}
+
+function triggerPdfDelivery(blob, filename) {
+  const url = URL.createObjectURL(blob)
+
+  if (shouldOpenPdfInNewTab()) {
+    const openedWindow = window.open(url, '_blank', 'noopener,noreferrer')
+    if (openedWindow) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      return 'new-tab'
+    }
+  }
+
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.target = '_blank'
+  link.rel = 'noopener noreferrer'
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 5_000)
+  return 'download'
 }
 
 export async function downloadScriptPdf({ title, sections }) {
@@ -153,7 +256,7 @@ export async function downloadScriptPdf({ title, sections }) {
   }
 
   try {
-    const fontBase64 = await fetchFontAsBase64('/fonts/NanumGothic-Regular.ttf')
+    const fontBase64 = await fetchFontAsBase64()
     const pdf = new jsPDF({
       unit: 'pt',
       format: 'a4',
@@ -182,12 +285,13 @@ export async function downloadScriptPdf({ title, sections }) {
       pdf.setTextColor(color)
       lines.forEach((line) => {
         ensureSpace(lineHeight)
-        pdf.text(line || ' ', margin, y)
+        pdf.text(sanitizePdfText(line) || ' ', margin, y)
         y += lineHeight
       })
     }
 
-    writeLines(pdf.splitTextToSize(title || 'AI Script Export', contentWidth), {
+    const normalizedTitle = sanitizePdfText(title || 'AI Script Export')
+    writeLines(pdf.splitTextToSize(normalizedTitle, contentWidth), {
       fontSize: 22,
       lineHeight: 30,
       color: '#111111',
@@ -195,11 +299,11 @@ export async function downloadScriptPdf({ title, sections }) {
     y += 12
 
     normalizePdfSections(sections).forEach(([label, value]) => {
-      const normalizedValue = String(value || '-')
+      const normalizedValue = sanitizePdfText(value || '-')
       const valueLines = pdf.splitTextToSize(normalizedValue, contentWidth)
       ensureSpace(34)
 
-      writeLines([String(label || 'SECTION').toUpperCase()], {
+      writeLines([sanitizePdfText(label || 'SECTION').toUpperCase()], {
         fontSize: 10,
         lineHeight: 16,
         color: '#555555',
@@ -226,17 +330,9 @@ export async function downloadScriptPdf({ title, sections }) {
       throw createPdfExportError('빈 PDF가 생성되어 다운로드를 중단했습니다. 새로고침 후 다시 시도해주세요.')
     }
 
-    const filename = `${(title || 'script').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'script'}.pdf`
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-
-    link.href = url
-    link.download = filename
-    link.style.display = 'none'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    const filename = `${normalizedTitle.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'script'}.pdf`
+    const delivery = triggerPdfDelivery(blob, filename)
+    return { delivery, filename }
   } catch (error) {
     if (error?.name === 'PdfExportError') {
       throw error
