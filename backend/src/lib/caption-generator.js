@@ -164,6 +164,12 @@ function splitSentences(text = '') {
     .filter(Boolean)
 }
 
+function extractEmojiSymbols(text = '') {
+  return [
+    ...new Set(normalizeCaption(text).match(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}★☆✓✔→←※]/gu) || []),
+  ].slice(0, 8)
+}
+
 function detectOpeningStyle(text = '') {
   const firstLine = normalizeCaption(text).split(/\n+/).find(Boolean) || ''
   if (!firstLine) return 'plain'
@@ -213,7 +219,8 @@ function analyzeReferenceCaptionStructure(value = '') {
   const hasCommand = /(하세요|해보세요|보세요|저장|확인|남겨|눌러|가세요)/.test(text)
   const hasEmpathy = /(나도|공감|힘들|고민|괜찮|답답|불안)/.test(text)
   const hashtags = text.match(/#[^\s#]+/g) || []
-  const hasEmojisOrSymbols = /[\u{1F300}-\u{1FAFF}]|[★☆✓✔→←※]/u.test(text)
+  const emojiOrSymbols = extractEmojiSymbols(text)
+  const hasEmojisOrSymbols = emojiOrSymbols.length > 0
   const repeatedWords = words.filter((word, index) => words.indexOf(word) !== index)
   const repetitionPattern = repeatedJamoOnly || repeatedShortPattern
     ? 'word_repeat'
@@ -249,6 +256,7 @@ function analyzeReferenceCaptionStructure(value = '') {
     hasHashtags: hashtags.length > 0,
     hashtagCount: hashtags.length,
     hasEmojisOrSymbols,
+    emojiOrSymbols,
     repetitionPattern,
     density,
     lengthType,
@@ -263,6 +271,7 @@ function mergeReferenceStructures(structures = []) {
     fallback
 
   const tonePattern = [...new Set(usable.flatMap((item) => item.tonePattern || []))].slice(0, 4)
+  const emojiOrSymbols = [...new Set(usable.flatMap((item) => item.emojiOrSymbols || []))].slice(0, 8)
   const paragraphCount = Math.max(...usable.map((item) => item.paragraphCount || 0), 0)
   const lineBreakCount = Math.max(...usable.map((item) => item.lineBreakCount || 0), 0)
   const hashtagCount = Math.max(...usable.map((item) => item.hashtagCount || 0), 0)
@@ -290,7 +299,8 @@ function mergeReferenceStructures(structures = []) {
     ctaPosition: pickMostStructured('ctaPosition', 'none'),
     hasHashtags: hashtagCount > 0,
     hashtagCount,
-    hasEmojisOrSymbols: usable.some((item) => item.hasEmojisOrSymbols),
+    hasEmojisOrSymbols: emojiOrSymbols.length > 0 || usable.some((item) => item.hasEmojisOrSymbols),
+    emojiOrSymbols,
     repetitionPattern: pickMostStructured('repetitionPattern', 'none'),
     density: pickMostStructured('density', 'low'),
     lengthType: pickMostStructured('lengthType', 'too_short'),
@@ -459,6 +469,10 @@ function normalizeReferencePattern(parsed = {}, referenceAnalysis = null) {
         ? normalizeList(parsedStructure.tonePattern)
         : analyzedStructure.tonePattern || ['plain'],
       ctaPosition: normalizeCaption(parsedStructure.ctaPosition) || analyzedStructure.ctaPosition || 'none',
+      hasEmojisOrSymbols: Boolean(parsedStructure.hasEmojisOrSymbols ?? analyzedStructure.hasEmojisOrSymbols),
+      emojiOrSymbols: normalizeList(parsedStructure.emojiOrSymbols).length
+        ? normalizeList(parsedStructure.emojiOrSymbols).slice(0, 8)
+        : analyzedStructure.emojiOrSymbols || [],
       repetitionPattern: normalizeCaption(parsedStructure.repetitionPattern) || analyzedStructure.repetitionPattern || 'none',
       density: normalizeCaption(parsedStructure.density) || analyzedStructure.density || 'low',
       lengthType: normalizeCaption(parsedStructure.lengthType) || analyzedStructure.lengthType || 'too_short',
@@ -526,6 +540,9 @@ function buildCaptionBrief({
       referenceQuality?.applicationStrength === 'minimal'
         ? 'A/B 구조 신뢰도가 낮으면 길이를 억지로 맞추지 말고 기본 캡션 길이로 보정한다.'
         : `해시태그를 제외한 caption 본문 길이는 A/B 평균 길이에 최대한 가깝게 맞춘다. 목표는 공백 제외 ${referenceStructure?.targetMinLength || 0}~${referenceStructure?.targetMaxLength || 0}자이며, 짧게 요약하거나 새 전개를 추가하지 말고 A/B의 정보 밀도와 호흡을 유지한다.`,
+    referenceEmojiRule: referenceStructure?.hasEmojisOrSymbols
+      ? `A/B 캡션에 이모티콘/기호가 있다. 본문에도 비슷한 감각으로 1~3개를 자연스럽게 넣는다. 참고 가능한 기호: ${(referenceStructure.emojiOrSymbols || []).join(' ') || '레퍼런스 톤에 맞는 이모티콘'}. 레퍼런스보다 과하게 늘리지 말고 Hook, 강조 문장, CTA 주변에만 사용한다.`
+      : 'A/B 캡션에 이모티콘/기호가 없으면 억지로 넣지 않는다.',
     hashtagRules: {
       targetCount: '기본 5개 내외',
       topicTags: '주제 핵심 태그 1~2개: 영상 내용 자체에서 뽑는다. 예: #스트랩추천, #운동루틴',
@@ -720,7 +737,7 @@ async function extractReferencePattern({ openai, model, fallbackModel, accountId
         '당신은 인스타그램/숏폼 캡션 레퍼런스 분석가다. 출력은 JSON만 반환한다.',
         '목표는 레퍼런스의 내용이 아니라 구조 신호만 추출하는 것이다.',
         '상품명, 업종, 상황, 고유명사, 숫자, 문장 표현, 소재를 결과에 쓰지 마라.',
-        'JSON 스키마: {"hookType":"string","tonePattern":"string","flow":["string"],"ctaType":"string","sentenceLength":"string","usablePattern":"string","referenceStructure":{"openingStyle":"confession | question | warning | story | result_first | plain","averageSentenceLength":"short | medium | long","sentenceRhythm":"short_bursts | balanced | dense_long","tonePattern":["empathetic | urgent | casual | directive | informative | plain"],"ctaPosition":"none | beginning | middle | end","repetitionPattern":"none | word_repeat | phrase_repeat | structure_repeat","density":"low | medium | high","lengthType":"too_short | short | medium | long"}}',
+        'JSON 스키마: {"hookType":"string","tonePattern":"string","flow":["string"],"ctaType":"string","sentenceLength":"string","usablePattern":"string","referenceStructure":{"openingStyle":"confession | question | warning | story | result_first | plain","averageSentenceLength":"short | medium | long","sentenceRhythm":"short_bursts | balanced | dense_long","tonePattern":["empathetic | urgent | casual | directive | informative | plain"],"ctaPosition":"none | beginning | middle | end","hasEmojisOrSymbols":true,"emojiOrSymbols":["string"],"repetitionPattern":"none | word_repeat | phrase_repeat | structure_repeat","density":"low | medium | high","lengthType":"too_short | short | medium | long"}}',
       ].join('\n'),
     },
     {
@@ -781,6 +798,7 @@ async function generateCaptionFromBrief({
         '단, 길이를 맞추려고 영상 주제와 계정 정체성을 희석하거나 불필요한 말을 늘리지 마라.',
         '카테고리 규칙은 누구에게 어떻게 말할지를 정하고, 수익모델 규칙은 어떤 행동을 유도할지를 정한다.',
         'caption은 hook, body, cta를 합친 완성형 본문이며 해시태그는 넣지 않는다. 해시태그는 hashtags 배열에만 넣는다.',
+        'referenceStructure.hasEmojisOrSymbols가 true이면 caption 본문에도 이모티콘/기호를 1~3개 자연스럽게 넣어 딱딱함을 줄인다. false이면 억지로 넣지 않는다.',
         '해시태그는 captionBrief.hashtagRules를 반드시 따른다. 기본 5개 내외로 만들고, 주제 핵심/카테고리/상황·타깃 태그를 섞는다.',
         '수익모델 태그는 기본적으로 넣지 않는다. 단, 제휴 표시가 꼭 필요한 맥락이면 #쿠팡파트너스 같은 태그를 최대 1개만 넣는다.',
         'JSON 스키마: {"caption":"string","hook":"string","body":"string","cta":"string","hashtags":["string"],"rationale":"string"}',
