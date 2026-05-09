@@ -27,6 +27,73 @@ function isModelCompatibilityError(error) {
   )
 }
 
+function createThumbnailTitleResponseError(message, details = {}) {
+  const error = new Error(message)
+  error.code = 'THUMBNAIL_TITLE_RESPONSE_INVALID'
+  error.details = details
+  return error
+}
+
+function isThumbnailTitleResponseError(error) {
+  const message = String(error?.message || error || '')
+  const code = String(error?.code || '')
+
+  return (
+    code === 'THUMBNAIL_TITLE_RESPONSE_INVALID' ||
+    /Model returned empty content|Model did not return JSON|Unexpected token|recommendations|thumbnail title/i.test(
+      message,
+    )
+  )
+}
+
+function isRecoverableThumbnailTitleError(error) {
+  return isModelCompatibilityError(error) || isThumbnailTitleResponseError(error)
+}
+
+function normalizeThumbnailRecommendations(parsed) {
+  return Array.isArray(parsed?.recommendations)
+    ? parsed.recommendations
+        .slice(0, 3)
+        .map((item, index) => ({
+          type: String(item?.type || ['A', 'B', 'C'][index] || '').trim(),
+          label: String(item?.label || ['안정형', '오픈루프형', '저장/정보형'][index] || '').trim(),
+          title: String(item?.title || '').trim(),
+          reason: String(item?.reason || '').trim(),
+          strategy: String(item?.strategy || '').trim(),
+        }))
+        .filter((item) => item.title)
+    : []
+}
+
+function parseThumbnailTitleResponse(response, model) {
+  const rawContent = response.choices[0]?.message?.content || ''
+  let parsed
+
+  try {
+    parsed = parseModelJson(rawContent)
+  } catch (error) {
+    throw createThumbnailTitleResponseError('Thumbnail title model returned invalid JSON', {
+      model,
+      parserMessage: String(error?.message || error),
+      rawPreview: String(rawContent || '').slice(0, 240),
+    })
+  }
+
+  const recommendations = normalizeThumbnailRecommendations(parsed)
+
+  if (!recommendations.length) {
+    throw createThumbnailTitleResponseError('Thumbnail title model returned empty recommendations', {
+      model,
+      parsedKeys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : [],
+    })
+  }
+
+  return {
+    parsed,
+    recommendations,
+  }
+}
+
 async function createThumbnailTitleCompletion(openai, { model, fallbackModel, messages }) {
   const models = [model, fallbackModel]
     .map((item) => String(item || '').trim())
@@ -45,19 +112,22 @@ async function createThumbnailTitleCompletion(openai, { model, fallbackModel, me
 
     try {
       const response = await openai.chat.completions.create(params)
+      const parsedPayload = parseThumbnailTitleResponse(response, candidateModel)
+
       return {
         response,
+        ...parsedPayload,
         modelUsed: candidateModel,
         fallbackUsed: candidateModel !== model,
       }
     } catch (error) {
       lastError = error
 
-      if (!isModelCompatibilityError(error)) {
+      if (!isRecoverableThumbnailTitleError(error)) {
         throw error
       }
 
-      console.warn('[thumbnail-title] model compatibility fallback', {
+      console.warn('[thumbnail-title] generation fallback', {
         model: candidateModel,
         fallbackModel,
         status: error.status || null,
@@ -279,7 +349,7 @@ export async function generateThumbnailTitles({
           ].join('\n'),
         },
       ]
-    const { response, modelUsed, fallbackUsed } = await createThumbnailTitleCompletion(openai, {
+    const { response, parsed, recommendations, modelUsed, fallbackUsed } = await createThumbnailTitleCompletion(openai, {
       model: thumbnailModel,
       fallbackModel: chatModel,
       messages,
@@ -291,17 +361,6 @@ export async function generateThumbnailTitles({
       topic: normalizedTopic,
       category,
     })
-
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const recommendations = Array.isArray(parsed.recommendations)
-      ? parsed.recommendations.slice(0, 3).map((item, index) => ({
-          type: String(item?.type || ['A', 'B', 'C'][index] || '').trim(),
-          label: String(item?.label || ['안정형', '오픈루프형', '저장/정보형'][index] || '').trim(),
-          title: String(item?.title || '').trim(),
-          reason: String(item?.reason || '').trim(),
-          strategy: String(item?.strategy || '').trim(),
-        }))
-      : []
 
     return {
       recommendations,
@@ -328,7 +387,7 @@ export async function generateThumbnailTitles({
       category,
     })
 
-    throw new AppError('썸네일 제목 생성 모델 호출에 실패했습니다. 잠시 후 다시 시도해주세요.', {
+    throw new AppError('썸네일 제목 생성에 실패했습니다. 잠시 후 다시 시도해주세요.', {
       code: 'THUMBNAIL_TITLE_GENERATION_FAILED',
       statusCode: 502,
       details: {
