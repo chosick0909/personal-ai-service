@@ -227,6 +227,7 @@ function getReferenceVideoSelectColumnList({ includeProjectId = true, detail = f
         'ai_feedback',
         'document_id',
         'processing_status',
+        'current_stage',
         'error_message',
         'analysis_stage_metrics',
         'transcript_quality',
@@ -245,6 +246,7 @@ function getReferenceVideoSelectColumnList({ includeProjectId = true, detail = f
         'variations',
         'ai_feedback',
         'processing_status',
+        'current_stage',
         'error_message',
         'analysis_stage_metrics',
         'transcript_quality',
@@ -4257,6 +4259,54 @@ export async function analyzeReferenceVideo({
     )
     const analysisResult = normalizeAnalysisYearReferences(parsedAnalysisResult)
     const generationGuides = buildGenerationGuides({ analysisResult })
+    const shouldGenerateDrafts = Boolean(normalizedTranscript)
+    await runStage(
+      'save-reference-preview',
+      baseContext,
+      async () =>
+        persistReferenceVideoRowWithFallback({
+          supabaseAdmin,
+          mode: 'update',
+          accountId,
+          referenceId: processingReference.id,
+          payload: {
+            project_id: normalizedProjectId,
+            title: normalizedTitle,
+            topic: normalizedTopic,
+            original_filename: normalizedOriginalName,
+            mime_type: file.mimetype,
+            duration_seconds: durationSeconds,
+            transcript: normalizedTranscript || '',
+            transcript_segments: transcript.segments,
+            frame_timestamps: frames.map((frame) => frame.timestamp),
+            frame_notes: frameAnalysis.frames || [],
+            structure_analysis: analysisResult.structureAnalysis || '',
+            hook_analysis: analysisResult.hookAnalysis || frameAnalysis.summary || '',
+            psychology_analysis: analysisResult.psychologyAnalysis || '',
+            ai_feedback: analysisResult.aiFeedback || '',
+            variations: [],
+            processing_status: 'processing',
+            current_stage: shouldGenerateDrafts ? 'draft-generation' : 'skip-draft-generation',
+            failure_stage: null,
+            failure_code: null,
+            failure_message: null,
+            analysis_stage_metrics: stageMetrics,
+            transcript_quality: transcriptQuality,
+            document_id: ingestedDocument.document.id,
+          },
+          removableColumns: [
+            'project_id',
+            'current_stage',
+            'failure_stage',
+            'failure_code',
+            'failure_message',
+            'analysis_stage_metrics',
+            'transcript_quality',
+          ],
+          detail: true,
+        }),
+      stageHooks,
+    )
     const referenceGuard = {
       surfaceTerms: extractReferenceSurfaceTerms({
         title: normalizedTitle,
@@ -4264,7 +4314,6 @@ export async function analyzeReferenceVideo({
         transcript: transcriptForAnalysis || '',
       }),
     }
-    const shouldGenerateDrafts = Boolean(normalizedTranscript)
     let structureBlueprint = createEmptyStructureBlueprint(transcriptQuality)
     if (shouldGenerateDrafts) {
       structureBlueprint = await runStage(

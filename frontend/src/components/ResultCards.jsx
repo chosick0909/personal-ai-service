@@ -33,31 +33,6 @@ function SmallBadge({ children, tone = 'violet' }) {
   )
 }
 
-function InsightStatCard({ title, subtitle, value }) {
-  return (
-    <div className="rounded-[10px] bg-[#1B202A] px-3 py-3">
-      <div className="text-base font-bold text-[#F3F4F6]">{value}</div>
-      <div className="mt-1 text-[10px] text-[#8E97A6]">{title}</div>
-      {subtitle ? <div className="text-[10px] text-[#8E97A6]">{subtitle}</div> : null}
-    </div>
-  )
-}
-
-function InsightPanel({ title, body, stats }) {
-  return (
-    <article className="rounded-[20px] border border-[#2F3543] bg-[#131720] p-6">
-      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">Key Insight</div>
-      <h3 className="mt-2 text-base font-semibold text-[#F3F4F6]">{title}</h3>
-      <p className="mt-2 text-sm leading-6 text-[#8E97A6]">{body}</p>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {stats.map((item) => (
-          <InsightStatCard key={item.title} title={item.title} subtitle={item.subtitle} value={item.value} />
-        ))}
-      </div>
-    </article>
-  )
-}
-
 function CheckpointRow({ children }) {
   return (
     <div className="group flex min-h-[64px] items-start overflow-hidden rounded-[20px] border border-[#2F3543] bg-[linear-gradient(180deg,#111723_0%,#0F1420_100%)] px-5 py-4 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:border-[#3A4252] hover:bg-[linear-gradient(180deg,#131B2A_0%,#101725_100%)]">
@@ -83,6 +58,44 @@ function PlaybookNoticeCard({ title, body, tone = 'default' }) {
   )
 }
 
+function clampGuideText(value = '', maxLength = 180) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!text) {
+    return ''
+  }
+  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
+}
+
+function DraftSkeletonCard({ label, title }) {
+  return (
+    <article className="min-h-[360px] rounded-[28px] border border-[#2F3543] bg-[#121821] p-6">
+      <div className="inline-flex h-10 items-center rounded-full border border-[#3A414F] px-4 text-sm font-semibold text-[#D1D5DB]">
+        {label}
+      </div>
+      <h3 className="mt-6 text-2xl font-bold text-[#F3F4F6]">{title}</h3>
+      <div className="mt-8 space-y-4">
+        <div className="rounded-[18px] border border-[#4B2A30] bg-[#1B1014] p-5">
+          <div className="h-3 w-16 rounded-full bg-[#3A2328]" />
+          <div className="mt-5 h-3 w-full rounded-full bg-[#2A1A1F]" />
+          <div className="mt-3 h-3 w-4/5 rounded-full bg-[#2A1A1F]" />
+        </div>
+        <div className="rounded-[18px] border border-[#24364E] bg-[#101722] p-5">
+          <div className="h-3 w-16 rounded-full bg-[#23324A]" />
+          <div className="mt-5 h-3 w-full rounded-full bg-[#1C2738]" />
+          <div className="mt-3 h-3 w-3/4 rounded-full bg-[#1C2738]" />
+        </div>
+        <div className="rounded-[18px] border border-[#244231] bg-[#101A15] p-5">
+          <div className="h-3 w-12 rounded-full bg-[#1F3A2D]" />
+          <div className="mt-5 h-3 w-5/6 rounded-full bg-[#182A21]" />
+        </div>
+      </div>
+      <div className="mt-6 rounded-full border border-[#3A414F] bg-[#1B202A] px-4 py-3 text-center text-sm font-semibold text-[#AEB6C5]">
+        초안 생성 중...
+      </div>
+    </article>
+  )
+}
+
 export default function ResultCards() {
   const {
     generatedScripts,
@@ -104,8 +117,13 @@ export default function ResultCards() {
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false)
   const [editorPanelHeight, setEditorPanelHeight] = useState(null)
   const [isDesktopEditorLayout, setIsDesktopEditorLayout] = useState(false)
+  const [activeResultStep, setActiveResultStep] = useState(0)
+  const [isResultStepLeaving, setIsResultStepLeaving] = useState(false)
+  const resultStepTimerRef = useRef(null)
+  const isReferenceProcessing = referenceData?.status === 'processing'
   const hasTranscript = Boolean((referenceData?.transcript || '').trim())
   const shouldBlockDraftsForMissingTranscript = !hasTranscript && generatedScripts.length === 0
+  const isDraftGenerationPending = isReferenceProcessing && hasTranscript && generatedScripts.length === 0
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
@@ -133,47 +151,74 @@ export default function ResultCards() {
     ]
   }, [referenceData?.keyPoints])
 
-  const panels = useMemo(
-    () => [
-      {
-        title: '3단 구조: 문제 제기 → 구체 사례 → 직접적 CTA',
-        body: referenceData?.structureAnalysis || '첫 문장 문제 제기 후 사례를 압축하고 명확한 CTA로 마무리되는 구조입니다.',
-        stats: [
-          { title: '후킹 시간', value: '1-2초' },
-          { title: '본문 밀도', value: '높음' },
-          { title: 'CTA 명확성', value: '95%' },
-        ],
-      },
-      {
-        title: '첫 1~2초 결과 암시 + 강한 문제 제기',
-        body: referenceData?.hookAnalysis || '초반에 결과를 암시하고 문제를 직접 제기해 스크롤을 멈추게 만드는 패턴입니다.',
-        stats: [
-          { title: '주목도', value: '89%' },
-          { title: '완주율', value: '76%' },
-          { title: '재생 속도', value: '빠름' },
-        ],
-      },
-      {
-        title: '손해 회피 + 즉시 적용 + 자기 효능감',
-        body: referenceData?.psychologyAnalysis || '손실 회피 심리와 즉시 적용 가능성을 결합해 행동 전환을 유도하는 타입입니다.',
-        stats: [
-          { title: '설득력', value: '높음' },
-          { title: '공감도', value: '높음' },
-          { title: '행동 유도', value: '강함' },
-        ],
-      },
-      {
-        title: '텍스트 우선 노출 + 빠른 컷 전환',
-        body: referenceData?.frameInsight || '텍스트 포인트가 먼저 보이고 컷 전환이 빨라 메시지 긴장감을 유지합니다.',
-        stats: [
-          { title: '시각 집중도', value: '92%' },
-          { title: '컷 속도', value: '2-3초' },
-          { title: '텍스트 가독성', value: '높음' },
-        ],
-      },
-    ],
+  const compactInsightCards = useMemo(
+    () =>
+      [
+        {
+          title: '구조 핵심',
+          body: clampGuideText(referenceData?.structureAnalysis, 170),
+          tone: 'success',
+        },
+        {
+          title: '후킹 포인트',
+          body: clampGuideText(referenceData?.hookAnalysis, 150),
+        },
+        {
+          title: '심리 기제',
+          body: clampGuideText(referenceData?.psychologyAnalysis, 150),
+        },
+      ].filter((item) => item.body && !item.body.includes('분석이 없습니다')),
     [referenceData],
   )
+  const resultSteps = useMemo(
+    () => [
+      {
+        badge: 'Reference Script',
+        title: REFERENCE_SCRIPT_SECTION_TITLE,
+        subtitle: REFERENCE_SCRIPT_SECTION_DESCRIPTION,
+      },
+      {
+        badge: 'Key Insights',
+        title: '핵심 인사이트',
+        subtitle: '레퍼런스에서 초안에 꼭 가져갈 구조만 짧게 정리했습니다.',
+      },
+      {
+        badge: 'Checkpoints',
+        title: '바로 써먹을 체크포인트',
+        subtitle: '이번 초안을 만들 때 바로 적용할 기준입니다.',
+      },
+      {
+        badge: 'Select Draft',
+        title: shouldBlockDraftsForMissingTranscript ? '초안 생성 불가' : 'A/B/C 초안 선택',
+        subtitle: shouldBlockDraftsForMissingTranscript
+          ? MISSING_TRANSCRIPT_DRAFT_MESSAGE
+          : isDraftGenerationPending
+            ? '읽는 동안 A/B/C 초안을 백그라운드에서 생성하고 있습니다.'
+            : '원하는 스타일을 선택하여 에디터로 이동하세요.',
+      },
+    ],
+    [isDraftGenerationPending, shouldBlockDraftsForMissingTranscript],
+  )
+  const displayedResultStep =
+    currentStep === 'editor'
+      ? resultSteps.length - 1
+      : Math.min(activeResultStep, resultSteps.length - 1)
+  const activeStep = resultSteps[displayedResultStep]
+  const resultProgress = Math.round(((displayedResultStep + 1) / resultSteps.length) * 100)
+
+  const moveResultStep = (nextStep) => {
+    const boundedStep = Math.max(0, Math.min(resultSteps.length - 1, nextStep))
+    if (boundedStep === activeResultStep || isResultStepLeaving || resultStepTimerRef.current) {
+      return
+    }
+    setIsResultStepLeaving(true)
+    resultStepTimerRef.current = window.setTimeout(() => {
+      setActiveResultStep(boundedStep)
+      setIsResultStepLeaving(false)
+      resultStepTimerRef.current = null
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    }, 520)
+  }
 
   useEffect(() => {
     if (!shouldScrollToEditor || currentStep !== 'editor' || !selectedScript) {
@@ -204,6 +249,14 @@ export default function ResultCards() {
 
     return () => window.clearTimeout(timer)
   }, [shouldScrollToEditor, currentStep, selectedScript])
+
+  useEffect(() => {
+    return () => {
+      if (resultStepTimerRef.current) {
+        window.clearTimeout(resultStepTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (currentStep !== 'editor' || !selectedScript || !editorPanelRef.current) {
@@ -285,103 +338,150 @@ export default function ResultCards() {
 
         <div className="mt-6">
           <SmallBadge>Analysis Results</SmallBadge>
-          <h1 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-5xl">분석 완료</h1>
+          <h1 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-5xl">
+            {isReferenceProcessing ? '분석 결과 정리 중' : '분석 완료'}
+          </h1>
           <p className="mt-3 text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">
-            {shouldBlockDraftsForMissingTranscript
+            {isDraftGenerationPending
+              ? '전사와 핵심 인사이트를 먼저 정리했습니다. A/B/C 초안은 백그라운드에서 생성 중입니다.'
+              : shouldBlockDraftsForMissingTranscript
               ? '레퍼런스 영상 분석은 완료했지만, 전사 텍스트가 없어 A/B/C 초안 생성은 진행하지 않았습니다.'
               : '레퍼런스 영상을 다각도로 분석했습니다. 구조, 후킹 포인트, 심리 기제, 시각적 연출까지 세밀하게 파악했으며, 이를 바탕으로 A/B/C 세 가지 초안을 준비했습니다.'}
           </p>
         </div>
 
-        <section className="mt-8 rounded-[24px] border border-[#2F3543] bg-[#0F131B] p-5 shadow-[0px_1px_3px_rgba(0,0,0,0.30)] md:mt-10 md:rounded-[32px] md:p-10">
-          <SmallBadge>Reference Script</SmallBadge>
-          <h2 className="mt-4 text-2xl font-bold leading-8 text-[#F3F4F6] md:mt-6 md:text-[32px] md:leading-10">
-            {REFERENCE_SCRIPT_SECTION_TITLE}
-          </h2>
-          <p className="mt-2 text-sm text-[#8E97A6]">{REFERENCE_SCRIPT_SECTION_DESCRIPTION}</p>
-
-          <div className="mt-8 overflow-hidden rounded-[14px] border border-[#2F3543] bg-[#131720]">
-            <div className="border-b border-[#2F3543] px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
-              Transcript
+        <section className="mt-8 md:mt-10">
+          <div className="mb-5">
+            <div className="flex items-center justify-between text-xs font-semibold text-[#9CA3AF]">
+              <span>진행률</span>
+              <span>{displayedResultStep + 1} / {resultSteps.length}</span>
             </div>
-            <div className="px-4 py-4">
-              <p className="whitespace-pre-wrap text-[15px] leading-7 text-[#D1D5DB]">{transcriptText}</p>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1E2432]">
+              <div
+                className="h-full rounded-full bg-[linear-gradient(90deg,#CBD5E1_0%,#F8FAFC_100%)] transition-all duration-300"
+                style={{ width: `${resultProgress}%` }}
+              />
             </div>
           </div>
-        </section>
 
-        <section className="mt-8 rounded-[24px] border border-[#2F3543] bg-[#0F131B] p-5 shadow-[0px_1px_3px_rgba(0,0,0,0.30)] md:mt-12 md:rounded-[32px] md:p-10">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#AEB6C5]">Key Insights</div>
-          <h2 className="mt-3 text-2xl font-bold text-[#F3F4F6] md:text-[32px]">핵심 인사이트</h2>
-          <div className="mt-6 grid gap-4 md:mt-8 md:grid-cols-2">
-            {panels.map((panel) => (
-              <InsightPanel key={panel.title} {...panel} />
-            ))}
-          </div>
-        </section>
+          <div
+            key={`result-step-${displayedResultStep}`}
+            className={`min-h-[560px] rounded-[28px] border border-[#2F3543] bg-[#0F131B]/96 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.32)] backdrop-blur-xl transition-opacity duration-[520ms] ease-[cubic-bezier(0.16,1,0.3,1)] md:rounded-[32px] md:p-10 ${
+              isResultStepLeaving ? 'opacity-0' : 'opacity-100'
+            }`}
+          >
+            <SmallBadge tone={displayedResultStep === 3 ? 'pink' : 'violet'}>{activeStep.badge}</SmallBadge>
+            <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-6 md:text-[42px]">
+              {activeStep.title}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">{activeStep.subtitle}</p>
 
-        <section className="mt-8 rounded-[24px] border border-[#2F3543] bg-[#0F131B] p-5 md:mt-10 md:rounded-[32px] md:p-10">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#AEB6C5]">Key Insights</div>
-          <h2 className="mt-3 text-2xl font-bold text-[#F3F4F6] md:text-[32px]">바로 써먹을 체크포인트</h2>
-          <div className="mt-6 grid gap-3 md:mt-8">
-            {keyPoints.map((point) => (
-              <CheckpointRow key={point}>{point}</CheckpointRow>
-            ))}
-          </div>
-        </section>
-
-        <section ref={draftSectionRef} className="mt-10 md:mt-12">
-          <SmallBadge tone="pink">Select Draft</SmallBadge>
-          <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-4xl">
-            {shouldBlockDraftsForMissingTranscript ? '초안 생성 불가' : 'A/B/C 초안 선택'}
-          </h2>
-          <p className="mt-2 text-sm text-[#8E97A6]">
-            {shouldBlockDraftsForMissingTranscript
-              ? MISSING_TRANSCRIPT_DRAFT_MESSAGE
-              : '원하는 스타일을 선택하여 에디터로 이동하세요'}
-          </p>
-          {shouldBlockDraftsForMissingTranscript ? (
-            <div className="mt-6 rounded-[20px] border border-[#3A414F] bg-[#121722] px-5 py-5 text-sm leading-6 text-[#D1D5DB]">
-              {MISSING_TRANSCRIPT_DRAFT_MESSAGE}
-            </div>
-          ) : (
-            <>
-              <div className="mt-6 grid gap-4 md:mt-7">
-                <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
-              </div>
-              <div className="mt-6 grid gap-4 md:mt-7">
-                <PlaybookNoticeCard title="전환을 만드는 흐름" body={viralInsight} />
-              </div>
-              {categoryPlaybook?.insight || categoryPlaybook?.hookAiRule ? (
-                <div className="mt-6 grid gap-4 md:mt-7">
-                  {categoryPlaybook?.insight ? (
-                    <PlaybookNoticeCard
-                      title={categoryPlaybook.label ? `${categoryPlaybook.label} 업종 인사이트` : '업종 인사이트'}
-                      body={categoryPlaybook.insight}
-                    />
-                  ) : null}
-                  {categoryPlaybook?.hookAiRule ? (
-                    <PlaybookNoticeCard title="HookAI의 팁" body={categoryPlaybook.hookAiRule} tone="rule" />
-                  ) : null}
+            {displayedResultStep === 0 ? (
+              <div className="mt-8 overflow-hidden rounded-[18px] border border-[#2F3543] bg-[#131720]">
+                <div className="border-b border-[#2F3543] px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
+                  Transcript
                 </div>
-              ) : null}
-              <div className="mt-6 grid gap-5 md:mt-8 md:gap-6 xl:grid-cols-3">
-                {generatedScripts.map((script) => (
-                  <ScriptCard
-                    key={script.id}
-                    script={script}
-                    onSelect={(scriptId) => {
-                      setShouldScrollToEditor(true)
-                      selectScript(scriptId)
-                    }}
-                    isSelected={selectedScript?.id === script.id}
-                    hasSelection={Boolean(selectedScript)}
-                    disabled={isEditorPreparing}
-                  />
+                <div className="max-h-[420px] overflow-y-auto px-4 py-4">
+                  <p className="whitespace-pre-wrap text-[15px] leading-7 text-[#D1D5DB]">{transcriptText}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {displayedResultStep === 1 ? (
+              <div className="mt-8 grid gap-4">
+                {(compactInsightCards.length
+                  ? compactInsightCards
+                  : [{ title: '핵심 흐름', body: '레퍼런스 구조를 정리하는 중입니다. 초안 생성 전 먼저 읽을 수 있는 요약을 곧 보여드립니다.' }]
+                ).map((panel) => (
+                  <PlaybookNoticeCard key={panel.title} title={panel.title} body={panel.body} tone={panel.tone} />
                 ))}
               </div>
-            </>
-          )}
+            ) : null}
+
+            {displayedResultStep === 2 ? (
+              <div className="mt-8 grid gap-3">
+                {keyPoints.map((point) => (
+                  <CheckpointRow key={point}>{point}</CheckpointRow>
+                ))}
+                {categoryPlaybook?.insight ? (
+                  <PlaybookNoticeCard
+                    title={categoryPlaybook.label ? `${categoryPlaybook.label} 업종 인사이트` : '업종 인사이트'}
+                    body={categoryPlaybook.insight}
+                  />
+                ) : null}
+                {categoryPlaybook?.hookAiRule ? (
+                  <PlaybookNoticeCard title="HookAI의 팁" body={categoryPlaybook.hookAiRule} tone="rule" />
+                ) : null}
+              </div>
+            ) : null}
+
+            {displayedResultStep === 3 ? (
+              <div ref={draftSectionRef} className="mt-8">
+                {shouldBlockDraftsForMissingTranscript ? (
+                  <div className="rounded-[20px] border border-[#3A414F] bg-[#121722] px-5 py-5 text-sm leading-6 text-[#D1D5DB]">
+                    {MISSING_TRANSCRIPT_DRAFT_MESSAGE}
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-4">
+                      <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
+                      <PlaybookNoticeCard title="전환을 만드는 흐름" body={viralInsight} />
+                    </div>
+                    <div className="mt-6 grid gap-5 md:gap-6 xl:grid-cols-3">
+                      {isDraftGenerationPending
+                        ? [
+                            ['A안', '원본형'],
+                            ['B안', '대화형'],
+                            ['C안', '후킹형'],
+                          ].map(([label, title]) => <DraftSkeletonCard key={label} label={label} title={title} />)
+                        : generatedScripts.map((script) => (
+                            <ScriptCard
+                              key={script.id}
+                              script={script}
+                              onSelect={(scriptId) => {
+                                setShouldScrollToEditor(true)
+                                selectScript(scriptId)
+                              }}
+                              isSelected={selectedScript?.id === script.id}
+                              hasSelection={Boolean(selectedScript)}
+                              disabled={isEditorPreparing}
+                            />
+                          ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
+
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => moveResultStep(displayedResultStep - 1)}
+                disabled={displayedResultStep <= 0 || isResultStepLeaving}
+                className="inline-flex h-12 items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-6 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330] disabled:cursor-default disabled:opacity-40"
+              >
+                이전
+              </button>
+              {displayedResultStep < resultSteps.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={() => moveResultStep(displayedResultStep + 1)}
+                  disabled={isResultStepLeaving}
+                  className="btn-solid-contrast inline-flex h-12 items-center justify-center rounded-full px-7 text-sm font-semibold transition hover:bg-white disabled:cursor-default disabled:opacity-60"
+                >
+                  다음
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={goBackToUpload}
+                  className="inline-flex h-12 items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-6 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]"
+                >
+                  새 레퍼런스 분석
+                </button>
+              )}
+            </div>
+          </div>
         </section>
 
         {currentStep === 'editor' && selectedScript ? (

@@ -164,6 +164,7 @@ export function mapReferenceAnalysisToUi(analysis) {
       createdAt: analysis.created_at,
       fileName: analysis.original_filename,
       status: analysis.processing_status || 'ready',
+      currentStage: analysis.current_stage || '',
       projectId: analysis.project_id || null,
       structureAnalysis: analysis.structure_analysis || '구조 분석이 없습니다.',
       hookAnalysis: analysis.hook_analysis || '후킹 분석이 없습니다.',
@@ -172,6 +173,13 @@ export function mapReferenceAnalysisToUi(analysis) {
       keyPoints: buildKeyPoints(analysis),
       transcript: analysis.transcript || '',
       aiFeedback: analysis.ai_feedback || '',
+      hasAnalysisPreview: Boolean(
+        (analysis.transcript || '').trim() ||
+          (analysis.structure_analysis || '').trim() ||
+          (analysis.hook_analysis || '').trim() ||
+          (analysis.psychology_analysis || '').trim() ||
+          (analysis.ai_feedback || '').trim(),
+      ),
       errorMessage: analysis.error_message || '',
       analysisStageMetrics:
         analysis.analysis_stage_metrics && typeof analysis.analysis_stage_metrics === 'object'
@@ -261,7 +269,15 @@ export async function listReferenceVideoHistory(accountId) {
     transcript: item.transcript || '',
     createdAt: item.created_at,
     status: item.processing_status || 'ready',
+    currentStage: item.current_stage || '',
     projectId: item.project_id || null,
+    hasAnalysisPreview: Boolean(
+      (item.transcript || '').trim() ||
+        (item.structure_analysis || '').trim() ||
+        (item.hook_analysis || '').trim() ||
+        (item.psychology_analysis || '').trim() ||
+        (item.ai_feedback || '').trim(),
+    ),
     analysisStageMetrics:
       item.analysis_stage_metrics && typeof item.analysis_stage_metrics === 'object'
         ? item.analysis_stage_metrics

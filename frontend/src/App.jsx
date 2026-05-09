@@ -3688,17 +3688,21 @@ function ToolPage({ type }) {
 }
 
 function MainPanel() {
-  const { currentStep, activeToolPage } = useAppState()
+  const { currentStep, activeToolPage, referenceData } = useAppState()
 
   if (activeToolPage) {
     return <ToolPage type={activeToolPage} />
   }
 
-  if (currentStep === 'upload' || currentStep === 'analyzing') {
+  const hasAnalysisPreview =
+    currentStep === 'analyzing' &&
+    Boolean(referenceData?.hasAnalysisPreview)
+
+  if (currentStep === 'upload' || (currentStep === 'analyzing' && !hasAnalysisPreview)) {
     return <UploadSection />
   }
 
-  if (currentStep === 'result' || currentStep === 'editor') {
+  if (currentStep === 'result' || currentStep === 'editor' || hasAnalysisPreview) {
     return <ResultCards />
   }
 
