@@ -1,5 +1,9 @@
 import { apiFetch, createApiError, parseApiResponse } from './api'
 
+function isRequestTimeoutError(error) {
+  return error?.name === 'AbortError' || /Request timeout|timeout/i.test(String(error?.message || error))
+}
+
 export async function generateCaptionDraft({
   topic,
   captionA,
@@ -13,26 +17,34 @@ export async function generateCaptionDraft({
   riskNotes,
   bannedExpressions,
 }) {
-  const response = await apiFetch('/api/tools/caption', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      topic,
-      captionA,
-      captionB,
-      monetizationModel,
-      category,
-      strategyText,
-      hookDirection,
-      bodyFocus,
-      ctaExamples,
-      riskNotes,
-      bannedExpressions,
-    }),
-    timeoutMs: 60000,
-  })
+  let response
+  try {
+    response = await apiFetch('/api/tools/caption', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        topic,
+        captionA,
+        captionB,
+        monetizationModel,
+        category,
+        strategyText,
+        hookDirection,
+        bodyFocus,
+        ctaExamples,
+        riskNotes,
+        bannedExpressions,
+      }),
+      timeoutMs: 90000,
+    })
+  } catch (error) {
+    if (isRequestTimeoutError(error)) {
+      throw new Error('캡션 생성 시간이 길어지고 있습니다. 잠시 후 다시 시도해주세요.')
+    }
+    throw error
+  }
   const payload = await parseApiResponse(response)
 
   if (!response.ok) {

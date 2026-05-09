@@ -34,6 +34,10 @@ function supportsCustomTemperature(model = '') {
   return !String(model || '').trim().toLowerCase().startsWith('gpt-5')
 }
 
+function supportsReasoningEffort(model = '') {
+  return String(model || '').trim().toLowerCase().startsWith('gpt-5')
+}
+
 function isModelCompatibilityError(error) {
   const message = String(error?.message || error || '')
   const code = String(error?.code || '')
@@ -120,6 +124,10 @@ async function createCaptionJsonCompletion({
 
     if (supportsCustomTemperature(candidateModel)) {
       params.temperature = temperature
+    }
+
+    if (supportsReasoningEffort(candidateModel)) {
+      params.reasoning_effort = 'minimal'
     }
 
     try {
@@ -667,6 +675,8 @@ function getCaptionLengthCheck({ caption, referenceStructure, referenceQuality }
   const currentLength = comparableCaptionLength(caption)
   const targetMinLength = Number(referenceStructure?.targetMinLength || 0)
   const targetMaxLength = Number(referenceStructure?.targetMaxLength || 0)
+  const correctionMinLength = targetMinLength ? Math.max(10, Math.round(targetMinLength * 0.8)) : 0
+  const correctionMaxLength = targetMaxLength ? Math.max(correctionMinLength, Math.round(targetMaxLength * 1.2)) : 0
   const shouldEnforce =
     referenceQuality?.applicationStrength !== 'minimal' &&
     targetMinLength > 0 &&
@@ -677,29 +687,42 @@ function getCaptionLengthCheck({ caption, referenceStructure, referenceQuality }
       currentLength,
       targetMinLength,
       targetMaxLength,
+      correctionMinLength,
+      correctionMaxLength,
       matched: true,
+      shouldCorrect: false,
       direction: 'ok',
       enforced: false,
     }
   }
 
   if (currentLength < targetMinLength) {
+    const shouldCorrect = correctionMinLength > 0 && currentLength < correctionMinLength
+
     return {
       currentLength,
       targetMinLength,
       targetMaxLength,
+      correctionMinLength,
+      correctionMaxLength,
       matched: false,
+      shouldCorrect,
       direction: 'expand',
       enforced: true,
     }
   }
 
   if (currentLength > targetMaxLength) {
+    const shouldCorrect = correctionMaxLength > 0 && currentLength > correctionMaxLength
+
     return {
       currentLength,
       targetMinLength,
       targetMaxLength,
+      correctionMinLength,
+      correctionMaxLength,
       matched: false,
+      shouldCorrect,
       direction: 'compress',
       enforced: true,
     }
@@ -709,7 +732,10 @@ function getCaptionLengthCheck({ caption, referenceStructure, referenceQuality }
     currentLength,
     targetMinLength,
     targetMaxLength,
+    correctionMinLength,
+    correctionMaxLength,
     matched: true,
+    shouldCorrect: false,
     direction: 'ok',
     enforced: true,
   }
@@ -915,8 +941,8 @@ export async function generateCaptionDraft({
   const referenceAnalysis = analyzeReferenceCaptions(referenceCaptionA, referenceCaptionB)
   const referencePattern = await extractReferencePattern({
     openai,
-    model: models.captionModel,
-    fallbackModel: models.chatModel,
+    model: models.chatModel,
+    fallbackModel: models.captionModel,
     accountId,
     captionA: referenceCaptionA,
     captionB: referenceCaptionB,
@@ -962,11 +988,11 @@ export async function generateCaptionDraft({
     referenceQuality: referenceAnalysis.quality,
   })
 
-  if (caption && !lengthCheck.matched) {
+  if (caption && !lengthCheck.matched && lengthCheck.shouldCorrect) {
     parsed = await generateCaptionFromBrief({
       openai,
-      model: models.captionModel,
-      fallbackModel: models.chatModel,
+      model: models.chatModel,
+      fallbackModel: models.captionModel,
       accountId,
       brief,
       characterSystemPrompt,
