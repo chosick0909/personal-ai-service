@@ -741,6 +741,90 @@ function getCaptionLengthCheck({ caption, referenceStructure, referenceQuality }
   }
 }
 
+function calculateGeneratedReferenceScore({ caption, referenceStructure, lengthCheck, safetyCheck }) {
+  const generatedStructure = analyzeReferenceCaptionStructure(caption)
+  let score = 62
+  const reasons = []
+
+  if (lengthCheck?.matched) {
+    score += 8
+    reasons.push('A/B 평균 길이와 비슷합니다.')
+  } else if (lengthCheck?.enforced) {
+    score += 3
+    reasons.push('A/B 길이 기준을 일부 반영했습니다.')
+  }
+
+  if (
+    referenceStructure?.openingStyle &&
+    referenceStructure.openingStyle !== 'plain' &&
+    generatedStructure.openingStyle === referenceStructure.openingStyle
+  ) {
+    score += 7
+    reasons.push('첫 문장 방식이 레퍼런스와 맞습니다.')
+  }
+
+  if (referenceStructure?.hasQuestion && generatedStructure.hasQuestion) {
+    score += 5
+    reasons.push('질문형 훅으로 문제 인식을 만들었습니다.')
+  }
+
+  if (referenceStructure?.hasEmpathy && generatedStructure.hasEmpathy) {
+    score += 5
+    reasons.push('공감 표현을 반영했습니다.')
+  }
+
+  if (referenceStructure?.hasCTA && generatedStructure.hasCTA) {
+    score += 6
+    reasons.push('CTA 흐름을 유지했습니다.')
+  }
+
+  if (referenceStructure?.hasEmojisOrSymbols && generatedStructure.hasEmojisOrSymbols) {
+    score += 4
+    reasons.push('이모지/기호 톤을 반영했습니다.')
+  }
+
+  if (referenceStructure?.sentenceRhythm && generatedStructure.sentenceRhythm === referenceStructure.sentenceRhythm) {
+    score += 4
+    reasons.push('문장 리듬이 비슷합니다.')
+  }
+
+  if (generatedStructure.hasQuestion || generatedStructure.hasEmpathy || generatedStructure.hasCommand) {
+    score += 5
+    reasons.push('문제 인식, 공감, 행동 유도 중 핵심 심리 장치를 사용했습니다.')
+  }
+
+  if (safetyCheck?.topicPreserved) {
+    score += 3
+  }
+
+  if (safetyCheck?.referenceContamination) {
+    score -= 6
+  }
+  if (safetyCheck?.categoryDrift) {
+    score -= 5
+  }
+  if (safetyCheck?.bannedExpressionHits?.length) {
+    score -= 6
+  }
+
+  const normalizedScore = Math.max(72, Math.min(96, Math.round(score)))
+  const level = normalizedScore >= 88 ? 'strong' : normalizedScore >= 80 ? 'good' : 'usable'
+
+  return {
+    score: normalizedScore,
+    level,
+    basis: reasons.slice(0, 3),
+    lengthMatched: Boolean(lengthCheck?.matched),
+    psychologySignals: {
+      hasQuestion: generatedStructure.hasQuestion,
+      hasEmpathy: generatedStructure.hasEmpathy,
+      hasCommand: generatedStructure.hasCommand,
+      hasCTA: generatedStructure.hasCTA,
+      hasEmojisOrSymbols: generatedStructure.hasEmojisOrSymbols,
+    },
+  }
+}
+
 function requireOpenAI() {
   if (!hasOpenAIConfig()) {
     throw new AppError('OpenAI API key is not configured', {
@@ -1033,6 +1117,12 @@ export async function generateCaptionDraft({
     bannedExpressions: normalizedBannedExpressions,
     accountBannedExpressions: normalizedAccountBannedExpressions,
   })
+  const generatedReferenceScore = calculateGeneratedReferenceScore({
+    caption,
+    referenceStructure: brief.referenceStructure,
+    lengthCheck,
+    safetyCheck,
+  })
 
   return {
     caption,
@@ -1063,10 +1153,18 @@ export async function generateCaptionDraft({
     },
     referencePattern,
     referenceStructure: referencePattern.referenceStructure || referenceAnalysis.referenceStructure,
-    referenceQuality: referenceAnalysis.quality,
-    abQualityScore: referenceAnalysis.quality.score,
+    referenceQuality: {
+      ...referenceAnalysis.quality,
+      score: generatedReferenceScore.score,
+      level: generatedReferenceScore.level,
+      basis: generatedReferenceScore.basis,
+      inputScore: referenceAnalysis.quality.score,
+      inputLevel: referenceAnalysis.quality.level,
+    },
+    abQualityScore: generatedReferenceScore.score,
     warnings: referenceAnalysis.quality.warnings,
     categoryRule,
     safetyCheck,
+    generatedReferenceScore,
   }
 }

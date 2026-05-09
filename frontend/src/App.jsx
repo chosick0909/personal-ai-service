@@ -3552,6 +3552,11 @@ function ToolPage({ type }) {
                   <div className="font-semibold text-[#D1D5DB]">
                     A/B 구조 반영도: {captionResult.referenceQuality.level || 'unknown'} · {captionResult.referenceQuality.score ?? 0}점
                   </div>
+                  {Array.isArray(captionResult.referenceQuality.basis) && captionResult.referenceQuality.basis.length ? (
+                    <p className="mt-1">
+                      {captionResult.referenceQuality.basis.join(' ')}
+                    </p>
+                  ) : null}
                   {captionResult.referenceStructure?.averageTextLength ? (
                     <p className="mt-1">
                       A/B 평균 길이 약 {captionResult.referenceStructure.averageTextLength}자 기준으로 생성했습니다.
