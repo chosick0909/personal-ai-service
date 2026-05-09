@@ -256,7 +256,11 @@ export default function ResultCards() {
     ],
     [isDraftGenerationPending, shouldBlockDraftsForMissingTranscript],
   )
-  const displayedResultStep = Math.min(activeResultStep, resultSteps.length - 1)
+  const isEditorMode = currentStep === 'editor' && Boolean(selectedScript)
+  const displayedResultStep =
+    isEditorMode && activeResultStep === 0
+      ? resultSteps.length - 1
+      : Math.min(activeResultStep, resultSteps.length - 1)
   const activeStep = resultSteps[displayedResultStep]
   const resultProgress = Math.round(((displayedResultStep + 1) / resultSteps.length) * 100)
 
@@ -540,7 +544,7 @@ export default function ResultCards() {
           </div>
         </section>
 
-        {currentStep === 'editor' && selectedScript ? (
+        {isEditorMode && displayedResultStep === resultSteps.length - 1 ? (
           <section ref={editorSectionRef} className="mt-10 md:mt-14">
             <SmallBadge tone="pink">Editor</SmallBadge>
             <div className="mt-4 flex flex-wrap items-start justify-between gap-4 md:mt-5">
