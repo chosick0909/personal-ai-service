@@ -39,7 +39,7 @@ import {
 
 const AppStateContext = createContext(null)
 const REFERENCE_HISTORY_CACHE_KEY = 'personal-ai-service:reference-history-cache:v1'
-const REFERENCE_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 24
+const REFERENCE_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30
 const ACCOUNTS_CACHE_KEY = 'personal-ai-service:accounts-cache:v1'
 const ACCOUNTS_CACHE_TTL_MS = 1000 * 60 * 60 * 24
 const REFERENCE_DETAIL_CACHE_KEY = 'personal-ai-service:reference-detail-cache:v1'
@@ -64,6 +64,7 @@ const OAUTH_NOISE_KEYS = new Set([
 ])
 const COPILOT_CHAT_LIMIT_PER_DRAFT = 5
 const COPILOT_FEEDBACK_LIMIT_PER_DRAFT = 2
+const COPILOT_EDIT_TARGETS = new Set(['all', 'hook', 'body', 'cta'])
 
 function sanitizeOAuthUrlParams({ includeTokenParams = false } = {}) {
   if (typeof window === 'undefined') {
@@ -217,6 +218,17 @@ function normalizeHistoryCacheItem(item = {}) {
     editorContent: typeof item.editorContent === 'string' ? item.editorContent : '',
     versions: Array.isArray(item.versions) ? item.versions : [],
     feedback: item.feedback && typeof item.feedback === 'object' ? item.feedback : null,
+    pendingSuggestion:
+      item.pendingSuggestion && typeof item.pendingSuggestion === 'object' ? item.pendingSuggestion : null,
+    draftMessage: typeof item.draftMessage === 'string' ? item.draftMessage : '',
+    editTarget: COPILOT_EDIT_TARGETS.has(item.editTarget) ? item.editTarget : 'all',
+    copilotUsage:
+      item.copilotUsage && typeof item.copilotUsage === 'object'
+        ? {
+            chatUsed: Number(item.copilotUsage.chatUsed || 0),
+            feedbackUsed: Number(item.copilotUsage.feedbackUsed || 0),
+          }
+        : null,
     generatedScripts: Array.isArray(item.generatedScripts) ? item.generatedScripts : [],
     chatMessages: normalizedChatMessages,
     lastStep:
@@ -246,6 +258,10 @@ function mergeHistoryItem(serverItem, localItem) {
     transcript: normalizedLocal.transcript || normalizedServer.transcript || '',
     versions: normalizedLocal.versions?.length ? normalizedLocal.versions : normalizedServer.versions,
     feedback: normalizedLocal.feedback || normalizedServer.feedback,
+    pendingSuggestion: normalizedLocal.pendingSuggestion || normalizedServer.pendingSuggestion,
+    draftMessage: normalizedLocal.draftMessage || normalizedServer.draftMessage,
+    editTarget: normalizedLocal.editTarget || normalizedServer.editTarget,
+    copilotUsage: normalizedLocal.copilotUsage || normalizedServer.copilotUsage,
     generatedScripts:
       normalizedLocal.generatedScripts?.length ? normalizedLocal.generatedScripts : normalizedServer.generatedScripts,
     chatMessages:
@@ -812,11 +828,18 @@ export function AppStateProvider({ children }) {
       setEntitlementStatus(status)
       return status
     } catch (error) {
-      setEntitlementStatus({
-        hasAccess: false,
-        entitlement: null,
-        usage: null,
-        error: error.message || '이용권 정보를 불러오지 못했습니다.',
+      const message = error.message || '이용권 정보를 불러오지 못했습니다.'
+      setEntitlementStatus((current) => {
+        if (silent && current?.hasAccess) {
+          return current
+        }
+
+        return {
+          hasAccess: false,
+          entitlement: null,
+          usage: null,
+          error: message,
+        }
       })
       return null
     } finally {
@@ -2128,6 +2151,8 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
     setPendingSuggestion(null)
+    setDraftMessage('')
+    setEditTarget('all')
     setCopilotUsage(createInitialCopilotUsage())
     setIsEditorPreparing(true)
     setCurrentStep('editor')
@@ -2157,6 +2182,11 @@ export function AppStateProvider({ children }) {
         activeScriptId: created.script?.id || null,
         editorContent: serializeEditorSections(nextScript.sections),
         versions: initialVersions,
+        feedback: null,
+        pendingSuggestion: null,
+        draftMessage: '',
+        editTarget: 'all',
+        copilotUsage: createInitialCopilotUsage(),
         lastStep: 'editor',
       })
       setViewTransition('idle')
@@ -2242,12 +2272,19 @@ export function AppStateProvider({ children }) {
     const applyOpenedState = ({ detail, baseItem }) => {
       const isProcessingReference = detail.reference?.status === 'processing'
       const isFailedReference = detail.reference?.status === 'failed'
+      const restoredSelectedScript =
+        detail.generatedScripts?.find((script) => script.id === baseItem.selectedScriptId) || null
+      const hasRestorableEditor = Boolean(
+        restoredSelectedScript &&
+          (baseItem.activeScriptId || baseItem.editorContent || baseItem.lastStep === 'editor'),
+      )
+      const restoredEditorSections = baseItem.editorContent
+        ? deserializeEditorContent(baseItem.editorContent)
+        : createEditorSections(restoredSelectedScript?.sections)
       activeReferenceIdRef.current = baseItem.id
       setReferenceData(detail.reference)
       setGeneratedScripts(detail.generatedScripts || [])
-      setSelectedScript(
-        detail.generatedScripts?.find((script) => script.id === baseItem.selectedScriptId) || null,
-      )
+      setSelectedScript(restoredSelectedScript)
       setActiveScriptId(baseItem.activeScriptId || null)
 
       if (baseItem.activeScriptId) {
@@ -2276,9 +2313,11 @@ export function AppStateProvider({ children }) {
         setVersions(Array.isArray(baseItem.versions) ? baseItem.versions : [])
       }
 
-      setEditorSections(deserializeEditorContent(baseItem.editorContent || ''))
+      setEditorSections(restoredEditorSections)
       setFeedback(baseItem.feedback || null)
-      setPendingSuggestion(null)
+      setPendingSuggestion(baseItem.pendingSuggestion || null)
+      setDraftMessage(baseItem.draftMessage || '')
+      setEditTarget(COPILOT_EDIT_TARGETS.has(baseItem.editTarget) ? baseItem.editTarget : 'all')
       setChatMessages(
         baseItem.chatMessages || [
           {
@@ -2288,16 +2327,13 @@ export function AppStateProvider({ children }) {
           },
         ],
       )
-      setCopilotUsage(createInitialCopilotUsage())
+      setCopilotUsage(baseItem.copilotUsage || createInitialCopilotUsage())
       let restoredStep = 'result'
       if (isProcessingReference) {
         restoredStep = 'analyzing'
       } else if (isFailedReference) {
         restoredStep = 'upload'
-      } else if (
-        baseItem.lastStep === 'editor' &&
-        detail.generatedScripts?.some((script) => script.id === baseItem.selectedScriptId)
-      ) {
+      } else if (hasRestorableEditor) {
         restoredStep = 'editor'
       }
       setCurrentStep(restoredStep)
@@ -2487,10 +2523,16 @@ export function AppStateProvider({ children }) {
       }
       const normalizedFeedback = { ...result, applied: false }
       setFeedback(normalizedFeedback)
-      setCopilotUsage((current) => ({
-        ...current,
-        feedbackUsed: current.feedbackUsed + 1,
-      }))
+      setCopilotUsage((current) => {
+        const next = {
+          ...current,
+          feedbackUsed: current.feedbackUsed + 1,
+        }
+        syncHistory(activeReferenceIdRef.current, {
+          copilotUsage: next,
+        })
+        return next
+      })
       void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
       setChatMessages((current) => {
         const next = [
@@ -2674,6 +2716,8 @@ export function AppStateProvider({ children }) {
       const next = [...current, userMessage]
       syncHistory(activeReferenceIdRef.current, {
         chatMessages: next,
+        draftMessage: '',
+        editTarget,
       })
       return next
     })
@@ -2696,10 +2740,16 @@ export function AppStateProvider({ children }) {
       if (response.type === 'feedback') {
         const normalizedFeedback = { ...response.feedback, applied: false }
         setFeedback(normalizedFeedback)
-        setCopilotUsage((current) => ({
-          ...current,
-          feedbackUsed: current.feedbackUsed + 1,
-        }))
+        setCopilotUsage((current) => {
+          const next = {
+            ...current,
+            feedbackUsed: current.feedbackUsed + 1,
+          }
+          syncHistory(activeReferenceIdRef.current, {
+            copilotUsage: next,
+          })
+          return next
+        })
         void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
         setChatMessages((current) => {
           const next = [
@@ -2751,16 +2801,23 @@ export function AppStateProvider({ children }) {
         intent: response.intent,
       }
 
-      setCopilotUsage((current) => ({
-        ...current,
-        chatUsed: current.chatUsed + 1,
-      }))
+      setCopilotUsage((current) => {
+        const next = {
+          ...current,
+          chatUsed: current.chatUsed + 1,
+        }
+        syncHistory(activeReferenceIdRef.current, {
+          copilotUsage: next,
+        })
+        return next
+      })
       setPendingSuggestion(response.proposedSections)
       void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
       setChatMessages((current) => {
         const next = [...current, assistantMessage]
         syncHistory(activeReferenceIdRef.current, {
           chatMessages: next,
+          pendingSuggestion: response.proposedSections,
         })
         return next
       })
@@ -2800,6 +2857,7 @@ export function AppStateProvider({ children }) {
     syncHistory(activeReferenceIdRef.current, {
       activeScriptId,
       editorContent: serializedContent,
+      pendingSuggestion: sections,
       lastStep: 'editor',
     })
     showToast('AI 수정안을 에디터에 반영했습니다')
@@ -2889,6 +2947,24 @@ export function AppStateProvider({ children }) {
       })
 
       return next
+    })
+  }
+
+  const updateDraftMessage = (value) => {
+    const nextValue = typeof value === 'function' ? value(draftMessage) : value
+    setDraftMessage(nextValue)
+    syncHistory(activeReferenceIdRef.current, {
+      draftMessage: nextValue,
+      lastStep: currentStep === 'editor' ? 'editor' : 'result',
+    })
+  }
+
+  const updateEditTarget = (target) => {
+    const nextTarget = COPILOT_EDIT_TARGETS.has(target) ? target : 'all'
+    setEditTarget(nextTarget)
+    syncHistory(activeReferenceIdRef.current, {
+      editTarget: nextTarget,
+      lastStep: currentStep === 'editor' ? 'editor' : 'result',
     })
   }
 
@@ -2985,8 +3061,8 @@ export function AppStateProvider({ children }) {
       openVersionHistory,
       exportCurrentScriptPdf,
       updateEditorSection,
-      setDraftMessage,
-      setEditTarget,
+      setDraftMessage: updateDraftMessage,
+      setEditTarget: updateEditTarget,
       setUploadTopic,
       setUploadTitle,
       setIsVersionModalOpen,

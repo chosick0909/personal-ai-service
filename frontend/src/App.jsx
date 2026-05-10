@@ -3762,6 +3762,28 @@ function StudioShell() {
     return <LoginScreen />
   }
 
+  if (entitlementStatus?.error && !entitlementStatus?.hasAccess) {
+    return (
+      <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
+        <div className="w-full max-w-[420px] rounded-[28px] border border-[#7F1D1D] bg-[#1B1216] px-6 py-6 text-center shadow-[0_24px_70px_rgba(0,0,0,0.42)]">
+          <div className="text-lg font-bold text-[#FECACA]">이용권 확인 실패</div>
+          <p className="mt-3 text-sm leading-6 text-[#FCA5A5]">
+            {entitlementStatus.error}
+          </p>
+          <button
+            type="button"
+            className="mt-5 inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
+            onClick={() => {
+              void refreshEntitlement({ forceRefresh: true })
+            }}
+          >
+            다시 확인
+          </button>
+        </div>
+      </main>
+    )
+  }
+
   if (!entitlementStatus?.hasAccess) {
     window.location.replace('/purchase')
     return null
