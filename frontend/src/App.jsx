@@ -3606,7 +3606,7 @@ function ToolPage({ type }) {
                 <div>
                   <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">내 계정에 맞는 썸네일 제목 추천</div>
                   <p className="mt-1 text-xs leading-5 text-[#8E97A6]">
-                    썸네일 레퍼런스의 제목 결을 유지하고 영상 주제만 바꿔 적용했습니다.
+                    레퍼런스의 클릭 전략은 참고하고, 계정 카테고리와 영상 주제에 맞게 새로 구성했습니다.
                   </p>
                 </div>
                 <div className="grid gap-3">
