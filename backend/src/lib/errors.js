@@ -65,6 +65,18 @@ export function errorHandler(error, req, res, _next) {
   if (isMulterLimitError) {
     const message =
       '파일 용량이 너무 큽니다. PDF는 최대 100MB, 영상은 최대 300MB까지 업로드할 수 있습니다.'
+    console.warn('[reference-upload]', {
+      requestId: req.requestId,
+      stage: 'multer_upload',
+      status: 'failed',
+      errorCode: 'FILE_TOO_LARGE',
+      statusCode: 413,
+      userId: req.auth?.userId || null,
+      ip: String(req.ip || req.headers['x-forwarded-for'] || 'unknown').split(',')[0].trim(),
+      userAgent: req.headers['user-agent'] || '',
+      contentLength: req.headers['content-length'] || null,
+      message,
+    })
     res.status(413).json({
       error: {
         code: 'FILE_TOO_LARGE',

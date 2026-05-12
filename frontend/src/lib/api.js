@@ -27,6 +27,44 @@ function getDefaultApiBaseUrl() {
 
 const API_BASE_URL = getDefaultApiBaseUrl().replace(/\/$/, '')
 
+function mergeAbortSignals(signals = []) {
+  const activeSignals = signals.filter(Boolean)
+
+  if (activeSignals.length === 0) {
+    return undefined
+  }
+
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(activeSignals)
+  }
+
+  if (activeSignals.length === 1) {
+    return activeSignals[0]
+  }
+
+  const controller = new AbortController()
+  const abort = (signal) => {
+    if (controller.signal.aborted) {
+      return
+    }
+    try {
+      controller.abort(signal?.reason)
+    } catch {
+      controller.abort()
+    }
+  }
+
+  activeSignals.forEach((signal) => {
+    if (signal.aborted) {
+      abort(signal)
+      return
+    }
+    signal.addEventListener('abort', () => abort(signal), { once: true })
+  })
+
+  return controller.signal
+}
+
 function resolveApiUrl(input) {
   if (!API_BASE_URL || typeof input !== 'string') {
     return input
@@ -130,7 +168,7 @@ export async function apiFetch(input, init = {}) {
   if (requestInit.signal) {
     signals.push(requestInit.signal)
   }
-  const signal = AbortSignal.any(signals)
+  const signal = mergeAbortSignals(signals)
   const timer = timeoutMs && Number(timeoutMs) > 0
     ? setTimeout(() => controller.abort(new DOMException('Request timeout', 'AbortError')), Number(timeoutMs))
     : null

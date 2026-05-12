@@ -21,6 +21,43 @@ function UploadIcon() {
   )
 }
 
+const MAX_REFERENCE_VIDEO_BYTES = 300 * 1024 * 1024
+const SUPPORTED_REFERENCE_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'])
+
+function formatFileSize(bytes = 0) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0MB'
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)}MB`
+}
+
+function validateReferenceUploadFile(file) {
+  if (!file) {
+    return '업로드할 영상을 먼저 선택해주세요.'
+  }
+
+  const fileName = String(file.name || '')
+  const extension = (fileName.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+
+  if (Number(file.size || 0) <= 0) {
+    return '파일 크기가 0인 영상은 업로드할 수 없어요. 다른 파일을 선택해주세요.'
+  }
+
+  if (Number(file.size || 0) > MAX_REFERENCE_VIDEO_BYTES) {
+    return `영상 용량이 너무 커요. 300MB 이하 영상으로 다시 올려주세요. 현재 파일은 약 ${formatFileSize(file.size)}입니다.`
+  }
+
+  if (!SUPPORTED_REFERENCE_VIDEO_EXTENSIONS.has(extension)) {
+    return '지원하지 않는 영상 형식이에요. mp4, mov, m4v, webm, avi, mkv 파일로 다시 올려주세요.'
+  }
+
+  if (file.type && !String(file.type).toLowerCase().startsWith('video/')) {
+    return '브라우저가 이 파일을 영상으로 인식하지 못했어요. mp4 또는 mov로 변환 후 다시 올려주세요.'
+  }
+
+  return ''
+}
+
 export default function UploadSection() {
   const {
     currentStep,
@@ -40,6 +77,7 @@ export default function UploadSection() {
   const [analyzeElapsedSec, setAnalyzeElapsedSec] = useState(0)
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false)
   const [isCanceling, setIsCanceling] = useState(false)
+  const [localUploadError, setLocalUploadError] = useState('')
   const fileInputRef = useRef(null)
   const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
   const displayedAnalyzeProgress = isAnalysisStep ? analyzeProgress : 0
@@ -157,8 +195,17 @@ export default function UploadSection() {
   }, [displayedAnalyzeElapsedSec, isAnalysisStep])
 
   const analyzeErrorLabel = useMemo(() => {
+    if (localUploadError) {
+      return '업로드 준비 실패'
+    }
+    if (analyzeErrorType === 'rate-limited') {
+      return '업로드 제한'
+    }
     if (analyzeErrorType === 'file-too-large') {
       return '용량 초과'
+    }
+    if (analyzeErrorType === 'unsupported-file') {
+      return '지원하지 않는 파일'
     }
     if (analyzeErrorType === 'timeout') {
       return '타임아웃'
@@ -167,13 +214,20 @@ export default function UploadSection() {
       return '복구 확인 중'
     }
     return '분석 실패'
-  }, [analyzeErrorType])
+  }, [analyzeErrorType, localUploadError])
 
   const handleFile = async (file) => {
     if (!file || isAnalyzing) {
       return
     }
 
+    const validationError = validateReferenceUploadFile(file)
+    if (validationError) {
+      setLocalUploadError(validationError)
+      return
+    }
+
+    setLocalUploadError('')
     await analyzeReference(file, { topic: uploadTopic })
   }
 
@@ -338,9 +392,9 @@ export default function UploadSection() {
               </div>
             ) : null}
 
-            {analyzeError ? (
+            {localUploadError || analyzeError ? (
               <div className="mt-4 rounded-2xl border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-xs leading-5 text-[#B91C1C] md:px-4 md:text-sm">
-                <span className="font-semibold">{analyzeErrorLabel}:</span> {analyzeError}
+                <span className="font-semibold">{analyzeErrorLabel}:</span> {localUploadError || analyzeError}
               </div>
             ) : null}
 

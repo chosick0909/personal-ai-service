@@ -640,18 +640,39 @@ function classifyAnalyzeFailure(error) {
   const name = String(error?.name || '').trim()
   const message = String(error?.message || '')
 
-  if (name === 'AbortError' || /timeout|failed to fetch|networkerror|network request failed/i.test(message)) {
+  if (code === 'RATE_LIMITED' || code === 'HTTP_429') {
     return {
-      type: 'recovering',
-      message:
-        '브라우저 연결이 끊겼습니다. 서버에 등록된 분석 작업이 있으면 최근 분석에서 이어서 확인합니다.',
+      type: 'rate-limited',
+      message: '짧은 시간 안에 업로드가 많이 시도되어 잠시 제한됐어요. 5~10분 후 다시 시도해주세요.',
     }
   }
 
-  if (code === 'FILE_TOO_LARGE' || code === 'LIMIT_FILE_SIZE') {
+  if (code === 'FILE_TOO_LARGE' || code === 'LIMIT_FILE_SIZE' || code === 'HTTP_413') {
     return {
       type: 'file-too-large',
-      message: '용량 초과: 영상은 최대 300MB까지 업로드할 수 있습니다. 파일 용량을 줄여 다시 시도해주세요.',
+      message: '영상 용량이 너무 커요. 300MB 이하 영상으로 다시 올려주세요.',
+    }
+  }
+
+  if (code === 'INVALID_FILE_SIGNATURE' || code === 'UNSUPPORTED_FILE_TYPE') {
+    return {
+      type: 'unsupported-file',
+      message: '지원하지 않는 영상 형식이거나 파일이 손상된 것 같아요. mp4 또는 mov로 변환 후 다시 올려주세요.',
+    }
+  }
+
+  if (name === 'AbortError' || /timeout/i.test(message)) {
+    return {
+      type: 'timeout',
+      message: '업로드 시간이 너무 오래 걸렸어요. 네트워크가 안정적인 상태에서 화면을 닫지 말고 다시 시도해주세요.',
+    }
+  }
+
+  if (/failed to fetch|networkerror|network request failed/i.test(message)) {
+    return {
+      type: 'recovering',
+      message:
+        '업로드 중 연결이 끊겼어요. 서버에 등록된 분석 작업이 있으면 최근 분석에서 이어서 확인합니다. 화면 잠금이나 앱 전환 없이 다시 시도해주세요.',
     }
   }
 
@@ -2102,7 +2123,7 @@ export function AppStateProvider({ children }) {
         canceledAnalysisTokensRef.current.delete(requestToken)
         return
       }
-      if (error?.name === 'AbortError') {
+      if (error?.name === 'AbortError' && !/timeout/i.test(String(error?.message || ''))) {
         canceledAnalysisTokensRef.current.delete(requestToken)
         return
       }

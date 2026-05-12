@@ -185,15 +185,36 @@ async function getRedisRateLimitClient() {
   return redisRateLimitClientPromise
 }
 
-function createRateLimiter({ windowMs, max, keyPrefix = 'global' }) {
+function getClientIp(req) {
+  return String(req.ip || req.headers['x-forwarded-for'] || 'unknown')
+    .split(',')[0]
+    .trim() || 'unknown'
+}
+
+function getDefaultRateLimitIdentity(req) {
+  return {
+    key: getClientIp(req),
+    type: 'ip',
+  }
+}
+
+function createRateLimiter({ windowMs, max, keyPrefix = 'global', keyResolver = getDefaultRateLimitIdentity }) {
   const counters = new Map()
 
   return async function rateLimiter(req, _res, next) {
     const now = Date.now()
-    const ip = String(req.ip || req.headers['x-forwarded-for'] || 'unknown')
-      .split(',')[0]
-      .trim()
-    const key = `${keyPrefix}:${ip}`
+    const identity = keyResolver(req) || getDefaultRateLimitIdentity(req)
+    const identityKey = String(identity.key || '').trim() || getClientIp(req)
+    const identityType = String(identity.type || '').trim() || 'ip'
+    const key = `${keyPrefix}:${identityType}:${identityKey}`
+
+    req.rateLimit = {
+      keyPrefix,
+      keyType: identityType,
+      key,
+      windowMs,
+      max,
+    }
 
     const redisClient = await getRedisRateLimitClient()
     if (redisClient) {
@@ -204,12 +225,24 @@ function createRateLimiter({ windowMs, max, keyPrefix = 'global' }) {
         }
         if (count > max) {
           const ttlMs = await redisClient.pTTL(key)
+          console.warn('[rate-limit] blocked', {
+            requestId: req.requestId,
+            stage: 'rate_limit',
+            keyPrefix,
+            keyType: identityType,
+            userId: req.auth?.userId || null,
+            ip: getClientIp(req),
+            method: req.method,
+            route: req.originalUrl,
+            retryAfterMs: ttlMs > 0 ? ttlMs : windowMs,
+          })
           next(
             new AppError('Too many requests. Please try again later.', {
               code: 'RATE_LIMITED',
               statusCode: 429,
               details: {
                 retryAfterMs: ttlMs > 0 ? ttlMs : windowMs,
+                keyType: identityType,
               },
             }),
           )
@@ -234,12 +267,24 @@ function createRateLimiter({ windowMs, max, keyPrefix = 'global' }) {
     }
 
     if (current.count >= max) {
+      console.warn('[rate-limit] blocked', {
+        requestId: req.requestId,
+        stage: 'rate_limit',
+        keyPrefix,
+        keyType: identityType,
+        userId: req.auth?.userId || null,
+        ip: getClientIp(req),
+        method: req.method,
+        route: req.originalUrl,
+        retryAfterMs: Math.max(current.resetAt - now, 0),
+      })
       next(
         new AppError('Too many requests. Please try again later.', {
           code: 'RATE_LIMITED',
           statusCode: 429,
           details: {
             retryAfterMs: Math.max(current.resetAt - now, 0),
+            keyType: identityType,
           },
         }),
       )
@@ -370,6 +415,34 @@ async function validateUploadedFile(file, {
   }
 }
 
+function getUploadLogContext(req, file = req.file) {
+  const fileName = String(file?.originalname || '')
+  const extension = (fileName.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+
+  return {
+    requestId: req.requestId,
+    userId: req.auth?.userId || null,
+    accountId: req.body?.accountId || req.headers['x-account-id'] || null,
+    ip: getClientIp(req),
+    userAgent: req.headers['user-agent'] || '',
+    fileName: fileName || null,
+    fileSize: Number(file?.size || 0),
+    mimeType: file?.mimetype || null,
+    extension: extension || null,
+    contentLength: req.headers['content-length'] || null,
+    asyncProcessing: req.body?.asyncProcessing || null,
+    rateLimitKeyType: req.rateLimit?.keyType || null,
+  }
+}
+
+function logReferenceUploadStage(req, stage, extra = {}) {
+  console.info('[reference-upload]', {
+    stage,
+    ...getUploadLogContext(req),
+    ...extra,
+  })
+}
+
 function readString(value, { field, maxLength = 2000, required = false } = {}) {
   const normalized = typeof value === 'string' ? value.trim() : ''
 
@@ -445,7 +518,21 @@ function readNumber(value, { field, min = Number.NEGATIVE_INFINITY, max = Number
 const askRateLimiter = createRateLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'ask' })
 const refineRateLimiter = createRateLimiter({ windowMs: 60_000, max: 40, keyPrefix: 'refine' })
 const feedbackRateLimiter = createRateLimiter({ windowMs: 60_000, max: 40, keyPrefix: 'feedback' })
-const analyzeRateLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 8, keyPrefix: 'analyze' })
+const analyzeRateLimiter = createRateLimiter({
+  windowMs: 10 * 60_000,
+  max: 8,
+  keyPrefix: 'analyze',
+  keyResolver: (req) => {
+    const userId = String(req.auth?.userId || '').trim()
+    if (userId) {
+      return {
+        key: userId,
+        type: 'user',
+      }
+    }
+    return getDefaultRateLimitIdentity(req)
+  },
+})
 const searchRateLimiter = createRateLimiter({ windowMs: 60_000, max: 120, keyPrefix: 'search' })
 
 initBackendSentry()
@@ -965,12 +1052,25 @@ app.post(
   analyzeRateLimiter,
   uploadVideo.single('video'),
   asyncHandler(async (req, res) => {
-    await validateUploadedFile(req.file, {
-      fieldName: 'video',
-      allowedMimePrefixes: ['video/'],
-      allowedExtensions: ['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'],
-      magicType: 'video',
-    })
+    logReferenceUploadStage(req, 'file_validation', { status: 'start' })
+    try {
+      await validateUploadedFile(req.file, {
+        fieldName: 'video',
+        allowedMimePrefixes: ['video/'],
+        allowedExtensions: ['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'],
+        magicType: 'video',
+      })
+      logReferenceUploadStage(req, 'file_validation', { status: 'success' })
+    } catch (error) {
+      logReferenceUploadStage(req, 'file_validation', {
+        status: 'failed',
+        errorCode: error.code || 'FILE_VALIDATION_FAILED',
+        statusCode: error.statusCode || 400,
+        message: error.message,
+      })
+      await removeUploadedTempFile(req.file)
+      throw error
+    }
     const account = await resolveRequestAccount(req)
     const usageStatus = await assertUsageAllowed({
       userId: req.auth?.userId,
@@ -992,6 +1092,10 @@ app.post(
     }
 
     if (req.body?.asyncProcessing === '1' || req.body?.asyncProcessing === 'true') {
+      logReferenceUploadStage(req, 'analysis_enqueue', {
+        accountId: account.id,
+        status: 'start',
+      })
       let accepted = false
       let resolveAccepted
       let rejectAccepted
@@ -1006,6 +1110,11 @@ app.post(
           if (accepted) {
             return
           }
+          logReferenceUploadStage(req, 'db_insert', {
+            accountId: account.id,
+            status: 'success',
+            referenceId: processingReference?.id || null,
+          })
           accepted = true
           resolveAccepted(processingReference)
         },
@@ -1024,6 +1133,13 @@ app.post(
           if (!accepted) {
             rejectAccepted(error)
           }
+          logReferenceUploadStage(req, 'analysis_processing', {
+            accountId: account.id,
+            status: 'failed',
+            errorCode: error.code || 'ANALYSIS_FAILED',
+            statusCode: error.statusCode || 500,
+            message: error.message,
+          })
           logAIError('analysis', error, {
             stage: 'async-reference-analysis',
             accountId: account.id,
@@ -1034,6 +1150,11 @@ app.post(
         })
 
       const processingReference = await acceptedPromise
+      logReferenceUploadStage(req, 'analysis_enqueue', {
+        accountId: account.id,
+        status: 'accepted',
+        referenceId: processingReference?.id || null,
+      })
       res.status(202).json({
         message: 'Reference video analysis accepted',
         analysis: processingReference,
