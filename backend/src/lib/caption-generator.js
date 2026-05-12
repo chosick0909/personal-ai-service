@@ -436,6 +436,157 @@ function buildCategoryRuleContext(categoryRule) {
     .join('\n')
 }
 
+const CAPTION_STYLE_GUIDE = {
+  styleName: '친근한 관계/판매형 인스타 캡션',
+  purpose:
+    '잘 쓴 캡션의 온도감, 문장 호흡, 감정 흐름을 참고하되 원문 표현을 복사하지 않고 계정 목적에 맞게 변형하기 위한 스타일 데이터',
+  defaultStyleStrength: 'medium',
+  captionTypes: {
+    relationship: {
+      useWhen: ['행사 후기', '커뮤니티 공지', '감사 인사', '브랜드 철학', '무료 콘텐츠 공유'],
+      flow: ['현재 상황 공유', '개인 감정 고백', '독자/참여자에 대한 감사', '함께한 시간의 의미 부여', '앞으로의 약속', '댓글로 대화 유도'],
+      tone: ['따뜻함', '진심', '설렘', '감사', '공동체감'],
+      ctaTypes: ['댓글로 경험 나누기', '오늘 어땠는지 묻기', '함께 이야기하자고 제안하기'],
+    },
+    sales: {
+      useWhen: ['제품 추천', '공동구매', '마켓 오픈', '한정 혜택', '댓글 링크 유도', '이벤트 안내'],
+      flow: ['강한 오프닝', '직접 준비하거나 경험했다는 맥락', '독자의 생활 고민 공감', '제품/서비스의 차별점 설명', '혜택/구성/일정 안내', '댓글 키워드 또는 링크 CTA'],
+      tone: ['흥분감', '친근함', '직접 써본 느낌', '좋은 정보를 급하게 알려주는 느낌'],
+      ctaTypes: ['댓글 키워드 남기기', 'DM으로 링크 받기', '프로필 링크 확인', '저장 후 오픈일 확인'],
+    },
+    information: {
+      useWhen: ['노하우 공유', '팁 제공', '체크리스트', '교육성 콘텐츠', '무료 자료 안내'],
+      flow: ['독자가 겪는 문제 제시', '핵심 관점 전환', '구체적인 기준/방법 설명', '예시 또는 적용 상황', '저장/댓글/자료 요청 CTA'],
+      tone: ['친절함', '정리된 느낌', '실용적', '부담 없는 조언'],
+      ctaTypes: ['저장 유도', '댓글 질문', '자료 요청', '다시 보기 유도'],
+    },
+    review: {
+      useWhen: ['후기', '사용 경험', '행사 회고', '전후 변화', '고객 반응 공유'],
+      flow: ['상황 또는 결과 제시', '경험 당시의 감정', '구체적인 변화나 반응', '느낀 점', '독자에게 질문'],
+      tone: ['진솔함', '생생함', '감정 공유', '신뢰감'],
+      ctaTypes: ['경험 공유 요청', '질문 남기기', '저장 유도'],
+    },
+  },
+  globalWritingRules: [
+    '한 문장은 짧게 쓰고 말하듯이 끊어 쓴다.',
+    '한 문단은 1~3문장으로 제한한다.',
+    '감정 전환, 공감, CTA 앞에서는 줄을 띄운다.',
+    '이모지는 감정 전환/문단 구분/CTA 강조 지점에만 자연스럽게 쓴다.',
+    '처음부터 제품 스펙이나 정보 설명으로 시작하지 않는다.',
+  ],
+  factBoundaryRules: {
+    userProvidedFactsOnly: ['가격', '할인율', '마감일', '선착순', '고객 후기', '직접 사용 경험', '판매량', '성과 수치'],
+    allowedInference: ['문장 호흡', '감정 연결', '독자 고민 표현', '부드러운 CTA 문장'],
+  },
+  speechLevelRules: [
+    '계정 세팅의 말투를 우선한다.',
+    '존댓말과 반말을 한 캡션 안에서 섞지 않는다.',
+    '기본은 친근한 존댓말이며, 반말은 계정 세팅에서 명확할 때만 사용한다.',
+  ],
+  lengthRules: [
+    '사용자가 입력한 A/B 레퍼런스 평균 길이의 80~120% 안에서 작성한다.',
+    '길이를 늘리기 위해 새 사실, 새 혜택, 새 후기, 새 경험담을 만들지 않는다.',
+  ],
+  overuseGuard: ['여러분', '드디어', '진짜', '대박', '역대급', '기다리셨죠', '소름'],
+  forbiddenRules: [
+    '모든 캡션을 공구 말투로 만들지 않는다.',
+    '원문 표현을 그대로 복사하지 않는다.',
+    '실제 혜택, 가격, 마감, 선착순 정보가 없으면 만들지 않는다.',
+    '사용자가 제공하지 않은 직접 경험담, 후기, 고객 반응을 지어내지 않는다.',
+    '신앙, 공동체, 사랑, 축복 등의 정서적 표현은 계정 세팅에 맞을 때만 사용한다.',
+    '의학적 효능, 다이어트 효과, 치료 효과를 확정적으로 말하지 않는다.',
+  ],
+  validationChecklist: [
+    'captionGoal에 맞는 captionType을 골랐는가',
+    '없는 혜택/후기/성과를 만들지 않았는가',
+    'A/B 레퍼런스 길이와 크게 벗어나지 않았는가',
+    'CTA가 목적에 맞는 하나로 정리됐는가',
+    '존댓말/반말이 섞이지 않았는가',
+    '스타일 표현을 과하게 반복하지 않았는가',
+  ],
+}
+
+function includesPattern(text = '', pattern) {
+  return pattern.test(normalizeCaption(text))
+}
+
+function inferCaptionStyleGuide({
+  topic,
+  category,
+  monetizationModel,
+  strategyText,
+  ctaExamples,
+  hookDirection,
+  bodyFocus,
+}) {
+  const combinedText = [
+    topic,
+    category,
+    monetizationModel,
+    strategyText,
+    ...normalizeList(ctaExamples),
+    ...normalizeList(hookDirection),
+    ...normalizeList(bodyFocus),
+  ].join(' ')
+
+  const salesCue = /(공구|공동구매|마켓|오픈|제품\s*추천|제품추천|상품|판매|구매|할인|혜택|이벤트|링크|DM|디엠|최저가|선착순|마감|댓글\s*(키워드|남겨|링크)|키워드)/i
+  const relationshipCue = /(감사|행사|커뮤니티|브랜드\s*스토리|브랜딩|철학|무료\s*콘텐츠|북콘서트|라이브|모임|응원|함께|약속)/i
+  const reviewCue = /(후기|회고|사용기|경험|전후|리뷰|반응|느낀\s*점)/i
+  const informationCue = /(노하우|팁|방법|체크리스트|가이드|정보|교육|정리|기준|루틴|자료|무료자료|무료\s*자료)/i
+
+  let captionGoal = '정보 공유'
+  let captionType = 'information'
+  let styleStrength = 'light'
+
+  if (includesPattern(combinedText, salesCue)) {
+    captionGoal = /(공구|공동구매|마켓|오픈|이벤트|한정|마감|선착순|최저가|혜택)/i.test(combinedText)
+      ? '공구/이벤트'
+      : '제품 추천'
+    captionType = 'sales'
+    styleStrength = captionGoal === '공구/이벤트' ? 'strong' : 'medium'
+  } else if (includesPattern(combinedText, reviewCue)) {
+    captionGoal = '후기/회고'
+    captionType = 'review'
+    styleStrength = 'medium'
+  } else if (includesPattern(combinedText, relationshipCue)) {
+    captionGoal = '관계 쌓기'
+    captionType = 'relationship'
+    styleStrength = 'medium'
+  } else if (includesPattern(combinedText, informationCue)) {
+    captionGoal = '정보 공유'
+    captionType = 'information'
+    styleStrength = 'light'
+  }
+
+  const selectedType = CAPTION_STYLE_GUIDE.captionTypes[captionType]
+
+  return {
+    styleName: CAPTION_STYLE_GUIDE.styleName,
+    purpose: CAPTION_STYLE_GUIDE.purpose,
+    captionGoal,
+    captionType,
+    styleStrength,
+    strengthRule:
+      styleStrength === 'strong'
+        ? '구조와 CTA 방식까지 참고하되, 실제 혜택/마감/선착순 정보가 없으면 절대 만들지 않는다.'
+        : styleStrength === 'medium'
+          ? '문장 호흡, 감정 흐름, CTA 방식까지 참고하되 A/B 레퍼런스 구조를 덮어쓰지 않는다.'
+          : '말투, 줄바꿈, 감정 온도만 약하게 참고한다.',
+    selectedFlow: selectedType.flow,
+    selectedTone: selectedType.tone,
+    selectedCtaTypes: selectedType.ctaTypes,
+    globalWritingRules: CAPTION_STYLE_GUIDE.globalWritingRules,
+    factBoundaryRules: CAPTION_STYLE_GUIDE.factBoundaryRules,
+    speechLevelRules: CAPTION_STYLE_GUIDE.speechLevelRules,
+    lengthRules: CAPTION_STYLE_GUIDE.lengthRules,
+    overuseGuard: CAPTION_STYLE_GUIDE.overuseGuard,
+    forbiddenRules: CAPTION_STYLE_GUIDE.forbiddenRules,
+    validationChecklist: CAPTION_STYLE_GUIDE.validationChecklist,
+    usageRule:
+      '이 스타일 데이터는 새 소재를 만드는 지식이 아니라 말맛/호흡/감정 흐름 보정용이다. 영상 주제, 계정 세팅, A/B 레퍼런스 구조가 항상 우선한다.',
+  }
+}
+
 const GUARANTEE_EXPRESSIONS_BY_CATEGORY = {
   육아: ['발달 보장', '바로 잠듭니다', '육아 끝'],
   반려동물: ['질병 치료', '수의사 필요 없음', '100% 적응', '효과 확실'],
@@ -504,6 +655,16 @@ function buildCaptionBrief({
   referenceQuality,
   referenceStructure,
 }) {
+  const captionStyleGuide = inferCaptionStyleGuide({
+    topic,
+    category,
+    monetizationModel,
+    strategyText,
+    ctaExamples,
+    hookDirection,
+    bodyFocus,
+  })
+
   return {
     topic,
     category: category || '미지정',
@@ -512,9 +673,11 @@ function buildCaptionBrief({
       '내 영상주제',
       '내 계정 세팅값',
       'A/B 캡션 구조 패턴',
+      '잘 쓴 캡션 스타일 데이터의 말투/호흡/감정 흐름',
       '수익화 모델',
       '카테고리별 캡션 전략',
     ],
+    captionStyleGuide,
     categoryRule: categoryRule
       ? {
           category: categoryRule.category,
@@ -894,9 +1057,13 @@ async function generateCaptionFromBrief({
       role: 'system',
       content: [
         '당신은 인스타그램/숏폼 캡션 카피라이터다. 출력은 JSON만 반환한다.',
-        '우선순위는 1. 영상 주제, 2. 계정 세팅, 3. A/B 레퍼런스 구조, 4. 수익화 모델, 5. 카테고리 전략이다.',
+        '우선순위는 1. 영상 주제, 2. 계정 세팅, 3. A/B 레퍼런스 구조, 4. captionStyleGuide의 말투/호흡/감정 흐름, 5. 수익화 모델, 6. 카테고리 전략이다.',
         '가장 중요한 기준은 사용자의 영상 주제와 현재 계정 세팅값이며, A/B 구조가 이를 이기면 안 된다.',
         '카테고리별 캡션 전략은 말하는 방식과 위험 표현 회피에만 사용한다.',
+        'captionStyleGuide는 잘 쓴 캡션의 온도감, 짧은 문장 호흡, 감정 흐름, CTA 방식을 약하게 보정하는 자료다.',
+        'captionStyleGuide 때문에 A/B 구조, 영상 주제, 계정 세팅, 실제 제공된 사실이 바뀌면 실패다.',
+        'captionStyleGuide의 factBoundaryRules를 지켜라. 가격, 할인율, 마감일, 선착순, 고객 후기, 직접 사용 경험, 판매량, 성과 수치는 사용자가 제공한 경우에만 쓴다.',
+        '존댓말/반말을 섞지 말고, 계정 세팅에 별도 지시가 없으면 친근한 존댓말을 유지한다.',
         'A/B 캡션 원문은 제공되지 않는다. referencePattern은 구조 참고용일 뿐이다.',
         'A/B 캡션은 구조 참고용이며, 내용·상품명·상황·업종·문장·고유 표현은 절대 가져오지 않는다.',
         '레퍼런스의 주제, 업종, 상품명, 상황, 고유명사, 표면 단어를 가져오지 마라.',
@@ -939,6 +1106,7 @@ async function generateCaptionFromBrief({
         '4. 수익모델에 맞는 CTA',
         '5. 필요한 경우 고지/주의 문구',
         '6. 금지 표현 회피',
+        '7. captionStyleGuide는 말투/줄바꿈/감정 흐름 보정에만 사용하고, 없는 혜택·후기·경험담·성과를 만들지 않기',
       ].filter(Boolean).join('\n\n'),
     },
   ]
@@ -1136,6 +1304,13 @@ export async function generateCaptionDraft({
       accountCategory: normalizedCategory || '미지정',
       monetizationModel: normalizedMonetizationModel || '미지정',
       categoryRuleUsed: Boolean(categoryRule),
+      captionStyleGuide: brief.captionStyleGuide
+        ? {
+            captionGoal: brief.captionStyleGuide.captionGoal,
+            captionType: brief.captionStyleGuide.captionType,
+            styleStrength: brief.captionStyleGuide.styleStrength,
+          }
+        : null,
       referenceLength: {
         averageLength: brief.referenceStructure?.averageTextLength || 0,
         targetMinLength: lengthCheck.targetMinLength,
