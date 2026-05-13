@@ -44,13 +44,20 @@ function mergeProfileWithCharacter(profile = {}, character = null) {
   const profileSettings = profile?.settings && typeof profile.settings === 'object' ? profile.settings : {}
   const characterSettings =
     character?.settings && typeof character.settings === 'object' ? character.settings : {}
+  const mergedSettings = {
+    ...profileSettings,
+    ...characterSettings,
+  }
+
+  if (character?.is_default) {
+    for (const key of Object.keys(profileSettings)) {
+      mergedSettings[key] = profileSettings[key]
+    }
+  }
 
   return {
     ...profile,
-    settings: {
-      ...profileSettings,
-      ...characterSettings,
-    },
+    settings: mergedSettings,
   }
 }
 

@@ -46,6 +46,97 @@ function requireSupabaseAdmin() {
   return getSupabaseAdmin()
 }
 
+function isMissingCharacterSchema(error) {
+  if (!error) {
+    return false
+  }
+
+  return (
+    error.code === '42P01' ||
+    error.code === '42703' ||
+    error.code === 'PGRST205' ||
+    error.code === 'PGRST204' ||
+    String(error.message || '').includes('characters') ||
+    String(error.message || '').includes('schema cache')
+  )
+}
+
+async function syncDefaultCharacterSettings(supabaseAdmin, accountId, settings) {
+  const normalizedSettings = settings && typeof settings === 'object' ? settings : {}
+  const { data: updatedCharacters, error: updateError } = await supabaseAdmin
+    .from('characters')
+    .update({ settings: normalizedSettings })
+    .eq('account_id', accountId)
+    .eq('is_default', true)
+    .select('id')
+
+  if (updateError) {
+    if (isMissingCharacterSchema(updateError)) {
+      return
+    }
+
+    throw new AppError('Failed to sync default character settings', {
+      code: 'DEFAULT_CHARACTER_SETTINGS_SYNC_FAILED',
+      statusCode: 500,
+      cause: updateError,
+    })
+  }
+
+  if (Array.isArray(updatedCharacters) && updatedCharacters.length > 0) {
+    return
+  }
+
+  const { data: account, error: accountError } = await supabaseAdmin
+    .from('accounts')
+    .select('id, name, slug')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (accountError) {
+    throw new AppError('Failed to load account for default character sync', {
+      code: 'DEFAULT_CHARACTER_ACCOUNT_FETCH_FAILED',
+      statusCode: 500,
+      cause: accountError,
+    })
+  }
+
+  if (!account) {
+    return
+  }
+
+  const { error: insertError } = await supabaseAdmin.from('characters').insert({
+    account_id: account.id,
+    name: account.name || 'Default Character',
+    slug: account.slug || null,
+    settings: normalizedSettings,
+    is_default: true,
+  })
+
+  if (insertError) {
+    if (isMissingCharacterSchema(insertError)) {
+      return
+    }
+
+    if (insertError.code === '23505') {
+      const retry = await supabaseAdmin
+        .from('characters')
+        .update({ settings: normalizedSettings })
+        .eq('account_id', accountId)
+        .eq('is_default', true)
+
+      if (!retry.error || isMissingCharacterSchema(retry.error)) {
+        return
+      }
+    }
+
+    throw new AppError('Failed to create default character settings', {
+      code: 'DEFAULT_CHARACTER_SETTINGS_CREATE_FAILED',
+      statusCode: 500,
+      cause: insertError,
+    })
+  }
+}
+
 export async function getAccountProfile(accountId) {
   const supabaseAdmin = requireSupabaseAdmin()
 
@@ -110,6 +201,8 @@ export async function upsertAccountProfile(accountId, input = {}, userId) {
       cause: error,
     })
   }
+
+  await syncDefaultCharacterSettings(supabaseAdmin, accountId, payload.settings)
 
   return data
 }
