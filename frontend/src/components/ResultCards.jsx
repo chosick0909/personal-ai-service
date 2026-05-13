@@ -168,7 +168,7 @@ export default function ResultCards() {
   const [activeResultStep, setActiveResultStep] = useState(0)
   const [isResultStepLeaving, setIsResultStepLeaving] = useState(false)
   const resultStepTimerRef = useRef(null)
-  const isReferenceProcessing = referenceData?.status === 'processing'
+  const isReferenceProcessing = referenceData?.status === 'processing' || referenceData?.status === 'uploading'
   const hasTranscript = Boolean((referenceData?.transcript || '').trim())
   const shouldBlockDraftsForMissingTranscript = !hasTranscript && generatedScripts.length === 0
   const isDraftGenerationPending = isReferenceProcessing && hasTranscript && generatedScripts.length === 0

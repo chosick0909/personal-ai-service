@@ -210,10 +210,93 @@ export function mapReferenceAnalysisToUi(analysis) {
   }
 }
 
-export async function analyzeReferenceVideo({ file, topic, title, accountId, projectId, signal }) {
+export async function createReferenceUploadSession({
+  clientUploadId,
+  file,
+  topic,
+  title,
+  accountId,
+  projectId,
+  signal,
+}) {
+  const response = await apiFetch('/api/reference-videos/upload-session', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(clientUploadId ? { 'x-idempotency-key': clientUploadId } : {}),
+    },
+    timeoutMs: 20000,
+    body: JSON.stringify({
+      clientUploadId,
+      accountId,
+      projectId: projectId || null,
+      title: title?.trim() || '',
+      topic: topic?.trim() || '',
+      originalFilename: file?.name || '',
+      mimeType: file?.type || '',
+      fileSize: Number(file?.size || 0),
+    }),
+    signal,
+  })
+  const payload = await parseApiResponse(response)
+
+  if (!response.ok) {
+    throw createApiError(response, payload, '업로드 세션을 만들지 못했습니다.')
+  }
+
+  return mapReferenceAnalysisToUi(payload.analysis)
+}
+
+export async function fetchReferenceUploadSessionByClientUploadId({
+  clientUploadId,
+  signal,
+}) {
+  const normalizedClientUploadId = String(clientUploadId || '').trim()
+  if (!normalizedClientUploadId) {
+    return null
+  }
+
+  const response = await apiFetch(
+    `/api/reference-videos/upload-session/${encodeURIComponent(normalizedClientUploadId)}`,
+    {
+      method: 'GET',
+      timeoutMs: 15000,
+      signal,
+    },
+  )
+  const payload = await parseApiResponse(response)
+
+  if (response.status === 404) {
+    return null
+  }
+
+  if (!response.ok) {
+    throw createApiError(response, payload, '업로드 세션을 확인하지 못했습니다.')
+  }
+
+  return mapReferenceAnalysisToUi(payload.analysis)
+}
+
+export async function analyzeReferenceVideo({
+  file,
+  topic,
+  title,
+  accountId,
+  projectId,
+  referenceId,
+  clientUploadId,
+  signal,
+}) {
   const formData = new FormData()
   formData.append('video', file)
   formData.append('asyncProcessing', '1')
+  if (referenceId) {
+    formData.append('referenceId', String(referenceId))
+  }
+  if (clientUploadId) {
+    formData.append('clientUploadId', String(clientUploadId))
+    formData.append('idempotencyKey', String(clientUploadId))
+  }
   if (accountId) {
     formData.append('accountId', String(accountId))
   }
@@ -230,6 +313,11 @@ export async function analyzeReferenceVideo({ file, topic, title, accountId, pro
 
   const response = await apiFetch('/api/reference-videos/analyze', {
     method: 'POST',
+    headers: clientUploadId
+      ? {
+          'x-idempotency-key': String(clientUploadId),
+        }
+      : undefined,
     timeoutMs: 8 * 60 * 1000,
     body: formData,
     signal,

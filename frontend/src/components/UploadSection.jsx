@@ -135,8 +135,10 @@ export default function UploadSection() {
   }, [isAnalysisStep])
 
   const analyzeStageText = useMemo(() => {
+    if (uploadPhase === 'creating-session') return '업로드 준비 중 · 서버에 작업을 먼저 등록하고 있습니다'
     if (uploadPhase === 'uploading') return '업로드 중 · 이 단계에서는 화면을 끄거나 앱을 전환하지 마세요'
     if (uploadPhase === 'server-accepted') return '서버에 접수됨 · 이제 재접속해도 최근 분석에서 이어서 확인할 수 있습니다'
+    if (uploadPhase === 'analyzing') return '서버 분석 중 · 최근 분석에서 이어서 확인할 수 있습니다'
     if (displayedAnalyzeProgress < 20) return '레퍼런스 영상 음성 추출중'
     if (displayedAnalyzeProgress < 40) return '전사 텍스트 정리중'
     if (displayedAnalyzeProgress < 60) return '후킹 포인트 분석중'
@@ -147,9 +149,9 @@ export default function UploadSection() {
 
   const uploadPhaseSteps = useMemo(() => {
     const activeIndex =
-      uploadPhase === 'uploading'
+      uploadPhase === 'creating-session' || uploadPhase === 'uploading'
         ? 0
-        : uploadPhase === 'server-accepted'
+        : uploadPhase === 'server-accepted' || uploadPhase === 'analyzing'
           ? 1
           : currentStep === 'analyzing' || isAnalyzing
             ? 2

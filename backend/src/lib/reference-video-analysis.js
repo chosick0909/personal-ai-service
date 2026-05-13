@@ -452,9 +452,14 @@ async function findRecentDuplicateReference({
   return null
 }
 
+function isProcessingLikeStatus(status) {
+  return status === 'uploading' || status === 'processing'
+}
+
 async function createProcessingReferenceVideo({
   supabaseAdmin,
   accountId,
+  referenceId = null,
   projectId,
   title,
   topic,
@@ -479,8 +484,9 @@ async function createProcessingReferenceVideo({
 
   const { data, error } = await persistReferenceVideoRowWithFallback({
     supabaseAdmin,
-    mode: 'insert',
+    mode: referenceId ? 'update' : 'insert',
     accountId,
+    referenceId,
     payload: basePayload,
     removableColumns: [
       'project_id',
@@ -498,6 +504,133 @@ async function createProcessingReferenceVideo({
   }
 
   return data
+}
+
+export async function createReferenceUploadSession({
+  accountId,
+  projectId = null,
+  title = '',
+  topic = '',
+  originalFilename = '',
+  mimeType = '',
+  clientUploadId = '',
+} = {}) {
+  if (!hasSupabaseAdminConfig()) {
+    throw new AppError('Supabase admin client is not configured', {
+      code: 'SUPABASE_NOT_CONFIGURED',
+      statusCode: 500,
+    })
+  }
+
+  const normalizedOriginalName = normalizeUploadedText(originalFilename) || 'reference-video.mp4'
+  const normalizedTitle = normalizeReferenceTitle({
+    title,
+    originalFilename: normalizedOriginalName,
+  })
+  const normalizedTopic = normalizeGenerationTopic(topic, normalizedTitle)
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(clientUploadId)
+  const normalizedProjectId = normalizeOptionalProjectId(projectId) ?? null
+  const supabaseAdmin = getSupabaseAdmin()
+
+  if (normalizedIdempotencyKey) {
+    const duplicateReference = await findRecentDuplicateReference({
+      supabaseAdmin,
+      accountId,
+      idempotencyKey: normalizedIdempotencyKey,
+      analysisFingerprint: '',
+    })
+
+    if (duplicateReference?.id && isProcessingLikeStatus(duplicateReference.processing_status)) {
+      return getReferenceVideo(duplicateReference.id, accountId)
+    }
+  }
+
+  const { data, error } = await persistReferenceVideoRowWithFallback({
+    supabaseAdmin,
+    mode: 'insert',
+    accountId,
+    payload: {
+      project_id: normalizedProjectId,
+      title: normalizedTitle,
+      topic: normalizedTopic,
+      original_filename: normalizedOriginalName,
+      mime_type: mimeType || 'video/mp4',
+      processing_status: 'uploading',
+      current_stage: 'uploading',
+      last_heartbeat_at: new Date().toISOString(),
+      idempotency_key: normalizedIdempotencyKey || null,
+      transcript: '',
+      structure_analysis: '',
+      hook_analysis: '',
+      psychology_analysis: '',
+      ai_feedback: '',
+    },
+    removableColumns: [
+      'project_id',
+      'current_stage',
+      'last_heartbeat_at',
+      'idempotency_key',
+    ],
+    detail: true,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
+export async function getReferenceUploadSessionByClientUploadId({
+  accountId,
+  clientUploadId = '',
+} = {}) {
+  if (!hasSupabaseAdminConfig()) {
+    throw new AppError('Supabase admin client is not configured', {
+      code: 'SUPABASE_NOT_CONFIGURED',
+      statusCode: 500,
+    })
+  }
+
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(clientUploadId)
+  if (!normalizedIdempotencyKey) {
+    return null
+  }
+
+  const supabaseAdmin = getSupabaseAdmin()
+  const duplicateReference = await findRecentDuplicateReference({
+    supabaseAdmin,
+    accountId,
+    idempotencyKey: normalizedIdempotencyKey,
+    analysisFingerprint: '',
+  })
+
+  if (!duplicateReference?.id) {
+    return null
+  }
+
+  return getReferenceVideo(duplicateReference.id, accountId)
+}
+
+export async function updateReferenceUploadSessionState({
+  accountId,
+  referenceId,
+  patch = {},
+}) {
+  if (!hasSupabaseAdminConfig()) {
+    throw new AppError('Supabase admin client is not configured', {
+      code: 'SUPABASE_NOT_CONFIGURED',
+      statusCode: 500,
+    })
+  }
+
+  const supabaseAdmin = getSupabaseAdmin()
+  await updateReferenceLifecycleState({
+    supabaseAdmin,
+    accountId,
+    referenceId,
+    patch,
+  })
 }
 
 async function updateReferenceLifecycleState({
@@ -601,7 +734,7 @@ async function expireStaleProcessingReferences({ supabaseAdmin, accountId, refer
       .from('reference_videos')
       .update(payload)
       .eq('account_id', accountId)
-      .eq('processing_status', 'processing')
+      .in('processing_status', ['uploading', 'processing'])
       .lt('created_at', staleBefore)
 
     if (referenceId) {
@@ -3805,6 +3938,7 @@ export async function analyzeReferenceVideo({
   topic,
   title,
   accountId,
+  referenceId = null,
   projectId = null,
   idempotencyKey = '',
   characterSystemPrompt = '',
@@ -3863,14 +3997,16 @@ export async function analyzeReferenceVideo({
     }
   }
 
-  const duplicateReference = await findRecentDuplicateReference({
-    supabaseAdmin,
-    accountId,
-    idempotencyKey: normalizedIdempotencyKey,
-    analysisFingerprint,
-  })
+  const duplicateReference = referenceId
+    ? null
+    : await findRecentDuplicateReference({
+        supabaseAdmin,
+        accountId,
+        idempotencyKey: normalizedIdempotencyKey,
+        analysisFingerprint,
+      })
   if (duplicateReference?.id) {
-    if (duplicateReference.processing_status === 'processing') {
+    if (isProcessingLikeStatus(duplicateReference.processing_status)) {
       let { data: inProgress, error: inProgressError } = await supabaseAdmin
         .from('reference_videos')
         .select(selectReferenceVideoColumns({ includeProjectId: true, detail: true }))
@@ -3911,6 +4047,7 @@ export async function analyzeReferenceVideo({
   const processingReference = await createProcessingReferenceVideo({
     supabaseAdmin,
     accountId,
+    referenceId,
     projectId: normalizedProjectId,
     title: normalizedTitle,
     topic: normalizedTopic,

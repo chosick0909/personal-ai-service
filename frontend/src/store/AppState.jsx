@@ -12,7 +12,9 @@ import { createAccount, deleteAccountById, listAccounts, loadAccountProfile } fr
 import { supabase } from '../lib/supabase'
 import {
   analyzeReferenceVideo,
+  createReferenceUploadSession,
   deleteReferenceVideo as deleteReferenceVideoRecord,
+  fetchReferenceUploadSessionByClientUploadId,
   fetchReferenceVideoDetail,
   generateChatReply,
   generateScriptFeedback,
@@ -50,6 +52,7 @@ const SCRIPT_VERSIONS_CACHE_TTL_MS = 1000 * 60 * 60 * 12
 const PROCESSING_POLL_FAST_MS = 3000
 const PROCESSING_POLL_NORMAL_MS = 5000
 const PROCESSING_POLL_SLOW_MS = 10000
+const UPLOAD_RECOVERY_TIMEOUT_MS = 15000
 const OAUTH_NOISE_KEYS = new Set([
   'error',
   'error_code',
@@ -633,6 +636,22 @@ function isAnalyzePage() {
   }
 
   return window.location.pathname === '/analyze'
+}
+
+function createClientUploadId() {
+  const randomPart =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `upload-${randomPart}`
+}
+
+function isTemporaryReferenceId(referenceId = '') {
+  return String(referenceId || '').startsWith('reference-')
+}
+
+function isProcessingLikeReferenceStatus(status = '') {
+  return status === 'uploading' || status === 'processing'
 }
 
 function classifyAnalyzeFailure(error) {
@@ -1401,9 +1420,9 @@ export function AppStateProvider({ children }) {
         const normalizedReferenceId = String(item?.id || '').trim()
         return (
           normalizedReferenceId &&
-          item.status !== 'processing' &&
+          !isProcessingLikeReferenceStatus(item.status) &&
           item.status !== 'failed' &&
-          !normalizedReferenceId.startsWith('reference-') &&
+          !isTemporaryReferenceId(normalizedReferenceId) &&
           !getCachedReferenceDetail(normalizedAccountId, normalizedReferenceId)
         )
       })
@@ -1572,7 +1591,7 @@ export function AppStateProvider({ children }) {
       return true
     }
 
-    const shouldDeleteServerRecord = !normalizedReferenceId.startsWith('reference-')
+    const shouldDeleteServerRecord = !isTemporaryReferenceId(normalizedReferenceId)
 
     setReferenceHistory((current) => current.filter((item) => item.id !== normalizedReferenceId))
     removeCachedReferenceDetail(requestAccountId, normalizedReferenceId)
@@ -1883,7 +1902,7 @@ export function AppStateProvider({ children }) {
   const refreshProcessingReference = async (referenceId) => {
     const requestAccountId = currentAccount?.id
     const normalizedReferenceId = String(referenceId || '').trim()
-    if (!requestAccountId || !normalizedReferenceId || normalizedReferenceId.startsWith('reference-')) {
+    if (!requestAccountId || !normalizedReferenceId || isTemporaryReferenceId(normalizedReferenceId)) {
       return
     }
     if (processingPollInFlightRef.current.has(normalizedReferenceId)) {
@@ -1900,11 +1919,11 @@ export function AppStateProvider({ children }) {
       const baseReference =
         referenceHistory.find((item) => item.id === normalizedReferenceId) || detail.reference
 
-      if (rawStatus === 'processing') {
+      if (isProcessingLikeReferenceStatus(rawStatus)) {
         const nextReference = {
           ...baseReference,
           ...detail.reference,
-          status: 'processing',
+          status: rawStatus,
         }
         setReferenceHistory((current) =>
           current.map((item) => (item.id === normalizedReferenceId ? { ...item, ...nextReference } : item)),
@@ -1913,7 +1932,7 @@ export function AppStateProvider({ children }) {
           setReferenceData(nextReference)
           setCurrentStep('analyzing')
           setIsAnalyzing(true)
-          setUploadPhase('analyzing')
+          setUploadPhase(rawStatus === 'uploading' ? 'uploading' : 'analyzing')
         }
         return
       }
@@ -1960,7 +1979,10 @@ export function AppStateProvider({ children }) {
     }
 
     const processingItems = referenceHistory.filter(
-      (item) => item?.id && item.status === 'processing' && !String(item.id).startsWith('reference-'),
+      (item) =>
+        item?.id &&
+        isProcessingLikeReferenceStatus(item.status) &&
+        !isTemporaryReferenceId(item.id),
     )
     if (!processingItems.length) {
       return undefined
@@ -2023,6 +2045,8 @@ export function AppStateProvider({ children }) {
       ? options.topic.trim()
       : uploadTopic.trim()
     const displayTopic = normalizedTopic || '일반'
+    const persistedProjectId = getPersistedCurrentProjectId()
+    const clientUploadId = createClientUploadId()
 
     const createdAt = new Date().toISOString()
     const localReference = {
@@ -2030,9 +2054,9 @@ export function AppStateProvider({ children }) {
       title: uploadTitle.trim() || file.name.replace(/\.[^.]+$/, ''),
       fileName: file.name,
       topic: displayTopic,
-      projectId: getPersistedCurrentProjectId(),
+      projectId: persistedProjectId,
       createdAt,
-      status: 'processing',
+      status: 'uploading',
     }
 
     activeReferenceIdRef.current = localReference.id
@@ -2046,7 +2070,7 @@ export function AppStateProvider({ children }) {
     setPendingSuggestion(null)
     setAnalyzeError('')
     setAnalyzeErrorType('')
-    setUploadPhase('uploading')
+    setUploadPhase('creating-session')
     setChatMessages([])
     setCopilotUsage(createInitialCopilotUsage())
     setReferenceHistory((current) => [localReference, ...current])
@@ -2057,19 +2081,55 @@ export function AppStateProvider({ children }) {
     setIsResultEntering(false)
 
     let keepAnalyzingAfterError = false
+    let serverReferenceId = ''
     try {
+      const uploadSession = await createReferenceUploadSession({
+        clientUploadId,
+        file,
+        accountId: requestAccountId,
+        topic: normalizedTopic,
+        title: uploadTitle,
+        projectId: persistedProjectId,
+        signal: requestAbortController.signal,
+      })
+      if (!isCurrentAnalysisRequest()) {
+        return
+      }
+
+      const sessionReference = {
+        ...localReference,
+        ...uploadSession.reference,
+        status: uploadSession.reference?.status || 'uploading',
+      }
+      serverReferenceId = String(sessionReference.id || '').trim()
+      activeReferenceIdRef.current = serverReferenceId || localReference.id
+      setReferenceData(sessionReference)
+      setUploadPhase('uploading')
+      setReferenceHistory((current) =>
+        current.map((item) =>
+          item.id === localReference.id
+            ? {
+                ...sessionReference,
+                generatedScripts: [],
+              }
+            : item,
+        ),
+      )
+
       const analysis = await analyzeReferenceVideo({
         file,
         accountId: requestAccountId,
         topic: normalizedTopic,
         title: uploadTitle,
-        projectId: getPersistedCurrentProjectId(),
+        projectId: persistedProjectId,
+        referenceId: serverReferenceId,
+        clientUploadId,
         signal: requestAbortController.signal,
       })
       if (!isCurrentAnalysisRequest()) {
         if (canceledAnalysisTokensRef.current.has(requestToken)) {
           const staleReferenceId = String(analysis?.reference?.id || '').trim()
-          if (staleReferenceId && !staleReferenceId.startsWith('reference-')) {
+          if (staleReferenceId && !isTemporaryReferenceId(staleReferenceId)) {
             try {
               await deleteReferenceVideoRecord(staleReferenceId, requestAccountId)
             } catch {
@@ -2084,23 +2144,25 @@ export function AppStateProvider({ children }) {
       const completedReference = {
         ...localReference,
         ...analysis.reference,
-        status: analysis.reference?.status === 'processing' ? 'processing' : 'ready',
+        status: isProcessingLikeReferenceStatus(analysis.reference?.status)
+          ? analysis.reference.status
+          : 'ready',
       }
-      if (completedReference.status !== 'processing') {
+      if (!isProcessingLikeReferenceStatus(completedReference.status)) {
         void refreshEntitlement({ referenceId: completedReference.id, silent: true })
       }
       setUploadTitle('')
-      if (completedReference.status === 'processing') {
+      if (isProcessingLikeReferenceStatus(completedReference.status)) {
         keepAnalyzingAfterError = true
         activeReferenceIdRef.current = completedReference.id
         setReferenceData(completedReference)
         setGeneratedScripts([])
-        setUploadPhase('server-accepted')
+        setUploadPhase(completedReference.status === 'uploading' ? 'uploading' : 'server-accepted')
         setCurrentStep('analyzing')
         setIsAnalyzing(true)
         setReferenceHistory((current) =>
           current.map((item) =>
-            item.id === localReference.id
+            item.id === localReference.id || item.id === completedReference.id
               ? {
                   ...completedReference,
                   generatedScripts: [],
@@ -2138,17 +2200,79 @@ export function AppStateProvider({ children }) {
       setAnalyzeError(analyzedFailure.message)
       setAnalyzeErrorType(analyzedFailure.type)
       if (analyzedFailure.type === 'recovering') {
-        keepAnalyzingAfterError = true
-        setCurrentStep('analyzing')
-        setIsAnalyzing(true)
-        setUploadPhase('server-accepted')
-        window.setTimeout(() => {
-          void loadReferenceHistory(requestAccountId)
-        }, 1200)
+        const recoverableReferenceId = String(serverReferenceId || activeReferenceIdRef.current || '').trim()
+        if (recoverableReferenceId && !isTemporaryReferenceId(recoverableReferenceId)) {
+          keepAnalyzingAfterError = true
+          setCurrentStep('analyzing')
+          setIsAnalyzing(true)
+          setUploadPhase('server-accepted')
+          window.setTimeout(() => {
+            void refreshProcessingReference(recoverableReferenceId)
+            void loadReferenceHistory(requestAccountId)
+          }, 1200)
+        } else {
+          keepAnalyzingAfterError = true
+          setCurrentStep('analyzing')
+          setIsAnalyzing(true)
+          setUploadPhase('server-accepted')
+          window.setTimeout(async () => {
+            if (!isCurrentAnalysisRequest()) {
+              return
+            }
+            try {
+              const recoveredSession = await fetchReferenceUploadSessionByClientUploadId({
+                clientUploadId,
+              })
+              const recoveredReference = recoveredSession?.reference
+              const recoveredReferenceId = String(recoveredReference?.id || '').trim()
+              if (recoveredReferenceId && !isTemporaryReferenceId(recoveredReferenceId)) {
+                activeReferenceIdRef.current = recoveredReferenceId
+                setReferenceData({
+                  ...localReference,
+                  ...recoveredReference,
+                  status: recoveredReference.status || 'uploading',
+                })
+                setReferenceHistory((current) =>
+                  current.map((item) =>
+                    item.id === localReference.id
+                      ? {
+                          ...localReference,
+                          ...recoveredReference,
+                          generatedScripts: [],
+                        }
+                      : item,
+                  ),
+                )
+                void refreshProcessingReference(recoveredReferenceId)
+                return
+              }
+            } catch {
+              // Fall through to the upload interruption message below.
+            }
+            setCurrentStep('upload')
+            setUploadPhase('failed')
+            setIsAnalyzing(false)
+            setAnalyzeError('업로드가 완료되기 전에 연결이 끊어진 것 같아요. 네트워크 상태를 확인한 뒤 다시 업로드해주세요.')
+            setAnalyzeErrorType('recovering')
+            setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
+            if (activeReferenceIdRef.current === localReference.id) {
+              activeReferenceIdRef.current = null
+            }
+          }, UPLOAD_RECOVERY_TIMEOUT_MS)
+        }
       } else {
         setCurrentStep('upload')
         setUploadPhase('failed')
-        setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
+        setReferenceHistory((current) =>
+          current.map((item) =>
+            serverReferenceId && item.id === serverReferenceId
+              ? {
+                  ...item,
+                  status: 'failed',
+                }
+              : item,
+          ).filter((item) => item.id !== localReference.id),
+        )
       }
     } finally {
       if (analysisAbortControllerRef.current === requestAbortController) {
@@ -2291,7 +2415,7 @@ export function AppStateProvider({ children }) {
     setActiveToolPage(null)
 
     const applyOpenedState = ({ detail, baseItem }) => {
-      const isProcessingReference = detail.reference?.status === 'processing'
+      const isProcessingReference = isProcessingLikeReferenceStatus(detail.reference?.status)
       const isFailedReference = detail.reference?.status === 'failed'
       const restoredSelectedScript =
         detail.generatedScripts?.find((script) => script.id === baseItem.selectedScriptId) || null

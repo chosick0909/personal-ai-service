@@ -236,6 +236,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       active: referenceData?.id === item.id,
       isProcessing:
         item.status === 'processing' ||
+        item.status === 'uploading' ||
         (referenceData?.id === item.id && (currentStep === 'analyzing' || isAnalyzing)),
       isEditing:
         referenceData?.id === item.id &&

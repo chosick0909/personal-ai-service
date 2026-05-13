@@ -44,9 +44,12 @@ import {
 } from './lib/document-query.js'
 import {
   analyzeReferenceVideo,
+  createReferenceUploadSession,
   deleteReferenceVideo,
+  getReferenceUploadSessionByClientUploadId,
   getReferenceVideo,
   listReferenceVideos,
+  updateReferenceUploadSessionState,
   updateReferenceVideo,
 } from './lib/reference-video-analysis.js'
 import { createProject, deleteProject, listProjects } from './lib/projects.js'
@@ -963,6 +966,65 @@ app.get(
   }),
 )
 
+app.post(
+  '/api/reference-videos/upload-session',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const clientUploadId =
+      req.body?.clientUploadId ||
+      req.body?.client_upload_id ||
+      req.headers['x-idempotency-key'] ||
+      ''
+    const session = await createReferenceUploadSession({
+      accountId: account.id,
+      projectId: req.body?.projectId || null,
+      title: req.body?.title,
+      topic: req.body?.topic,
+      originalFilename: req.body?.originalFilename || req.body?.fileName || '',
+      mimeType: req.body?.mimeType || '',
+      clientUploadId,
+    })
+
+    logReferenceUploadStage(req, 'upload_session_created', {
+      accountId: account.id,
+      status: 'success',
+      referenceId: session?.id || null,
+    })
+
+    res.status(201).json({
+      message: 'Reference upload session created',
+      analysis: session,
+      referenceId: session?.id || null,
+    })
+  }),
+)
+
+app.get(
+  '/api/reference-videos/upload-session/:clientUploadId',
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req, { body: false })
+    const session = await getReferenceUploadSessionByClientUploadId({
+      accountId: account.id,
+      clientUploadId: req.params.clientUploadId,
+    })
+
+    if (!session) {
+      res.status(404).json({
+        error: {
+          code: 'UPLOAD_SESSION_NOT_FOUND',
+          message: 'Upload session not found',
+        },
+      })
+      return
+    }
+
+    res.json({
+      analysis: session,
+      referenceId: session?.id || null,
+    })
+  }),
+)
+
 app.patch(
   '/api/reference-videos/:id',
   asyncHandler(async (req, res) => {
@@ -1054,7 +1116,10 @@ app.post(
   uploadVideo.single('video'),
   asyncHandler(async (req, res) => {
     logReferenceUploadStage(req, 'file_validation', { status: 'start' })
+    let account = null
+    const referenceId = String(req.body?.referenceId || req.body?.reference_id || '').trim()
     try {
+      account = await resolveRequestAccount(req)
       await validateUploadedFile(req.file, {
         fieldName: 'video',
         allowedMimePrefixes: ['video/'],
@@ -1069,10 +1134,36 @@ app.post(
         statusCode: error.statusCode || 400,
         message: error.message,
       })
+      if (referenceId && account?.id) {
+        await updateReferenceUploadSessionState({
+          accountId: account.id,
+          referenceId,
+          patch: {
+            processing_status: 'failed',
+            current_stage: 'file_validation',
+            failure_stage: 'file_validation',
+            failure_code: error.code || 'FILE_VALIDATION_FAILED',
+            failure_message: error.message || '업로드한 파일을 확인하지 못했습니다.',
+          },
+        })
+      }
       await removeUploadedTempFile(req.file)
       throw error
     }
-    const account = await resolveRequestAccount(req)
+    if (referenceId) {
+      await updateReferenceUploadSessionState({
+        accountId: account.id,
+        referenceId,
+        patch: {
+          current_stage: 'upload_received',
+        },
+      })
+      logReferenceUploadStage(req, 'upload_received', {
+        accountId: account.id,
+        status: 'success',
+        referenceId,
+      })
+    }
     const usageStatus = await assertUsageAllowed({
       userId: req.auth?.userId,
       eventType: 'reference_analysis',
@@ -1080,6 +1171,7 @@ app.post(
     const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const analysisInput = {
       accountId: account.id,
+      referenceId,
       file: req.file,
       topic: req.body?.topic,
       title: req.body?.title,
