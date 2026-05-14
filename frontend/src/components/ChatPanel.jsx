@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useAppState } from '../store/AppState'
 
 function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }) {
@@ -108,6 +109,7 @@ function LoadingBubble({ label }) {
 }
 
 export default function ChatPanel({ embedded = false, fixedHeight = null }) {
+  const draftInputRef = useRef(null)
   const {
     chatMessages,
     draftMessage,
@@ -146,6 +148,19 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     ['body', 'BODY'],
     ['cta', 'CTA'],
   ]
+  useEffect(() => {
+    const handleFocusCopilotDraft = () => {
+      window.requestAnimationFrame(() => {
+        draftInputRef.current?.focus()
+      })
+    }
+
+    window.addEventListener('hookai:focus-copilot-draft', handleFocusCopilotDraft)
+    return () => {
+      window.removeEventListener('hookai:focus-copilot-draft', handleFocusCopilotDraft)
+    }
+  }, [])
+
   const handleDraftKeyDown = (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent?.isComposing) {
       return
@@ -243,6 +258,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
             })}
           </div>
           <textarea
+            ref={draftInputRef}
             value={draftMessage}
             onChange={(event) => setDraftMessage(event.target.value)}
             onKeyDown={handleDraftKeyDown}

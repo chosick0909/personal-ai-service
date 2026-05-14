@@ -68,6 +68,7 @@ export default function Editor({ embedded = false }) {
     goBackToResults,
     exportCurrentScriptPdf,
     copilotRemaining,
+    setDraftMessage,
   } = useAppState()
   const totalLength =
     editorSections.hook.length + editorSections.body.length + editorSections.cta.length
@@ -102,9 +103,17 @@ export default function Editor({ embedded = false }) {
       return
     }
 
+    let didCopyToClipboard = false
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-    } else {
+      try {
+        await navigator.clipboard.writeText(text)
+        didCopyToClipboard = true
+      } catch {
+        didCopyToClipboard = false
+      }
+    }
+
+    if (!didCopyToClipboard) {
       const textarea = document.createElement('textarea')
       textarea.value = text
       textarea.setAttribute('readonly', '')
@@ -115,6 +124,18 @@ export default function Editor({ embedded = false }) {
       document.execCommand('copy')
       document.body.removeChild(textarea)
     }
+
+    setDraftMessage((current) => {
+      const normalizedCurrent = String(current || '').trim()
+      if (!normalizedCurrent) {
+        return text
+      }
+      if (normalizedCurrent.includes(text)) {
+        return normalizedCurrent
+      }
+      return `${normalizedCurrent}\n\n${text}`
+    })
+    window.dispatchEvent(new CustomEvent('hookai:focus-copilot-draft'))
 
     setIsScriptCopied(true)
     if (copiedTimerRef.current) {

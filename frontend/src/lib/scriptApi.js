@@ -1,4 +1,5 @@
 import { apiFetch, createApiError, parseApiResponse } from './api'
+import { jsPDF as BrowserJsPDF } from 'jspdf'
 
 export async function createScriptSelection({
   accountId,
@@ -247,17 +248,13 @@ export async function downloadScriptPdf({ title, sections }) {
     throw createPdfExportError('현재 환경에서는 브라우저 PDF 내보내기를 사용할 수 없습니다.')
   }
 
-  let jsPDF
-  try {
-    const module = await import('jspdf')
-    jsPDF = module.jsPDF
-  } catch (error) {
-    throw createPdfExportError('PDF 생성 모듈을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.', error)
+  if (!BrowserJsPDF) {
+    throw createPdfExportError('PDF 생성 모듈을 사용할 수 없습니다. 새로고침 후 다시 시도해주세요.')
   }
 
   try {
     const fontBase64 = await fetchFontAsBase64()
-    const pdf = new jsPDF({
+    const pdf = new BrowserJsPDF({
       unit: 'pt',
       format: 'a4',
     })
