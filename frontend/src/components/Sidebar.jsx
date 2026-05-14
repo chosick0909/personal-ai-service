@@ -140,6 +140,7 @@ const ADMIN_UNLIMITED_EMAILS = new Set([
   'jangjaeung5@gmail.com',
   'rlawoejr1234@gmail.com',
   'jjung.0301.haha@gmail.com',
+  'youngduu430@gmail.com',
 ])
 
 function isAdminUnlimitedEmail(email) {
