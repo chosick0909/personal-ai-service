@@ -61,6 +61,26 @@ test('ABC strategy instructions keep hook templates subordinate to variation str
   )
 })
 
+test('account goal and strategy labels are not required as surface setting cues', () => {
+  const guard = __referenceVideoAnalysisTest.buildCategoryGuard({
+    accountSettings: {
+      accountGoal: 'personal-influencer',
+      strategyPreferences: ['정보형 콘텐츠'],
+      voiceTone: 'friendly',
+      persona: {
+        job: '체형 보정 코디 전문가',
+        painPoints: '상체가 커 보여서 고민',
+      },
+    },
+  })
+  const summary = __referenceVideoAnalysisTest.buildPromptGuardSummary(guard)
+
+  assert.equal(summary.settingCues.includes('퍼스널 인플루언싱'), false)
+  assert.equal(summary.settingCues.includes('정보형 콘텐츠'), false)
+  assert.equal(summary.settingCues.includes('친근한 언니형'), false)
+  assert.ok(summary.settingCues.some((item) => item.includes('체형 보정') || item.includes('상체')))
+})
+
 test('copilot hook templates are only enabled for hook-capable refine requests', () => {
   assert.equal(__scriptAssistantTest.shouldUseHookTemplatesForRefine('훅 더 강하게 바꿔줘', ['hook']), true)
   assert.equal(__scriptAssistantTest.shouldUseHookTemplatesForRefine('전체적으로 초반 이탈 줄여줘', ['hook', 'body', 'cta']), true)
