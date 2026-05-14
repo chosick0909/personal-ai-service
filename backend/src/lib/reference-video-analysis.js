@@ -19,6 +19,7 @@ import { parseModelJson } from './model-json.js'
 import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 import { retrieveGlobalKnowledgeContext } from './global-knowledge.js'
+import { formatHookTemplatesForPrompt, retrieveHookTemplates } from './hook-templates.js'
 import { normalizeUploadedText } from './text-normalize.js'
 import {
   formatWritingPlaybookRulesForPrompt,
@@ -2202,6 +2203,35 @@ function getWritingPlaybookStrengthPrompt(config = {}) {
   ].join('\n')
 }
 
+function buildHookTemplatePromptBlock(templates = []) {
+  return [
+    'hook_templates 참고 규칙(첫 문장 구조 보조 지식):',
+    '- hook_templates는 첫 문장을 복사하기 위한 자료가 아니다.',
+    '- 각 템플릿의 rewrite_rule, emotions, risk_note만 참고해 현재 주제에 맞는 새 HOOK을 작성한다.',
+    '- template 원문, 예시 문장, 고유한 시작 표현을 그대로 쓰거나 패러프레이즈하지 않는다.',
+    '- A/B/C 전략을 hook_family 선택으로 대체하지 않는다.',
+    '- 레퍼런스 문장 단위 구조 설계도보다 hook_template을 우선하지 않는다.',
+    '우선순위: 1. 레퍼런스 문장 단위 구조 설계도 2. 현재 주제/타겟/상품 정보 3. A/B/C 전략 방향 4. hook_template의 후킹 논리',
+    '',
+    '검색된 hook_templates(보조 참고, 원문 템플릿 미포함):',
+    formatHookTemplatesForPrompt(templates, 6),
+  ].join('\n')
+}
+
+function getHookTemplateStrategyInstruction(config = {}) {
+  const label = String(config?.label || '')
+  if (label === 'A안') {
+    return 'A안 원본형: 레퍼런스 첫 문장의 역할, 길이감, 리듬을 최대한 유지한다. hook_template은 훅이 문제형/혜택형/후기형 중 어디에 가까운지 판단하는 약한 보조 신호로만 쓴다.'
+  }
+  if (label === 'B안') {
+    return 'B안 대화형: A안과 같은 핵심 훅 논리를 유지하되 말투만 더 자연스럽게 바꾼다. “요즘 누가”, “아직도”, “진짜 이거” 같은 템플릿식 시작 표현 반복은 피한다.'
+  }
+  if (label === 'C안') {
+    return 'C안 후킹형: 레퍼런스 구조를 깨지 않는 선에서 검색 후보의 긴장감, 궁금증, 저장 욕구를 더 적극적으로 반영한다. 문장 수, CTA 위치, 전개 순서는 바꾸지 않는다.'
+  }
+  return 'hook_template은 HOOK 첫 문장의 후킹 논리만 보조하고 A/B/C 전략과 레퍼런스 구조를 대체하지 않는다.'
+}
+
 function formatWritingPlaybookRowsForPrompt(rows = [], rulesBySentenceId = new Map()) {
   return rows
     .map((row, index) => {
@@ -3181,6 +3211,7 @@ async function regenerateVariationWithGPT({
   generationGuides,
   structureBlueprint,
   referenceSurfaceTerms,
+  hookTemplateContext = '',
   focusTopic = '',
   referenceTitle = '',
   retryReason = '',
@@ -3204,6 +3235,7 @@ async function regenerateVariationWithGPT({
           `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
           `세팅 신호(우선 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
           `레퍼런스 금지 표면 단어(절대 사용 금지): ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
+          `${hookTemplateContext ? `${hookTemplateContext}\n\n${getHookTemplateStrategyInstruction(config)}\n\n` : ''}` +
           `${buildEvidenceTranslationGuide(categoryGuard)}\n\n` +
           `${retryReason ? `재생성 사유: ${retryReason}\n` : ''}\n` +
           `논리 구조 청사진:\n${
@@ -4539,6 +4571,33 @@ export async function analyzeReferenceVideo({
         VARIATION_CONTEXT_TEXT_MAX,
       )
       const sharedKnowledgeItems = mapGlobalKnowledgeDebug(variationKnowledge.items || [])
+      const hookTemplateRetrieval = await runStage(
+        'retrieve-hook-templates',
+        baseContext,
+        async () =>
+          retrieveHookTemplates({
+            topic: normalizedTopic,
+            target: [
+              accountSettings?.persona?.painPoints,
+              accountSettings?.persona?.desiredChange,
+              accountSettings?.persona?.job,
+            ]
+              .map((item) => String(item || '').trim())
+              .filter(Boolean)
+              .join(' / '),
+            category: categoryGuard.category,
+            purpose:
+              ACCOUNT_GOAL_LABELS[String(categoryGuard.accountGoal || '').trim()] ||
+              categoryGuard.accountGoal ||
+              '',
+            hookAnalysis: analysisResult.hookAnalysis || '',
+            structureBlueprint,
+            settingCues: guardPromptSummary.settingCues,
+            topK: 6,
+          }),
+        stageHooks,
+      )
+      const hookTemplateContext = buildHookTemplatePromptBlock(hookTemplateRetrieval.templates || [])
 
       const generatedVariationsRaw = await Promise.all(
         VARIATION_CONFIGS.map((config) =>
@@ -4546,7 +4605,7 @@ export async function analyzeReferenceVideo({
           const systemContent = [
             '당신은 숏폼 콘텐츠 작가다. 새 대본을 창작하지 말고, 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 1분 스크립트를 만든다. 출력은 JSON만 반환한다.',
             `연도 규칙: 새 연도 표현은 ${CURRENT_CONTENT_YEAR}년만 사용하고 2024년은 쓰지 않는다.`,
-            '우선순위: 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 레퍼런스 구조 잠금 > 전략 라벨.',
+            '우선순위: 캐릭터 고정 규칙 > 이번 릴스 주제 > 계정/타겟/상품 맥락 > 레퍼런스 구조 잠금 > 전략 라벨 > hook_template 보조 지식.',
             '레퍼런스 계약: 제목/파일명/녹화일/원문 주제/고유명사는 쓰지 않는다. 전사는 구조, 리듬, 문장 기능, 심리 트리거, 길이감만 참고한다.',
             '문장 계약: blueprint가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다.',
             '도메인 계약: 소재는 계정 카테고리와 이번 주제 기준으로 재해석한다. 계정과 충돌하는 업종/상황은 가져오지 않는다.',
@@ -4570,6 +4629,8 @@ export async function analyzeReferenceVideo({
             `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
             `레퍼런스 금지 표면 단어(절대 사용 금지): ${referenceGuard.surfaceTerms.join(', ') || '없음'}\n\n` +
             `${buildEvidenceTranslationGuide(categoryGuard)}\n\n` +
+            `${hookTemplateContext}\n\n` +
+            `${getHookTemplateStrategyInstruction(config)}\n\n` +
             `논리 구조 청사진:\n${
               structureBlueprint.logicFlow.length
                 ? structureBlueprint.logicFlow.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
@@ -4709,6 +4770,7 @@ export async function analyzeReferenceVideo({
               generationGuides,
               structureBlueprint,
               referenceSurfaceTerms: referenceGuard.surfaceTerms,
+              hookTemplateContext,
               focusTopic: normalizedTopic,
               referenceTitle: normalizedTitle,
               retryReason: structureState.reason,
@@ -4738,6 +4800,7 @@ export async function analyzeReferenceVideo({
                 generationGuides,
                 structureBlueprint,
                 referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                hookTemplateContext,
                 focusTopic: normalizedTopic,
                 referenceTitle: normalizedTitle,
                 retryReason: `품질 점수 기준 미달: avg=${qualityScore.average.toFixed(2)}`,
@@ -4768,6 +4831,7 @@ export async function analyzeReferenceVideo({
                 generationGuides,
                 structureBlueprint,
                 referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                hookTemplateContext,
                 focusTopic: normalizedTopic,
                 referenceTitle: normalizedTitle,
                 retryReason: alignment.reason,
@@ -4798,6 +4862,7 @@ export async function analyzeReferenceVideo({
               generationGuides,
               structureBlueprint,
               referenceSurfaceTerms: referenceGuard.surfaceTerms,
+              hookTemplateContext,
               focusTopic: normalizedTopic,
               referenceTitle: normalizedTitle,
               retryReason: '초안 생성 결과가 비어 있음',
@@ -4894,6 +4959,12 @@ export async function analyzeReferenceVideo({
             alignment,
             usedChunkIds: sharedKnowledgeItems.map((item) => item.id),
             usedKnowledge: sharedKnowledgeItems,
+            usedHookTemplates: (hookTemplateRetrieval.templates || []).slice(0, 6).map((item) => ({
+              hookCode: item.hook_code,
+              title: item.title,
+              hookFamily: item.hook_family,
+              similarity: item.similarity,
+            })),
           }
         }, stageHooks),
       ),
@@ -5548,9 +5619,11 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
 }
 
 export const __referenceVideoAnalysisTest = {
+  buildHookTemplatePromptBlock,
   buildTopicFocusPrompt,
   extractReferenceSurfaceTerms,
   findReferenceSurfaceLeakage,
+  getHookTemplateStrategyInstruction,
   normalizeGenerationTopic,
   normalizeReferenceTitle,
 }

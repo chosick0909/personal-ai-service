@@ -4,6 +4,7 @@ import { logAIUsage } from './ai-usage-logger.js'
 import { parseModelJson } from './model-json.js'
 import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
+import { formatHookTemplatesForPrompt, retrieveHookTemplates } from './hook-templates.js'
 
 function requireClients() {
   if (!hasSupabaseAdminConfig()) {
@@ -583,6 +584,54 @@ function buildReferenceGuides(reference) {
   return { insights, checkpoints }
 }
 
+function shouldUseHookTemplatesForRefine(request = '', targetSections = SECTION_KEYS) {
+  const text = String(request || '').trim()
+  if (!targetSections.includes('hook')) return false
+  if (targetSections.length === 1) return true
+  return /(hook|훅|후킹|첫문장|첫 문장|도입|오프닝|강하게|초반|이탈|조회수|시선|임팩트|궁금|긴장|반전)/i.test(text)
+}
+
+function buildCopilotHookTemplateQuery({ sections = {}, request = '', reference = {}, selectedLabel = '' } = {}) {
+  const normalized = normalizeSections(sections)
+  const selectedVariation = findSelectedVariation(reference, selectedLabel)
+  const blueprint = selectedVariation?.structureBlueprint || {}
+
+  return {
+    topic: reference.topic || '',
+    target: [
+      `사용자 요청: ${request}`,
+      normalized.hook ? `현재 HOOK: ${normalized.hook}` : '',
+      normalized.body ? `현재 BODY 요약: ${normalized.body.slice(0, 220)}` : '',
+      normalized.cta ? `현재 CTA 요약: ${normalized.cta.slice(0, 120)}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    category: '',
+    purpose: '',
+    hookAnalysis: reference.hook_analysis || '',
+    structureBlueprint: blueprint,
+    settingCues: [
+      reference.structure_analysis,
+      reference.psychology_analysis,
+      ...(reference.frame_notes || []).map((frame) => frame?.hookReason || frame?.observation || ''),
+    ],
+  }
+}
+
+function buildCopilotHookTemplateContext(templates = []) {
+  return [
+    '코파일럿 hook_templates 참고(내부 보조 지식):',
+    '- hook_templates는 현재 초안의 HOOK을 더 잘 고치기 위한 구조 참고용이다.',
+    '- 현재 초안의 주제, 상품, 타겟, 레퍼런스 구조를 바꾸지 않는다.',
+    '- template 원문, 예시 문장, 특유의 시작 표현을 복사하거나 패러프레이즈하지 않는다.',
+    '- BODY/CTA만 수정하는 요청이면 HOOK을 바꾸지 않는다.',
+    '- rewrite_rule, emotions, risk_note만 참고해 현재 초안에 맞는 새 표현으로 고친다.',
+    '',
+    '검색된 hook_templates:',
+    formatHookTemplatesForPrompt(templates, 3),
+  ].join('\n')
+}
+
 function buildCharacterBoundary(accountId) {
   return [
     `현재 선택된 캐릭터 계정 ID: ${accountId}`,
@@ -674,6 +723,7 @@ function buildRefineUserPrompt({
   selectedLabel,
   referenceContext,
   guides,
+  hookTemplateContext = '',
   targetSections = SECTION_KEYS,
 }) {
   const normalizedSections = normalizeSections(sections)
@@ -686,6 +736,7 @@ function buildRefineUserPrompt({
     `사용자 요청: ${normalizedRequest}\n\n` +
     `선택한 안: ${selectedLabel || '-'}\n\n` +
     `${referenceContext}\n\n` +
+    `${hookTemplateContext ? `${hookTemplateContext}\n\n` : ''}` +
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     '톤 개선 지침:\n' +
@@ -748,6 +799,22 @@ export async function refineScriptWithAI({
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
   const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
   const guides = buildReferenceGuides(reference)
+  let hookTemplateContext = ''
+  let matchedHookTemplateKeys = []
+  if (shouldUseHookTemplatesForRefine(normalizedRequest, targetSections)) {
+    const hookTemplateRetrieval = await retrieveHookTemplates({
+      ...buildCopilotHookTemplateQuery({
+        sections: normalizedSections,
+        request: normalizedRequest,
+        reference,
+        selectedLabel,
+      }),
+      topK: 3,
+    })
+    const templates = hookTemplateRetrieval.templates || []
+    matchedHookTemplateKeys = templates.map((item) => item.hook_code).filter(Boolean)
+    hookTemplateContext = buildCopilotHookTemplateContext(templates)
+  }
   logPromptAssembly({
     stage: 'script-refine',
     referenceId,
@@ -775,6 +842,9 @@ export async function refineScriptWithAI({
             '부분 수정 규칙: BODY만 요청하면 HOOK과 CTA는 절대 바꾸지 않는다. HOOK만 요청하면 BODY와 CTA는 절대 바꾸지 않는다. CTA만 요청하면 HOOK과 BODY는 절대 바꾸지 않는다.',
             '문체 규칙: 설명형/교과서형 문장을 피하고 실제 사람이 말하듯 자연스럽게 쓴다. 문장은 짧게 끊고 리듬감을 만든다.',
             'HOOK 규칙: 첫 문장에서 긴장감, 반전, 궁금증을 만든다. "~하시나요?" 같은 평범한 질문은 금지한다.',
+            hookTemplateContext
+              ? 'hook_templates 규칙: 검색된 hook_template은 HOOK 구조 참고용이다. 템플릿 원문, 예시 문장, 특유의 시작 표현을 복사하지 않는다.'
+              : null,
             'BODY 규칙: 상황으로 시작하고 한 문장씩 끊어 전개한다. "많은 사람들이 ~ 하지만" 같은 문장을 금지한다.',
             'CTA 규칙: 행동 이유(손해/이득/궁금증)를 포함해 짧고 강하게 마무리한다. "좋아요/팔로우 부탁" 문구는 금지한다.',
             '연결성 규칙: HOOK에서 던진 문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
@@ -801,6 +871,7 @@ export async function refineScriptWithAI({
             selectedLabel,
             referenceContext,
             guides,
+            hookTemplateContext,
             targetSections,
           }),
         },
@@ -811,6 +882,7 @@ export async function refineScriptWithAI({
       accountId,
       referenceId,
       selectedLabel: selectedLabel || '',
+      matchedHookTemplateKeys,
     })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
@@ -973,6 +1045,8 @@ export const __scriptAssistantTest = {
   createSectionDiff,
   validateScriptFlow,
   buildEditScopeInstruction,
+  buildCopilotHookTemplateContext,
+  shouldUseHookTemplatesForRefine,
   messageMentionsLockedSections,
   logPromptAssembly,
 }
