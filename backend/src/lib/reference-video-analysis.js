@@ -1030,7 +1030,23 @@ function buildSettingCues(accountSettings = {}) {
     : {}
   const characterPrompt = normalizeSettingCue(accountSettings?.characterPrompt)
   const aiAdditionalInfo = normalizeSettingCue(accountSettings?.aiAdditionalInfo)
+  const voiceToneLabels = resolveVoiceToneLabels(accountSettings)
   const cues = []
+  const goal = normalizeSettingCue(
+    ACCOUNT_GOAL_LABELS[String(accountSettings?.accountGoal || '').trim()] ||
+      accountSettings?.accountGoal,
+  )
+  if (goal) {
+    cues.push(goal)
+  }
+
+  const strategy = Array.isArray(accountSettings?.strategyPreferences)
+    ? accountSettings.strategyPreferences
+    : []
+  for (const item of strategy) {
+    const normalized = normalizeSettingCue(item)
+    if (normalized) cues.push(normalized)
+  }
 
   const products = Array.isArray(accountSettings?.products) ? accountSettings.products : []
   for (const product of products) {
@@ -1040,6 +1056,10 @@ function buildSettingCues(accountSettings = {}) {
     for (const keyword of extractCueKeywords(description, 2)) {
       cues.push(keyword)
     }
+  }
+
+  for (const label of voiceToneLabels) {
+    cues.push(label)
   }
 
   const personaSignals = [
@@ -4514,13 +4534,11 @@ export async function analyzeReferenceVideo({
         : null,
       categoryGuard.voiceTone ? `브랜드 톤: ${categoryGuard.voiceTone}` : null,
       categoryGuard.strategyPreferences.length
-        ? `전략 선호도(문장에 그대로 쓰지 말고 콘텐츠 방향으로만 해석): ${categoryGuard.strategyPreferences.join(', ')}`
+        ? `전략 선호도: ${categoryGuard.strategyPreferences.join(', ')}`
         : null,
-      categoryGuard.accountGoal
-        ? `운영 목적(표면 문구로 쓰지 말고 전환 목표로만 해석): ${categoryGuard.accountGoal}`
-        : null,
+      categoryGuard.accountGoal ? `운영 목적: ${categoryGuard.accountGoal}` : null,
       categoryGuard.instagramId ? `인스타그램: @${categoryGuard.instagramId}` : null,
-      '계정 카테고리/세팅 신호는 강하게 참고하되, 내부 라벨(운영 목적/전략 선호도/톤 이름)을 문장에 그대로 쓰지 않는다.',
+      '계정 카테고리/세팅 신호는 강하게 참고하되, 억지 키워드 삽입보다 자연스러운 문장을 우선한다.',
     ]
       .filter(Boolean)
       .join('\n')
@@ -4591,7 +4609,6 @@ export async function analyzeReferenceVideo({
             '레퍼런스 계약: 제목/파일명/녹화일/원문 주제/고유명사는 쓰지 않는다. 전사는 구조, 리듬, 문장 기능, 심리 트리거, 길이감만 참고한다.',
             '문장 계약: blueprint가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다.',
             '도메인 계약: 소재는 계정 카테고리와 이번 주제 기준으로 재해석한다. 계정과 충돌하는 업종/상황은 가져오지 않는다.',
-            '내부 라벨 금지: 운영 목적, 전략 선호도, 톤 이름 같은 설정 라벨을 대본 표면 문장에 그대로 쓰지 않는다. 예: 퍼스널 인플루언싱, 정보형 콘텐츠, 친근한 언니형.',
             '흐름 계약: HOOK의 긴장/문제를 BODY가 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
             'A/B/C 계약: 같은 blueprint를 타되 A=원본형, B=대화형, C=후킹형으로만 차이를 둔다. 첫 문장 시작어는 서로 다르게 쓴다.',
             '문체 계약: 촌스럽고 교과서적인 설명체를 피하고, 실제 사람이 말하듯 짧고 리듬 있게 쓴다.',
@@ -4667,7 +4684,6 @@ export async function analyzeReferenceVideo({
             '생성 계약:\n' +
             '- 목표: “레퍼런스와 거의 같은 흐름/분량/리듬인데 내 주제로 바뀐 결과”를 만든다\n' +
             '- 이번 릴스 주제가 있으면 HOOK/BODY/CTA 모두 그 주제를 실제 소재로 다룬다\n' +
-            '- 운영 목적/전략 선호도/톤 이름은 내부 방향 신호다. “퍼스널 인플루언싱”, “정보형 콘텐츠” 같은 설정 라벨을 대본 문장에 그대로 쓰지 않는다\n' +
             '- 레퍼런스의 전개 순서, 문장 기능, 길이감, 욕구 트리거는 잠그고 소재/상황/상품명/업종/고유명사만 치환한다\n' +
             '- 문장 blueprint가 있으면 각 번호를 결과 문장 1개로 대응시킨다. 문장 수를 줄이거나 합치지 않는다\n' +
             '- 각 문장의 목표분량, 문장형태, 절 구조, 끝맺음, 구두점 호흡, 리듬, 원본 느낌을 최대한 유지한다\n' +
@@ -5604,8 +5620,6 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
 
 export const __referenceVideoAnalysisTest = {
   buildHookTemplatePromptBlock,
-  buildCategoryGuard,
-  buildPromptGuardSummary,
   buildTopicFocusPrompt,
   extractReferenceSurfaceTerms,
   findReferenceSurfaceLeakage,
