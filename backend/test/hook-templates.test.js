@@ -87,6 +87,7 @@ test('account metadata labels are not treated as script surface cues', () => {
 test('account metadata leakage is rejected from generated scripts', () => {
   const guard = __referenceVideoAnalysisTest.buildCategoryGuard({
     accountSettings: {
+      category: '교육',
       instagramId: '@labdotory',
       accountGoal: 'personal-influencer',
       strategyPreferences: ['정보형 콘텐츠'],
@@ -102,6 +103,24 @@ test('account metadata leakage is rejected from generated scripts', () => {
     __referenceVideoAnalysisTest.findAccountSurfaceLeakage('퍼스널 인플루언싱으로 정보형 콘텐츠를 만들어요.', guard),
     '퍼스널 인플루언싱',
   )
+  assert.equal(
+    __referenceVideoAnalysisTest.findAccountSurfaceLeakage('체형 보정 교육을 계속 해왔어요.', guard),
+    '교육',
+  )
+})
+
+test('category labels are converted into subject guidance, not script wording', () => {
+  const guard = __referenceVideoAnalysisTest.buildCategoryGuard({
+    accountSettings: {
+      category: '뷰티',
+    },
+  })
+  const guide = __referenceVideoAnalysisTest.buildCategorySubjectGuide(guard)
+
+  assert.match(guide, /카테고리명은 내부 분류 라벨/)
+  assert.match(guide, /피부/)
+  assert.match(guide, /스킨케어/)
+  assert.match(guide, /그대로 쓰지 말고/)
 })
 
 test('copilot hook templates are only enabled for hook-capable refine requests', () => {

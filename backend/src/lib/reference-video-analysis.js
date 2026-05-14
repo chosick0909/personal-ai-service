@@ -3052,6 +3052,17 @@ function buildPromptGuardSummary(guard = {}) {
   return { settingCues }
 }
 
+function buildCategorySubjectGuide(guard = {}) {
+  const category = String(guard.category || '').trim()
+  const anchors = normalizeStringList(guard.anchors || [], 8).filter((term) => term !== category)
+  if (!category && !anchors.length) {
+    return ''
+  }
+
+  const subjectHint = anchors.length ? anchors.join(', ') : '현재 계정의 실제 소재'
+  return `카테고리명은 내부 분류 라벨이다. "${category || '카테고리명'}"라는 단어를 그대로 쓰지 말고 ${subjectHint} 같은 실제 주제로 풀어쓴다.`
+}
+
 function findAccountSurfaceLeakage(text = '', guard = {}) {
   const source = String(text || '')
   if (!source) return ''
@@ -3071,6 +3082,10 @@ function findAccountSurfaceLeakage(text = '', guard = {}) {
   if (guard.voiceTone) forbiddenTerms.push(guard.voiceTone)
   if (Array.isArray(guard.strategyPreferences)) {
     forbiddenTerms.push(...guard.strategyPreferences)
+  }
+  const category = String(guard.category || '').trim()
+  if (category && category !== '기타') {
+    forbiddenTerms.push(category)
   }
 
   if (/@[a-z0-9._-]{2,}/i.test(source)) {
@@ -4533,8 +4548,10 @@ export async function analyzeReferenceVideo({
     const playbookMode = playbookContext.mode
     const playbookPrompt = playbookContext.prompt
     const guardPromptSummary = buildPromptGuardSummary(categoryGuard)
+    const categorySubjectGuide = buildCategorySubjectGuide(categoryGuard)
     const categoryGuardText = [
-      `카테고리: ${categoryGuard.category}`,
+      `카테고리 내부 라벨: ${categoryGuard.category}`,
+      categorySubjectGuide || null,
       categoryGuard.anchors.length
         ? `필수 반영 키워드(최소 1개 이상): ${categoryGuard.anchors.join(', ')}`
         : null,
@@ -4544,6 +4561,7 @@ export async function analyzeReferenceVideo({
       Array.isArray(categoryGuard.hardSettingCues) && categoryGuard.hardSettingCues.length
         ? `핵심 세팅 신호(가급적 반영): ${categoryGuard.hardSettingCues.slice(0, 2).join(', ')}`
         : null,
+      '계정 카테고리는 대본의 전체 주제 방향으로만 활용하고, 카테고리명을 문장에 그대로 포함하지 않는다.',
       '계정 카테고리/세팅 신호는 강하게 참고하되, 억지 키워드 삽입보다 자연스러운 문장을 우선한다.',
       '계정 핸들, 인스타그램 아이디, 운영 목적, 전략 선호도, 톤 이름 같은 내부 세팅값은 대본 문장에 쓰지 않는다.',
     ]
@@ -4616,7 +4634,7 @@ export async function analyzeReferenceVideo({
             '레퍼런스 계약: 제목/파일명/녹화일/원문 주제/고유명사는 쓰지 않는다. 전사는 구조, 리듬, 문장 기능, 심리 트리거, 길이감만 참고한다.',
             '문장 계약: blueprint가 있으면 각 번호를 결과 문장 1개로 치환한다. 문장 역할을 합치거나 생략하지 않는다.',
             '도메인 계약: 소재는 계정 카테고리와 이번 주제 기준으로 재해석한다. 계정과 충돌하는 업종/상황은 가져오지 않는다.',
-            '계정 내부값 금지: 계정 핸들, 인스타그램 아이디, 운영 목적, 전략 선호도, 톤 이름을 대본 표면 문장에 쓰지 않는다.',
+            '계정 내부값 금지: 카테고리명, 계정 핸들, 인스타그램 아이디, 운영 목적, 전략 선호도, 톤 이름을 대본 표면 문장에 쓰지 않는다.',
             '흐름 계약: HOOK의 긴장/문제를 BODY가 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
             'A/B/C 계약: 같은 blueprint를 타되 A=원본형, B=대화형, C=후킹형으로만 차이를 둔다. 첫 문장 시작어는 서로 다르게 쓴다.',
             '문체 계약: 촌스럽고 교과서적인 설명체를 피하고, 실제 사람이 말하듯 짧고 리듬 있게 쓴다.',
@@ -4692,6 +4710,7 @@ export async function analyzeReferenceVideo({
             '생성 계약:\n' +
             '- 목표: “레퍼런스와 거의 같은 흐름/분량/리듬인데 내 주제로 바뀐 결과”를 만든다\n' +
             '- 이번 릴스 주제가 있으면 HOOK/BODY/CTA 모두 그 주제를 실제 소재로 다룬다\n' +
+            '- 카테고리는 대본의 전체 주제 방향으로만 활용한다. “교육”, “뷰티”, “패션” 같은 카테고리명을 문장에 직접 쓰지 말고 피부/기초화장품/핏/넥라인/개념 이해 같은 실제 소재로 풀어쓴다\n' +
             '- 계정 핸들, 인스타그램 아이디, 운영 목적, 전략 선호도, 톤 이름은 내부 설정값이므로 문장에 직접 쓰지 않는다\n' +
             '- 레퍼런스의 전개 순서, 문장 기능, 길이감, 욕구 트리거는 잠그고 소재/상황/상품명/업종/고유명사만 치환한다\n' +
             '- 문장 blueprint가 있으면 각 번호를 결과 문장 1개로 대응시킨다. 문장 수를 줄이거나 합치지 않는다\n' +
@@ -4918,6 +4937,7 @@ export async function analyzeReferenceVideo({
                       '- 이번 릴스 주제는 유지하고 더 또렷하게\n' +
                       '- 훅/바디/CTA 연결 흐름 유지\n' +
                       '- 의미는 유지하고 문장만 자연스럽게\n' +
+                      '- 카테고리명은 내부 분류 라벨이므로 “교육”, “뷰티”, “패션” 같은 단어를 문장에 그대로 쓰지 않기\n' +
                       '- 계정 핸들, 인스타그램 아이디, 운영 목적, 전략 선호도, 톤 이름 같은 내부 세팅값은 문장에 쓰지 않기\n' +
                       '- 설명문 말투보다 실제 말하는 톤으로\n' +
                       '- 어색한 번역투, 보고서체, "~합니다/~드립니다" 말투는 레퍼런스/계정 톤에 맞는 자연스러운 말투로 바꾸기\n' +
@@ -5630,6 +5650,7 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
 
 export const __referenceVideoAnalysisTest = {
   buildCategoryGuard,
+  buildCategorySubjectGuide,
   buildHookTemplatePromptBlock,
   buildPromptGuardSummary,
   buildTopicFocusPrompt,
