@@ -2294,6 +2294,7 @@ async function applyWritingPlaybookCorrection({
             '각 문장의 sentenceRole을 유지하고, 같은 id에 대응하는 문장만 수정한다. ' +
             '규칙 때문에 레퍼런스 구조와 충돌하면 항상 레퍼런스 구조를 우선한다. ' +
             'output_style_example, 책 원문, 레퍼런스 파일명/제목/녹화일/촬영일/업로드일을 절대 쓰지 않는다. ' +
+            `${buildAccountIdentityLeakGuardPrompt(categoryGuard)} ` +
             '없는 실적, 상품, 사례, 숫자를 새로 만들지 않는다. 출력은 JSON만 반환한다.',
         },
         {
@@ -2303,6 +2304,7 @@ async function applyWritingPlaybookCorrection({
             `카테고리: ${categoryGuard?.category || '기타'}\n` +
             `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
             `세팅 신호: ${guardPromptSummary?.settingCues?.join(', ') || '없음'}\n\n` +
+            `${buildAccountIdentityLeakGuardPrompt(categoryGuard)}\n\n` +
             '문장별 보정 대상:\n' +
             `${formatWritingPlaybookRowsForPrompt(beforeRows, retrieval.rulesBySentenceId)}\n\n` +
             '반환 조건:\n' +
@@ -2383,7 +2385,7 @@ async function applyWritingPlaybookCorrection({
         },
       }
     }
-    const alignment = validateVariationAlignment(corrected, categoryGuard, referenceGuard)
+    const alignment = validateVariationAlignment(corrected, categoryGuard, referenceGuard, structureBlueprint)
     const correctedStructureMatch = validateSentenceBlueprintMatch(corrected, structureBlueprint, config)
     if (!alignment.ok) {
       return {
@@ -2441,6 +2443,143 @@ async function applyWritingPlaybookCorrection({
         reason: 'correction-failed',
       },
     }
+  }
+}
+
+async function repairAccountIdentityLeakage({
+  openai,
+  variationModel,
+  variation,
+  config,
+  structureBlueprint,
+  categoryGuard,
+  referenceGuard,
+  guardPromptSummary,
+  topicFocusPrompt,
+  accountId,
+  referenceId,
+}) {
+  const initialLeak = findAccountIdentityLeakage(
+    [variation?.hook, variation?.body, variation?.cta].filter(Boolean).join('\n'),
+    categoryGuard,
+    structureBlueprint,
+  )
+  if (!initialLeak) {
+    return { variation, usage: null, metadata: { applied: false, reason: 'no-identity-leak' } }
+  }
+
+  const beforeRows = buildVariationSentenceRows(variation, structureBlueprint)
+  const leakingRows = beforeRows.filter((row) =>
+    findAccountIdentityLeakage(row.text, categoryGuard, structureBlueprint),
+  )
+  if (!beforeRows.length || !leakingRows.length) {
+    return { variation, usage: null, metadata: { applied: false, reason: initialLeak } }
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: variationModel,
+      temperature: 0.12,
+      messages: [
+        {
+          role: 'system',
+          content:
+            '너는 숏폼 대본의 문장 단위 누출 보정 편집자다. 새 대본을 만들지 않고, 지정된 문장만 같은 역할과 길이감으로 바꾼다. ' +
+            '각 문장의 section, sentenceRole, 순서, 문장 수를 절대 바꾸지 않는다. ' +
+            `${buildAccountIdentityLeakGuardPrompt(categoryGuard)} ` +
+            '출력은 JSON만 반환한다.',
+        },
+        {
+          role: 'user',
+          content:
+            `전략 라벨: ${config?.label || ''}\n전략 방향: ${config?.angle || ''}\n` +
+            `카테고리: ${categoryGuard?.category || '기타'}\n` +
+            `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
+            `세팅 신호: ${guardPromptSummary?.settingCues?.join(', ') || '없음'}\n` +
+            `누출 사유: ${initialLeak}\n\n` +
+            `${buildAccountIdentityLeakGuardPrompt(categoryGuard)}\n\n` +
+            '보정 대상 문장:\n' +
+            leakingRows
+              .map((row) =>
+                [
+                  `### ${row.id} [${row.stage} / ${row.sentenceRole}]`,
+                  row.role ? `역할: ${row.role}` : null,
+                  row.targetCharRange ? `목표 길이: ${row.targetCharRange}` : null,
+                  row.sentenceShape ? `문장 형태: ${row.sentenceShape}` : null,
+                  `현재 문장: ${row.text}`,
+                ]
+                  .filter(Boolean)
+                  .join('\n'),
+              )
+              .join('\n\n') +
+            '\n\n반환 조건:\n' +
+            `- sentences 배열 길이는 정확히 ${leakingRows.length}개\n` +
+            '- id는 입력 id와 완전히 동일\n' +
+            '- text에는 보정된 한 문장만 넣기\n' +
+            '- @id, 계정명 직접 소개, “저는/제가 ...입니다/예요” 자기소개 금지\n' +
+            '- 레퍼런스 역할이 문제 제기면 문제 제기 문장으로, 효과 약속이면 효과 약속 문장으로 바꾸기\n\n' +
+            '다음 JSON 형식으로만 답하세요: {"sentences":[{"id":"hook-1","text":""}]}',
+        },
+      ],
+    })
+
+    const usage = logAIUsage('abc-identity-leak-repair', response, {
+      model: variationModel,
+      accountId,
+      referenceId,
+      label: config?.label,
+      angle: config?.angle,
+    })
+    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const sentenceMap = new Map(
+      Array.isArray(parsed?.sentences)
+        ? parsed.sentences.map((item) => [String(item?.id || ''), String(item?.text || '').trim()])
+        : [],
+    )
+
+    if (sentenceMap.size !== leakingRows.length || leakingRows.some((row) => !sentenceMap.has(row.id))) {
+      return { variation, usage, metadata: { applied: false, reason: 'sentence-count-mismatch' } }
+    }
+
+    const afterRows = beforeRows.map((row) =>
+      sentenceMap.has(row.id) ? { ...row, text: sentenceMap.get(row.id) || row.text } : row,
+    )
+    if (!isSameSectionSentenceShape(beforeRows, afterRows)) {
+      return { variation, usage, metadata: { applied: false, reason: 'section-shape-changed' } }
+    }
+
+    const corrected = normalizeVariationYearReferences(
+      reconstructVariationFromSentenceRows(variation, afterRows),
+    )
+    const remainingLeak = findAccountIdentityLeakage(
+      [corrected.hook, corrected.body, corrected.cta].filter(Boolean).join('\n'),
+      categoryGuard,
+      structureBlueprint,
+    )
+    if (remainingLeak) {
+      return { variation, usage, metadata: { applied: false, reason: remainingLeak } }
+    }
+
+    const alignment = validateVariationAlignment(corrected, categoryGuard, referenceGuard, structureBlueprint)
+    if (!alignment.ok) {
+      return { variation, usage, metadata: { applied: false, reason: alignment.reason } }
+    }
+
+    return {
+      variation: corrected,
+      usage,
+      alignment,
+      structureMatch: validateSentenceBlueprintMatch(corrected, structureBlueprint, config),
+      metadata: { applied: true, reason: initialLeak },
+    }
+  } catch (error) {
+    logAIError('abc-identity-leak-repair', error, {
+      accountId,
+      referenceId,
+      label: config?.label,
+      angle: config?.angle,
+    })
+    return { variation, usage: null, metadata: { applied: false, reason: error.message || initialLeak } }
   }
 }
 
@@ -2903,7 +3042,7 @@ async function applyWritingPlaybookBatchCorrection({
       }
     }
 
-    const alignment = validateVariationAlignment(corrected, categoryGuard, referenceGuard)
+    const alignment = validateVariationAlignment(corrected, categoryGuard, referenceGuard, structureBlueprint)
     const correctedStructureMatch = validateSentenceBlueprintMatch(corrected, structureBlueprint, context.config)
     if (!alignment.ok) {
       return {
@@ -3095,6 +3234,66 @@ function findAccountSurfaceLeakage(text = '', guard = {}) {
   return normalizeStringList(forbiddenTerms, 12).find((term) => containsTerm(source, term)) || ''
 }
 
+function hasSelfIntroductionBlueprint(structureBlueprint = {}) {
+  const sentenceBlueprint = Array.isArray(structureBlueprint?.sentenceBlueprint)
+    ? structureBlueprint.sentenceBlueprint
+    : []
+  const introPattern = /(자기\s*소개|계정\s*소개|화자\s*소개|브랜드\s*소개|작성자\s*소개|프로필\s*소개)/i
+  return sentenceBlueprint.some((item) =>
+    [
+      item?.role,
+      item?.sentenceRole,
+      item?.sourceSentence,
+      item?.feeling,
+    ]
+      .map((value) => String(value || ''))
+      .some((value) => introPattern.test(value)),
+  )
+}
+
+function findAccountIdentityLeakage(text = '', guard = {}, structureBlueprint = {}) {
+  const source = String(text || '').trim()
+  if (!source) return ''
+
+  const handle = String(guard?.instagramId || '').trim().replace(/^@/, '')
+  const handlePattern = /@[A-Za-z0-9._]{2,30}/
+  const handleMatch = source.match(handlePattern)?.[0]
+  if (handleMatch) {
+    return handle && handleMatch.toLowerCase() === `@${handle}`.toLowerCase()
+      ? `인스타그램 ID 직접 노출: ${handleMatch}`
+      : `소셜 계정 ID 직접 노출: ${handleMatch}`
+  }
+
+  if (hasSelfIntroductionBlueprint(structureBlueprint)) {
+    return ''
+  }
+
+  const selfIntroPatterns = [
+    /(?:저는|제가)\s+[^.!?\n。！？]{0,36}(?:예요|이에요|입니다|라고\s*합니다|라고요)/,
+    /[^.!?\n。！？]{1,36}\s*계정(?:입니다|이에요|예요)/,
+  ]
+  const introMatch = selfIntroPatterns
+    .map((pattern) => source.match(pattern)?.[0])
+    .find(Boolean)
+
+  return introMatch ? `레퍼런스에 없는 자기소개 문장: ${introMatch}` : ''
+}
+
+function buildAccountIdentityLeakGuardPrompt(categoryGuard = {}) {
+  const handle = String(categoryGuard?.instagramId || '').trim().replace(/^@/, '')
+  return [
+    '계정 메타데이터 노출 금지:',
+    '- 계정명, 캐릭터 슬러그, 인스타그램 ID는 내부 참고 정보이며 대본 본문에 직접 쓰지 않는다.',
+    handle ? `- 특히 @${handle} 또는 이를 변형한 계정 ID를 HOOK/BODY/CTA에 쓰지 않는다.` : '',
+    '- 레퍼런스 문장 설계도에 화자 자기소개/계정 소개 역할이 명시된 경우에만 소개 기능을 유지한다.',
+    '- 소개 기능이 필요해도 @id 대신 현재 주제와 전문성 맥락으로 자연스럽게 치환한다.',
+    '- HOOK 첫 문장에 “저는 ...입니다/예요” 같은 자기소개를 임의로 추가하면 구조 위반이다.',
+    '- personal-influencer 운영 목적은 광고/협찬/공구 수익 방향 참고일 뿐, 인플루언서 자기소개를 넣으라는 뜻이 아니다.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 function resolvePlaybookMode(accountGoal = '') {
   const normalized = String(accountGoal || '').trim()
   if (normalized === 'brand-marketing' || normalized === 'consulting-lead') {
@@ -3248,7 +3447,7 @@ async function regenerateVariationWithGPT({
       {
         role: 'system',
         content:
-          `당신은 숏폼 스크립트 재생성 편집자다. 새 대본을 자유롭게 창작하지 말고, 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 HOOK/BODY/CTA를 작성한다. 현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이며 2024년은 쓰지 않는다. 파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간은 절대 대본 소재로 쓰지 않는다. 출력은 JSON만 반환한다.`,
+          `당신은 숏폼 스크립트 재생성 편집자다. 새 대본을 자유롭게 창작하지 말고, 레퍼런스 문장 구조에 현재 주제 소재를 끼워 넣어 HOOK/BODY/CTA를 작성한다. 현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이며 2024년은 쓰지 않는다. 파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간은 절대 대본 소재로 쓰지 않는다. ${buildAccountIdentityLeakGuardPrompt(categoryGuard)} 출력은 JSON만 반환한다.`,
       },
       {
         role: 'user',
@@ -3258,6 +3457,7 @@ async function regenerateVariationWithGPT({
           `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
           `세팅 신호(우선 반영): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n` +
           `레퍼런스 금지 표면 단어(절대 사용 금지): ${(referenceSurfaceTerms || []).join(', ') || '없음'}\n` +
+          `${buildAccountIdentityLeakGuardPrompt(categoryGuard)}\n` +
           `${hookTemplateContext ? `${hookTemplateContext}\n\n${getHookTemplateStrategyInstruction(config)}\n\n` : ''}` +
           `${buildEvidenceTranslationGuide(categoryGuard)}\n\n` +
           `${retryReason ? `재생성 사유: ${retryReason}\n` : ''}\n` +
@@ -3328,6 +3528,7 @@ async function regenerateVariationWithGPT({
           '재생성 계약:\n' +
           `- 연도는 ${CURRENT_CONTENT_YEAR}년만 사용하고 2024년은 금지\n` +
           '- 레퍼런스 표면 주제/문장/키워드/파일명/날짜/분석 메타는 금지\n' +
+          '- 계정명/인스타그램 ID/캐릭터 슬러그를 대본에 직접 노출하지 않음\n' +
           '- 구조, 문장 기능, 길이감, 심리/욕구 트리거는 잠그고 소재/상황/상품명/업종/고유명사만 현재 주제로 치환\n' +
           '- blueprint가 있으면 각 번호를 결과 문장 1개로 대응시키고 합치거나 생략하지 않음\n' +
           '- 각 문장의 목표분량/문장형태/리듬/끝맺음/느낌과 HOOK/BODY/CTA 흐름, CTA 위치를 유지\n' +
@@ -3590,7 +3791,7 @@ async function diversifySimilarHooks({
         ...current,
         hook: normalizedHook || currentHook,
       }
-      const alignment = validateVariationAlignment(revised, categoryGuard, referenceGuard)
+      const alignment = validateVariationAlignment(revised, categoryGuard, referenceGuard, structureBlueprint)
       const structureMatch = validateSentenceBlueprintMatch(revised, structureBlueprint, config)
       nextVariations[index] = {
         ...attachStructureMetadata(revised, structureBlueprint, structureMatch),
@@ -3781,8 +3982,16 @@ function normalizeVariationForValidation(rawVariation, index = 0) {
   }
 }
 
-function validateVariationAlignment(variation, guard, referenceGuard = {}) {
+function validateVariationAlignment(variation, guard, referenceGuard = {}, structureBlueprint = {}) {
   if (!guard?.category || guard.category === '기타') {
+    const identityLeak = findAccountIdentityLeakage(
+      [variation?.hook, variation?.body, variation?.cta].filter(Boolean).join('\n'),
+      guard,
+      structureBlueprint,
+    )
+    if (identityLeak) {
+      return { ok: false, reason: identityLeak, warnings: [] }
+    }
     return { ok: true, reason: '카테고리 가드 없음', warnings: [] }
   }
 
@@ -3810,6 +4019,11 @@ function validateVariationAlignment(variation, guard, referenceGuard = {}) {
   }
   if (GENERATED_METADATA_LEAK_PATTERN.test(text)) {
     return { ok: false, reason: '파일명/녹화일 메타데이터 누출', warnings: [] }
+  }
+
+  const identityLeak = findAccountIdentityLeakage(text, guard, structureBlueprint)
+  if (identityLeak) {
+    return { ok: false, reason: identityLeak, warnings: [] }
   }
 
   const evidenceProfile = inferEvidenceProfile(guard)
@@ -4640,6 +4854,7 @@ export async function analyzeReferenceVideo({
             '문체 계약: 촌스럽고 교과서적인 설명체를 피하고, 실제 사람이 말하듯 짧고 리듬 있게 쓴다.',
             VARIATION_NATURAL_VOICE_RULES,
             '구간 규칙: HOOK은 일반 질문이 아니라 긴장/반전/궁금증으로 시작한다. BODY는 상황과 발견처럼 전개한다. CTA는 좋아요/팔로우가 아니라 지금 행동할 이유를 짧게 준다.',
+            buildAccountIdentityLeakGuardPrompt(categoryGuard),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
           ]
             .filter(Boolean)
@@ -4652,6 +4867,7 @@ export async function analyzeReferenceVideo({
             `${topicFocusPrompt ? `${topicFocusPrompt}\n\n` : ''}` +
             `${playbookPrompt ? `${playbookPrompt}\n\n` : ''}` +
             `카테고리 강제 가드(절대 준수):\n${categoryGuardText}\n\n` +
+            `${buildAccountIdentityLeakGuardPrompt(categoryGuard)}\n\n` +
             `캐릭터 세팅 요약(절대 우선):\n${characterSystemPrompt || '설정 없음'}\n\n` +
             `레퍼런스 금지 표면 단어(절대 사용 금지): ${referenceGuard.surfaceTerms.join(', ') || '없음'}\n\n` +
             `${buildEvidenceTranslationGuide(categoryGuard)}\n\n` +
@@ -4723,6 +4939,7 @@ export async function analyzeReferenceVideo({
             '- 세 안의 첫 문장 시작어는 서로 다르게 한다\n' +
             '- 말투 높임은 초안 안에서 끝까지 통일한다. CTA만 다른 높임으로 바꾸지 않는다\n' +
             '- 레퍼런스 표면 단어/문장 변형/원문 주제/파일명/날짜 메타데이터는 절대 쓰지 않는다\n' +
+            '- 계정명/인스타그램 ID/캐릭터 슬러그를 HOOK/BODY/CTA에 직접 쓰지 않는다\n' +
             '- 핵심 키워드 슬롯과 심리/욕구 트리거가 사라지면 실패다. 단, 키워드 억지 삽입보다 자연스러운 흐름을 우선한다\n\n' +
             '- angle은 카드 상단에 보이는 짧은 이름이다. 8자 이하 명사형으로만 쓴다\n' +
             '- angle 예시: 원본형, 대화형, 후킹형\n' +
@@ -4782,8 +4999,33 @@ export async function analyzeReferenceVideo({
 
           const parsed = parseModelJson(variationResponse.choices[0]?.message?.content || '')
           normalized = normalizeVariationYearReferences(normalizeVariationDraft(parsed, config, generationGuides))
-          alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+          alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
           structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
+
+          const initialIdentityLeak = findAccountIdentityLeakage(
+            [normalized?.hook, normalized?.body, normalized?.cta].filter(Boolean).join('\n'),
+            categoryGuard,
+            structureBlueprint,
+          )
+          if (initialIdentityLeak) {
+            const repaired = await repairAccountIdentityLeakage({
+              openai,
+              variationModel,
+              variation: normalized,
+              config,
+              structureBlueprint,
+              categoryGuard,
+              referenceGuard,
+              guardPromptSummary,
+              topicFocusPrompt,
+              accountId,
+              referenceId: processingReference.id,
+            })
+            variationUsage = sumAIUsage(variationUsage, repaired?.usage)
+            normalized = normalizeVariationYearReferences(repaired?.variation || normalized)
+            alignment = repaired?.alignment || validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
+            structureMatch = repaired?.structureMatch || validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
+          }
 
           const structureState = isVariationStructureBroken(normalized, alignment, categoryGuard, structureMatch)
 
@@ -4813,7 +5055,7 @@ export async function analyzeReferenceVideo({
             if (normalized?.usage) {
               delete normalized.usage
             }
-            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
             structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
           } else if (ENABLE_COST_GUARD && ENABLE_QUALITY_REGEN) {
             const qualityScore = scoreVariationQuality(normalized, config, categoryGuard)
@@ -4843,7 +5085,7 @@ export async function analyzeReferenceVideo({
               if (normalized?.usage) {
                 delete normalized.usage
               }
-              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
               structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
             }
           } else {
@@ -4874,7 +5116,7 @@ export async function analyzeReferenceVideo({
               if (normalized?.usage) {
                 delete normalized.usage
               }
-              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
               structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
             }
           }
@@ -4905,13 +5147,16 @@ export async function analyzeReferenceVideo({
             if (normalized?.usage) {
               delete normalized.usage
             }
-            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
             structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
           }
 
           // 문장 말투가 깨진 초안은 재생성 이후라도 한 번 더 다듬어 사용자에게 노출되는 번역투를 줄인다.
           if (ENABLE_ABC_POLISH && normalized && alignment.ok && needsFlowPolish(normalized)) {
             try {
+              const beforePolish = normalized
+              const beforePolishAlignment = alignment
+              const beforePolishStructureMatch = structureMatch
               const polishResponse = await openai.chat.completions.create({
                 model: variationModel,
                 temperature: 0.2,
@@ -4922,6 +5167,7 @@ export async function analyzeReferenceVideo({
                       '당신은 숏폼 스크립트 문장 다듬기 편집자다. 의미는 유지하고 문장만 더 자연스럽게 고친다. ' +
                       '영상 분석 메타 표현(예: 첫 3초, 자막, 클로즈업, 화면, 장면, 문구)을 절대 쓰지 마라. ' +
                       '파일명/녹화일/촬영일/업로드일/스크린레코딩 날짜와 시간도 절대 쓰지 마라. ' +
+                      `${buildAccountIdentityLeakGuardPrompt(categoryGuard)} ` +
                       `${VARIATION_NATURAL_VOICE_RULES} ` +
                       '출력은 JSON만 반환한다.',
                   },
@@ -4932,6 +5178,7 @@ export async function analyzeReferenceVideo({
                       `카테고리: ${categoryGuard.category}\n` +
                       `${topicFocusPrompt ? `${topicFocusPrompt}\n` : ''}` +
                       `세팅 신호(최소 1개 유지): ${guardPromptSummary.settingCues.join(', ') || '없음'}\n\n` +
+                      `${buildAccountIdentityLeakGuardPrompt(categoryGuard)}\n\n` +
                       `현재 초안:\nHOOK: ${normalized.hook}\n\nBODY: ${normalized.body}\n\nCTA: ${normalized.cta}\n\n` +
                       '수정 조건:\n' +
                       '- 이번 릴스 주제는 유지하고 더 또렷하게\n' +
@@ -4964,10 +5211,78 @@ export async function analyzeReferenceVideo({
                 cta: String(polished?.cta || normalized.cta || '').trim(),
               }
               normalized = normalizeVariationYearReferences(normalized)
-              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard)
+              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
               structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
+              const polishIdentityLeak = findAccountIdentityLeakage(
+                [normalized?.hook, normalized?.body, normalized?.cta].filter(Boolean).join('\n'),
+                categoryGuard,
+                structureBlueprint,
+              )
+              if (polishIdentityLeak) {
+                normalized = beforePolish
+                alignment = beforePolishAlignment
+                structureMatch = beforePolishStructureMatch
+              }
             } catch (_error) {
               // Keep original draft when polish step fails.
+            }
+          }
+
+          const finalIdentityLeak = findAccountIdentityLeakage(
+            [normalized?.hook, normalized?.body, normalized?.cta].filter(Boolean).join('\n'),
+            categoryGuard,
+            structureBlueprint,
+          )
+          if (finalIdentityLeak) {
+            const repaired = await repairAccountIdentityLeakage({
+              openai,
+              variationModel,
+              variation: normalized,
+              config,
+              structureBlueprint,
+              categoryGuard,
+              referenceGuard,
+              guardPromptSummary,
+              topicFocusPrompt,
+              accountId,
+              referenceId: processingReference.id,
+            })
+            variationUsage = sumAIUsage(variationUsage, repaired?.usage)
+            normalized = normalizeVariationYearReferences(repaired?.variation || normalized)
+            alignment = repaired?.alignment || validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
+            structureMatch = repaired?.structureMatch || validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
+
+            if (findAccountIdentityLeakage(
+              [normalized?.hook, normalized?.body, normalized?.cta].filter(Boolean).join('\n'),
+              categoryGuard,
+              structureBlueprint,
+            )) {
+              normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
+                openai,
+                variationModel,
+                config,
+                categoryGuard,
+                guardPromptSummary,
+                characterSystemPrompt,
+                generationGuides,
+                structureBlueprint,
+                referenceSurfaceTerms: referenceGuard.surfaceTerms,
+                focusTopic: normalizedTopic,
+                referenceTitle: normalizedTitle,
+                retryReason: finalIdentityLeak,
+                usageContext: {
+                  accountId,
+                  referenceId: processingReference.id,
+                  label: config.label,
+                  angle: config.angle,
+                },
+              }))
+              variationUsage = sumAIUsage(variationUsage, normalized?.usage)
+              if (normalized?.usage) {
+                delete normalized.usage
+              }
+              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
+              structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
             }
           }
 
@@ -5654,10 +5969,14 @@ export const __referenceVideoAnalysisTest = {
   buildHookTemplatePromptBlock,
   buildPromptGuardSummary,
   buildTopicFocusPrompt,
+  buildAccountIdentityLeakGuardPrompt,
   extractReferenceSurfaceTerms,
   findAccountSurfaceLeakage,
   findReferenceSurfaceLeakage,
   getHookTemplateStrategyInstruction,
+  findAccountIdentityLeakage,
+  hasSelfIntroductionBlueprint,
   normalizeGenerationTopic,
   normalizeReferenceTitle,
+  validateVariationAlignment,
 }
