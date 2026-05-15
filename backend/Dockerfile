@@ -12,4 +12,4 @@ EXPOSE 3001
 
 WORKDIR /app/backend
 
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "start"]
