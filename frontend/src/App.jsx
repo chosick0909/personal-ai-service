@@ -13,7 +13,7 @@ import { analyzeThumbnailImage, generateCaptionDraft, generateThumbnailTitles, l
 import { getCaptionStrategyRule } from './lib/captionStrategyRules'
 import { downloadScriptPdf } from './lib/scriptApi'
 import logoWebp from './Logo.webp'
-// Deploy trigger: frontend touchpoint.
+// Deploy trigger: frontend touchpoint for editor session preservation.
 // Comment-only test change for branch commit.
 import { AppStateProvider, useAppState } from './store/AppState'
 
