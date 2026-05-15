@@ -149,6 +149,7 @@ export default function ResultCards() {
     generatedScripts,
     referenceData,
     selectedScript,
+    selectedScriptId,
     selectScript,
     clearScriptSelection,
     goBackToUpload,
@@ -503,8 +504,8 @@ export default function ResultCards() {
                                 setShouldScrollToEditor(true)
                                 selectScript(scriptId)
                               }}
-                              isSelected={selectedScript?.id === script.id}
-                              hasSelection={Boolean(selectedScript)}
+                              isSelected={(selectedScript?.id || selectedScriptId) === script.id}
+                              hasSelection={Boolean(selectedScript?.id || selectedScriptId)}
                               disabled={isEditorPreparing}
                             />
                           ))}

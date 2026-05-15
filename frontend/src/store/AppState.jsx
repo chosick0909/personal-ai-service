@@ -709,6 +709,7 @@ export function AppStateProvider({ children }) {
   const [referenceData, setReferenceData] = useState(initialState.referenceData)
   const [generatedScripts, setGeneratedScripts] = useState(initialState.generatedScripts)
   const [selectedScript, setSelectedScript] = useState(initialState.selectedScript)
+  const [selectedScriptId, setSelectedScriptId] = useState(null)
   const [chatMessages, setChatMessages] = useState(initialState.chatMessages)
   const [versions, setVersions] = useState(initialState.versions)
   const [referenceHistory, setReferenceHistory] = useState([])
@@ -941,6 +942,7 @@ export function AppStateProvider({ children }) {
     setReferenceData(null)
     setGeneratedScripts([])
     setSelectedScript(null)
+    setSelectedScriptId(null)
     setChatMessages(initialState.chatMessages)
     setVersions([])
     setReferenceHistory([])
@@ -1557,6 +1559,7 @@ export function AppStateProvider({ children }) {
     setReferenceData(null)
     setGeneratedScripts([])
     setSelectedScript(null)
+    setSelectedScriptId(null)
     setActiveScriptId(null)
     setVersions([])
     setFeedback(null)
@@ -2063,6 +2066,7 @@ export function AppStateProvider({ children }) {
     setReferenceData(localReference)
     setGeneratedScripts([])
     setSelectedScript(null)
+    setSelectedScriptId(null)
     setActiveScriptId(null)
     setVersions([])
     setFeedback(null)
@@ -2287,21 +2291,61 @@ export function AppStateProvider({ children }) {
   const selectScript = async (scriptId) => {
     const requestAccountId = currentAccount?.id
     const nextScript = generatedScripts.find((item) => item.id === scriptId)
+    const activeHistoryItem = referenceHistory.find((item) => item.id === activeReferenceIdRef.current)
+    const restoredActiveScriptId =
+      activeScriptId ||
+      (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem.activeScriptId : null)
 
     if (!requestAccountId || !nextScript || isEditorPreparing) {
       return
     }
 
-    if (selectedScript?.id === scriptId && activeScriptId) {
+    if (
+      (selectedScript?.id === scriptId || selectedScriptId === scriptId || activeHistoryItem?.selectedScriptId === scriptId) &&
+      restoredActiveScriptId
+    ) {
+      const restoredEditorSections = activeHistoryItem?.editorContent
+        ? deserializeEditorContent(activeHistoryItem.editorContent)
+        : editorSections
+      const restoredVersions = Array.isArray(activeHistoryItem?.versions) && activeHistoryItem.versions.length
+        ? activeHistoryItem.versions
+        : versions
+
+      setSelectedScript(nextScript)
+      setSelectedScriptId(scriptId)
+      setActiveScriptId(restoredActiveScriptId)
+      setEditorSections(restoredEditorSections)
+      setVersions(restoredVersions)
+      setFeedback(activeHistoryItem?.feedback || feedback)
+      setPendingSuggestion(activeHistoryItem?.pendingSuggestion || pendingSuggestion)
+      setDraftMessage(
+        typeof activeHistoryItem?.draftMessage === 'string' ? activeHistoryItem.draftMessage : draftMessage,
+      )
+      setEditTarget(COPILOT_EDIT_TARGETS.has(activeHistoryItem?.editTarget) ? activeHistoryItem.editTarget : editTarget)
+      if (Array.isArray(activeHistoryItem?.chatMessages) && activeHistoryItem.chatMessages.length) {
+        setChatMessages(activeHistoryItem.chatMessages)
+      }
+      if (activeHistoryItem?.copilotUsage) {
+        setCopilotUsage(activeHistoryItem.copilotUsage)
+      }
       setCurrentStep('editor')
       setViewTransition('to-editor')
       setIsEditorPreparing(false)
       setIsEditorEntering(true)
       syncHistory(activeReferenceIdRef.current, {
-        selectedScriptId: selectedScript.id,
-        activeScriptId,
-        editorContent: serializeEditorSections(editorSections),
-        versions,
+        selectedScriptId: scriptId,
+        activeScriptId: restoredActiveScriptId,
+        editorContent: serializeEditorSections(restoredEditorSections),
+        versions: restoredVersions,
+        feedback: activeHistoryItem?.feedback || feedback,
+        pendingSuggestion: activeHistoryItem?.pendingSuggestion || pendingSuggestion,
+        draftMessage:
+          typeof activeHistoryItem?.draftMessage === 'string' ? activeHistoryItem.draftMessage : draftMessage,
+        editTarget: COPILOT_EDIT_TARGETS.has(activeHistoryItem?.editTarget) ? activeHistoryItem.editTarget : editTarget,
+        copilotUsage: activeHistoryItem?.copilotUsage || copilotUsage,
+        chatMessages: Array.isArray(activeHistoryItem?.chatMessages) && activeHistoryItem.chatMessages.length
+          ? activeHistoryItem.chatMessages
+          : chatMessages,
         lastStep: 'editor',
       })
       setTimeout(() => {
@@ -2314,6 +2358,7 @@ export function AppStateProvider({ children }) {
     }
 
     setSelectedScript(nextScript)
+    setSelectedScriptId(nextScript.id)
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
     setPendingSuggestion(null)
@@ -2388,6 +2433,16 @@ export function AppStateProvider({ children }) {
     }
 
     syncHistory(activeReferenceIdRef.current, {
+      selectedScriptId: selectedScriptId || selectedScript?.id || null,
+      activeScriptId,
+      editorContent: serializeEditorSections(editorSections),
+      versions,
+      feedback,
+      pendingSuggestion,
+      draftMessage,
+      editTarget,
+      copilotUsage,
+      chatMessages,
       lastStep: 'result',
     })
 
@@ -2411,6 +2466,7 @@ export function AppStateProvider({ children }) {
 
   const clearScriptSelection = () => {
     setSelectedScript(null)
+    setSelectedScriptId(null)
     setCurrentStep('result')
     setViewTransition('idle')
     setIsEditorEntering(false)
@@ -2438,10 +2494,31 @@ export function AppStateProvider({ children }) {
     const applyOpenedState = ({ detail, baseItem }) => {
       const isProcessingReference = isProcessingLikeReferenceStatus(detail.reference?.status)
       const isFailedReference = detail.reference?.status === 'failed'
+      const restoredSelectedScriptId = baseItem.selectedScriptId || null
+      const generatedScriptsForDetail =
+        Array.isArray(detail.generatedScripts) && detail.generatedScripts.length
+          ? detail.generatedScripts
+          : Array.isArray(baseItem.generatedScripts)
+            ? baseItem.generatedScripts
+            : []
       const restoredSelectedScript =
-        detail.generatedScripts?.find((script) => script.id === baseItem.selectedScriptId) || null
+        generatedScriptsForDetail.find((script) => script.id === restoredSelectedScriptId) ||
+        (restoredSelectedScriptId
+          ? {
+              id: restoredSelectedScriptId,
+              label:
+                restoredSelectedScriptId === 'script-1'
+                  ? 'A안'
+                  : restoredSelectedScriptId === 'script-2'
+                    ? 'B안'
+                    : restoredSelectedScriptId === 'script-3'
+                      ? 'C안'
+                      : '선택한 초안',
+              sections: baseItem.editorContent ? deserializeEditorContent(baseItem.editorContent) : createEditorSections(),
+            }
+          : null)
       const hasRestorableEditor = Boolean(
-        restoredSelectedScript &&
+        restoredSelectedScriptId &&
           (baseItem.activeScriptId || baseItem.editorContent || baseItem.lastStep === 'editor'),
       )
       const restoredEditorSections = baseItem.editorContent
@@ -2449,8 +2526,9 @@ export function AppStateProvider({ children }) {
         : createEditorSections(restoredSelectedScript?.sections)
       activeReferenceIdRef.current = baseItem.id
       setReferenceData(detail.reference)
-      setGeneratedScripts(detail.generatedScripts || [])
+      setGeneratedScripts(generatedScriptsForDetail)
       setSelectedScript(restoredSelectedScript)
+      setSelectedScriptId(restoredSelectedScriptId)
       setActiveScriptId(baseItem.activeScriptId || null)
 
       if (baseItem.activeScriptId) {
@@ -2513,7 +2591,22 @@ export function AppStateProvider({ children }) {
             ? {
                 ...entry,
                 ...detail.reference,
-                generatedScripts: detail.generatedScripts,
+                generatedScripts: generatedScriptsForDetail,
+                selectedScriptId: baseItem.selectedScriptId || entry.selectedScriptId || null,
+                activeScriptId: baseItem.activeScriptId || entry.activeScriptId || null,
+                editorContent: baseItem.editorContent || entry.editorContent || '',
+                versions: Array.isArray(baseItem.versions) && baseItem.versions.length
+                  ? baseItem.versions
+                  : entry.versions,
+                feedback: baseItem.feedback || entry.feedback || null,
+                pendingSuggestion: baseItem.pendingSuggestion || entry.pendingSuggestion || null,
+                draftMessage:
+                  typeof baseItem.draftMessage === 'string' ? baseItem.draftMessage : entry.draftMessage,
+                editTarget: baseItem.editTarget || entry.editTarget || 'all',
+                copilotUsage: baseItem.copilotUsage || entry.copilotUsage || null,
+                chatMessages: Array.isArray(baseItem.chatMessages) && baseItem.chatMessages.length
+                  ? baseItem.chatMessages
+                  : entry.chatMessages,
                 lastStep: restoredStep,
               }
             : entry,
@@ -3146,6 +3239,7 @@ export function AppStateProvider({ children }) {
       referenceData,
       generatedScripts,
       selectedScript,
+      selectedScriptId,
       chatMessages,
       versions,
       referenceHistory,
@@ -3275,6 +3369,7 @@ export function AppStateProvider({ children }) {
       referenceData,
       referenceHistory,
       selectedScript,
+      selectedScriptId,
       uploadTitle,
       uploadTopic,
       uploadPhase,
