@@ -155,6 +155,7 @@ export default function ResultCards() {
     currentStep,
     openVersionHistory,
     saveVersion,
+    goBackToResults,
     isEditorPreparing,
     isSavingVersion,
   } = useAppState()
@@ -272,7 +273,7 @@ export default function ResultCards() {
     setIsResultStepLeaving(true)
     resultStepTimerRef.current = window.setTimeout(() => {
       if (currentStep === 'editor' && boundedStep < resultSteps.length - 1) {
-        clearScriptSelection()
+        goBackToResults()
       }
       setActiveResultStep(boundedStep)
       setIsResultStepLeaving(false)

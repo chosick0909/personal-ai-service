@@ -13,4 +13,4 @@ EXPOSE 8080
 
 WORKDIR /app/frontend
 
-CMD ["npm", "run", "start"]
+CMD ["npm", "run", "serve"]

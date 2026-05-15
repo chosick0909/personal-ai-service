@@ -2292,6 +2292,27 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    if (selectedScript?.id === scriptId && activeScriptId) {
+      setCurrentStep('editor')
+      setViewTransition('to-editor')
+      setIsEditorPreparing(false)
+      setIsEditorEntering(true)
+      syncHistory(activeReferenceIdRef.current, {
+        selectedScriptId: selectedScript.id,
+        activeScriptId,
+        editorContent: serializeEditorSections(editorSections),
+        versions,
+        lastStep: 'editor',
+      })
+      setTimeout(() => {
+        if (isCurrentAccountRequest(requestAccountId)) {
+          setIsEditorEntering(false)
+          setViewTransition('idle')
+        }
+      }, 420)
+      return
+    }
+
     setSelectedScript(nextScript)
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
