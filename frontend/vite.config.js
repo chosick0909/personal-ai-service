@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [tailwindcss(), react()],
   server: {
     host: true,
-    port: 5173,
+    port: 8080,
     allowedHosts: ['hookai.kr', 'www.hookai.kr'],
     proxy: {
       '/api': {

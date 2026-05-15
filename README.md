@@ -16,7 +16,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Frontend: `http://localhost:5173`  
+Frontend: `http://localhost:8080`
 API health: `http://localhost:3001/api/health`
 
 ## Docker
@@ -28,7 +28,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Frontend: `http://localhost:5173`  
+Frontend: `http://localhost:8080`
 API health: `http://localhost:3001/api/health`
 
 Stop containers:
@@ -55,8 +55,8 @@ VITE_APP_RELEASE=local-dev
 SUPABASE_URL=
 SENTRY_DSN=
 SUPABASE_SERVICE_ROLE_KEY=
-CLIENT_ORIGIN=http://localhost:5173
-CLIENT_ORIGINS=http://localhost:5173
+CLIENT_ORIGIN=http://localhost:8080
+CLIENT_ORIGINS=http://localhost:8080
 ENABLE_TEST_ROUTES=false
 PORT=3001
 ```
@@ -66,7 +66,7 @@ PORT=3001
 1. Supabase Auth 설정
 - `Site URL`: 프론트 배포 도메인
 - `Additional Redirect URLs`:
-  - `http://localhost:5173/analyze`
+  - `http://localhost:8080/analyze`
   - `https://<YOUR_FRONTEND_DOMAIN>/analyze`
 
 2. Google OAuth 설정 (Google Cloud)
@@ -84,7 +84,7 @@ PORT=3001
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `OPENAI_API_KEY`
 - `CLIENT_ORIGINS` (쉼표로 다중 도메인 허용)
-  - 예: `https://app.yourdomain.com,http://localhost:5173`
+  - 예: `https://app.yourdomain.com,http://localhost:8080`
 - `ENABLE_TEST_ROUTES=false` (운영에서 테스트 라우트 비활성화)
 
 5. 보안 필수

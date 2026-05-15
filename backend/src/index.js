@@ -78,9 +78,8 @@ assertBackendEnv()
 const app = express()
 const port = Number(process.env.PORT || 3001)
 const host = process.env.HOST || '0.0.0.0'
-const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173'
+const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:8080'
 const defaultAllowedOrigins = [
-  'http://localhost:5173',
   'http://localhost:8080',
   'http://localhost:4173',
   'https://www.hookai.kr',
