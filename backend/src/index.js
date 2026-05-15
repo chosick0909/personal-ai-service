@@ -1565,6 +1565,76 @@ app.post(
       return
     }
 
+    if (intent.intent === 'advise_script' && req.body?.referenceId) {
+      const personalization = await buildPersonalizationContext({
+        accountId: account.id,
+        characterId: character.characterId,
+        sessionId,
+        fallbackSession: copilotFallbackSession,
+        mode: 'question',
+        query: requestText,
+      })
+      const usageStatus = await assertUsageAllowed({
+        userId: req.auth?.userId,
+        eventType: 'copilot_message',
+        referenceId: req.body?.referenceId,
+      })
+      const result = await refineScriptWithAI({
+        accountId: account.id,
+        referenceId: req.body?.referenceId,
+        selectedLabel: req.body?.selectedLabel,
+        request: requestText,
+        sections: req.body?.sections,
+        editTarget: 'none',
+        currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+        currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+        characterSystemPrompt: character.systemPrompt,
+        personalizationContext: personalization.context,
+      })
+      const memoryUpdate = await updatePersonalizationMemory({
+        accountId: account.id,
+        characterId: character.characterId,
+        sessionId: personalization.sessionId,
+        userInput: requestText,
+        assistantOutput: result.message || '',
+        fallbackSession: copilotFallbackSession,
+        mode: 'question',
+        source: 'copilot_advice',
+        metadata: {
+          selectedLabel: req.body?.selectedLabel || '',
+          referenceId: req.body?.referenceId || '',
+          copilotIntent: result.copilotIntent || intent.intent,
+        },
+      })
+      await recordUsageEvent({
+        userId: req.auth?.userId,
+        entitlementId: usageStatus.entitlement.id,
+        eventType: 'copilot_message',
+        referenceId: req.body?.referenceId,
+      })
+      res.json({
+        type: 'reply',
+        mode: 'advice',
+        autoApplied: false,
+        canUndo: false,
+        intent: {
+          ...intent,
+          copilotIntent: result.copilotIntent,
+          responseMode: result.responseMode,
+        },
+        message: result.message,
+        sections: result.sections,
+        changedSections: [],
+        flowValidation: result.flowValidation,
+        personalization: {
+          sessionId: personalization.sessionId,
+          snapshot: personalization.snapshot,
+          memoryUpdate,
+        },
+      })
+      return
+    }
+
     if (!intent.shouldModifyScript || intent.intent !== 'edit_request') {
       const personalization = await buildPersonalizationContext({
         accountId: account.id,
@@ -1740,12 +1810,12 @@ app.post(
     })
 
     res.json({
-      mode: 'suggestion',
+      mode: result.editTarget === 'none' ? 'advice' : 'suggestion',
       autoApplied: false,
       canUndo: false,
       message: result.message,
       sections: result.sections,
-      proposedSections: result.sections,
+      proposedSections: result.editTarget === 'none' ? null : result.sections,
       editTarget: result.editTarget,
       changedSections: result.changedSections,
       diff: {

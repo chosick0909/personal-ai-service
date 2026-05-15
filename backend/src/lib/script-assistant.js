@@ -43,6 +43,11 @@ const SECTION_LABELS = {
   cta: 'CTA',
 }
 const EDIT_TARGETS = new Set(['all', ...SECTION_KEYS])
+const COPILOT_INTENTS = {
+  ADVISE: 'advise_script',
+  EDIT: 'edit_script',
+  GENERAL: 'general_chat',
+}
 
 function compactSummaryText(value = '', maxLength = 34) {
   const text = String(value || '').replace(/\s+/g, ' ').trim()
@@ -102,6 +107,57 @@ function buildFallbackRefineMessage(previousSections = {}, nextSections = {}) {
   }
 
   return `${changes.slice(0, 2).join('. ')}.`
+}
+
+function classifyCopilotIntentByRule(request = '', editTarget = '') {
+  const text = String(request || '').trim()
+  const normalizedEditTarget = String(editTarget || '').trim().toLowerCase()
+  const hasExplicitSectionTarget = SECTION_KEYS.includes(normalizedEditTarget)
+  const editPattern =
+    /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix)/i
+  const advicePattern =
+    /(어때|어떤가|괜찮|약한가|약해|별로|문제|피드백|조언|평가|점수|올려도|업로드해도|이대로|봐줘|검토|진단|판단|좋아\?|나아\?|괜찮아\?)/i
+
+  const wantsEdit = editPattern.test(text)
+  const wantsAdvice = advicePattern.test(text)
+
+  if (wantsEdit) {
+    return {
+      intent: COPILOT_INTENTS.EDIT,
+      shouldEdit: true,
+      responseMode: wantsAdvice ? 'advice_then_edit' : 'edit_only',
+      editTarget: normalizeEditTarget(editTarget, text),
+      confidence: wantsAdvice ? 0.78 : 0.88,
+    }
+  }
+
+  if (wantsAdvice) {
+    return {
+      intent: COPILOT_INTENTS.ADVISE,
+      shouldEdit: false,
+      responseMode: 'advice_only',
+      editTarget: 'none',
+      confidence: 0.86,
+    }
+  }
+
+  if (hasExplicitSectionTarget) {
+    return {
+      intent: COPILOT_INTENTS.EDIT,
+      shouldEdit: true,
+      responseMode: 'edit_only',
+      editTarget: normalizedEditTarget,
+      confidence: 0.66,
+    }
+  }
+
+  return {
+    intent: COPILOT_INTENTS.GENERAL,
+    shouldEdit: false,
+    responseMode: 'chat_only',
+    editTarget: 'none',
+    confidence: 0.55,
+  }
 }
 
 function inferRequestedSections(request = '') {
@@ -285,7 +341,7 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/피드백|점수|평가|봐줘|검토|어때/i.test(text)) {
+  if (/점수|평가|피드백\s*(생성|받|해줘|줘)|검토\s*(리포트|해줘|해)/i.test(text)) {
     return {
       intent: 'feedback_request',
       editTarget: null,
@@ -299,6 +355,15 @@ function createFallbackIntent(message = '', editTarget = '') {
       intent: 'edit_request',
       editTarget: normalizedEditTarget,
       shouldModifyScript: true,
+      reply: '',
+    }
+  }
+
+  if (/(어때|어떤가|괜찮|약한가|약해|별로|뭐가\s*문제|문제야|조언|올려도|업로드해도|이대로|봐줘|검토|진단|판단)/i.test(text)) {
+    return {
+      intent: 'advise_script',
+      editTarget: null,
+      shouldModifyScript: false,
       reply: '',
     }
   }
@@ -343,9 +408,11 @@ export async function classifyCopilotIntent({
             '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
             '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
-            'intent는 greeting, edit_request, feedback_request, question, clarification 중 하나만 사용한다.',
+            'intent는 greeting, edit_request, feedback_request, advise_script, question, clarification 중 하나만 사용한다.',
             'edit_request일 때만 shouldModifyScript=true다.',
             'feedback_request는 피드백 실행 대상이므로 shouldModifyScript=false다.',
+            'advise_script는 말로만 조언/진단하는 요청이므로 shouldModifyScript=false다.',
+            '"어때?", "조언해줘", "이대로 올려도 돼?", "뭐가 문제야?"는 advise_script다.',
             '질문/인사/불명확한 요청이면 reply에 자연스러운 한국어 답변을 작성한다.',
             'reply는 짧게, 다음 행동이 분명하게 작성한다.',
             characterSystemPrompt ? `계정/캐릭터 규칙:\n${characterSystemPrompt}` : null,
@@ -366,7 +433,7 @@ export async function classifyCopilotIntent({
             `CTA: ${normalizedSections.cta.slice(0, 160) || '-'}`,
             '',
             'JSON 형식:',
-            '{"intent":"greeting|edit_request|feedback_request|question|clarification","editTarget":"all|hook|body|cta|null","shouldModifyScript":false,"reply":"","reason":""}',
+            '{"intent":"greeting|edit_request|feedback_request|advise_script|question|clarification","editTarget":"all|hook|body|cta|null","shouldModifyScript":false,"reply":"","reason":""}',
           ].join('\n'),
         },
       ],
@@ -377,7 +444,7 @@ export async function classifyCopilotIntent({
     })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const allowedIntents = new Set(['greeting', 'edit_request', 'feedback_request', 'question', 'clarification'])
+    const allowedIntents = new Set(['greeting', 'edit_request', 'feedback_request', 'advise_script', 'question', 'clarification'])
     const intent = allowedIntents.has(parsed.intent) ? parsed.intent : 'clarification'
     const target = EDIT_TARGETS.has(String(parsed.editTarget || '').toLowerCase())
       ? String(parsed.editTarget).toLowerCase()
@@ -771,6 +838,126 @@ function buildFeedbackUserPrompt({
   )
 }
 
+function buildNaturalResponseUserPrompt({
+  sections,
+  request,
+  selectedLabel,
+  referenceContext,
+  guides,
+  intent = COPILOT_INTENTS.ADVISE,
+}) {
+  const normalizedSections = normalizeSections(sections)
+  const normalizedRequest = String(request || '').trim()
+
+  return (
+    `${buildDraftBlock(normalizedSections)}\n\n` +
+    `사용자 요청: ${normalizedRequest}\n\n` +
+    `요청 의도: ${intent}\n` +
+    `선택한 안: ${selectedLabel || '-'}\n\n` +
+    `${referenceContext}\n\n` +
+    `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
+    `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
+    '응답 규칙:\n' +
+    '- 지금은 대본을 수정하지 않는다. HOOK/BODY/CTA 문장을 새로 쓰거나 출력하지 않는다.\n' +
+    '- 사용자의 질문에 자연어로만 답한다.\n' +
+    '- 조언/평가 요청이면 좋은 점 1개와 아쉬운 점 1~2개, 다음 개선 방향을 짧게 말한다.\n' +
+    '- 현재 초안과 레퍼런스 구조를 기준으로 판단하되, 레퍼런스 원문 소재를 가져오지 않는다.\n' +
+    '- 사용자가 명시적으로 고쳐달라고 하지 않았으므로 섹션 변경을 제안만 하고 실행하지 않는다.\n\n' +
+    '다음 JSON 형식으로만 답하세요: {"message":""}'
+  )
+}
+
+function buildFallbackNaturalResponse(sections = {}, intent = COPILOT_INTENTS.ADVISE) {
+  const normalized = normalizeSections(sections)
+  if (intent === COPILOT_INTENTS.GENERAL) {
+    return '지금 초안을 기준으로 도와드릴 수 있어요. 조언을 원하면 어떤 부분이 고민인지 말해주시고, 수정이 필요하면 HOOK/BODY/CTA 중 어디를 바꿀지 알려주세요.'
+  }
+
+  const hookNote = normalized.hook
+    ? 'HOOK은 주제는 보이지만 첫 1초에 걸리는 긴장감이 더 선명하면 좋아요.'
+    : 'HOOK이 비어 있어서 첫 문장부터 시청자 고민을 바로 찌르는 구성이 필요해요.'
+  const bodyNote = normalized.body
+    ? 'BODY는 HOOK에서 던진 문제를 바로 이어받는지 보면 됩니다.'
+    : 'BODY가 비어 있어서 문제 원인과 해결 기준을 짧게 이어줘야 해요.'
+  const ctaNote = normalized.cta
+    ? 'CTA는 행동 이유가 분명할수록 구매나 저장으로 자연스럽게 이어집니다.'
+    : 'CTA가 비어 있어서 시청자가 지금 해야 할 행동을 한 문장으로 잡아줘야 해요.'
+
+  return `${hookNote} ${bodyNote} ${ctaNote}`
+}
+
+async function generateCopilotNaturalResponse({
+  openai,
+  model,
+  accountId,
+  referenceId,
+  selectedLabel,
+  request,
+  sections,
+  referenceContext,
+  guides,
+  characterSystemPrompt = '',
+  personalizationContext = '',
+  intentResult,
+}) {
+  const normalizedSections = normalizeSections(sections)
+  try {
+    const response = await openai.chat.completions.create({
+      model,
+      temperature: 0.45,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '당신은 숏폼 콘텐츠 코파일럿이다. 지금은 대본 수정기가 아니라 대본 코치로 답한다. 출력은 JSON만 반환한다.',
+            buildContextPriority(),
+            buildReferenceContaminationGuard(),
+            '수정 금지: 사용자가 명시적으로 수정/고치기/바꾸기를 요청하지 않았으므로 HOOK/BODY/CTA를 변경하지 않는다.',
+            '응답 규칙: 자연어로 짧게 진단한다. 좋은 점, 약한 점, 다음 개선 방향을 구체적으로 말한다.',
+            '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
+            buildCharacterBoundary(accountId),
+            characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
+            personalizationContext
+              ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+        {
+          role: 'user',
+          content: buildNaturalResponseUserPrompt({
+            sections: normalizedSections,
+            request,
+            selectedLabel,
+            referenceContext,
+            guides,
+            intent: intentResult.intent,
+          }),
+        },
+      ],
+    })
+    logAIUsage('copilot-natural-response', response, {
+      model,
+      accountId,
+      referenceId,
+      selectedLabel: selectedLabel || '',
+      copilotIntent: intentResult.intent,
+    })
+    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const message = String(parsed?.message || '').trim()
+    return message || buildFallbackNaturalResponse(normalizedSections, intentResult.intent)
+  } catch (error) {
+    logAIError('gpt', error, {
+      referenceId,
+      request,
+      stage: 'script-natural-response',
+      model,
+    })
+    return buildFallbackNaturalResponse(normalizedSections, intentResult.intent)
+  }
+}
+
 export async function refineScriptWithAI({
   accountId,
   referenceId,
@@ -785,8 +972,6 @@ export async function refineScriptWithAI({
 }) {
   const normalizedRequest = request?.trim()
   const normalizedSections = normalizeSections(sections)
-  const normalizedEditTarget = normalizeEditTarget(editTarget, normalizedRequest)
-  const targetSections = getTargetSections(normalizedEditTarget)
 
   if (!normalizedRequest) {
     throw new AppError('request is required', {
@@ -799,6 +984,48 @@ export async function refineScriptWithAI({
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
   const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
   const guides = buildReferenceGuides(reference)
+  const intentResult = classifyCopilotIntentByRule(normalizedRequest, editTarget)
+
+  if (!intentResult.shouldEdit) {
+    logPromptAssembly({
+      stage: 'script-natural-response',
+      referenceId,
+      currentDraftId,
+      currentVersionId,
+      editTarget: 'none',
+      memoryIncluded: Boolean(personalizationContext),
+      includedTranscript: false,
+    })
+
+    const copilotModel = models.copilotModel || models.chatModel
+    const message = await generateCopilotNaturalResponse({
+      openai,
+      model: copilotModel,
+      accountId,
+      referenceId,
+      selectedLabel,
+      request: normalizedRequest,
+      sections: normalizedSections,
+      referenceContext,
+      guides,
+      characterSystemPrompt,
+      personalizationContext,
+      intentResult,
+    })
+
+    return {
+      message,
+      sections: normalizedSections,
+      editTarget: 'none',
+      changedSections: [],
+      flowValidation: validateScriptFlow(normalizedSections),
+      copilotIntent: intentResult.intent,
+      responseMode: intentResult.responseMode,
+    }
+  }
+
+  const normalizedEditTarget = normalizeEditTarget(intentResult.editTarget || editTarget, normalizedRequest)
+  const targetSections = getTargetSections(normalizedEditTarget)
   let hookTemplateContext = ''
   let matchedHookTemplateKeys = []
   if (shouldUseHookTemplatesForRefine(normalizedRequest, targetSections)) {
@@ -916,6 +1143,8 @@ export async function refineScriptWithAI({
       editTarget: normalizedEditTarget,
       changedSections,
       flowValidation,
+      copilotIntent: intentResult.intent,
+      responseMode: intentResult.responseMode,
     }
   } catch (error) {
     logAIError('gpt', error, {
@@ -1029,6 +1258,7 @@ export async function generateScriptFeedback({
 }
 
 export const __scriptAssistantTest = {
+  buildNaturalResponseUserPrompt,
   buildContextPriority,
   buildDraftBlock,
   buildFeedbackUserPrompt,
@@ -1047,6 +1277,8 @@ export const __scriptAssistantTest = {
   buildEditScopeInstruction,
   buildCopilotHookTemplateContext,
   shouldUseHookTemplatesForRefine,
+  classifyCopilotIntentByRule,
+  createFallbackIntent,
   messageMentionsLockedSections,
   logPromptAssembly,
 }

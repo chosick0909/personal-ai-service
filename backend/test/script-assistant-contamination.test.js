@@ -20,6 +20,9 @@ const {
   buildEditScopeInstruction,
   messageMentionsLockedSections,
   logPromptAssembly,
+  classifyCopilotIntentByRule,
+  buildNaturalResponseUserPrompt,
+  createFallbackIntent,
 } = __scriptAssistantTest
 
 const currentDraft = {
@@ -219,6 +222,64 @@ test('explicit editTarget drives generation shape and fallback still parses Kore
   assert.equal(normalizeEditTarget('all', '전체적으로 더 좋게'), 'all')
   assert.match(buildEditOutputInstruction(['cta']), /CTA 하나만 생성/)
   assert.match(buildEditOutputInstruction(['hook', 'body', 'cta']), /HOOK, BODY, CTA 전체/)
+})
+
+test('copilot intent classifier keeps advice requests out of edit flow', () => {
+  const adviceRequests = ['이거 어때?', '좀 약한가?', '이대로 올려도 돼?', '뭐가 문제야?', '조언 좀 해줘']
+  for (const request of adviceRequests) {
+    const intent = classifyCopilotIntentByRule(request, 'all')
+    assert.equal(intent.intent, 'advise_script')
+    assert.equal(intent.shouldEdit, false)
+    assert.equal(intent.editTarget, 'none')
+  }
+})
+
+test('route-level fallback intent treats casual advice as advice, not feedback or edit', () => {
+  const casualAdvice = ['이거 어때?', '조언 좀 해줘', '이대로 올려도 돼?', '뭐가 문제야?']
+  for (const request of casualAdvice) {
+    const intent = createFallbackIntent(request, 'all')
+    assert.equal(intent.intent, 'advise_script')
+    assert.equal(intent.shouldModifyScript, false)
+  }
+
+  assert.equal(createFallbackIntent('점수 평가해줘', 'all').intent, 'feedback_request')
+  assert.equal(createFallbackIntent('훅 더 강하게 고쳐줘', 'all').intent, 'edit_request')
+  assert.equal(createFallbackIntent('조언해주고 전체적으로 자연스럽게 수정해줘', 'all').intent, 'edit_request')
+})
+
+test('copilot intent classifier still sends explicit edits through refine flow', () => {
+  const editRequests = [
+    ['훅 더 강하게 고쳐줘', 'hook'],
+    ['BODY만 자연스럽게 수정해줘', 'body'],
+    ['CTA 짧게 바꿔줘', 'cta'],
+    ['조언해주고 전체적으로 자연스럽게 수정해줘', 'all'],
+  ]
+
+  for (const [request, expectedTarget] of editRequests) {
+    const intent = classifyCopilotIntentByRule(request, 'all')
+    assert.equal(intent.intent, 'edit_script')
+    assert.equal(intent.shouldEdit, true)
+    assert.equal(intent.editTarget, expectedTarget)
+  }
+})
+
+test('natural response prompt explicitly forbids section rewrites', () => {
+  const prompt = buildNaturalResponseUserPrompt({
+    sections: currentDraft,
+    request: '이대로 올려도 돼?',
+    selectedLabel: 'A',
+    referenceContext: buildReferenceStructureContext(reference),
+    guides: {
+      insights: ['초반 손해 프레임을 유지한다.'],
+      checkpoints: ['CTA는 행동 이유를 담는다.'],
+    },
+    intent: 'advise_script',
+  })
+
+  assert.equal(prompt.startsWith(buildDraftBlock(currentDraft)), true)
+  assert.match(prompt, /대본을 수정하지 않는다/)
+  assert.match(prompt, /HOOK\/BODY\/CTA 문장을 새로 쓰거나 출력하지 않는다/)
+  assert.match(prompt, /\{"message":""\}/)
 })
 
 test('partial edit diff and flow validation remain stable across repeated body edits', () => {
