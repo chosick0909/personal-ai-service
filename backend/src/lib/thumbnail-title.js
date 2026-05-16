@@ -10,6 +10,41 @@ function normalizeList(value) {
     : []
 }
 
+function normalizeObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function normalizeFormulaParts(value) {
+  const parts = normalizeObject(value)
+
+  return {
+    modifier: String(parts.modifier || '').trim(),
+    keyword: String(parts.keyword || '').trim(),
+    predicate: String(parts.predicate || '').trim(),
+  }
+}
+
+function normalizeDisplayText(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeTitleBlueprint(value) {
+  const blueprint = normalizeObject(value)
+
+  return {
+    lineCount: Number.isFinite(Number(blueprint.lineCount)) ? Number(blueprint.lineCount) : 0,
+    sentenceTemplate: String(blueprint.sentenceTemplate || '').trim(),
+    lineRoles: normalizeList(blueprint.lineRoles),
+    sentenceTypes: normalizeList(blueprint.sentenceTypes),
+    hasDialogue: Boolean(blueprint.hasDialogue),
+    questionAnswerPattern: String(blueprint.questionAnswerPattern || '').trim(),
+    emotionFlow: String(blueprint.emotionFlow || '').trim(),
+    layoutPattern: String(blueprint.layoutPattern || '').trim(),
+    keepStructure: normalizeList(blueprint.keepStructure),
+    avoidCopying: normalizeList(blueprint.avoidCopying),
+  }
+}
+
 function supportsCustomTemperature(model = '') {
   return !String(model || '').trim().toLowerCase().startsWith('gpt-5')
 }
@@ -56,10 +91,12 @@ function normalizeThumbnailRecommendations(parsed) {
         .slice(0, 3)
         .map((item, index) => ({
           type: String(item?.type || ['A', 'B', 'C'][index] || '').trim(),
-          label: String(item?.label || ['카테고리 적합형', '문제 자극형', '저장/정보형'][index] || '').trim(),
+          label: String(item?.label || ['원본 보존형', '후킹 강화형', '3단공식 적용형'][index] || '').trim(),
           title: String(item?.title || '').trim(),
           reason: String(item?.reason || '').trim(),
-          strategy: String(item?.strategy || '').trim(),
+          strategy: normalizeDisplayText(item?.strategy),
+          blueprintUsed: normalizeDisplayText(item?.blueprintUsed),
+          formulaParts: normalizeFormulaParts(item?.formulaParts),
         }))
         .filter((item) => item.title)
     : []
@@ -176,8 +213,8 @@ export async function analyzeThumbnailImage({
             '당신은 인스타 릴스 썸네일 카피 전략가다.',
             '업로드된 이미지를 OCR/시각 분위기/구도 관점에서 분석한다.',
             '아직 최종 제목을 생성하지 말고, 제목 생성에 필요한 이미지 분석 결과만 JSON으로 반환한다.',
-            '이미지 안에 제목/카피가 보이면 그대로 따라 쓸 템플릿이 아니라, 왜 클릭되는지에 대한 전략 신호로 분석한다.',
-            '숫자, 대상, 상황, "대신", "이렇게" 같은 표면 문형은 새 주제에 자연스럽게 맞을 때만 참고할 수 있다.',
+            '이미지 안에 제목/카피가 보이면 단어를 베끼지 말고, 줄 수/문장 역할/대화체/질문-답변/반전 흐름/배치 구조를 titleBlueprint로 구조화한다.',
+            '원본 단어와 소재는 복사 대상이 아니다. 보존할 것은 문장 역할, 줄 구성, 가독성, 감정 흐름이다.',
             '이미지에 없는 내용을 지어내지 않는다.',
           ].join('\n'),
         },
@@ -199,6 +236,18 @@ export async function analyzeThumbnailImage({
                 '  "composition": "구도와 시선 흐름",',
                 '  "titleSpace": "텍스트를 얹기 좋은 위치",',
                 '  "thumbnailRole": "이미지가 제목 생성에서 맡아야 할 역할",',
+                '  "titleBlueprint": {',
+                '    "lineCount": 0,',
+                '    "sentenceTemplate": "원본 제목의 문장 형식을 슬롯으로 추상화. 예: {대체 대상} 대신 {새 대상}을 먹었더니",',
+                '    "lineRoles": ["각 줄의 역할: 상황 제시/질문/답변/반전/해결 약속 등"],',
+                '    "sentenceTypes": ["서술형/질문형/대답형/명령형/숫자형"],',
+                '    "hasDialogue": false,',
+                '    "questionAnswerPattern": "질문-답변 구조가 있으면 설명",',
+                '    "emotionFlow": "감정 흐름: 공백/궁금증/반전/해결 등",',
+                '    "layoutPattern": "중앙 자막/상단 배치/짧은 3줄 등",',
+                '    "keepStructure": ["새 주제에서도 유지할 구조"],',
+                '    "avoidCopying": ["복사하지 말아야 할 원본 단어/소재"]',
+                '  },',
                 '  "avoidRepeating": ["새 주제로 억지 치환하면 어색한 원본 숫자/대상/상황/표현"],',
                 '  "titleDirections": ["레퍼런스 제목에서 참고할 클릭 전략/감정 트리거/가독성 신호"],',
                 '  "risks": ["주의할 점"]',
@@ -232,6 +281,7 @@ export async function analyzeThumbnailImage({
       composition: String(parsed.composition || '').trim(),
       titleSpace: String(parsed.titleSpace || '').trim(),
       thumbnailRole: String(parsed.thumbnailRole || '').trim(),
+      titleBlueprint: normalizeTitleBlueprint(parsed.titleBlueprint),
       avoidRepeating: normalizeList(parsed.avoidRepeating),
       titleDirections: normalizeList(parsed.titleDirections),
       risks: normalizeList(parsed.risks),
@@ -288,6 +338,7 @@ export async function generateThumbnailTitles({
     composition: String(imageAnalysis.composition || '').trim(),
     titleSpace: String(imageAnalysis.titleSpace || '').trim(),
     thumbnailRole: String(imageAnalysis.thumbnailRole || '').trim(),
+    titleBlueprint: normalizeTitleBlueprint(imageAnalysis.titleBlueprint),
     avoidRepeating: normalizeList(imageAnalysis.avoidRepeating),
     titleDirections: normalizeList(imageAnalysis.titleDirections),
     risks: normalizeList(imageAnalysis.risks),
@@ -299,12 +350,18 @@ export async function generateThumbnailTitles({
           role: 'system',
           content: [
             '당신은 인스타 릴스 썸네일 제목 카피라이터다. 출력은 JSON만 반환한다.',
-            '핵심 작업: 레퍼런스 썸네일을 그대로 치환하지 말고, 이미지에서 보이는 클릭 전략/가독성/감정 트리거를 분석한 뒤 현재 계정 카테고리와 영상 주제에 맞는 새 제목을 만든다.',
-            '우선순위: 1. 영상 주제와 계정 카테고리 적합성 2. 타깃의 실제 고민/욕구 3. 모바일 가독성 4. 레퍼런스의 시각적 제목 배치/클릭 전략 5. 원본과의 비표절성.',
-            '이미지 속 텍스트가 제목처럼 보여도 제목 구조를 잠그지 않는다. 숫자, 대상, 상황, "대신", "이렇게" 같은 표면 문형은 새 주제에 자연스럽게 맞을 때만 쓴다.',
-            '원본 제목의 단어를 주제만 바꿔 억지로 변환하지 않는다. 예: "알람 10개 대신"을 "단골 10명 대신"처럼 기계적으로 바꾸면 실패다.',
+            '핵심 작업: 레퍼런스 썸네일 제목의 단어가 아니라 titleBlueprint의 줄 수, 문장 역할, 대화체/질문-답변/반전 흐름, 시각 배치감을 현재 영상 주제에 맞게 재구성한다.',
+            '우선순위: 1. 레퍼런스 titleBlueprint 보존(A/B) 2. 영상 주제와 계정 카테고리 적합성 3. 타깃의 실제 고민/욕구 4. 모바일 가독성 5. 원본 단어/소재 비표절성.',
+            'A/B는 원본 단어를 베끼지 않되 원본의 문장 역할과 줄 구성은 유지한다. C는 레퍼런스 문장틀보다 3단 공식 완성도를 우선한다.',
+            'A/B는 titleBlueprint.sentenceTemplate이 있으면 반드시 그 문장 형식을 우선한다. 예: 원본이 "밥 대신 두부를 먹었더니"이면 A/B도 "{대체 대상} 대신 {새 대상}을 먹었더니" 골격을 유지한다.',
+            '원본 제목의 숫자, 대상, 상황을 기계적으로 바꾸지 않는다. 원본 소재가 새 주제와 맞지 않으면 역할만 가져오고 소재는 새로 잡는다.',
             '제목은 8~18자 권장, 한눈에 읽히게 짧게 쓴다.',
-            'A/B/C는 같은 원본 문형을 반복하는 세 버전이 아니라, 같은 영상 주제를 서로 다른 클릭 전략으로 푼다. A=카테고리 적합형, B=궁금증/문제 자극형, C=저장/정보형.',
+            'A/B/C는 고정한다. A=원본 보존형, B=후킹 강화형, C=3단공식 적용형.',
+            'A 원본 보존형: 레퍼런스의 줄 수, 문장 역할, 대화체/질문형/반전 구조를 가장 강하게 유지한다.',
+            'B 후킹 강화형: A와 같은 틀을 유지하되 결핍, 궁금증, 반전 압력만 더 강하게 만든다.',
+            'C 3단공식 적용형: <수식어 + 키워드 + 서술어> 공식 완성도를 우선한다. 레퍼런스는 시각 배치와 모바일 가독성만 참고한다.',
+            '3단 공식 정의: 수식어=사용자가 얻는 혜택/변화/시간 단축/난이도 완화, 키워드=영상 주제의 핵심 대상/방법/루틴/노하우, 서술어=유형/개수/단계/노하우/전략/체크리스트/루틴.',
+            '영상 주제가 살림처럼 추상적이면 살림 루틴, 집안일 동선, 정리 습관, 가사 공백 대처처럼 구체 키워드를 먼저 잡고 제목화한다.',
             '과장 보장, 허위 수치, 의료/재테크/교육/건강 효과 보장 표현은 금지한다.',
             '계정 카테고리, 타깃, 상품/서비스 방향을 바꾸지 않는다.',
             characterSystemPrompt ? `계정/캐릭터 고정 규칙:\n${characterSystemPrompt}` : '',
@@ -326,23 +383,29 @@ export async function generateThumbnailTitles({
             `- 구도: ${analysis.composition || '-'}`,
             `- 제목 위치: ${analysis.titleSpace || '-'}`,
             `- 이미지 역할: ${analysis.thumbnailRole || '-'}`,
+            `- 제목 틀/블루프린트: ${JSON.stringify(analysis.titleBlueprint)}`,
             `- 억지 치환하면 어색한 원본 표현: ${analysis.avoidRepeating.join(', ') || '-'}`,
             `- 참고할 레퍼런스 클릭 전략: ${analysis.titleDirections.join(', ') || '-'}`,
             `- 주의점: ${analysis.risks.join(', ') || '-'}`,
             '',
             '[생성 규칙]',
-            '- 먼저 영상 주제와 계정 카테고리에서 타깃의 구체적인 문제/욕구/행동을 뽑는다.',
-            '- 그 다음 레퍼런스의 시각적 강점(짧음, 상단 배치, 대비, 질문, 권유, 정보성 등) 중 새 주제에 어울리는 것만 선택한다.',
+            '- A와 B는 titleBlueprint의 lineRoles, sentenceTypes, hasDialogue, questionAnswerPattern, emotionFlow, layoutPattern을 우선 반영한다.',
+            '- A와 B는 titleBlueprint.sentenceTemplate이 있으면 그 문장 골격을 반드시 벤치마킹한다.',
+            '- A는 원본 구조 밀착형이다. 원본과 비슷한 줄 수/문장 역할/조사/어미 흐름을 유지하되 단어와 소재는 새 주제로 바꾼다.',
+            '- B는 후킹 강화형이다. A와 같은 문장 형식을 유지하고 결과 기대감/변화 압력만 강화한다.',
+            '- 예: 원본 "밥 대신 두부를 먹었더니", 주제 "콩요리"라면 A는 "쌀 대신 콩을 먹었더니"처럼 대신+먹었더니 골격이 드러나야 한다.',
+            '- A/B에는 3단 공식 설명, modifier, keyword, predicate를 쓰지 않는다.',
+            '- C는 3단공식 적용형이다. 반드시 formulaParts를 채우고, title은 modifier + keyword + predicate가 자연스럽게 이어져야 한다.',
+            '- C는 레퍼런스의 대화체/상황극 문장틀보다 3단 공식 완성도를 우선한다.',
             '- 원본 제목의 숫자, 대상, 대비 구문을 억지로 살리지 않는다. 새 주제에 없는 숫자나 비교 대상을 만들지 않는다.',
-            '- 이미지 분석 결과는 디자인/가독성 참고용이며, 제목 카피는 현재 계정 카테고리와 영상 주제를 우선한다.',
-            '- A/B/C 세 제목은 서로 표현이 확실히 달라야 한다.',
+            '- A/B/C 세 제목은 모두 같은 영상 주제에서 벗어나지 않아야 한다.',
             '',
             '다음 JSON 형식으로만 답하세요.',
             '{',
             '  "recommendations": [',
-            '    {"type":"A","label":"카테고리 적합형","title":"","reason":"","strategy":""},',
-            '    {"type":"B","label":"문제 자극형","title":"","reason":"","strategy":""},',
-            '    {"type":"C","label":"저장/정보형","title":"","reason":"","strategy":""}',
+            '    {"type":"A","label":"원본 보존형","title":"","reason":"사용자에게 보여줄 자연어 설명만 작성","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}},',
+            '    {"type":"B","label":"후킹 강화형","title":"","reason":"사용자에게 보여줄 자연어 설명만 작성","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}},',
+            '    {"type":"C","label":"3단공식 적용형","title":"","reason":"사용자에게 보여줄 자연어 설명만 작성","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}}',
             '  ],',
             '  "appliedInputs": {"topic":"","accountCategory":"","accountTone":"","imageAnalysisUsed":true},',
             '  "safetyCheck": {"topicPreserved":true,"accountTonePreserved":true,"imageTextRepeated":false,"bannedClaimsRemoved":true}',

@@ -3476,6 +3476,14 @@ function ToolPage({ type }) {
                       <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">{thumbnailAnalysis.titleDirections.join(', ')}</p>
                     </div>
                   ) : null}
+                  {thumbnailAnalysis.titleBlueprint?.keepStructure?.length ? (
+                    <div>
+                      <div className="text-sm font-semibold tracking-[0.03em] text-[#AEB6C5]">레퍼런스 제목 틀</div>
+                      <p className="mt-1 text-sm leading-6 text-[#E5E7EB]">
+                        {thumbnailAnalysis.titleBlueprint.keepStructure.join(', ')}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               <label className="grid gap-2">
@@ -3606,7 +3614,7 @@ function ToolPage({ type }) {
                 <div>
                   <div className="text-base font-semibold tracking-[0.01em] text-[#D1D5DB]">내 계정에 맞는 썸네일 제목 추천</div>
                   <p className="mt-1 text-xs leading-5 text-[#8E97A6]">
-                    레퍼런스의 클릭 전략은 참고하고, 계정 카테고리와 영상 주제에 맞게 새로 구성했습니다.
+                    A/B는 레퍼런스 문장 형식을 따라가고, C는 3단 공식으로 재구성했습니다.
                   </p>
                 </div>
                 <div className="grid gap-3">
@@ -3638,11 +3646,6 @@ function ToolPage({ type }) {
                             {copied ? '복사됨' : '복사'}
                           </button>
                         </div>
-                        {item.strategy ? (
-                          <div className="rounded-full border border-[#3A414F] bg-[#121821] px-3 py-1 text-xs text-[#AEB6C5]">
-                            {item.strategy}
-                          </div>
-                        ) : null}
                       </div>
                       <div className="mt-3 text-2xl font-bold leading-9 text-[#F3F4F6]">{item.title}</div>
                       {item.reason ? (
