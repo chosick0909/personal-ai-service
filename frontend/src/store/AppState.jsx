@@ -2784,7 +2784,7 @@ export function AppStateProvider({ children }) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
       }
-      const normalizedFeedback = { ...result, applied: false }
+      const normalizedFeedback = { ...result, id: `feedback-${Date.now()}`, applied: false }
       setFeedback(normalizedFeedback)
       setCopilotUsage((current) => {
         const next = {
@@ -2839,8 +2839,8 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const applyFeedback = async () => {
-    if (isApplyingFeedback || feedback?.applied || !feedback?.suggestedSections) {
+  const applyFeedback = async (targetFeedback = feedback) => {
+    if (isApplyingFeedback || targetFeedback?.applied || !targetFeedback?.suggestedSections) {
       return
     }
 
@@ -2850,7 +2850,7 @@ export function AppStateProvider({ children }) {
     }
     setIsApplyingFeedback(true)
     const beforeSections = createEditorSections(editorSections)
-    const nextSections = createEditorSections(feedback.suggestedSections)
+    const nextSections = createEditorSections(targetFeedback.suggestedSections)
     const serializedContent = serializeEditorSections(nextSections)
     if (!activeScriptId) {
       setEditorSections(nextSections)
@@ -2870,7 +2870,7 @@ export function AppStateProvider({ children }) {
         metadata: {
           referenceId: referenceData?.id,
           selectedLabel: selectedScript?.label,
-          feedbackSummary: feedback.summary,
+          feedbackSummary: targetFeedback.summary,
           pairedFeedbackApply: true,
         },
       })
@@ -2880,11 +2880,11 @@ export function AppStateProvider({ children }) {
         title: '피드백 반영본',
         sections: nextSections,
         versionType: 'feedback_apply',
-        score: feedback.score,
+        score: targetFeedback.score,
         metadata: {
           referenceId: referenceData?.id,
           selectedLabel: selectedScript?.label,
-          feedbackSummary: feedback.summary,
+          feedbackSummary: targetFeedback.summary,
         },
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
@@ -2901,7 +2901,7 @@ export function AppStateProvider({ children }) {
       }
 
       const appliedFeedback = {
-        ...feedback,
+        ...targetFeedback,
         applied: true,
       }
 
@@ -2921,7 +2921,9 @@ export function AppStateProvider({ children }) {
 
       setChatMessages((current) => {
         const marked = current.map((message) =>
-          message.feedback
+          message.feedback &&
+          (message.feedback === targetFeedback ||
+            (targetFeedback.id && message.feedback.id === targetFeedback.id))
             ? { ...message, feedback: { ...message.feedback, applied: true } }
             : message,
         )
@@ -3001,7 +3003,7 @@ export function AppStateProvider({ children }) {
       }
 
       if (response.type === 'feedback') {
-        const normalizedFeedback = { ...response.feedback, applied: false }
+        const normalizedFeedback = { ...response.feedback, id: `feedback-${Date.now()}`, applied: false }
         setFeedback(normalizedFeedback)
         setCopilotUsage((current) => {
           const next = {

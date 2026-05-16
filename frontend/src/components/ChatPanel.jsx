@@ -10,6 +10,7 @@ function MessageBubble({
 }) {
   const isUser = message.role === 'user'
   const feedback = message.feedback
+  const feedbackProposedSections = feedback?.suggestedSections
   const proposedSections = message.proposedSections
   const changedSections = Array.isArray(message.changedSections) ? message.changedSections : []
   const editTarget = typeof message.editTarget === 'string' ? message.editTarget : 'all'
@@ -20,7 +21,7 @@ function MessageBubble({
     ? '피드백 반영 완료'
     : isApplyingFeedback
       ? '반영 중...'
-      : '피드백 반영하기'
+      : '이 수정안 반영하기'
   const sectionLabels = [
     ['hook', 'HOOK'],
     ['body', 'BODY'],
@@ -59,16 +60,35 @@ function MessageBubble({
                 </div>
                 <div className="mt-1 text-2xl font-bold text-[#F3F4F6]">{feedback.score}점</div>
               </div>
-              <button
-                type="button"
-                onClick={onApplyFeedback}
-                disabled={isApplyDisabled}
-                className="btn-solid-contrast shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {applyButtonLabel}
-              </button>
             </div>
             <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{feedback.detail || message.content}</p>
+            {feedbackProposedSections ? (
+              <div className="mt-3 min-w-0 space-y-3">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8E97A6]">
+                  피드백 반영 미리보기
+                </div>
+                <div className="min-w-0 max-w-full space-y-2 overflow-hidden rounded-[18px] border border-[#2F3543] bg-[#10151D] p-3">
+                  {sectionLabels.map(([key, label]) => (
+                    <section key={key} className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8E97A6]">
+                        {label}
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-[#E5E7EB]">
+                        {feedbackProposedSections[key] || '-'}
+                      </p>
+                    </section>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onApplyFeedback(feedback)}
+                  disabled={isApplyDisabled}
+                  className="btn-solid-contrast rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {applyButtonLabel}
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <>

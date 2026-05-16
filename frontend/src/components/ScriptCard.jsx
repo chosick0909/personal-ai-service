@@ -110,7 +110,7 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
         }}
         className="btn-solid-contrast mt-5 flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold transition hover:bg-white disabled:cursor-default disabled:opacity-70"
       >
-        {isSelected ? '선택됨' : '사용하기'}
+        {isSelected ? '편집 계속하기' : '사용하기'}
       </button>
     </article>
   )
