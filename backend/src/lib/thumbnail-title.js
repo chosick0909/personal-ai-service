@@ -28,6 +28,16 @@ function normalizeDisplayText(value) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function normalizeRecommendationReason(value) {
+  const reason = normalizeDisplayText(value)
+
+  if (/사용자에게\s*보여줄\s*자연어\s*설명만\s*작성/.test(reason)) {
+    return ''
+  }
+
+  return reason
+}
+
 function normalizeTitleBlueprint(value) {
   const blueprint = normalizeObject(value)
 
@@ -93,7 +103,7 @@ function normalizeThumbnailRecommendations(parsed) {
           type: String(item?.type || ['A', 'B', 'C'][index] || '').trim(),
           label: String(item?.label || ['원본 보존형', '후킹 강화형', '3단공식 적용형'][index] || '').trim(),
           title: String(item?.title || '').trim(),
-          reason: String(item?.reason || '').trim(),
+          reason: normalizeRecommendationReason(item?.reason),
           strategy: normalizeDisplayText(item?.strategy),
           blueprintUsed: normalizeDisplayText(item?.blueprintUsed),
           formulaParts: normalizeFormulaParts(item?.formulaParts),
@@ -403,9 +413,9 @@ export async function generateThumbnailTitles({
             '다음 JSON 형식으로만 답하세요.',
             '{',
             '  "recommendations": [',
-            '    {"type":"A","label":"원본 보존형","title":"","reason":"사용자에게 보여줄 자연어 설명만 작성","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}},',
-            '    {"type":"B","label":"후킹 강화형","title":"","reason":"사용자에게 보여줄 자연어 설명만 작성","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}},',
-            '    {"type":"C","label":"3단공식 적용형","title":"","reason":"사용자에게 보여줄 자연어 설명만 작성","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}}',
+            '    {"type":"A","label":"원본 보존형","title":"","reason":"","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}},',
+            '    {"type":"B","label":"후킹 강화형","title":"","reason":"","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}},',
+            '    {"type":"C","label":"3단공식 적용형","title":"","reason":"","strategy":"","blueprintUsed":"","formulaParts":{"modifier":"","keyword":"","predicate":""}}',
             '  ],',
             '  "appliedInputs": {"topic":"","accountCategory":"","accountTone":"","imageAnalysisUsed":true},',
             '  "safetyCheck": {"topicPreserved":true,"accountTonePreserved":true,"imageTextRepeated":false,"bannedClaimsRemoved":true}',
