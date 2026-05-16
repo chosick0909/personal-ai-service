@@ -30,6 +30,15 @@ export default function VersionModal() {
     feedback_apply: '피드백 반영',
     manual_save: '수동 저장',
   }
+  const getVersionTypeLabel = (version) => {
+    if (
+      version.versionType === 'ai_generation' &&
+      /수정|반영/.test(String(version.title || ''))
+    ) {
+      return 'AI 수정 반영'
+    }
+    return labelByType[version.versionType] || version.source
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-md">
@@ -77,7 +86,7 @@ export default function VersionModal() {
                           </span>
                         ) : null}
                         <span className="rounded-full border border-[#3A3D43] bg-[#1D1F23] px-3 py-1 text-xs font-semibold text-[#D1D5DB]">
-                          {labelByType[version.versionType] || version.source}
+                          {getVersionTypeLabel(version)}
                         </span>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-[#AEB6C5]">

@@ -193,6 +193,7 @@ function normalizeHistoryCacheItem(item = {}) {
               message.proposedSections && typeof message.proposedSections === 'object'
                 ? message.proposedSections
                 : undefined,
+            suggestionApplied: Boolean(message.suggestionApplied),
             editTarget: typeof message.editTarget === 'string' ? message.editTarget : undefined,
             changedSections: Array.isArray(message.changedSections) ? message.changedSections : undefined,
             flowValidation:
@@ -734,6 +735,7 @@ export function AppStateProvider({ children }) {
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false)
   const [isApplyingFeedback, setIsApplyingFeedback] = useState(false)
+  const [isApplyingSuggestion, setIsApplyingSuggestion] = useState(false)
   const [isEditorPreparing, setIsEditorPreparing] = useState(false)
   const [isSavingVersion, setIsSavingVersion] = useState(false)
   const [isPdfExporting, setIsPdfExporting] = useState(false)
@@ -960,6 +962,7 @@ export function AppStateProvider({ children }) {
     setIsChatLoading(false)
     setIsFeedbackLoading(false)
     setIsEditorPreparing(false)
+    setIsApplyingSuggestion(false)
     setViewTransition('idle')
     setIsEditorEntering(false)
     setIsResultEntering(false)
@@ -1569,6 +1572,7 @@ export function AppStateProvider({ children }) {
     setAnalyzeError('')
     setUploadPhase('idle')
     setIsAnalyzing(false)
+    setIsApplyingSuggestion(false)
     setChatMessages(initialState.chatMessages)
     setViewTransition('idle')
     setIsEditorEntering(false)
@@ -3105,21 +3109,125 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const applySuggestion = (sections) => {
+  const getSuggestionVersionTitle = (target = 'all') => {
+    const titleByTarget = {
+      hook: 'AI HOOK 수정 반영본',
+      body: 'AI BODY 수정 반영본',
+      cta: 'AI CTA 수정 반영본',
+      all: 'AI 전체 수정 반영본',
+    }
+    return titleByTarget[target] || 'AI 수정 반영본'
+  }
+
+  const applySuggestion = async (sections, messageId = null) => {
+    if (isApplyingSuggestion) {
+      return
+    }
+
     const requestAccountId = currentAccount?.id
     if (!requestAccountId) {
       return
     }
-    const serializedContent = serializeEditorSections(sections)
-    setEditorSections(createEditorSections(sections))
-    setPendingSuggestion(sections)
-    syncHistory(activeReferenceIdRef.current, {
-      activeScriptId,
-      editorContent: serializedContent,
-      pendingSuggestion: sections,
-      lastStep: 'editor',
-    })
-    showToast('AI 수정안을 에디터에 반영했습니다')
+
+    const nextSections = createEditorSections(sections)
+    const serializedContent = serializeEditorSections(nextSections)
+    const sourceMessage = messageId
+      ? chatMessages.find((message) => message.id === messageId)
+      : null
+    const sourceEditTarget = sourceMessage?.editTarget || editTarget || 'all'
+
+    if (!activeScriptId) {
+      setEditorSections(nextSections)
+      setPendingSuggestion(null)
+      syncHistory(activeReferenceIdRef.current, {
+        editorContent: serializedContent,
+        pendingSuggestion: null,
+        lastStep: 'editor',
+      })
+      showToast('AI 수정안을 에디터에 반영했습니다')
+      return
+    }
+
+    setIsApplyingSuggestion(true)
+    showToast('AI 수정안을 저장하고 있습니다...', 'loading')
+
+    try {
+      const nextVersion = await saveVersionRecord({
+        accountId: requestAccountId,
+        scriptId: activeScriptId,
+        title: getSuggestionVersionTitle(sourceEditTarget),
+        sections: nextSections,
+        versionType: 'ai_generation',
+        score: feedback?.score ?? selectedScript?.score ?? versions[0]?.score ?? null,
+        metadata: {
+          referenceId: referenceData?.id,
+          selectedLabel: selectedScript?.label,
+          editTarget: sourceEditTarget,
+          changedSections: sourceMessage?.changedSections || [],
+          source: 'copilot_suggestion_apply',
+        },
+      })
+
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
+
+      setEditorSections(nextSections)
+      setPendingSuggestion(null)
+
+      setVersions((current) => {
+        const next = [nextVersion, ...current]
+        setCachedScriptVersions(requestAccountId, activeScriptId, next)
+        syncHistory(activeReferenceIdRef.current, {
+          activeScriptId,
+          editorContent: serializedContent,
+          versions: next,
+          pendingSuggestion: null,
+          lastStep: 'editor',
+        })
+        return next
+      })
+
+      setChatMessages((current) => {
+        const next = messageId
+          ? current.map((message) =>
+              message.id === messageId ? { ...message, suggestionApplied: true } : message,
+            )
+          : current
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+          pendingSuggestion: null,
+        })
+        return next
+      })
+
+      showToast('AI 수정안을 저장 내역에 자동 저장했습니다.', 'success')
+    } catch (error) {
+      if (!isCurrentAccountRequest(requestAccountId)) {
+        return
+      }
+      showToast(error.message || 'AI 수정안 저장에 실패했습니다.', 'error')
+      setChatMessages((current) => {
+        const next = [
+          ...current,
+          {
+            id: `suggestion-save-error-${Date.now()}`,
+            role: 'assistant',
+            content:
+              error.message ||
+              'AI 수정안 자동 저장에 실패했습니다. 잠시 후 다시 적용해 주세요.',
+          },
+        ]
+        syncHistory(activeReferenceIdRef.current, {
+          chatMessages: next,
+        })
+        return next
+      })
+    } finally {
+      if (isCurrentAccountRequest(requestAccountId)) {
+        setIsApplyingSuggestion(false)
+      }
+    }
   }
 
   const restoreVersion = async (versionId) => {
@@ -3279,6 +3387,7 @@ export function AppStateProvider({ children }) {
       isChatLoading,
       isFeedbackLoading,
       isApplyingFeedback,
+      isApplyingSuggestion,
       isEditorPreparing,
       isSavingVersion,
       isPdfExporting,
@@ -3355,6 +3464,7 @@ export function AppStateProvider({ children }) {
       isChatLoading,
       isFeedbackLoading,
       isApplyingFeedback,
+      isApplyingSuggestion,
       isEditorPreparing,
       isSavingVersion,
       isPdfExporting,

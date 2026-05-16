@@ -1,13 +1,20 @@
 import { useEffect, useRef } from 'react'
 import { useAppState } from '../store/AppState'
 
-function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }) {
+function MessageBubble({
+  message,
+  onApply,
+  onApplyFeedback,
+  isApplyingFeedback,
+  isApplyingSuggestion,
+}) {
   const isUser = message.role === 'user'
   const feedback = message.feedback
   const proposedSections = message.proposedSections
   const changedSections = Array.isArray(message.changedSections) ? message.changedSections : []
   const editTarget = typeof message.editTarget === 'string' ? message.editTarget : 'all'
   const isFeedbackApplied = Boolean(feedback?.applied)
+  const isSuggestionApplied = Boolean(message.suggestionApplied)
   const isApplyDisabled = isFeedbackApplied || isApplyingFeedback
   const applyButtonLabel = isFeedbackApplied
     ? '피드백 반영 완료'
@@ -26,10 +33,13 @@ function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }
         ? [editTarget]
         : sectionLabels.map(([key]) => key)
   const visibleSections = sectionLabels.filter(([key]) => visibleSectionKeys.includes(key))
-  const applyLabel =
-    visibleSections.length === 1
-      ? `${visibleSections[0][1]} 수정 적용`
-      : '이 수정 적용'
+  const applyLabel = isSuggestionApplied
+    ? '수정 적용 완료'
+    : isApplyingSuggestion
+      ? '수정 반영 중...'
+      : visibleSections.length === 1
+        ? `${visibleSections[0][1]} 수정 적용`
+        : '이 수정 적용'
 
   return (
     <div className={`flex min-w-0 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -79,8 +89,9 @@ function MessageBubble({ message, onApply, onApplyFeedback, isApplyingFeedback }
                 </div>
                 <button
                   type="button"
-                  onClick={() => onApply(proposedSections)}
-                  className="rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#232833]"
+                  onClick={() => onApply(proposedSections, message.id)}
+                  disabled={isSuggestionApplied || isApplyingSuggestion}
+                  className="rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {applyLabel}
                 </button>
@@ -121,6 +132,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     isFeedbackLoading,
     applyFeedback,
     isApplyingFeedback,
+    isApplyingSuggestion,
     pendingSuggestion,
     applySuggestion,
     copilotRemaining,
@@ -133,14 +145,17 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     ? '피드백 생성 중'
     : isApplyingFeedback
       ? '피드백 반영 중'
-      : isChatLoading
-        ? '답변 생성 중'
-        : ''
+      : isApplyingSuggestion
+        ? '수정 반영 중'
+        : isChatLoading
+          ? '답변 생성 중'
+          : ''
   const shouldShowWelcomePrompt =
     !pendingSuggestion &&
     !isChatLoading &&
     !isFeedbackLoading &&
     !isApplyingFeedback &&
+    !isApplyingSuggestion &&
     chatMessages.length === 0
   const editTargetOptions = [
     ['all', '전체'],
@@ -222,6 +237,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
                   onApply={applySuggestion}
                   onApplyFeedback={applyFeedback}
                   isApplyingFeedback={isApplyingFeedback}
+                  isApplyingSuggestion={isApplyingSuggestion}
                 />
               ))}
               {loadingLabel ? <LoadingBubble label={loadingLabel} /> : null}
