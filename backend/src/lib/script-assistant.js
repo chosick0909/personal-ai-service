@@ -5,6 +5,7 @@ import { parseModelJson } from './model-json.js'
 import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 import { formatHookTemplatesForPrompt, retrieveHookTemplates } from './hook-templates.js'
+import { formatNarrativePatternsForPrompt, retrieveNarrativePatterns } from './narrative-patterns.js'
 
 function requireClients() {
   if (!hasSupabaseAdminConfig()) {
@@ -47,6 +48,156 @@ const COPILOT_INTENTS = {
   ADVISE: 'advise_script',
   EDIT: 'edit_script',
   GENERAL: 'general_chat',
+}
+const COPILOT_EVALUATION_RUBRIC = [
+  {
+    key: 'hook',
+    title: 'HOOK 흡입력',
+    points: 25,
+    criteria: [
+      '첫 1초 안에 타겟의 문제, 손해, 궁금증, 반전 중 하나가 바로 보이는가',
+      '설명문이나 평범한 질문처럼 시작하지 않는가',
+      '현재 주제와 상품/상황을 벗어나지 않는가',
+    ],
+  },
+  {
+    key: 'body',
+    title: 'BODY 이해도',
+    points: 25,
+    criteria: [
+      'HOOK에서 던진 문제를 BODY 첫 문장에서 자연스럽게 이어받는가',
+      '정보 순서가 헷갈리지 않고 한 문장씩 따라가기 쉬운가',
+      '추상적인 조언보다 구체적인 상황, 기준, 행동이 있는가',
+    ],
+  },
+  {
+    key: 'cta',
+    title: 'CTA 설득력',
+    points: 20,
+    criteria: [
+      '시청자가 지금 무엇을 해야 하는지 분명한가',
+      '저장, 댓글, 구매, 신청 같은 행동의 이유가 자연스럽게 보이는가',
+      '억지 판매나 뻔한 부탁처럼 들리지 않는가',
+    ],
+  },
+  {
+    key: 'reference_fit',
+    title: '레퍼런스 구조 반영도',
+    points: 15,
+    criteria: [
+      '선택한 A/B/C 초안의 역할, 리듬, 길이감, CTA 위치를 유지하는가',
+      '레퍼런스 원문 소재를 복사하지 않고 구조만 참고하는가',
+    ],
+  },
+  {
+    key: 'trust',
+    title: '신뢰도/과장 위험',
+    points: 15,
+    criteria: [
+      '허위 수치, 허위 권위, 허위 경험담을 만들지 않는가',
+      '건강, 돈, 지원금, 성과를 확정적으로 보장하지 않는가',
+      '계정명, 카테고리명, 내부 설정값을 대본 표면에 그대로 노출하지 않는가',
+    ],
+  },
+]
+const COPILOT_EDIT_PLAYBOOK = {
+  hook: {
+    title: 'HOOK 수정 원칙',
+    rules: [
+      '첫 1초 안에 타겟의 문제, 손해, 궁금증, 반전 중 하나가 바로 보이게 만든다.',
+      '평범한 질문형, 자기소개형, 카테고리 설명형으로 시작하지 않는다.',
+      '현재 BODY/CTA의 핵심 약속과 연결되는 첫 문장으로 고친다.',
+      '사용자가 HOOK만 요청했다면 BODY와 CTA는 단어, 문장부호, 줄바꿈까지 그대로 유지한다.',
+    ],
+  },
+  body: {
+    title: 'BODY 수정 원칙',
+    rules: [
+      'HOOK에서 던진 문제나 궁금증을 BODY 첫 문장에서 바로 이어받는다.',
+      '정보 순서를 원인, 기준, 해결 또는 상황, 전환, 방법 흐름으로 정리한다.',
+      '추상적인 조언보다 타겟이 바로 이해할 수 있는 구체적인 상황, 기준, 행동을 넣는다.',
+      '사용자가 BODY만 요청했다면 HOOK과 CTA는 단어, 문장부호, 줄바꿈까지 그대로 유지한다.',
+    ],
+  },
+  cta: {
+    title: 'CTA 수정 원칙',
+    rules: [
+      '시청자가 지금 해야 할 행동을 한 문장으로 분명하게 만든다.',
+      '저장, 댓글, 구매, 신청, 확인 같은 행동에 이유를 붙인다.',
+      'BODY 결론에서 자연스럽게 이어지게 만들고, 뻔한 좋아요/팔로우 부탁으로 끝내지 않는다.',
+      '사용자가 CTA만 요청했다면 HOOK과 BODY는 단어, 문장부호, 줄바꿈까지 그대로 유지한다.',
+    ],
+  },
+  all: {
+    title: '전체 수정 원칙',
+    rules: [
+      '전체 수정은 새 대본 생성이 아니다.',
+      '기존 초안의 주제, 상품, 타겟, 레퍼런스 구조, A/B/C 전략을 유지한다.',
+      'HOOK→BODY→CTA 연결성과 표현만 개선한다.',
+      '사용자 사실 정보와 레퍼런스 구조를 바꾸지 않는다.',
+      '레퍼런스 원문 소재, 업종, 상품명, 고유명사, 문장을 새 핵심 소재로 가져오지 않는다.',
+    ],
+  },
+}
+
+function buildCopilotEvaluationRubric() {
+  return [
+    '코파일럿 평가 기준표(100점 기준):',
+    ...COPILOT_EVALUATION_RUBRIC.map((item, index) =>
+      [
+        `${index + 1}. ${item.title} ${item.points}점`,
+        ...item.criteria.map((criterion) => `- ${criterion}`),
+      ].join('\n'),
+    ),
+    '',
+    '판단 원칙:',
+    '- 좋은 점은 좋다고 말하되 근거 없이 칭찬하지 않는다.',
+    '- 약한 점은 약하다고 말하고, 왜 약한지 기준표에 맞춰 설명한다.',
+    '- 조언 요청이면 대본을 수정하지 않는다.',
+    '- 수정 요청이면 먼저 짧게 진단하고, 요청받은 섹션만 수정한다.',
+  ].join('\n')
+}
+
+function buildCopilotResponseModeRule(responseMode = 'edit_only') {
+  if (responseMode === 'advice_then_edit') {
+    return [
+      '응답 모드: 평가 + 수정',
+      '- 사용자가 문제점 확인과 수정을 함께 요청했다.',
+      '- message에는 기준표에 따른 짧은 진단 1문장과 실제 수정 방향 1문장을 함께 쓴다.',
+      '- 예: "HOOK은 첫 1초 긴장감이 약해서 문제를 더 앞에 세웠고, BODY는 원인→해결 순서가 보이게 정리했습니다."',
+    ].join('\n')
+  }
+
+  return [
+    '응답 모드: 짧은 진단 + 수정',
+    '- 사용자가 수정을 요청했으므로 대본은 수정한다.',
+    '- message에는 기준표에 따른 짧은 진단을 먼저 넣고, 그 다음 무엇을 고쳤는지 말한다.',
+    '- 단, 사용자가 요청하지 않은 섹션은 진단에서도 과하게 언급하지 않는다.',
+    '- 예: "HOOK은 첫 문장의 긴장감이 약해서, 문제 상황이 바로 보이도록 바꿨습니다."',
+  ].join('\n')
+}
+
+function buildCopilotEditPlaybook(targetSections = SECTION_KEYS) {
+  const normalizedTargets = Array.isArray(targetSections) && targetSections.length
+    ? targetSections.filter((key) => SECTION_KEYS.includes(key))
+    : SECTION_KEYS
+  const isAll = normalizedTargets.length === SECTION_KEYS.length
+  const playbookKeys = isAll ? ['all', ...SECTION_KEYS] : normalizedTargets
+
+  return [
+    'COPILOT_EDIT_PLAYBOOK(고정 수정 행동 규칙):',
+    '- hook_templates와 역할이 다르다. hook_templates는 HOOK 수정 시 참고하는 후킹 구조 자료이고, COPILOT_EDIT_PLAYBOOK은 수정 범위별로 항상 지켜야 하는 규칙이다.',
+    '- 요청받지 않은 섹션은 잠금 상태로 취급한다.',
+    '- all 요청이어도 사용자 사실 정보, 주제, 상품, 타겟, 레퍼런스 구조, A/B/C 전략은 바꾸지 않는다.',
+    ...playbookKeys.map((key) => {
+      const playbook = COPILOT_EDIT_PLAYBOOK[key]
+      return [
+        '',
+        `[${playbook.title}]`,
+        ...playbook.rules.map((rule) => `- ${rule}`),
+      ].join('\n')
+    }),
+  ].join('\n')
 }
 
 function compactSummaryText(value = '', maxLength = 34) {
@@ -114,7 +265,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
   const normalizedEditTarget = String(editTarget || '').trim().toLowerCase()
   const hasExplicitSectionTarget = SECTION_KEYS.includes(normalizedEditTarget)
   const editPattern =
-    /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix)/i
+    /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|넣어|넣어줘|살려|살려줘|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix)/i
   const advicePattern =
     /(어때|어떤가|괜찮|약한가|약해|별로|문제|피드백|조언|평가|점수|올려도|업로드해도|이대로|봐줘|검토|진단|판단|좋아\?|나아\?|괜찮아\?)/i
 
@@ -175,7 +326,7 @@ function inferRequestedSections(request = '') {
   if (/(hook|훅|후크|후킹|첫문장|첫 문장|도입|오프닝)/i.test(request)) {
     requested.add('hook')
   }
-  if (/(body|바디|본문|중간|내용|전개|근거|설명|스토리)/i.test(request)) {
+  if (/(body|바디|본문|중간|내용|전개|근거|설명)/i.test(request)) {
     requested.add('body')
   }
   if (/(cta|씨티에이|콜투액션|행동유도|행동 유도|마무리|끝문장|끝 문장|클로징|댓글|저장|팔로우)/i.test(request)) {
@@ -241,6 +392,25 @@ function buildEditOutputInstruction(targetSections = SECTION_KEYS) {
   return [
     '생성 대상: HOOK, BODY, CTA 전체',
     '출력 JSON 형식: {"message":"","sections":{"hook":"","body":"","cta":""}}',
+  ].join('\n')
+}
+
+function buildNarrativeSectioningInstruction({
+  request = '',
+  targetSections = SECTION_KEYS,
+  narrativePatternContext = '',
+} = {}) {
+  if (!narrativePatternContext || targetSections.length !== SECTION_KEYS.length) return ''
+
+  return [
+    '스토리/감정선 전체 수정 분리 규칙:',
+    '- 스토리형으로 수정하더라도 출력은 반드시 HOOK/BODY/CTA로 나눈다.',
+    '- HOOK은 이야기의 첫 장면, 불편한 상황, 갈등을 여는 한 문장이다.',
+    '- BODY는 문제 경험 → 전환 → 해결 근거 흐름을 담는다.',
+    '- CTA는 시청자가 다음에 할 행동과 그 이유를 담는다.',
+    '- 전체 수정 요청에서 narrative_patterns를 사용했다면 BODY 하나만 반환하지 말고 HOOK/BODY/CTA 전체를 반환한다.',
+    '- 스토리 흐름은 내용 전개 방식이고, HOOK/BODY/CTA는 저장/편집 구조다. 둘을 섞지 않는다.',
+    `- 현재 사용자 요청: ${String(request || '').trim() || '-'}`,
   ].join('\n')
 }
 
@@ -331,7 +501,7 @@ function createFallbackIntent(message = '', editTarget = '') {
   }
 
   const minimalGreetings = ['ㅎㅇ', '하이', '안녕', 'hi', 'hello']
-  const hasEditOrFeedbackSignal = /(수정|바꿔|변경|고쳐|다듬|줄여|늘려|강하게|약하게|자연스럽게|hook|body|cta|훅|바디|본문|마무리|도입|문장|톤|느낌|다시|피드백|점수|평가|검토)/i.test(text)
+  const hasEditOrFeedbackSignal = /(수정|바꿔|변경|고쳐|다듬|줄여|늘려|강하게|약하게|자연스럽게|넣어|살려|hook|body|cta|훅|바디|본문|마무리|도입|문장|톤|느낌|감정선|스토리|서사|다시|피드백|점수|평가|검토)/i.test(text)
   if (minimalGreetings.includes(compact) || (compact.length <= 3 && !hasEditOrFeedbackSignal)) {
     return {
       intent: 'greeting',
@@ -350,7 +520,7 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|다시\s*(써|작성|수정))/i.test(text)) {
+  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(써|작성|수정))/i.test(text)) {
     return {
       intent: 'edit_request',
       editTarget: normalizedEditTarget,
@@ -699,6 +869,45 @@ function buildCopilotHookTemplateContext(templates = []) {
   ].join('\n')
 }
 
+function shouldUseNarrativePatternsForRefine(request = '', targetSections = SECTION_KEYS) {
+  const text = String(request || '').trim()
+  const canAffectBody = targetSections.includes('body')
+  if (!canAffectBody) return false
+
+  return /(스토리처럼|스토리\s*느낌|서사(?:로|처럼|형)?|감정선|감정\s*흐름|공감(?:되게|형)?|사람\s*냄새|인간적으로|브이로그처럼|실패담(?:처럼)?|성장\s*과정|고객\s*사례|수강생\s*사례|경험담(?:처럼)?|비하인드|도전기)/i.test(text)
+}
+
+function buildCopilotNarrativePatternQuery({ sections = {}, request = '', reference = {}, selectedLabel = '' } = {}) {
+  return {
+    request,
+    sections,
+    reference,
+    selectedLabel,
+    settingCues: [
+      reference.structure_analysis,
+      reference.psychology_analysis,
+      reference.ai_feedback,
+      ...(reference.frame_notes || []).map((frame) => frame?.hookReason || frame?.observation || ''),
+    ],
+  }
+}
+
+function buildCopilotNarrativePatternContext(patterns = []) {
+  return [
+    '코파일럿 narrative_patterns 참고(명시 요청 시에만 사용하는 내부 보조 지식):',
+    '- narrative_patterns는 대본을 스토리형으로 바꾸기 위한 템플릿이 아니다.',
+    '- 사용자가 스토리/서사/감정선/브이로그/실패담/고객 사례처럼 명시적으로 요청했을 때만 BODY 흐름과 전체 감정 연결을 약하게 보강한다.',
+    '- 현재 초안에 이미 있는 사실, 감정, 상황만 재배열하거나 연결한다.',
+    '- 실제로 없는 실패, 손실, 고객, 수강생, 매출, 성과, 가족/지인 발언, 전문가 권위를 새로 만들지 않는다.',
+    '- 정보형/튜토리얼형/혜택형 초안을 억지 감동 서사로 바꾸지 않는다.',
+    '- HOOK/CTA만 수정하는 요청이면 narrative_patterns를 사용하지 않는다.',
+    '- 아래 자료의 emotional_arc, body_flow_rule, rewrite_rule, avoid_when, risk_note만 참고한다. 원문 템플릿이나 예시 문장은 저장되어 있지 않다.',
+    '',
+    '검색된 narrative_patterns:',
+    formatNarrativePatternsForPrompt(patterns, 2),
+  ].join('\n')
+}
+
 function buildCharacterBoundary(accountId) {
   return [
     `현재 선택된 캐릭터 계정 ID: ${accountId}`,
@@ -791,21 +1000,33 @@ function buildRefineUserPrompt({
   referenceContext,
   guides,
   hookTemplateContext = '',
+  narrativePatternContext = '',
   targetSections = SECTION_KEYS,
+  responseMode = 'edit_only',
 }) {
   const normalizedSections = normalizeSections(sections)
   const normalizedRequest = String(request || '').trim()
+  const narrativeSectioningInstruction = buildNarrativeSectioningInstruction({
+    request: normalizedRequest,
+    targetSections,
+    narrativePatternContext,
+  })
 
   return (
+    `${buildCopilotEvaluationRubric()}\n\n` +
+    `${buildCopilotEditPlaybook(targetSections)}\n\n` +
+    `${buildCopilotResponseModeRule(responseMode)}\n\n` +
     `${buildDraftBlock(normalizedSections)}\n\n` +
     `${buildEditScopeInstruction(targetSections)}\n\n` +
     `${buildEditOutputInstruction(targetSections)}\n\n` +
-    `사용자 요청: ${normalizedRequest}\n\n` +
+    `${narrativeSectioningInstruction ? `${narrativeSectioningInstruction}\n\n` : ''}` +
     `선택한 안: ${selectedLabel || '-'}\n\n` +
     `${referenceContext}\n\n` +
     `${hookTemplateContext ? `${hookTemplateContext}\n\n` : ''}` +
+    `${narrativePatternContext ? `${narrativePatternContext}\n\n` : ''}` +
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
+    `사용자 요청: ${normalizedRequest}\n\n` +
     '톤 개선 지침:\n' +
     '- 공통: 대화체, 짧은 문장, 추상 표현 금지\n' +
     '- HOOK: 평범한 질문형 금지, 첫 문장 긴장감\n' +
@@ -813,7 +1034,7 @@ function buildRefineUserPrompt({
     '- CTA: 이유가 있는 행동 유도, 뻔한 부탁형 금지\n\n' +
     'message 작성 지침:\n' +
     '- "요청을 반영해 정리했습니다" 같은 일반 요약 금지\n' +
-    '- 어떤 섹션을 어떤 식으로 바꿨는지 1~2문장으로 구체적으로 작성\n' +
+    '- 평가 기준표를 근거로 약한 점을 짧게 진단한 뒤, 어떤 섹션을 어떤 식으로 바꿨는지 1~2문장으로 구체적으로 작성\n' +
     '- 예: "HOOK은 불편 상황을 바로 찌르는 식으로 바꾸고, CTA는 댓글 행동 유도로 정리했습니다."\n\n' +
     '위 출력 JSON 형식으로만 답하세요.'
   )
@@ -831,6 +1052,7 @@ function buildFeedbackUserPrompt({
     `${buildDraftBlock(normalizedSections)}\n\n` +
     `선택한 안: ${selectedLabel || '-'}\n\n` +
     `${referenceContext}\n\n` +
+    `${buildCopilotEvaluationRubric()}\n\n` +
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     '다음 JSON 형식으로만 답하세요: ' +
@@ -855,12 +1077,15 @@ function buildNaturalResponseUserPrompt({
     `요청 의도: ${intent}\n` +
     `선택한 안: ${selectedLabel || '-'}\n\n` +
     `${referenceContext}\n\n` +
+    `${buildCopilotEvaluationRubric()}\n\n` +
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     '응답 규칙:\n' +
     '- 지금은 대본을 수정하지 않는다. HOOK/BODY/CTA 문장을 새로 쓰거나 출력하지 않는다.\n' +
     '- 사용자의 질문에 자연어로만 답한다.\n' +
-    '- 조언/평가 요청이면 좋은 점 1개와 아쉬운 점 1~2개, 다음 개선 방향을 짧게 말한다.\n' +
+    '- 조언/평가 요청이면 평가 기준표에 따라 좋은 점 1개와 아쉬운 점 1~2개, 다음 개선 방향을 짧게 말한다.\n' +
+    '- 점수 언급을 요청했거나 "이대로 올려도 돼?"처럼 판단을 요구하면 100점 기준의 대략적 점수도 함께 말한다.\n' +
+    '- 무조건 칭찬하지 않는다. 약한 부분이 있으면 약하다고 말한다.\n' +
     '- 현재 초안과 레퍼런스 구조를 기준으로 판단하되, 레퍼런스 원문 소재를 가져오지 않는다.\n' +
     '- 사용자가 명시적으로 고쳐달라고 하지 않았으므로 섹션 변경을 제안만 하고 실행하지 않는다.\n\n' +
     '다음 JSON 형식으로만 답하세요: {"message":""}'
@@ -913,7 +1138,9 @@ async function generateCopilotNaturalResponse({
             buildContextPriority(),
             buildReferenceContaminationGuard(),
             '수정 금지: 사용자가 명시적으로 수정/고치기/바꾸기를 요청하지 않았으므로 HOOK/BODY/CTA를 변경하지 않는다.',
-            '응답 규칙: 자연어로 짧게 진단한다. 좋은 점, 약한 점, 다음 개선 방향을 구체적으로 말한다.',
+            buildCopilotEvaluationRubric(),
+            '응답 규칙: 자연어로 짧게 진단한다. 좋은 점, 약한 점, 다음 개선 방향을 기준표에 맞춰 구체적으로 말한다.',
+            '응답 규칙: "좋아요"만 말하지 않는다. 약한 점이 있으면 약하다고 말한다. 단, 대본을 새로 쓰거나 적용하지 않는다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
@@ -1028,6 +1255,8 @@ export async function refineScriptWithAI({
   const targetSections = getTargetSections(normalizedEditTarget)
   let hookTemplateContext = ''
   let matchedHookTemplateKeys = []
+  let narrativePatternContext = ''
+  let matchedNarrativePatternKeys = []
   if (shouldUseHookTemplatesForRefine(normalizedRequest, targetSections)) {
     const hookTemplateRetrieval = await retrieveHookTemplates({
       ...buildCopilotHookTemplateQuery({
@@ -1041,6 +1270,20 @@ export async function refineScriptWithAI({
     const templates = hookTemplateRetrieval.templates || []
     matchedHookTemplateKeys = templates.map((item) => item.hook_code).filter(Boolean)
     hookTemplateContext = buildCopilotHookTemplateContext(templates)
+  }
+  if (shouldUseNarrativePatternsForRefine(normalizedRequest, targetSections)) {
+    const narrativePatternRetrieval = await retrieveNarrativePatterns({
+      ...buildCopilotNarrativePatternQuery({
+        sections: normalizedSections,
+        request: normalizedRequest,
+        reference,
+        selectedLabel,
+      }),
+      topK: 2,
+    })
+    const patterns = narrativePatternRetrieval.patterns || []
+    matchedNarrativePatternKeys = patterns.map((item) => item.narrative_code).filter(Boolean)
+    narrativePatternContext = buildCopilotNarrativePatternContext(patterns)
   }
   logPromptAssembly({
     stage: 'script-refine',
@@ -1064,13 +1307,22 @@ export async function refineScriptWithAI({
             '당신은 숏폼 콘텐츠 편집 코파일럿이다. 사용자의 수정 요청을 반영해 현재 초안의 HOOK/BODY/CTA만 한국어로 다듬는다. 출력은 JSON만 반환한다.',
             buildContextPriority(),
             buildReferenceContaminationGuard(),
+            buildCopilotEvaluationRubric(),
+            buildCopilotEditPlaybook(targetSections),
+            buildCopilotResponseModeRule(intentResult.responseMode),
             buildEditOutputInstruction(targetSections),
             '부분 수정 규칙: 사용자가 특정 섹션만 요청하면 그 섹션만 수정한다. 요청받지 않은 섹션은 원문 그대로 반환한다.',
             '부분 수정 규칙: BODY만 요청하면 HOOK과 CTA는 절대 바꾸지 않는다. HOOK만 요청하면 BODY와 CTA는 절대 바꾸지 않는다. CTA만 요청하면 HOOK과 BODY는 절대 바꾸지 않는다.',
             '문체 규칙: 설명형/교과서형 문장을 피하고 실제 사람이 말하듯 자연스럽게 쓴다. 문장은 짧게 끊고 리듬감을 만든다.',
             'HOOK 규칙: 첫 문장에서 긴장감, 반전, 궁금증을 만든다. "~하시나요?" 같은 평범한 질문은 금지한다.',
             hookTemplateContext
-              ? 'hook_templates 규칙: 검색된 hook_template은 HOOK 구조 참고용이다. 템플릿 원문, 예시 문장, 특유의 시작 표현을 복사하지 않는다.'
+              ? 'hook_templates 규칙: 검색된 hook_template은 HOOK 수정 시 참고하는 후킹 구조 자료다. COPILOT_EDIT_PLAYBOOK을 대체하지 않으며, 템플릿 원문, 예시 문장, 특유의 시작 표현을 복사하지 않는다.'
+              : null,
+            narrativePatternContext
+              ? 'narrative_patterns 규칙: 검색된 narrative_pattern은 사용자가 명시적으로 요청한 서사/감정선 보강에만 사용한다. 현재 초안에 없는 실패, 손실, 고객 사례, 수강생 성과, 매출, 가족/지인 발언, 전문가 권위는 절대 만들지 않는다.'
+              : null,
+            narrativePatternContext && targetSections.length === SECTION_KEYS.length
+              ? '스토리형 전체 수정 규칙: 서사/감정선을 살려도 최종 출력은 반드시 HOOK/BODY/CTA 전체 JSON으로 나눈다. 긴 스토리 전체를 BODY 하나에 몰아넣지 않는다.'
               : null,
             'BODY 규칙: 상황으로 시작하고 한 문장씩 끊어 전개한다. "많은 사람들이 ~ 하지만" 같은 문장을 금지한다.',
             'CTA 규칙: 행동 이유(손해/이득/궁금증)를 포함해 짧고 강하게 마무리한다. "좋아요/팔로우 부탁" 문구는 금지한다.',
@@ -1079,8 +1331,8 @@ export async function refineScriptWithAI({
             '구조 보존 규칙: 더 좋게 고치더라도 레퍼런스 구조에서 완전히 멀어지는 새 대본으로 재창작하지 않는다.',
             '아래 핵심 인사이트/체크포인트는 현재 초안의 주제와 충돌하지 않는 경우에만 구조 참고로 사용한다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
-            'message 규칙: "요청을 반영했습니다", "다시 정리했습니다"처럼 뭉뚱그린 말은 금지한다. 무엇을 어떤 식으로 바꿨는지 구체적으로 말한다.',
-            'message 예시: "HOOK은 문제를 바로 찌르는 식으로 바꾸고, BODY는 전후 변화가 보이게 풀었습니다." 실제로 바꾼 섹션만 언급한다.',
+            'message 규칙: "요청을 반영했습니다", "다시 정리했습니다"처럼 뭉뚱그린 말은 금지한다. 기준표에 따른 짧은 진단과 무엇을 어떤 식으로 바꿨는지 구체적으로 말한다.',
+            'message 예시: "HOOK은 첫 1초 긴장감이 약해서 문제를 더 앞에 세웠습니다. BODY는 전후 변화가 보이게 풀었습니다." 실제로 바꾼 섹션만 언급한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
@@ -1099,7 +1351,9 @@ export async function refineScriptWithAI({
             referenceContext,
             guides,
             hookTemplateContext,
+            narrativePatternContext,
             targetSections,
+            responseMode: intentResult.responseMode,
           }),
         },
       ],
@@ -1110,6 +1364,7 @@ export async function refineScriptWithAI({
       referenceId,
       selectedLabel: selectedLabel || '',
       matchedHookTemplateKeys,
+      matchedNarrativePatternKeys,
     })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
@@ -1198,12 +1453,14 @@ export async function generateScriptFeedback({
             '당신은 숏폼 콘텐츠 평가자다. 제공된 초안을 100점 만점으로 평가하고, 개선 포인트를 짧고 명확하게 제안한다. 출력은 JSON만 반환한다.',
             buildContextPriority(),
             buildReferenceContaminationGuard(),
+            buildCopilotEvaluationRubric(),
             'suggestedSections는 반드시 현재 초안을 개선한 결과여야 한다. 레퍼런스 전사/원문 내용을 기준으로 재생성하지 않는다.',
             'suggestedSections를 작성할 때는 설명형/교과서형 문장을 피하고, 실제 사람이 말하는 톤으로 다시 써라.',
             'suggestedSections는 선택 초안의 문장 단위 구조 설계도, 길이감, 문장 역할 순서, 심리 트리거, CTA 위치를 가능한 한 유지한다.',
             '피드백 반영안이 레퍼런스 구조를 버리고 새 대본처럼 바뀌면 실패다.',
             'HOOK은 긴장감 있게, BODY는 상황/경험형으로, CTA는 행동 이유를 담아 짧고 강하게 제안하라.',
-            '평가 시 HOOK/BODY/CTA 연결성과 핵심 인사이트 반영 여부를 반드시 본다.',
+            '평가 시 반드시 평가 기준표의 5개 항목을 기준으로 점수를 판단한다.',
+            'summary/detail에는 좋은 점과 약한 점을 모두 담는다. 무조건 칭찬하지 않는다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
@@ -1275,8 +1532,14 @@ export const __scriptAssistantTest = {
   createSectionDiff,
   validateScriptFlow,
   buildEditScopeInstruction,
+  buildCopilotEvaluationRubric,
+  buildCopilotResponseModeRule,
+  buildCopilotEditPlaybook,
   buildCopilotHookTemplateContext,
+  buildCopilotNarrativePatternContext,
+  buildNarrativeSectioningInstruction,
   shouldUseHookTemplatesForRefine,
+  shouldUseNarrativePatternsForRefine,
   classifyCopilotIntentByRule,
   createFallbackIntent,
   messageMentionsLockedSections,

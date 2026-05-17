@@ -474,6 +474,80 @@ const CAPTION_STYLE_GUIDE = {
     '이모지는 감정 전환/문단 구분/CTA 강조 지점에만 자연스럽게 쓴다.',
     '처음부터 제품 스펙이나 정보 설명으로 시작하지 않는다.',
   ],
+  lineBreakRules: [
+    '문장 단위 또는 의미 단위로 줄바꿈한다.',
+    '오프닝, 공감, 근거/혜택, CTA 사이에는 빈 줄을 둔다.',
+    '모바일에서 한 줄이 길게 이어지지 않도록 10~35자 호흡을 우선한다.',
+    '줄바꿈은 장식이 아니라 읽는 속도와 감정 흐름을 조절하는 장치로 쓴다.',
+  ],
+  emojiRules: {
+    relationship: {
+      recommended: ['🤍', '💌', '🙏🏻', '🌿', '🙌🏻'],
+      use: '감정 전환, 감사, 댓글 대화 유도에만 부드럽게 사용한다.',
+    },
+    sales: {
+      recommended: ['✨', '🎁', '🔔', '✅', '💬'],
+      use: '오프닝 에너지, 혜택/구성 리스트, 댓글 CTA에만 사용한다.',
+    },
+    information: {
+      recommended: ['📌', '✅', '✔️', '👉🏻', '💬'],
+      use: '핵심 포인트, 체크리스트, 저장/댓글 CTA에만 사용한다.',
+    },
+    review: {
+      recommended: ['🙌🏻', '💌', '🤍', '✨', '💬'],
+      use: '경험의 감정, 회고 전환, 독자 질문에만 사용한다.',
+    },
+  },
+  salesConversionRules: {
+    purpose:
+      '판매/공구형 캡션에서 감정 진입, 신뢰 서사, 생활 공감, 근거, 혜택 정리, 댓글 CTA 흐름을 안정적으로 만들기 위한 전환 공식',
+    flow: [
+      '사건/감정/기대감/문제 상황으로 시작',
+      '직접 준비하거나 경험했다는 맥락',
+      '독자의 생활 고민을 구체적인 장면으로 공감',
+      '기존 선택지의 불편함 또는 놓치고 있던 기준',
+      '제품/자료/마켓을 자연스러운 해결책으로 등장',
+      '제공된 근거와 혜택을 보기 쉽게 정리',
+      '마감/한정성은 실제 정보가 있을 때만 언급',
+      '구매 압박보다 댓글/DM/알림 CTA로 행동 유도',
+    ],
+    openingRule: '첫 1~2줄은 제품명/스펙/가격이 아니라 사건, 감정, 기대감, 문제 상황으로 시작한다.',
+    trustNarrative: [
+      '직접 써봤다',
+      '직접 비교했다',
+      '구성까지 따져봤다',
+      '팔로워들이 물어봐서 준비했다',
+      '브랜드/본사와 협의했다',
+    ],
+    empathyRule: '고민은 추상어보다 실제 생활 장면으로 표현한다.',
+    productIntroRule:
+      '제품은 바로 소개하지 말고, 독자의 문제와 기존 대안의 불편함을 먼저 말한 뒤 해결책으로 등장시킨다.',
+    proofTypes: [
+      'personal_experience',
+      'audience_question',
+      'brand_negotiation',
+      'review',
+      'award',
+      'sales_volume',
+      'price_discount',
+      'limited_quantity',
+    ],
+    offerBlockRule: '일정, 구성, 가격, 이벤트, 증정품은 줄글보다 리스트 블록으로 정리한다.',
+    ctaPriority: ['댓글 키워드', 'DM 링크', '알림 신청', '프로필 링크', '저장/공유'],
+    defaultCta: '댓글 키워드 CTA',
+    scoringFocus: {
+      openingHook: '첫 1~2줄에 사건, 감정, 기대감, 문제 상황이 있는가',
+      personalTrust: '직접 경험, 준비 과정, 비교, 협의 맥락이 있는가',
+      specificPainPoint: '독자의 고민이 생활 장면으로 구체화되어 있는가',
+      solutionBridge: '제품/서비스가 문제의 자연스러운 해결책으로 등장하는가',
+      proof: '후기, 문의, 데이터, 수상, 숫자, 사용 경험 등 실제 제공된 근거가 있는가',
+      offerClarity: '구성, 가격, 일정, 혜택이 보기 쉽게 정리되어 있는가',
+      urgency: '마감, 선착순, 한정성 등 지금 행동할 이유가 실제 정보로 제공됐는가',
+      cta: '댓글 키워드, DM, 알림 신청 등 부담 낮은 CTA가 있는가',
+    },
+    guard:
+      '직접 경험, 후기, 숫자, 할인율, 마감, 선착순, 한정성은 사용자가 제공한 경우에만 사용한다. 없으면 지어내지 않는다.',
+  },
   factBoundaryRules: {
     userProvidedFactsOnly: ['가격', '할인율', '마감일', '선착순', '고객 후기', '직접 사용 경험', '판매량', '성과 수치'],
     allowedInference: ['문장 호흡', '감정 연결', '독자 고민 표현', '부드러운 CTA 문장'],
@@ -576,6 +650,9 @@ function inferCaptionStyleGuide({
     selectedTone: selectedType.tone,
     selectedCtaTypes: selectedType.ctaTypes,
     globalWritingRules: CAPTION_STYLE_GUIDE.globalWritingRules,
+    lineBreakRules: CAPTION_STYLE_GUIDE.lineBreakRules,
+    emojiRules: CAPTION_STYLE_GUIDE.emojiRules[captionType],
+    salesConversionRules: captionType === 'sales' ? CAPTION_STYLE_GUIDE.salesConversionRules : null,
     factBoundaryRules: CAPTION_STYLE_GUIDE.factBoundaryRules,
     speechLevelRules: CAPTION_STYLE_GUIDE.speechLevelRules,
     lengthRules: CAPTION_STYLE_GUIDE.lengthRules,
@@ -712,8 +789,8 @@ function buildCaptionBrief({
         ? 'A/B 구조 신뢰도가 낮으면 길이를 억지로 맞추지 말고 기본 캡션 길이로 보정한다.'
         : `해시태그를 제외한 caption 본문 길이는 A/B 평균 길이에 최대한 가깝게 맞춘다. 목표는 공백 제외 ${referenceStructure?.targetMinLength || 0}~${referenceStructure?.targetMaxLength || 0}자이며, 짧게 요약하거나 새 전개를 추가하지 말고 A/B의 정보 밀도와 호흡을 유지한다.`,
     referenceEmojiRule: referenceStructure?.hasEmojisOrSymbols
-      ? `A/B 캡션에 이모티콘/기호가 있다. 본문에도 비슷한 감각으로 1~3개를 자연스럽게 넣는다. 참고 가능한 기호: ${(referenceStructure.emojiOrSymbols || []).join(' ') || '레퍼런스 톤에 맞는 이모티콘'}. 레퍼런스보다 과하게 늘리지 말고 Hook, 강조 문장, CTA 주변에만 사용한다.`
-      : 'A/B 캡션에 이모티콘/기호가 없으면 억지로 넣지 않는다.',
+      ? `A/B 캡션에 이모티콘/기호가 있다. 본문에도 비슷한 감각으로 2~5개를 자연스럽게 넣는다. 참고 가능한 기호: ${(referenceStructure.emojiOrSymbols || []).join(' ') || '레퍼런스 톤에 맞는 이모티콘'}. 레퍼런스보다 과하게 늘리지 말고 감정 전환, 리스트, CTA 주변에만 사용한다.`
+      : 'A/B 캡션에 이모티콘/기호가 없어도 captionStyleGuide의 타입에 맞게 1~3개 정도는 감정 전환/CTA 위치에만 자연스럽게 사용할 수 있다.',
     hashtagRules: {
       targetCount: '기본 5개 내외',
       topicTags: '주제 핵심 태그 1~2개: 영상 내용 자체에서 뽑는다. 예: #스트랩추천, #운동루틴',
@@ -988,6 +1065,275 @@ function calculateGeneratedReferenceScore({ caption, referenceStructure, lengthC
   }
 }
 
+const CAPTION_FORMAT_PROFILES = {
+  relationship: {
+    sectionEmoji: '💌',
+    ctaEmoji: '💬',
+    closingEmoji: '🤍',
+    minEmojiCount: 3,
+    linesPerParagraph: 2,
+  },
+  sales: {
+    sectionEmoji: '✨',
+    ctaEmoji: '💬',
+    closingEmoji: '',
+    minEmojiCount: 3,
+    linesPerParagraph: 2,
+  },
+  information: {
+    sectionEmoji: '📌',
+    ctaEmoji: '💬',
+    closingEmoji: '',
+    minEmojiCount: 2,
+    linesPerParagraph: 2,
+  },
+  review: {
+    sectionEmoji: '🙌🏻',
+    ctaEmoji: '💬',
+    closingEmoji: '🤍',
+    minEmojiCount: 2,
+    linesPerParagraph: 2,
+  },
+}
+
+function getCaptionFormatProfile(brief = {}) {
+  const captionType = brief?.captionStyleGuide?.captionType || 'information'
+  return CAPTION_FORMAT_PROFILES[captionType] || CAPTION_FORMAT_PROFILES.information
+}
+
+function countCaptionEmojis(value = '') {
+  return extractEmojiSymbols(value).length
+}
+
+function splitCaptionSentencesForFormatting(value = '') {
+  const normalized = normalizeCaption(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+
+  if (!normalized) {
+    return []
+  }
+
+  return normalized
+    .split(/\n+/)
+    .flatMap((segment) =>
+      segment
+        .trim()
+        .replace(/([.!?。！？])\s+/g, '$1\n')
+        .replace(/(습니다|합니다|입니다|드립니다|해요|돼요|되어요|게요|세요|나요|까요|네요|어요|아요|죠|요)\s+(?=[가-힣A-Za-z0-9"'“‘])/g, '$1\n')
+        .split(/\n+/),
+    )
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function splitLongCaptionLine(line = '', maxCompactLength = 42) {
+  const normalized = normalizeCaption(line)
+  if (!normalized || normalized.replace(/\s+/g, '').length <= maxCompactLength) {
+    return normalized ? [normalized] : []
+  }
+
+  const marked = normalized
+    .replace(/,\s+/g, ',\n')
+    .replace(/\s+(그리고|그래서|그런데|근데|하지만|다만|특히|이제|사실)\s+/g, '\n$1 ')
+  const parts = marked
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  if (parts.length <= 1) {
+    return [normalized]
+  }
+
+  const lines = []
+  let buffer = ''
+  parts.forEach((part) => {
+    const next = buffer ? `${buffer} ${part}` : part
+    if (next.replace(/\s+/g, '').length > maxCompactLength && buffer) {
+      lines.push(buffer)
+      buffer = part
+      return
+    }
+    buffer = next
+  })
+  if (buffer) {
+    lines.push(buffer)
+  }
+
+  return lines.length ? lines : [normalized]
+}
+
+function formatCaptionSection(value = '', { linesPerParagraph = 2 } = {}) {
+  const lines = splitCaptionSentencesForFormatting(value).flatMap((line) => splitLongCaptionLine(line))
+  if (!lines.length) {
+    return ''
+  }
+
+  const paragraphs = []
+  let current = []
+  lines.forEach((line) => {
+    current.push(line)
+    if (current.length >= linesPerParagraph) {
+      paragraphs.push(current.join('\n'))
+      current = []
+    }
+  })
+  if (current.length) {
+    paragraphs.push(current.join('\n'))
+  }
+
+  return paragraphs.join('\n\n')
+}
+
+function prefixCtaEmoji(cta = '', emoji = '💬') {
+  const normalized = normalizeCaption(cta)
+  if (!normalized || countCaptionEmojis(normalized) > 0) {
+    return normalized
+  }
+
+  const lines = normalized.split('\n')
+  lines[0] = `${emoji} ${lines[0]}`.trim()
+  return lines.join('\n')
+}
+
+function prefixSectionEmoji(value = '', emoji = '') {
+  const normalized = normalizeCaption(value)
+  if (!normalized || !emoji || normalized.includes(emoji)) {
+    return normalized
+  }
+
+  const lines = normalized.split('\n')
+  const targetIndex = lines.findIndex((line) => normalizeCaption(line))
+  if (targetIndex < 0) {
+    return normalized
+  }
+
+  lines[targetIndex] = `${emoji} ${lines[targetIndex]}`.trim()
+  return lines.join('\n')
+}
+
+function appendClosingEmoji(value = '', emoji = '') {
+  const normalized = normalizeCaption(value)
+  if (!normalized || !emoji || normalized.includes(emoji)) {
+    return normalized
+  }
+
+  return `${normalized} ${emoji}`.trim()
+}
+
+function isStandaloneEmojiLine(line = '') {
+  const trimmed = normalizeCaption(line)
+  if (!trimmed) {
+    return false
+  }
+
+  const withoutEmojis = trimmed
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Modifier}\u{1F1E6}-\u{1F1FF}★☆✓✔→←※]/gu, '')
+    .replace(/[\uFE0F\u200D\s]/g, '')
+
+  return !withoutEmojis && countCaptionEmojis(trimmed) > 0
+}
+
+function shouldPrefixStandaloneEmoji(emojiLine = '') {
+  return /[✨✅✔📌👉🎁🔔💬⏰⚠🚨]/u.test(emojiLine)
+}
+
+function mergeStandaloneEmojiLines(value = '') {
+  const normalized = normalizeCaption(value)
+  if (!normalized) {
+    return normalized
+  }
+
+  const sourceLines = normalized.split('\n')
+  const lines = []
+  let pendingPrefixEmoji = ''
+
+  for (const rawLine of sourceLines) {
+    const line = rawLine.trimEnd()
+
+    if (isStandaloneEmojiLine(line)) {
+      if (shouldPrefixStandaloneEmoji(line)) {
+        pendingPrefixEmoji = pendingPrefixEmoji ? `${pendingPrefixEmoji} ${line.trim()}` : line.trim()
+        continue
+      }
+
+      const lastTextIndex = lines.findLastIndex((item) => normalizeCaption(item))
+      if (lastTextIndex >= 0) {
+        lines[lastTextIndex] = `${lines[lastTextIndex].trimEnd()} ${line.trim()}`
+        continue
+      }
+
+      pendingPrefixEmoji = pendingPrefixEmoji ? `${pendingPrefixEmoji} ${line.trim()}` : line.trim()
+      continue
+    }
+
+    if (normalizeCaption(line) && pendingPrefixEmoji) {
+      lines.push(`${pendingPrefixEmoji} ${line.trim()}`)
+      pendingPrefixEmoji = ''
+      continue
+    }
+
+    lines.push(line)
+  }
+
+  if (pendingPrefixEmoji) {
+    const lastTextIndex = lines.findLastIndex((item) => normalizeCaption(item))
+    if (lastTextIndex >= 0) {
+      lines[lastTextIndex] = `${lines[lastTextIndex].trimEnd()} ${pendingPrefixEmoji}`
+    }
+  }
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function formatGeneratedCaptionOutput({ caption, hook, body, cta, brief }) {
+  const profile = getCaptionFormatProfile(brief)
+  const linesPerParagraph = profile.linesPerParagraph || 2
+  const formattedHook = formatCaptionSection(hook, { linesPerParagraph: 1 })
+  let formattedBody = formatCaptionSection(body, { linesPerParagraph })
+  let formattedCta = formatCaptionSection(cta, { linesPerParagraph: 1 })
+  const sourceCaption = normalizeCaption(caption)
+  const sectionCaption = [formattedHook, formattedBody, formattedCta].filter(Boolean).join('\n\n')
+  const hasStructuredSections = Boolean(sectionCaption)
+  let formattedCaption = sectionCaption || formatCaptionSection(sourceCaption, { linesPerParagraph })
+  const currentEmojiCount = countCaptionEmojis(formattedCaption)
+  const shouldAddRoleEmojis = currentEmojiCount < (profile.minEmojiCount || 2)
+
+  if (shouldAddRoleEmojis && hasStructuredSections) {
+    if (formattedBody && profile.sectionEmoji && !formattedBody.includes(profile.sectionEmoji)) {
+      formattedBody = prefixSectionEmoji(formattedBody, profile.sectionEmoji)
+    }
+
+    formattedCta = prefixCtaEmoji(formattedCta, profile.ctaEmoji)
+    if (profile.closingEmoji) {
+      formattedCta = appendClosingEmoji(formattedCta, profile.closingEmoji)
+    }
+
+    formattedCaption = [formattedHook, formattedBody, formattedCta]
+      .filter(Boolean)
+      .join('\n\n')
+  } else if (shouldAddRoleEmojis && formattedCaption && profile.sectionEmoji && !formattedCaption.includes(profile.sectionEmoji)) {
+    formattedCaption = prefixSectionEmoji(formattedCaption, profile.sectionEmoji)
+  }
+
+  formattedCaption = mergeStandaloneEmojiLines(formattedCaption)
+  formattedBody = mergeStandaloneEmojiLines(formattedBody)
+  formattedCta = mergeStandaloneEmojiLines(formattedCta)
+
+  return {
+    caption: normalizeCaption(formattedCaption).replace(/\n{3,}/g, '\n\n'),
+    hook: formattedHook,
+    body: formattedBody,
+    cta: formattedCta,
+    formatSummary: {
+      captionType: brief?.captionStyleGuide?.captionType || 'information',
+      styleStrength: brief?.captionStyleGuide?.styleStrength || 'light',
+      emojiCount: countCaptionEmojis(formattedCaption),
+      lineBreakCount: Math.max(0, formattedCaption.split('\n').length - 1),
+    },
+  }
+}
+
 function requireOpenAI() {
   if (!hasOpenAIConfig()) {
     throw new AppError('OpenAI API key is not configured', {
@@ -1062,6 +1408,12 @@ async function generateCaptionFromBrief({
         '카테고리별 캡션 전략은 말하는 방식과 위험 표현 회피에만 사용한다.',
         'captionStyleGuide는 잘 쓴 캡션의 온도감, 짧은 문장 호흡, 감정 흐름, CTA 방식을 약하게 보정하는 자료다.',
         'captionStyleGuide 때문에 A/B 구조, 영상 주제, 계정 세팅, 실제 제공된 사실이 바뀌면 실패다.',
+        'captionStyleGuide.lineBreakRules를 지켜라. caption은 모바일에서 읽기 좋게 문장/의미 단위로 줄바꿈하고, 오프닝/공감/핵심정보/CTA 사이에는 빈 줄을 둔다.',
+        'captionStyleGuide.emojiRules를 지켜라. 이모지는 꾸밈이 아니라 감정 전환, 정보 구분, CTA 강조 용도로만 쓴다.',
+        '이모지만 단독 줄로 띄우지 마라. 감정 이모지는 문장 끝에, 리스트/CTA 이모지는 해당 문장 앞에 붙인다.',
+        'captionStyleGuide.salesConversionRules가 있으면 판매형 전환 공식으로 사용한다. 감정 진입 → 신뢰 서사 → 생활 공감 → 해결책 → 근거/혜택 정리 → 댓글/DM CTA 흐름을 따른다.',
+        '단, salesConversionRules는 사용자가 제공한 사실 안에서만 적용한다. 직접 경험, 후기, 숫자, 할인율, 마감, 선착순, 한정성은 절대 지어내지 않는다.',
+        '판매형 캡션의 CTA는 구매 압박보다 댓글 키워드, DM 링크, 알림 신청, 프로필 링크, 저장/공유 중 하나를 우선한다.',
         'captionStyleGuide의 factBoundaryRules를 지켜라. 가격, 할인율, 마감일, 선착순, 고객 후기, 직접 사용 경험, 판매량, 성과 수치는 사용자가 제공한 경우에만 쓴다.',
         '존댓말/반말을 섞지 말고, 계정 세팅에 별도 지시가 없으면 친근한 존댓말을 유지한다.',
         'A/B 캡션 원문은 제공되지 않는다. referencePattern은 구조 참고용일 뿐이다.',
@@ -1075,7 +1427,9 @@ async function generateCaptionFromBrief({
         '단, 길이를 맞추려고 영상 주제와 계정 정체성을 희석하거나 불필요한 말을 늘리지 마라.',
         '카테고리 규칙은 누구에게 어떻게 말할지를 정하고, 수익모델 규칙은 어떤 행동을 유도할지를 정한다.',
         'caption은 hook, body, cta를 합친 완성형 본문이며 해시태그는 넣지 않는다. 해시태그는 hashtags 배열에만 넣는다.',
-        'referenceStructure.hasEmojisOrSymbols가 true이면 caption 본문에도 이모티콘/기호를 1~3개 자연스럽게 넣어 딱딱함을 줄인다. false이면 억지로 넣지 않는다.',
+        'caption에는 실제 인스타 캡션처럼 줄바꿈을 포함한다. 긴 문단 하나로 쓰면 실패다.',
+        'caption에는 captionType에 맞는 이모지를 2~5개 정도 자연스럽게 넣는다. 단, 모든 문장 끝에 붙이지 않는다.',
+        '판매형이라도 실제 혜택/마감/선착순 정보가 없으면 ⏰, 🚨, 최저가, 선착순, 마감 표현을 만들지 않는다.',
         '해시태그는 captionBrief.hashtagRules를 반드시 따른다. 기본 5개 내외로 만들고, 주제 핵심/카테고리/상황·타깃 태그를 섞는다.',
         '수익모델 태그는 기본적으로 넣지 않는다. 단, 제휴 표시가 꼭 필요한 맥락이면 #쿠팡파트너스 같은 태그를 최대 1개만 넣는다.',
         'JSON 스키마: {"caption":"string","hook":"string","body":"string","cta":"string","hashtags":["string"],"rationale":"string"}',
@@ -1101,12 +1455,13 @@ async function generateCaptionFromBrief({
           : null,
         '작성 규칙:',
         '1. 첫줄 Hook',
-        '2. 공감/문제 제기',
-        '3. 카테고리별 본문 강조점',
-        '4. 수익모델에 맞는 CTA',
+        '2. 빈 줄 후 공감/문제 제기',
+        '3. 빈 줄 후 카테고리별 본문 강조점',
+        '4. 빈 줄 후 수익모델에 맞는 CTA',
         '5. 필요한 경우 고지/주의 문구',
         '6. 금지 표현 회피',
-        '7. captionStyleGuide는 말투/줄바꿈/감정 흐름 보정에만 사용하고, 없는 혜택·후기·경험담·성과를 만들지 않기',
+        '7. 판매형이면 감정 진입 → 신뢰 서사 → 생활 공감 → 해결책 → 근거/혜택 정리 → 댓글/DM CTA 흐름을 우선하기',
+        '8. captionStyleGuide는 말투/줄바꿈/이모지 역할/감정 흐름 보정에만 사용하고, 없는 혜택·후기·경험담·성과를 만들지 않기',
       ].filter(Boolean).join('\n\n'),
     },
   ]
@@ -1261,9 +1616,28 @@ export async function generateCaptionDraft({
     }
   }
 
-  const hook = normalizeCaption(parsed.hook)
-  const body = normalizeCaption(parsed.body)
-  const cta = normalizeCaption(parsed.cta)
+  let hook = normalizeCaption(parsed.hook)
+  let body = normalizeCaption(parsed.body)
+  let cta = normalizeCaption(parsed.cta)
+  const formatted = formatGeneratedCaptionOutput({
+    caption,
+    hook,
+    body,
+    cta,
+    brief,
+  })
+  caption = formatted.caption || caption
+  hook = formatted.hook || hook
+  body = formatted.body || body
+  cta = formatted.cta || cta
+  lengthCheck = {
+    ...getCaptionLengthCheck({
+      caption,
+      referenceStructure: brief.referenceStructure,
+      referenceQuality: referenceAnalysis.quality,
+    }),
+    corrected: Boolean(lengthCheck.corrected),
+  }
   const hashtags = normalizeHashtags(parsed.hashtags).slice(0, 10)
   const rationale = normalizeCaption(parsed.rationale)
 
@@ -1309,6 +1683,7 @@ export async function generateCaptionDraft({
             captionGoal: brief.captionStyleGuide.captionGoal,
             captionType: brief.captionStyleGuide.captionType,
             styleStrength: brief.captionStyleGuide.styleStrength,
+            salesConversionApplied: Boolean(brief.captionStyleGuide.salesConversionRules),
           }
         : null,
       referenceLength: {
@@ -1319,6 +1694,7 @@ export async function generateCaptionDraft({
         matched: lengthCheck.matched,
         corrected: Boolean(lengthCheck.corrected),
       },
+      captionFormat: formatted.formatSummary,
       referenceUsage:
         referenceAnalysis.quality.applicationStrength === 'strong'
           ? 'A/B 원문은 구조 분석에만 사용했고, 줄바꿈·문장 길이·CTA 흐름을 강하게 반영했습니다.'
