@@ -82,6 +82,63 @@ test('self intro is blocked unless reference blueprint explicitly contains intro
   assert.equal(findAccountIdentityLeakage(variation.hook, guard, introBlueprint), '')
 })
 
+test('non-reference greeting openings are blocked from generated hooks', () => {
+  const guard = {
+    category: '생활',
+    anchors: ['청소'],
+    settingCues: [],
+    hardSettingCues: [],
+    instagramId: '',
+  }
+  const structureBlueprint = {
+    sentenceBlueprint: [
+      {
+        section: 'hook',
+        sourceSentence: '바닥 청소 오래 걸리나요?',
+        role: '문제를 바로 찌르는 질문',
+      },
+    ],
+  }
+  const variation = {
+    hook: '안녕하세요, 바닥 청소 오래 걸리나요?',
+    body: '청소 순서만 바꿔도 시간이 줄어듭니다.',
+    cta: '저장하고 오늘 청소할 때 바로 써보세요.',
+  }
+
+  const alignment = validateVariationAlignment(variation, guard, {}, structureBlueprint)
+
+  assert.equal(alignment.ok, false)
+  assert.match(alignment.reason, /레퍼런스에 없는 HOOK 말머리 삽입/)
+})
+
+test('greeting openings are allowed when reference hook starts with greeting', () => {
+  const guard = {
+    category: '생활',
+    anchors: ['청소'],
+    settingCues: [],
+    hardSettingCues: [],
+    instagramId: '',
+  }
+  const structureBlueprint = {
+    sentenceBlueprint: [
+      {
+        section: 'hook',
+        sourceSentence: '안녕하세요, 오늘은 청소 순서를 정리해볼게요.',
+        role: '인사 후 주제 소개',
+      },
+    ],
+  }
+  const variation = {
+    hook: '안녕하세요, 오늘은 바닥 청소 순서를 정리해볼게요.',
+    body: '위에서 아래로 정리하면 같은 시간에도 덜 반복하게 됩니다.',
+    cta: '저장하고 오늘 청소할 때 바로 써보세요.',
+  }
+
+  const alignment = validateVariationAlignment(variation, guard, {}, structureBlueprint)
+
+  assert.equal(alignment.ok, true)
+})
+
 test('identity leak guard prompt tells model not to treat personal influencer as self intro', () => {
   const prompt = buildAccountIdentityLeakGuardPrompt({ instagramId: 'labdotory' })
 

@@ -2178,6 +2178,7 @@ function getWritingPlaybookStrengthPrompt(config = {}) {
   }
   return [
     'B안 대화형: 구조는 유지하고 실제 말하듯 자연스럽게 다듬는다.',
+    '대화형은 새 인사/말걸기 도입을 붙이는 뜻이 아니다.',
     '공감 표현과 말맛을 보정하되 문장 역할과 순서는 유지한다.',
     '광고문/보고서체를 줄이고 편한 대화체로 바꾼다.',
   ].join('\n')
@@ -2204,7 +2205,7 @@ function getHookTemplateStrategyInstruction(config = {}) {
     return 'A안 원본형: 레퍼런스 첫 문장의 역할, 길이감, 리듬을 최대한 유지한다. hook_template은 훅이 문제형/혜택형/후기형 중 어디에 가까운지 판단하는 약한 보조 신호로만 쓴다.'
   }
   if (label === 'B안') {
-    return 'B안 대화형: A안과 같은 핵심 훅 논리를 유지하되 말투만 더 자연스럽게 바꾼다. “요즘 누가”, “아직도”, “진짜 이거” 같은 템플릿식 시작 표현 반복은 피한다.'
+    return 'B안 대화형: A안과 같은 핵심 훅 논리를 유지하되 말투만 더 자연스럽게 바꾼다. 레퍼런스 첫 문장에 없는 “안녕하세요”, “잠깐만요”, “혹시요”, “잠깐,” 같은 말머리/인사/호명 도입은 금지한다.'
   }
   if (label === 'C안') {
     return 'C안 후킹형: 레퍼런스 구조를 깨지 않는 선에서 검색 후보의 긴장감, 궁금증, 저장 욕구를 더 적극적으로 반영한다. 문장 수, CTA 위치, 전개 순서는 바꾸지 않는다.'
@@ -3251,6 +3252,44 @@ function hasSelfIntroductionBlueprint(structureBlueprint = {}) {
   )
 }
 
+const NON_REFERENCE_GREETING_OPENING_PATTERN =
+  /^(안녕(?:하세요|하십니까)?|잠깐(?:만요|만|요)?|혹시(?:요)?|저기(?:요)?|여러분|자\s*여러분|자,|자\s)/u
+
+function getFirstHookBlueprintSentence(structureBlueprint = {}) {
+  const sentenceBlueprint = Array.isArray(structureBlueprint?.sentenceBlueprint)
+    ? structureBlueprint.sentenceBlueprint
+    : []
+  return (
+    sentenceBlueprint.find((item) => String(item?.section || '').toLowerCase() === 'hook') ||
+    sentenceBlueprint[0] ||
+    null
+  )
+}
+
+function hasReferenceGreetingOpening(structureBlueprint = {}) {
+  const firstHook = getFirstHookBlueprintSentence(structureBlueprint)
+  const source = [
+    firstHook?.sourceSentence,
+    firstHook?.role,
+    firstHook?.sentenceShape,
+    firstHook?.feeling,
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join(' ')
+
+  return NON_REFERENCE_GREETING_OPENING_PATTERN.test(source)
+}
+
+function findNonReferenceGreetingOpening(hook = '', structureBlueprint = {}) {
+  const normalizedHook = String(hook || '').replace(/^[\s"'“”‘’]+/u, '').trim()
+  if (!normalizedHook || hasReferenceGreetingOpening(structureBlueprint)) {
+    return ''
+  }
+
+  return normalizedHook.match(NON_REFERENCE_GREETING_OPENING_PATTERN)?.[0]?.trim() || ''
+}
+
 function findAccountIdentityLeakage(text = '', guard = {}, structureBlueprint = {}) {
   const source = String(text || '').trim()
   if (!source) return ''
@@ -3533,6 +3572,8 @@ async function regenerateVariationWithGPT({
           '- blueprint가 있으면 각 번호를 결과 문장 1개로 대응시키고 합치거나 생략하지 않음\n' +
           '- 각 문장의 목표분량/문장형태/리듬/끝맺음/느낌과 HOOK/BODY/CTA 흐름, CTA 위치를 유지\n' +
           '- topicSlots/replaceTargets 자리만 바꾸고, 단호함/공감/불안/행동압박 기능은 같은 위치에서 수행\n' +
+          '- 레퍼런스 첫 HOOK에 인사/호명/말걸기 역할이 없으면 “안녕하세요”, “잠깐만요”, “혹시요”, “잠깐,” 같은 시작어를 절대 추가하지 않음\n' +
+          '- B안 대화형은 말머리 추가가 아니라 같은 문장 역할 안에서 자연스럽게 치환하는 뜻임\n' +
           '- 말투 높임은 초안 전체에서 통일하고 키워드는 억지 삽입보다 자연스러운 흐름을 우선\n' +
           `${VARIATION_NATURAL_VOICE_RULES}\n` +
           '다음 JSON 형식으로만 답하세요: {"hook":"","body":"","cta":""}',
@@ -3666,7 +3707,7 @@ function getVariationHookStyleInstruction(config = {}) {
   }
 
   if (label === 'B안' || angle.includes('대화형')) {
-    return '대화형: 레퍼런스 문장 골격은 유지하고, 같은 슬롯 치환 안에서 말투만 더 대화체로 둔다. A안과 같은 시작어만 피한다.'
+    return '대화형: 레퍼런스 문장 골격은 유지하고, 같은 슬롯 치환 안에서 말투만 더 대화체로 둔다. 레퍼런스에 없는 인사/호명/말걸기 시작어 추가는 금지한다.'
   }
 
   if (label === 'C안' || angle.includes('후킹형')) {
@@ -3699,6 +3740,7 @@ async function regenerateHookForDiversity({
           '당신은 숏폼 스크립트 HOOK만 다시 쓰는 편집자다. BODY/CTA는 바꾸지 않고 HOOK만 JSON으로 반환한다. ' +
           '레퍼런스 문장 골격과 현재 주제는 유지하되, 다른 초안들과 첫 문장 시작어만 겹치지 않게 만든다. ' +
           '완전히 새 훅을 만들지 말고 같은 문장 역할/분량/느낌 안에서 소재 표현만 조정한다. ' +
+          '레퍼런스 첫 HOOK에 없는 “안녕하세요”, “잠깐만요”, “혹시요”, “잠깐,” 같은 인사/호명/말걸기 시작어는 금지한다. ' +
           '출력은 JSON만 반환한다.',
       },
       {
@@ -3729,6 +3771,7 @@ async function regenerateHookForDiversity({
           '- 레퍼런스의 문장 역할/길이감은 유지한다\n' +
           '- 기존 HOOK들과 같은 시작어, 같은 첫 절, 같은 핵심 문장 구조를 쓰지 않는다\n' +
           '- 그래도 완전히 새 구조로 튀지 말고 현재 주제에 맞게 소재만 치환한다\n\n' +
+          '- 레퍼런스에 없는 인사/호명/말걸기 시작어를 넣지 않는다\n\n' +
           '다음 JSON 형식으로만 답하세요: {"hook":""}',
       },
     ],
@@ -3983,6 +4026,11 @@ function normalizeVariationForValidation(rawVariation, index = 0) {
 }
 
 function validateVariationAlignment(variation, guard, referenceGuard = {}, structureBlueprint = {}) {
+  const hookOpeningLeak = findNonReferenceGreetingOpening(variation?.hook || '', structureBlueprint)
+  if (hookOpeningLeak) {
+    return { ok: false, reason: `레퍼런스에 없는 HOOK 말머리 삽입: ${hookOpeningLeak}`, warnings: [] }
+  }
+
   if (!guard?.category || guard.category === '기타') {
     const identityLeak = findAccountIdentityLeakage(
       [variation?.hook, variation?.body, variation?.cta].filter(Boolean).join('\n'),
@@ -3999,6 +4047,7 @@ function validateVariationAlignment(variation, guard, referenceGuard = {}, struc
     .map((item) => String(item || '').trim())
     .filter(Boolean)
     .join('\n')
+  const hookText = String(variation?.hook || '').trim()
 
   if (!text) {
     return { ok: false, reason: '본문이 비어 있음', warnings: ['본문이 비어 있음'] }
@@ -4045,7 +4094,6 @@ function validateVariationAlignment(variation, guard, referenceGuard = {}, struc
     warnings.push(`카테고리 키워드 반영이 약함: ${guard.anchors.slice(0, 4).join(', ')}`)
   }
 
-  const hookText = String(variation?.hook || '').trim()
   const bodyText = String(variation?.body || '').trim()
   if (guard.anchors?.length) {
     const sectionAnchorHit = [hookText, bodyText].some((sectionText) =>
@@ -4850,7 +4898,9 @@ export async function analyzeReferenceVideo({
             '도메인 계약: 소재는 계정 카테고리와 이번 주제 기준으로 재해석한다. 계정과 충돌하는 업종/상황은 가져오지 않는다.',
             '계정 내부값 금지: 카테고리명, 계정 핸들, 인스타그램 아이디, 운영 목적, 전략 선호도, 톤 이름을 대본 표면 문장에 쓰지 않는다.',
             '흐름 계약: HOOK의 긴장/문제를 BODY가 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
-            'A/B/C 계약: 같은 blueprint를 타되 A=원본형, B=대화형, C=후킹형으로만 차이를 둔다. 첫 문장 시작어는 서로 다르게 쓴다.',
+            'A/B/C 계약: 같은 blueprint를 타되 A=원본형, B=대화형, C=후킹형으로만 차이를 둔다. 첫 문장 시작어 차이는 레퍼런스 문장틀 안에서만 만든다.',
+            '말머리 금지: 레퍼런스 첫 HOOK에 인사/호명/말걸기 역할이 없으면 “안녕하세요”, “잠깐만요”, “혹시요”, “잠깐,” 같은 시작어를 절대 추가하지 않는다.',
+            '대화형 정의: B안 대화형은 새 오프닝을 붙이는 것이 아니라, 같은 문장 역할 안에서 말투와 호흡만 자연스럽게 치환하는 것이다.',
             '문체 계약: 촌스럽고 교과서적인 설명체를 피하고, 실제 사람이 말하듯 짧고 리듬 있게 쓴다.',
             VARIATION_NATURAL_VOICE_RULES,
             '구간 규칙: HOOK은 일반 질문이 아니라 긴장/반전/궁금증으로 시작한다. BODY는 상황과 발견처럼 전개한다. CTA는 좋아요/팔로우가 아니라 지금 행동할 이유를 짧게 준다.',
@@ -4936,7 +4986,9 @@ export async function analyzeReferenceVideo({
             '- A/B/C는 새 아이디어 3개가 아니라 같은 blueprint를 타는 3개 치환안이다\n' +
             '- A안은 구조 보존 최우선, B안은 말하듯 자연스럽게, C안은 구조 안에서 훅/전환/CTA만 강하게 만든다\n' +
             `- 이 안의 훅 차별화 지시: ${getVariationHookStyleInstruction(config)}\n` +
-            '- 세 안의 첫 문장 시작어는 서로 다르게 한다\n' +
+            '- 세 안의 첫 문장 시작어는 레퍼런스 문장틀을 깨지 않는 범위에서만 다르게 한다\n' +
+            '- 레퍼런스 첫 HOOK에 인사/호명/말걸기 역할이 없으면 “안녕하세요”, “잠깐만요”, “혹시요”, “잠깐,” 같은 시작어를 절대 추가하지 않는다\n' +
+            '- B안 대화형은 말머리 추가가 아니라 같은 문장 역할 안에서 자연스럽게 치환하는 뜻이다\n' +
             '- 말투 높임은 초안 안에서 끝까지 통일한다. CTA만 다른 높임으로 바꾸지 않는다\n' +
             '- 레퍼런스 표면 단어/문장 변형/원문 주제/파일명/날짜 메타데이터는 절대 쓰지 않는다\n' +
             '- 계정명/인스타그램 ID/캐릭터 슬러그를 HOOK/BODY/CTA에 직접 쓰지 않는다\n' +
