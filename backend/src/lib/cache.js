@@ -24,6 +24,7 @@ export const cacheConfig = {
   analysisResultCacheTtlSeconds: parseIntSafe(process.env.ANALYSIS_RESULT_CACHE_TTL_SECONDS, 60 * 60 * 24),
   enableRagQueryCache: parseBool(process.env.ENABLE_RAG_QUERY_CACHE, true),
   ragQueryCacheTtlSeconds: parseIntSafe(process.env.RAG_QUERY_CACHE_TTL_SECONDS, 60 * 10),
+  memoryCacheMaxEntries: parseIntSafe(process.env.MEMORY_CACHE_MAX_ENTRIES, 500),
 }
 
 function logCache(message, extra = {}) {
@@ -45,12 +46,37 @@ function getMemoryCache(key) {
   return entry.value
 }
 
+function pruneExpiredMemoryCache(now = Date.now()) {
+  for (const [key, entry] of MEMORY_CACHE.entries()) {
+    if (!entry || entry.expiresAt <= now) {
+      MEMORY_CACHE.delete(key)
+    }
+  }
+}
+
+function enforceMemoryCacheLimit() {
+  const maxEntries = cacheConfig.memoryCacheMaxEntries
+  if (!Number.isFinite(maxEntries) || maxEntries <= 0 || MEMORY_CACHE.size <= maxEntries) {
+    return
+  }
+
+  const overflowCount = MEMORY_CACHE.size - maxEntries
+  const keysToDelete = [...MEMORY_CACHE.entries()]
+    .sort((left, right) => Number(left[1]?.expiresAt || 0) - Number(right[1]?.expiresAt || 0))
+    .slice(0, overflowCount)
+    .map(([key]) => key)
+
+  keysToDelete.forEach((key) => MEMORY_CACHE.delete(key))
+}
+
 function setMemoryCache(key, value, ttlSeconds) {
+  pruneExpiredMemoryCache()
   const expiresAt = Date.now() + ttlSeconds * 1000
   MEMORY_CACHE.set(key, {
     value,
     expiresAt,
   })
+  enforceMemoryCacheLimit()
 }
 
 async function getRedisClient() {

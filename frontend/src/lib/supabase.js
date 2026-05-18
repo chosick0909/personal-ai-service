@@ -1,4 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
+import {
+  safeGetStorageItem,
+  safeRemoveFromAllBrowserStorage,
+  safeSetStorageItem,
+} from './safeStorage'
 
 const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL || 'https://example.supabase.co'
@@ -14,16 +19,16 @@ function resolvePersistMode() {
     return PERSIST_MODE_SESSION
   }
 
-  const value = window.localStorage.getItem(AUTH_PERSIST_MODE_KEY)
+  const value = safeGetStorageItem(AUTH_PERSIST_MODE_KEY)
   return value === PERSIST_MODE_LOCAL ? PERSIST_MODE_LOCAL : PERSIST_MODE_SESSION
 }
 
-function getActiveStorage() {
+function getActiveStorageKind() {
   if (typeof window === 'undefined') {
-    return undefined
+    return 'session'
   }
 
-  return resolvePersistMode() === PERSIST_MODE_LOCAL ? window.localStorage : window.sessionStorage
+  return resolvePersistMode() === PERSIST_MODE_LOCAL ? 'local' : 'session'
 }
 
 const supabaseStorage = {
@@ -31,22 +36,21 @@ const supabaseStorage = {
     if (typeof window === 'undefined') {
       return null
     }
-    const storage = getActiveStorage()
-    return storage?.getItem(key) ?? null
+    const kind = getActiveStorageKind()
+    return safeGetStorageItem(key, { kind })
   },
   setItem(key, value) {
     if (typeof window === 'undefined') {
       return
     }
-    const storage = getActiveStorage()
-    storage?.setItem(key, value)
+    const kind = getActiveStorageKind()
+    safeSetStorageItem(key, value, { kind })
   },
   removeItem(key) {
     if (typeof window === 'undefined') {
       return
     }
-    window.localStorage.removeItem(key)
-    window.sessionStorage.removeItem(key)
+    safeRemoveFromAllBrowserStorage(key)
   },
 }
 
@@ -55,7 +59,7 @@ export function setAuthPersistMode(rememberMe) {
     return
   }
 
-  window.localStorage.setItem(
+  safeSetStorageItem(
     AUTH_PERSIST_MODE_KEY,
     rememberMe ? PERSIST_MODE_LOCAL : PERSIST_MODE_SESSION,
   )

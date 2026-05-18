@@ -1,4 +1,5 @@
 import { apiFetch, createApiError, parseApiResponse } from './api'
+import { safeGetStorageItem, safeRemoveStorageItem, safeSetStorageItem } from './safeStorage'
 import { supabase } from './supabase'
 
 const ENTITLEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
@@ -18,14 +19,14 @@ function readCachedEntitlement(cacheKey) {
   }
 
   try {
-    const cached = JSON.parse(window.localStorage.getItem(cacheKey) || 'null')
+    const cached = JSON.parse(safeGetStorageItem(cacheKey, { fallback: 'null' }) || 'null')
     if (!cached?.status || !cached?.cachedAt || cached.version !== ENTITLEMENT_CACHE_VERSION) {
-      window.localStorage.removeItem(cacheKey)
+      safeRemoveStorageItem(cacheKey)
       return null
     }
 
     if (Date.now() - cached.cachedAt > ENTITLEMENT_CACHE_TTL_MS) {
-      window.localStorage.removeItem(cacheKey)
+      safeRemoveStorageItem(cacheKey)
       return null
     }
 
@@ -33,7 +34,7 @@ function readCachedEntitlement(cacheKey) {
     if (endsAt) {
       const endsAtTime = new Date(endsAt).getTime()
       if (Number.isFinite(endsAtTime) && endsAtTime <= Date.now()) {
-        window.localStorage.removeItem(cacheKey)
+        safeRemoveStorageItem(cacheKey)
         return null
       }
     }
@@ -49,7 +50,7 @@ function writeCachedEntitlement(cacheKey, status) {
     return
   }
 
-  window.localStorage.setItem(
+  safeSetStorageItem(
     cacheKey,
     JSON.stringify({
       version: ENTITLEMENT_CACHE_VERSION,

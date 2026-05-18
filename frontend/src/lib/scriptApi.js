@@ -1,5 +1,4 @@
 import { apiFetch, createApiError, parseApiResponse } from './api'
-import { jsPDF as BrowserJsPDF } from 'jspdf'
 
 export async function createScriptSelection({
   accountId,
@@ -107,6 +106,18 @@ function createPdfExportError(message, cause) {
   error.name = 'PdfExportError'
   error.cause = cause
   return error
+}
+
+async function loadBrowserJsPDF() {
+  try {
+    const module = await import('jspdf')
+    if (!module?.jsPDF) {
+      throw new Error('jspdf module did not expose jsPDF')
+    }
+    return module.jsPDF
+  } catch (error) {
+    throw createPdfExportError('PDF 생성 모듈을 사용할 수 없습니다. 새로고침 후 다시 시도해주세요.', error)
+  }
 }
 
 function normalizePdfSections(sections = {}) {
@@ -248,11 +259,8 @@ export async function downloadScriptPdf({ title, sections }) {
     throw createPdfExportError('현재 환경에서는 브라우저 PDF 내보내기를 사용할 수 없습니다.')
   }
 
-  if (!BrowserJsPDF) {
-    throw createPdfExportError('PDF 생성 모듈을 사용할 수 없습니다. 새로고침 후 다시 시도해주세요.')
-  }
-
   try {
+    const BrowserJsPDF = await loadBrowserJsPDF()
     const fontBase64 = await fetchFontAsBase64()
     const pdf = new BrowserJsPDF({
       unit: 'pt',

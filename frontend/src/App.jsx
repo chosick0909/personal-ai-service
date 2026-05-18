@@ -7,184 +7,22 @@ import SettingsPage from './components/SettingsPage'
 import Sidebar from './components/Sidebar'
 import UploadSection from './components/UploadSection'
 import VersionModal from './components/VersionModal'
+import { FabricBackgroundOverlay } from './components/FabricBackground'
 import { getAuthPersistMode, setAuthPersistMode, supabase } from './lib/supabase'
 import { loadAccountProfile } from './lib/accountApi'
 import { analyzeThumbnailImage, generateCaptionDraft, generateThumbnailTitles, loadCaptionCategoryRule } from './lib/toolApi'
 import { getCaptionStrategyRule } from './lib/captionStrategyRules'
 import { downloadScriptPdf } from './lib/scriptApi'
+import {
+  consumePostAuthRedirectPath,
+  getAuthRedirectUrl,
+  getPostAuthRedirectPath,
+  setPostAuthRedirectPath,
+} from './lib/authRedirect'
 import logoWebp from './Logo.webp'
-// Deploy trigger: frontend touchpoint for editor session preservation.
-// Comment-only test change for branch commit.
+import LandingScreen from './screens/LandingScreen'
+import { FABRIC_DARK_BACKGROUND } from './styles/fabricBackground'
 import { AppStateProvider, useAppState } from './store/AppState'
-
-const POST_AUTH_REDIRECT_STORAGE_KEY = 'postAuthRedirectPath'
-
-const FABRIC_DARK_BACKGROUND = {
-  backgroundImage:
-    'radial-gradient(ellipse 135% 90% at 14% 8%, rgba(250,249,246,0.08) 0%, rgba(250,249,246,0) 50%), radial-gradient(ellipse 115% 82% at 86% 80%, rgba(175,174,172,0.08) 0%, rgba(175,174,172,0) 54%), linear-gradient(180deg, #0D0F14 0%, #11151D 100%)',
-}
-
-function isSafeLocalPath(path) {
-  return Boolean(path && path.startsWith('/') && !path.startsWith('//'))
-}
-
-function setPostAuthRedirectPath(path) {
-  if (!isSafeLocalPath(path)) {
-    return
-  }
-
-  try {
-    window.sessionStorage.setItem(POST_AUTH_REDIRECT_STORAGE_KEY, path)
-  } catch {
-    // Ignore storage failures; the URL next param still carries the redirect.
-  }
-}
-
-function getAuthRedirectUrl(redirectPath = getPostAuthRedirectPath('/analyze')) {
-  if (redirectPath !== '/analyze') {
-    return `${window.location.origin}${redirectPath}`
-  }
-
-  const configuredRedirectUrl = import.meta.env.VITE_AUTH_REDIRECT_URL?.trim()
-  if (configuredRedirectUrl) {
-    return configuredRedirectUrl
-  }
-
-  return `${window.location.origin}${redirectPath}`
-}
-
-function getPostAuthRedirectPath(defaultPath = '/purchase') {
-  const nextPath = new URLSearchParams(window.location.search).get('next')
-  if (isSafeLocalPath(nextPath)) {
-    return nextPath
-  }
-
-  try {
-    const storedPath = window.sessionStorage.getItem(POST_AUTH_REDIRECT_STORAGE_KEY)
-    if (isSafeLocalPath(storedPath)) {
-      return storedPath
-    }
-  } catch {
-    // Fall through to the default when sessionStorage is unavailable.
-  }
-
-  return defaultPath
-}
-
-function consumePostAuthRedirectPath(defaultPath = '/purchase') {
-  const redirectPath = getPostAuthRedirectPath(defaultPath)
-
-  try {
-    window.sessionStorage.removeItem(POST_AUTH_REDIRECT_STORAGE_KEY)
-  } catch {
-    // Nothing to clean up when storage is unavailable.
-  }
-
-  return redirectPath
-}
-
-function FabricBackgroundOverlay() {
-  return (
-    <>
-      <div className="pointer-events-none absolute -left-24 top-10 h-[340px] w-[500px] rotate-[-14deg] rounded-full bg-[#faf9f6]/8 blur-3xl" />
-      <div className="pointer-events-none absolute right-[-180px] top-[22%] h-[420px] w-[520px] rotate-[16deg] rounded-full bg-[#868584]/10 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-[-140px] left-[18%] h-[300px] w-[620px] rotate-[-6deg] rounded-full bg-[#faf9f6]/6 blur-3xl" />
-    </>
-  )
-}
-
-function LandingScreen() {
-  const { isLoggedIn, currentUser, logout } = useAppState()
-
-  return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[#0D0F14] text-[#F3F4F6]"
-      style={{
-        fontFamily: 'Matter, Inter, Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
-        backgroundImage:
-          'radial-gradient(ellipse 76% 64% at 14% 10%, rgba(250,249,246,0.10) 0%, rgba(250,249,246,0.045) 28%, rgba(250,249,246,0) 62%), radial-gradient(ellipse 62% 54% at 88% 86%, rgba(148,163,184,0.09) 0%, rgba(148,163,184,0.035) 32%, rgba(148,163,184,0) 66%), linear-gradient(180deg, #141820 0%, #0D1118 48%, #11151D 100%)',
-      }}
-    >
-      {isLoggedIn ? (
-        <div className="absolute right-6 top-6 z-20 flex items-center gap-3">
-          <div className="hidden max-w-[220px] truncate text-sm text-[#AEB6C5] md:block">
-            {currentUser?.email || '로그인됨'}
-          </div>
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                await logout()
-                window.location.assign('/')
-              } catch (error) {
-                window.alert(error.message || '로그아웃에 실패했습니다.')
-              }
-            }}
-            className="rounded-full border border-[#3A414F] bg-[#111827] px-3 py-1.5 text-xs font-semibold text-[#E5E7EB] transition hover:bg-[#1F2937]"
-          >
-            로그아웃
-          </button>
-        </div>
-      ) : null}
-
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-16">
-        <section className="relative flex min-h-[620px] w-full flex-col items-center justify-center px-6 py-16 text-center md:px-12">
-          <div className="relative z-10">
-            <div className="inline-flex h-10 items-center justify-center rounded-full border border-[#4B5563] bg-[#111827]/70 px-6 text-sm font-semibold text-[#D1D5DB] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:h-12 md:text-base">
-              베타서비스
-            </div>
-            <h1 className="mt-10 text-[38px] font-black leading-[1.18] tracking-[-0.04em] text-[#F8FAFC] md:text-[66px] lg:text-[86px]">
-              검증 가능한 기준으로
-              <br />
-              숏폼 기획을 표준화하세요
-            </h1>
-            <p className="mx-auto mt-8 max-w-[720px] text-base font-medium leading-8 text-[#9CA3AF] md:text-[22px] md:leading-[1.7]">
-              레퍼런스 분석, 초안 생성, 에디팅, 피드백까지
-              <br className="hidden md:block" />
-              한 플로우에서 운영 가능한 콘텐츠 제작 워크스테이션입니다.
-            </p>
-
-            <div className="mt-12 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <a
-                href="/recommend"
-                className="btn-solid-contrast inline-flex h-[58px] min-w-[270px] items-center justify-center gap-3 rounded-full px-8 text-lg font-bold shadow-[0_18px_42px_rgba(0,0,0,0.38)] transition hover:bg-white"
-              >
-                <span>내 콘텐츠 방향 추천받기</span>
-                <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5">
-                  <path
-                    d="M6.67 3.33 13.34 10l-6.67 6.67"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.9"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </a>
-              <a
-                href={isLoggedIn ? '/analyze' : '/login'}
-                className="inline-flex h-[58px] min-w-[220px] items-center justify-center rounded-full border border-[#4B5563] bg-[#111827]/82 px-8 text-lg font-bold !text-[#F8FAFC] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:bg-[#1F2937]"
-              >
-                바로 시작하기
-              </a>
-            </div>
-            <p className="mt-6 text-sm font-medium text-[#9CA3AF]">
-              Free trial · 신용카드 없이 시작
-              <span className="mx-2 text-[#4B5563]">·</span>
-              <a
-                href="/purchase"
-                onClick={() => setPostAuthRedirectPath('/purchase')}
-                className="font-semibold text-[#E5E7EB] underline-offset-4 transition hover:text-white hover:underline"
-              >
-                쿠폰/이용권 확인하기
-              </a>
-            </p>
-          </div>
-        </section>
-      </div>
-    </main>
-  )
-}
 
 const TRAIT_LABELS = {
   logic: '논리형',
@@ -2339,7 +2177,7 @@ function PurchaseScreen() {
       <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
         <FabricBackgroundOverlay />
         <div className="relative z-10 rounded-[28px] border border-[#2F3543] bg-[#12151D]/90 px-6 py-5 text-sm text-[#AEB6C5]">
-          이용권 확인 중...
+          쿠폰 페이지를 준비하는 중...
         </div>
       </main>
     )
@@ -2349,8 +2187,8 @@ function PurchaseScreen() {
     return (
       <AuthScreen
         mode="login"
-        title="쿠폰/이용권 확인"
-        subtitle="로그인 후 쿠폰 입력과 이용권 결제를 이어서 진행합니다."
+        title="쿠폰 등록"
+        subtitle="로그인 후 쿠폰을 입력하고 바로 시작할 수 있어요."
         primaryLabel="로그인"
         secondaryHref="/signup"
         secondaryLabel="회원가입"
@@ -2374,7 +2212,7 @@ function PurchaseScreen() {
       <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
         <FabricBackgroundOverlay />
         <div className="relative z-10 rounded-[28px] border border-[#2F3543] bg-[#12151D]/90 px-6 py-5 text-sm text-[#AEB6C5]">
-          이용권 확인 중...
+          플랜 정보를 불러오는 중...
         </div>
       </main>
     )
@@ -2410,26 +2248,26 @@ function PurchaseScreen() {
       const appliedBenefit = normalizedCouponCode.includes('CHALLENGE')
         ? {
             label: '챌린지 쿠폰',
-            description: '서버에서 쿠폰을 확인한 뒤 1개월 무제한 챌린지 이용권을 우선 활성화합니다.',
+            description: '1개월 무제한 챌린지 혜택을 적용합니다.',
           }
         : normalizedCouponCode.includes('INSTACAMPUS')
         ? {
             label: '수강생 쿠폰',
-            description: '서버에서 쿠폰을 확인한 뒤 수강생 이용권을 활성화합니다.',
+            description: '수강생 전용 혜택을 적용합니다.',
           }
         : normalizedCouponCode.includes('OPENBETA')
           ? {
               label: '오픈베타 쿠폰',
-              description: '서버에서 쿠폰을 확인한 뒤 오픈베타 이용권을 활성화합니다.',
+              description: '오픈베타 혜택을 적용합니다.',
             }
           : {
               label: '쿠폰',
-              description: '서버에서 쿠폰을 확인한 뒤 이용권을 활성화합니다.',
+              description: '입력한 쿠폰 혜택을 적용합니다.',
             }
 
       setAppliedCouponBenefit(appliedBenefit)
       setAppliedCouponCode(normalizedCouponCode)
-      setSuccess(`${appliedBenefit.label} 번호를 확인했습니다. 결제하기를 누르면 서버에서 유효성을 확인하고 이용권을 활성화합니다.`)
+      setSuccess(`${appliedBenefit.label}이 입력되었습니다. 아래 버튼을 누르면 혜택을 적용하고 시작합니다.`)
     } catch (nextError) {
       setError(nextError.message || '쿠폰 적용에 실패했습니다.')
     } finally {
@@ -2627,7 +2465,7 @@ function PurchaseScreen() {
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.32em] text-[#AEB6C5]">Checkout</div>
               <h2 className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-[#FAF9F6] md:text-[30px]">
-                {selectedPlan.title} 플랜 결제
+                {selectedPlan.title} 플랜 시작하기
               </h2>
             </div>
             <span className="rounded-full border border-[#3A3D43] bg-[#1D1F23] px-4 py-1.5 text-xs font-semibold text-[#D1D5DB]">
@@ -2696,7 +2534,7 @@ function PurchaseScreen() {
                       -{selectedPlan.price} ({appliedCouponBenefit?.label || '쿠폰 할인'})
                     </div>
                     <div className="mt-1 text-xs leading-5 text-[#86EFAC]">
-                      {appliedCouponBenefit?.description || '이용권 혜택이 적용되었습니다.'}
+                      {appliedCouponBenefit?.description || '쿠폰 혜택이 적용되었습니다.'}
                     </div>
                   </div>
                   <span className="shrink-0 font-semibold text-[#34D399]">적용됨</span>
@@ -2708,7 +2546,7 @@ function PurchaseScreen() {
               <div className="flex items-end justify-between gap-4">
                 <div>
                   <div className="text-sm font-semibold text-[#AEB6C5]">최종 결제 금액</div>
-                  <p className="mt-2 text-xs leading-5 text-[#8E97A6]">결제 시 월간 이용권이 즉시 활성화됩니다.</p>
+                  <p className="mt-2 text-xs leading-5 text-[#8E97A6]">쿠폰 적용 후 바로 분석을 시작할 수 있습니다.</p>
                 </div>
                 <div className="text-[32px] font-semibold tracking-[-0.06em] text-[#FAF9F6] md:text-[40px]">
                   {isCouponApplied ? '0원' : selectedPlan.price}
@@ -2734,7 +2572,7 @@ function PurchaseScreen() {
                 disabled={isCheckoutSubmitting}
                 className="h-12 rounded-[16px] bg-[#FAF9F6] text-sm font-bold text-[#0F1117] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {isCheckoutSubmitting ? '처리 중' : '결제하기'}
+                {isCheckoutSubmitting ? '처리 중' : '혜택 적용하고 시작하기'}
               </button>
             </div>
           ) : null}
@@ -2750,7 +2588,7 @@ function PurchaseScreen() {
           ) : null}
           {entitlementStatus?.entitlement?.endsAt ? (
             <p className="mt-3 text-xs text-[#868584]">
-              현재 이용권 만료일: {formatDate(entitlementStatus.entitlement.endsAt)}
+              현재 플랜 만료일: {formatDate(entitlementStatus.entitlement.endsAt)}
             </p>
           ) : null}
         </section>
@@ -3755,7 +3593,7 @@ function StudioShell() {
     return (
       <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
         <div className="rounded-[24px] border border-[#2F3543] bg-[#121722] px-6 py-5 text-sm text-[#AEB6C5] shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
-          이용권 확인 중...
+          작업 공간을 준비하는 중...
         </div>
       </main>
     )
@@ -3769,7 +3607,7 @@ function StudioShell() {
     return (
       <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
         <div className="w-full max-w-[420px] rounded-[28px] border border-[#7F1D1D] bg-[#1B1216] px-6 py-6 text-center shadow-[0_24px_70px_rgba(0,0,0,0.42)]">
-          <div className="text-lg font-bold text-[#FECACA]">이용권 확인 실패</div>
+          <div className="text-lg font-bold text-[#FECACA]">접근 상태를 불러오지 못했습니다</div>
           <p className="mt-3 text-sm leading-6 text-[#FCA5A5]">
             {entitlementStatus.error}
           </p>

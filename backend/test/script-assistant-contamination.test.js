@@ -19,8 +19,11 @@ const {
   validateScriptFlow,
   buildEditScopeInstruction,
   buildCopilotEvaluationRubric,
+  buildCopilotMentorToneGuide,
   buildCopilotResponseModeRule,
   buildCopilotEditPlaybook,
+  normalizeCopilotMemory,
+  formatCopilotMemoryForPrompt,
   buildCopilotNarrativePatternContext,
   buildNarrativeSectioningInstruction,
   shouldUseNarrativePatternsForRefine,
@@ -235,7 +238,17 @@ test('explicit editTarget drives generation shape and fallback still parses Kore
 })
 
 test('copilot intent classifier keeps advice requests out of edit flow', () => {
-  const adviceRequests = ['이거 어때?', '좀 약한가?', '이대로 올려도 돼?', '뭐가 문제야?', '조언 좀 해줘']
+  const adviceRequests = [
+    '이거 어때?',
+    '좀 약한가?',
+    '이대로 올려도 돼?',
+    '뭐가 문제야?',
+    '조언 좀 해줘',
+    '너무 광고 같아',
+    '이거 반응 올까?',
+    '왜 안 끌리지?',
+    '이대로 올려도 괜찮을까?',
+  ]
   for (const request of adviceRequests) {
     const intent = classifyCopilotIntentByRule(request, 'all')
     assert.equal(intent.intent, 'advise_script')
@@ -245,7 +258,16 @@ test('copilot intent classifier keeps advice requests out of edit flow', () => {
 })
 
 test('route-level fallback intent treats casual advice as advice, not feedback or edit', () => {
-  const casualAdvice = ['이거 어때?', '조언 좀 해줘', '이대로 올려도 돼?', '뭐가 문제야?']
+  const casualAdvice = [
+    '이거 어때?',
+    '조언 좀 해줘',
+    '피드백 줘',
+    '이대로 올려도 돼?',
+    '뭐가 문제야?',
+    '너무 광고 같아',
+    '이거 반응 올까?',
+    '왜 안 끌리지?',
+  ]
   for (const request of casualAdvice) {
     const intent = createFallbackIntent(request, 'all')
     assert.equal(intent.intent, 'advise_script')
@@ -263,6 +285,8 @@ test('copilot intent classifier still sends explicit edits through refine flow',
     ['BODY만 자연스럽게 수정해줘', 'body'],
     ['CTA 짧게 바꿔줘', 'cta'],
     ['조언해주고 전체적으로 자연스럽게 수정해줘', 'all'],
+    ['광고 같지 않게 바꿔줘', 'all'],
+    ['후킹감 있게 해줘', 'hook'],
   ]
 
   for (const [request, expectedTarget] of editRequests) {
@@ -273,6 +297,9 @@ test('copilot intent classifier still sends explicit edits through refine flow',
   }
 
   assert.equal(classifyCopilotIntentByRule('문제점 보고 고쳐줘', 'all').responseMode, 'advice_then_edit')
+  assert.equal(classifyCopilotIntentByRule('뭔가 별로야 고쳐줘', 'all').responseMode, 'advice_then_edit')
+  assert.equal(classifyCopilotIntentByRule('살려줘', 'all').responseMode, 'advice_then_edit')
+  assert.equal(classifyCopilotIntentByRule('더 좋게 바꿔줘', 'all').responseMode, 'advice_then_edit')
   assert.equal(classifyCopilotIntentByRule('훅만 고쳐줘', 'all').responseMode, 'edit_only')
 })
 
@@ -291,6 +318,9 @@ test('natural response prompt explicitly forbids section rewrites', () => {
 
   assert.equal(prompt.startsWith(buildDraftBlock(currentDraft)), true)
   assert.match(prompt, /대본을 수정하지 않는다/)
+  assert.match(prompt, /공감\/확인 → 핵심 진단 1개/)
+  assert.match(prompt, /점수는 사용자가 명시적으로 점수나 몇 점인지 물었을 때만 말한다/)
+  assert.match(prompt, /내부 용어와 평가 기준표 이름을 사용자에게 노출하지 않는다/)
   assert.match(prompt, /코파일럿 평가 기준표/)
   assert.match(prompt, /HOOK 흡입력/)
   assert.match(prompt, /무조건 칭찬하지 않는다/)
@@ -300,14 +330,42 @@ test('natural response prompt explicitly forbids section rewrites', () => {
 
 test('copilot rubric and response mode rules separate advice from edits', () => {
   const rubric = buildCopilotEvaluationRubric()
+  const toneGuide = buildCopilotMentorToneGuide()
   assert.match(rubric, /100점 기준/)
   assert.match(rubric, /HOOK 흡입력 25점/)
   assert.match(rubric, /BODY 이해도 25점/)
   assert.match(rubric, /CTA 설득력 20점/)
   assert.match(rubric, /조언 요청이면 대본을 수정하지 않는다/)
+  assert.match(toneGuide, /친절하지만 날카로운 대본 멘토/)
+  assert.match(toneGuide, /내부 용어를 사용자에게 노출하지 않는다/)
+  assert.match(toneGuide, /점수는 사용자가 명시적으로/)
 
-  assert.match(buildCopilotResponseModeRule('advice_then_edit'), /평가 \+ 수정/)
-  assert.match(buildCopilotResponseModeRule('edit_only'), /짧은 진단 \+ 수정/)
+  assert.match(buildCopilotResponseModeRule('advice_then_edit'), /공감\/확인 \+ 진단 \+ 수정/)
+  assert.match(buildCopilotResponseModeRule('advice_then_edit'), /사용자 느낌 수용/)
+  assert.match(buildCopilotResponseModeRule('edit_only'), /사용자 요청 해석/)
+})
+
+test('copilot memory prompt is session-scoped and below section locks', () => {
+  const memory = normalizeCopilotMemory({
+    preferredTone: ['자연스럽고 말하듯이 쓰는 톤', '자연스럽고 말하듯이 쓰는 톤'],
+    dislikedTone: ['광고 같은 말투'],
+    preferredHookStyle: ['긴장감은 유지하되 과한 후킹은 피함'],
+    dislikedExpressions: ['역대급'],
+    lengthPreference: '짧고 압축적으로',
+    ctaPreference: '구매 압박보다 저장 이유 먼저',
+    recentUserCorrections: Array.from({ length: 12 }, (_, index) => `교정 ${index + 1}`),
+    lastAcceptedVersionSummary: 'B안처럼 말하듯이 푼 버전을 선호함',
+  })
+
+  assert.deepEqual(memory.preferredTone, ['자연스럽고 말하듯이 쓰는 톤'])
+  assert.equal(memory.recentUserCorrections.length, 10)
+
+  const context = formatCopilotMemoryForPrompt(memory)
+  assert.match(context, /현재 코파일럿 세션에서 학습한 사용자 선호/)
+  assert.match(context, /광고 같은 말투/)
+  assert.match(context, /짧고 압축적으로/)
+  assert.match(context, /섹션 잠금 규칙보다 우선하지 않는다/)
+  assert.match(context, /BODY만 수정 요청이면 HOOK\/CTA는 절대 바꾸지 않는다/)
 })
 
 test('copilot edit playbook separates fixed rules from hook template retrieval', () => {
@@ -429,8 +487,8 @@ test('refine prompt tells model to diagnose before editing', () => {
 
   assert.match(prompt, /코파일럿 평가 기준표/)
   assert.match(prompt, /COPILOT_EDIT_PLAYBOOK/)
-  assert.match(prompt, /응답 모드: 평가 \+ 수정/)
-  assert.match(prompt, /짧게 진단/)
+  assert.match(prompt, /응답 모드: 공감\/확인 \+ 진단 \+ 수정/)
+  assert.match(prompt, /사용자 느낌 수용/)
   assert.match(prompt, /HOOK 하나만 생성/)
   assert.ok(prompt.indexOf('코파일럿 평가 기준표') < prompt.indexOf('COPILOT_EDIT_PLAYBOOK'))
   assert.ok(prompt.indexOf('COPILOT_EDIT_PLAYBOOK') < prompt.indexOf('현재 초안'))

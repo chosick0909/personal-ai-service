@@ -460,6 +460,7 @@ export async function generateChatReply({
   selectedLabel,
   message,
   editorSections,
+  copilotMemory,
 }) {
   const response = await apiFetch('/api/scripts/copilot', {
     method: 'POST',
@@ -477,6 +478,7 @@ export async function generateChatReply({
       selectedLabel,
       message,
       sections: editorSections,
+      copilotMemory,
     }),
   })
   const payload = await parseApiResponse(response)
@@ -490,7 +492,8 @@ export async function generateChatReply({
     mode: payload.mode || payload.type || 'suggestion',
     autoApplied: Boolean(payload.autoApplied),
     canUndo: Boolean(payload.canUndo),
-    intent: payload.intent || null,
+    intent: payload.intent || payload.copilotIntent || null,
+    responseMode: payload.responseMode || payload.intent?.responseMode || null,
     message: payload.message,
     proposedSections: payload.proposedSections || payload.sections,
     feedback: payload.feedback,

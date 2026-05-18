@@ -46,6 +46,9 @@ export function assertBackendEnv() {
     const message =
       `[env] Invalid backend env: ${invalid.join(', ')}. ` +
       'Set real production values in Railway Variables.'
+    if (isProduction) {
+      throw new Error(message)
+    }
     console.error(message)
   }
 

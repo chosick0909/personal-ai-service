@@ -33,6 +33,13 @@ export function addUserBreadcrumb(category, message, data = {}) {
 }
 
 export function installSentryTestHelpers() {
+  if (
+    typeof window === 'undefined' ||
+    (!import.meta.env.DEV && import.meta.env.VITE_ENABLE_SENTRY_TEST_HELPERS !== 'true')
+  ) {
+    return
+  }
+
   window.sentryTest = () => {
     Sentry.captureException(new Error(`SENTRY_CAPTURE_TEST_${Date.now()}`))
     setTimeout(() => {

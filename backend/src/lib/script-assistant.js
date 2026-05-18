@@ -48,7 +48,18 @@ const COPILOT_INTENTS = {
   ADVISE: 'advise_script',
   EDIT: 'edit_script',
   GENERAL: 'general_chat',
+  EXPLAIN: 'explain_script',
+  COMPARE: 'compare_versions',
+  BRAINSTORM: 'brainstorm_options',
 }
+const COPILOT_MEMORY_ARRAY_KEYS = [
+  'preferredTone',
+  'dislikedTone',
+  'preferredHookStyle',
+  'dislikedExpressions',
+  'recentUserCorrections',
+]
+const COPILOT_MEMORY_TEXT_KEYS = ['lengthPreference', 'ctaPreference', 'lastAcceptedVersionSummary']
 const COPILOT_EVALUATION_RUBRIC = [
   {
     key: 'hook',
@@ -158,22 +169,37 @@ function buildCopilotEvaluationRubric() {
   ].join('\n')
 }
 
+function buildCopilotMentorToneGuide() {
+  return [
+    '코파일럿 대화 톤 가이드:',
+    '- 친절하지만 날카로운 대본 멘토처럼 답한다.',
+    '- 사용자의 애매한 느낌을 먼저 받아준다. 예: "맞아요.", "그 느낌 이해돼요.", "지금 애매한 이유는..."',
+    '- 너무 딱딱한 심사위원처럼 말하지 않는다.',
+    '- 너무 가벼운 친구 말투, 장난, 반말은 쓰지 않는다.',
+    '- 억지 칭찬은 하지 않는다. 약한 부분은 약하다고 말하되 바로 개선 방향을 붙인다.',
+    '- "요청을 반영했습니다", "다시 정리했습니다", "수정했습니다" 같은 기계적인 말로 끝내지 않는다.',
+    '- intent, rubric, hook_template, narrative_pattern, referenceFormat 같은 내부 용어를 사용자에게 노출하지 않는다.',
+    '- 카테고리명, 전략명, 시스템 라벨을 대본 문장에 직접 넣지 않는다.',
+    '- 점수는 사용자가 명시적으로 점수/몇 점인지 물었을 때만 말한다.',
+  ].join('\n')
+}
+
 function buildCopilotResponseModeRule(responseMode = 'edit_only') {
   if (responseMode === 'advice_then_edit') {
     return [
-      '응답 모드: 평가 + 수정',
+      '응답 모드: 공감/확인 + 진단 + 수정',
       '- 사용자가 문제점 확인과 수정을 함께 요청했다.',
-      '- message에는 기준표에 따른 짧은 진단 1문장과 실제 수정 방향 1문장을 함께 쓴다.',
-      '- 예: "HOOK은 첫 1초 긴장감이 약해서 문제를 더 앞에 세웠고, BODY는 원인→해결 순서가 보이게 정리했습니다."',
+      '- message는 사용자 느낌 수용 → 핵심 문제 1개 진단 → 수정 방향 설명 → 왜 좋아졌는지 한 줄 흐름으로 쓴다.',
+      '- 예: "그 느낌 이해돼요. 지금은 CTA가 갑자기 판매로 튀어서 흐름이 어색해 보여요. 본문 흐름은 유지하고 CTA만 더 자연스럽게 이어지도록 바꿔볼게요."',
     ].join('\n')
   }
 
   return [
-    '응답 모드: 짧은 진단 + 수정',
+    '응답 모드: 공감/확인 + 진단 + 수정',
     '- 사용자가 수정을 요청했으므로 대본은 수정한다.',
-    '- message에는 기준표에 따른 짧은 진단을 먼저 넣고, 그 다음 무엇을 고쳤는지 말한다.',
+    '- message는 사용자 요청 해석 → 짧은 진단 → 수정 방향 → 수정 이유 한 줄 흐름으로 쓴다.',
     '- 단, 사용자가 요청하지 않은 섹션은 진단에서도 과하게 언급하지 않는다.',
-    '- 예: "HOOK은 첫 문장의 긴장감이 약해서, 문제 상황이 바로 보이도록 바꿨습니다."',
+    '- 예: "좋아요. 여기서 자연스럽게는 힘을 빼자는 뜻보다 광고처럼 보이는 표현을 줄이는 쪽이 맞아 보여요. BODY는 정보는 유지하고 실제 말하듯 읽히게 정리할게요."',
   ].join('\n')
 }
 
@@ -197,6 +223,80 @@ function buildCopilotEditPlaybook(targetSections = SECTION_KEYS) {
         ...playbook.rules.map((rule) => `- ${rule}`),
       ].join('\n')
     }),
+  ].join('\n')
+}
+
+function uniqueCompactList(value = [], maxItems = 10) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const seen = new Set()
+  const output = []
+  for (const item of value) {
+    const text = String(item || '').replace(/\s+/g, ' ').trim()
+    if (!text || seen.has(text)) {
+      continue
+    }
+    seen.add(text)
+    output.push(text)
+    if (output.length >= maxItems) {
+      break
+    }
+  }
+  return output
+}
+
+function normalizeCopilotMemory(memory = {}) {
+  const source = memory && typeof memory === 'object' ? memory : {}
+  return {
+    preferredTone: uniqueCompactList(source.preferredTone, 8),
+    dislikedTone: uniqueCompactList(source.dislikedTone, 8),
+    preferredHookStyle: uniqueCompactList(source.preferredHookStyle, 8),
+    dislikedExpressions: uniqueCompactList(source.dislikedExpressions, 8),
+    lengthPreference: String(source.lengthPreference || '').replace(/\s+/g, ' ').trim(),
+    ctaPreference: String(source.ctaPreference || '').replace(/\s+/g, ' ').trim(),
+    recentUserCorrections: uniqueCompactList(source.recentUserCorrections, 10),
+    lastAcceptedVersionSummary: String(source.lastAcceptedVersionSummary || '').replace(/\s+/g, ' ').trim(),
+  }
+}
+
+function formatCopilotMemoryForPrompt(memory = {}) {
+  const normalized = normalizeCopilotMemory(memory)
+  const lines = []
+  const addList = (label, values = []) => {
+    if (values.length) {
+      lines.push(`- ${label}: ${values.join(', ')}`)
+    }
+  }
+  const addText = (label, value = '') => {
+    if (value) {
+      lines.push(`- ${label}: ${value}`)
+    }
+  }
+
+  addList('선호 톤', normalized.preferredTone)
+  addList('피해야 할 톤', normalized.dislikedTone)
+  addList('선호 HOOK 방향', normalized.preferredHookStyle)
+  addList('피해야 할 표현', normalized.dislikedExpressions)
+  addText('길이 선호', normalized.lengthPreference)
+  addText('CTA 선호', normalized.ctaPreference)
+  addList('최근 사용자 교정', normalized.recentUserCorrections)
+  addText('최근 선호 버전 요약', normalized.lastAcceptedVersionSummary)
+
+  if (!lines.length) {
+    return ''
+  }
+
+  return [
+    '[현재 코파일럿 세션에서 학습한 사용자 선호]',
+    ...lines,
+    '',
+    'copilotMemory 적용 규칙:',
+    '- 현재 대본 세션 안에서만 사용하는 취향 보조 정보다.',
+    '- 사용자 상품/타겟/사실 정보, 레퍼런스 구조, A/B/C 전략보다 우선하지 않는다.',
+    '- 섹션 잠금 규칙보다 우선하지 않는다. BODY만 수정 요청이면 HOOK/CTA는 절대 바꾸지 않는다.',
+    '- 오래된 취향보다 현재 사용자 요청과 현재 초안의 맥락을 우선한다.',
   ].join('\n')
 }
 
@@ -265,20 +365,26 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
   const normalizedEditTarget = String(editTarget || '').trim().toLowerCase()
   const hasExplicitSectionTarget = SECTION_KEYS.includes(normalizedEditTarget)
   const editPattern =
-    /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|넣어|넣어줘|살려|살려줘|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix)/i
+    /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|넣어|넣어줘|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게)/i
   const advicePattern =
-    /(어때|어떤가|괜찮|약한가|약해|별로|문제|피드백|조언|평가|점수|올려도|업로드해도|이대로|봐줘|검토|진단|판단|좋아\?|나아\?|괜찮아\?)/i
+    /(어때|어떤가|괜찮|약한가|약해|별로|문제|피드백|조언|평가|점수|올려도|업로드해도|이대로|봐줘|검토|진단|판단|반응\s*올|반응\s*나|안\s*끌리|왜\s*안|광고\s*같|판매\s*같|상업적|부담스러|아까\s*버전|이전\s*버전|이\s*느낌\s*좋|좋아\?|나아\?|괜찮아\?)/i
+  const vagueImprovePattern =
+    /(살려|살려줘|더\s*좋게|좋게\s*바꿔|별로.*고쳐|별로.*수정|문제.*고쳐|문제.*수정|조언.*고쳐|조언.*수정)/i
 
   const wantsEdit = editPattern.test(text)
   const wantsAdvice = advicePattern.test(text)
+  const wantsVagueImprove = vagueImprovePattern.test(text)
 
-  if (wantsEdit) {
+  if (wantsEdit || wantsVagueImprove) {
     return {
       intent: COPILOT_INTENTS.EDIT,
       shouldEdit: true,
-      responseMode: wantsAdvice ? 'advice_then_edit' : 'edit_only',
+      responseMode: wantsAdvice || wantsVagueImprove ? 'advice_then_edit' : 'edit_only',
       editTarget: normalizeEditTarget(editTarget, text),
-      confidence: wantsAdvice ? 0.78 : 0.88,
+      confidence: wantsAdvice || wantsVagueImprove ? 0.78 : 0.88,
+      reason: wantsAdvice || wantsVagueImprove
+        ? '사용자가 문제 진단과 수정을 함께 요청함'
+        : '사용자가 명시적인 수정 동사를 사용함',
     }
   }
 
@@ -289,6 +395,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
       responseMode: 'advice_only',
       editTarget: 'none',
       confidence: 0.86,
+      reason: '사용자가 수정 명령보다 대본 품질 판단이나 조언을 요청함',
     }
   }
 
@@ -299,6 +406,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
       responseMode: 'edit_only',
       editTarget: normalizedEditTarget,
       confidence: 0.66,
+      reason: 'UI에서 특정 수정 섹션이 선택되어 있어 수정 요청으로 처리함',
     }
   }
 
@@ -308,6 +416,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
     responseMode: 'chat_only',
     editTarget: 'none',
     confidence: 0.55,
+    reason: '명확한 수정 또는 조언 신호가 없어 일반 대화로 처리함',
   }
 }
 
@@ -511,7 +620,7 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/점수|평가|피드백\s*(생성|받|해줘|줘)|검토\s*(리포트|해줘|해)/i.test(text)) {
+  if (/점수|평가|피드백\s*(생성|받|리포트)|검토\s*리포트/i.test(text)) {
     return {
       intent: 'feedback_request',
       editTarget: null,
@@ -520,7 +629,7 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(써|작성|수정))/i.test(text)) {
+  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|더\s*좋게|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(써|작성|수정))/i.test(text)) {
     return {
       intent: 'edit_request',
       editTarget: normalizedEditTarget,
@@ -529,12 +638,39 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/(어때|어떤가|괜찮|약한가|약해|별로|뭐가\s*문제|문제야|조언|올려도|업로드해도|이대로|봐줘|검토|진단|판단)/i.test(text)) {
+  if (/(비교|compare|차이|뭐가\s*더\s*나아|어느\s*쪽)/i.test(text)) {
+    return {
+      intent: 'compare_versions',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '현재 초안과 대화 흐름을 기준으로 비교해드릴게요. 어떤 버전끼리 비교할지 알려주시면 더 정확합니다.',
+    }
+  }
+
+  if (/(어때|어떤가|괜찮|약한가|약해|별로|뭐가\s*문제|문제야|피드백|조언|올려도|업로드해도|이대로|봐줘|검토|진단|판단|반응\s*올|반응\s*나|안\s*끌리|왜\s*안|광고\s*같|판매\s*같|상업적|부담스러|아까\s*버전|이전\s*버전|이\s*느낌\s*좋)/i.test(text)) {
     return {
       intent: 'advise_script',
       editTarget: null,
       shouldModifyScript: false,
       reply: '',
+    }
+  }
+
+  if (/(설명|왜|이유|해석|풀어서)/i.test(text)) {
+    return {
+      intent: 'explain_script',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '현재 초안의 구조와 문장 역할을 기준으로 설명해드릴게요. 궁금한 섹션을 같이 알려주시면 더 정확합니다.',
+    }
+  }
+
+  if (/(아이디어|브레인스토밍|여러\s*개|옵션|방향\s*추천)/i.test(text)) {
+    return {
+      intent: 'brainstorm_options',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '좋습니다. 바로 수정하기보다 가능한 방향을 몇 가지로 나눠서 제안드릴게요.',
     }
   }
 
@@ -578,11 +714,14 @@ export async function classifyCopilotIntent({
             '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
             '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
-            'intent는 greeting, edit_request, feedback_request, advise_script, question, clarification 중 하나만 사용한다.',
+            'intent는 greeting, edit_request, feedback_request, advise_script, explain_script, compare_versions, brainstorm_options, question, clarification 중 하나만 사용한다.',
             'edit_request일 때만 shouldModifyScript=true다.',
             'feedback_request는 피드백 실행 대상이므로 shouldModifyScript=false다.',
             'advise_script는 말로만 조언/진단하는 요청이므로 shouldModifyScript=false다.',
-            '"어때?", "조언해줘", "이대로 올려도 돼?", "뭐가 문제야?"는 advise_script다.',
+            '"어때?", "조언해줘", "이대로 올려도 돼?", "뭐가 문제야?", "이거 반응 올까?", "왜 안 끌리지?"는 advise_script다.',
+            '"광고 같지 않게 바꿔줘", "후킹감 있게 해줘"처럼 수정 의도가 명확하면 edit_request다.',
+            '"문제점 보고 고쳐줘", "뭔가 별로야 고쳐줘", "살려줘"처럼 진단과 수정이 함께 필요해도 edit_request다.',
+            'explain_script, compare_versions, brainstorm_options는 아직 수정하지 않는 말로만 답하는 요청이며 shouldModifyScript=false다.',
             '질문/인사/불명확한 요청이면 reply에 자연스러운 한국어 답변을 작성한다.',
             'reply는 짧게, 다음 행동이 분명하게 작성한다.',
             characterSystemPrompt ? `계정/캐릭터 규칙:\n${characterSystemPrompt}` : null,
@@ -603,7 +742,7 @@ export async function classifyCopilotIntent({
             `CTA: ${normalizedSections.cta.slice(0, 160) || '-'}`,
             '',
             'JSON 형식:',
-            '{"intent":"greeting|edit_request|feedback_request|advise_script|question|clarification","editTarget":"all|hook|body|cta|null","shouldModifyScript":false,"reply":"","reason":""}',
+            '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","shouldModifyScript":false,"reply":"","reason":""}',
           ].join('\n'),
         },
       ],
@@ -614,7 +753,17 @@ export async function classifyCopilotIntent({
     })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const allowedIntents = new Set(['greeting', 'edit_request', 'feedback_request', 'advise_script', 'question', 'clarification'])
+    const allowedIntents = new Set([
+      'greeting',
+      'edit_request',
+      'feedback_request',
+      'advise_script',
+      'explain_script',
+      'compare_versions',
+      'brainstorm_options',
+      'question',
+      'clarification',
+    ])
     const intent = allowedIntents.has(parsed.intent) ? parsed.intent : 'clarification'
     const target = EDIT_TARGETS.has(String(parsed.editTarget || '').toLowerCase())
       ? String(parsed.editTarget).toLowerCase()
@@ -1053,6 +1202,7 @@ function buildFeedbackUserPrompt({
     `선택한 안: ${selectedLabel || '-'}\n\n` +
     `${referenceContext}\n\n` +
     `${buildCopilotEvaluationRubric()}\n\n` +
+    `${buildCopilotMentorToneGuide()}\n\n` +
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     '다음 JSON 형식으로만 답하세요: ' +
@@ -1083,9 +1233,13 @@ function buildNaturalResponseUserPrompt({
     '응답 규칙:\n' +
     '- 지금은 대본을 수정하지 않는다. HOOK/BODY/CTA 문장을 새로 쓰거나 출력하지 않는다.\n' +
     '- 사용자의 질문에 자연어로만 답한다.\n' +
-    '- 조언/평가 요청이면 평가 기준표에 따라 좋은 점 1개와 아쉬운 점 1~2개, 다음 개선 방향을 짧게 말한다.\n' +
-    '- 점수 언급을 요청했거나 "이대로 올려도 돼?"처럼 판단을 요구하면 100점 기준의 대략적 점수도 함께 말한다.\n' +
+    '- 조언/평가 요청이면 공감/확인 → 핵심 진단 1개 → 살릴 점 1개 → 아쉬운 점 1~2개 → 추천 수정 방향 → 원하면 수정 가능 안내 흐름으로 답한다.\n' +
+    '- HOOK/BODY/CTA를 전부 나열하지 말고 가장 큰 병목부터 말한다.\n' +
+    '- 점수는 사용자가 명시적으로 점수나 몇 점인지 물었을 때만 말한다.\n' +
     '- 무조건 칭찬하지 않는다. 약한 부분이 있으면 약하다고 말한다.\n' +
+    '- 약점만 던지지 말고 바로 개선 방향을 붙인다.\n' +
+    '- 애매한 요청이면 바로 수정하지 말고 병목 후보나 선택지를 제안한다.\n' +
+    '- 내부 용어와 평가 기준표 이름을 사용자에게 노출하지 않는다.\n' +
     '- 현재 초안과 레퍼런스 구조를 기준으로 판단하되, 레퍼런스 원문 소재를 가져오지 않는다.\n' +
     '- 사용자가 명시적으로 고쳐달라고 하지 않았으므로 섹션 변경을 제안만 하고 실행하지 않는다.\n\n' +
     '다음 JSON 형식으로만 답하세요: {"message":""}'
@@ -1099,16 +1253,16 @@ function buildFallbackNaturalResponse(sections = {}, intent = COPILOT_INTENTS.AD
   }
 
   const hookNote = normalized.hook
-    ? 'HOOK은 주제는 보이지만 첫 1초에 걸리는 긴장감이 더 선명하면 좋아요.'
-    : 'HOOK이 비어 있어서 첫 문장부터 시청자 고민을 바로 찌르는 구성이 필요해요.'
+    ? '첫 문장에서 주제는 보이는데, 멈춰 보게 만드는 긴장감은 조금 더 선명하면 좋아요.'
+    : '첫 문장이 비어 있어서 시청자 고민을 바로 찌르는 시작점이 필요해요.'
   const bodyNote = normalized.body
-    ? 'BODY는 HOOK에서 던진 문제를 바로 이어받는지 보면 됩니다.'
-    : 'BODY가 비어 있어서 문제 원인과 해결 기준을 짧게 이어줘야 해요.'
+    ? '살릴 점은 내용 흐름이 있다는 거고, 가장 먼저 볼 부분은 첫 문장과 본문 연결입니다.'
+    : '본문이 비어 있어서 문제 원인과 해결 기준을 짧게 이어줘야 해요.'
   const ctaNote = normalized.cta
-    ? 'CTA는 행동 이유가 분명할수록 구매나 저장으로 자연스럽게 이어집니다.'
-    : 'CTA가 비어 있어서 시청자가 지금 해야 할 행동을 한 문장으로 잡아줘야 해요.'
+    ? '원하면 전체를 갈아엎기보다 가장 약한 구간부터 바로 다듬어볼게요.'
+    : '마무리가 비어 있어서 시청자가 지금 해야 할 행동을 한 문장으로 잡아줘야 해요.'
 
-  return `${hookNote} ${bodyNote} ${ctaNote}`
+  return `그 느낌 이해돼요. ${hookNote} ${bodyNote} ${ctaNote}`
 }
 
 async function generateCopilotNaturalResponse({
@@ -1123,9 +1277,11 @@ async function generateCopilotNaturalResponse({
   guides,
   characterSystemPrompt = '',
   personalizationContext = '',
+  copilotMemory = {},
   intentResult,
 }) {
   const normalizedSections = normalizeSections(sections)
+  const copilotMemoryContext = formatCopilotMemoryForPrompt(copilotMemory)
   try {
     const response = await openai.chat.completions.create({
       model,
@@ -1139,14 +1295,17 @@ async function generateCopilotNaturalResponse({
             buildReferenceContaminationGuard(),
             '수정 금지: 사용자가 명시적으로 수정/고치기/바꾸기를 요청하지 않았으므로 HOOK/BODY/CTA를 변경하지 않는다.',
             buildCopilotEvaluationRubric(),
+            buildCopilotMentorToneGuide(),
             '응답 규칙: 자연어로 짧게 진단한다. 좋은 점, 약한 점, 다음 개선 방향을 기준표에 맞춰 구체적으로 말한다.',
             '응답 규칙: "좋아요"만 말하지 않는다. 약한 점이 있으면 약하다고 말한다. 단, 대본을 새로 쓰거나 적용하지 않는다.',
+            '응답 구조: 공감/확인 → 핵심 진단 → 살릴 점 → 아쉬운 점 → 방향 제안 → 원하면 수정 가능 안내 순서로 답한다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
               : null,
+            copilotMemoryContext || null,
           ]
             .filter(Boolean)
             .join('\n\n'),
@@ -1196,6 +1355,7 @@ export async function refineScriptWithAI({
   currentVersionId = '',
   characterSystemPrompt = '',
   personalizationContext = '',
+  copilotMemory = {},
 }) {
   const normalizedRequest = request?.trim()
   const normalizedSections = normalizeSections(sections)
@@ -1212,6 +1372,7 @@ export async function refineScriptWithAI({
   const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
   const guides = buildReferenceGuides(reference)
   const intentResult = classifyCopilotIntentByRule(normalizedRequest, editTarget)
+  const copilotMemoryContext = formatCopilotMemoryForPrompt(copilotMemory)
 
   if (!intentResult.shouldEdit) {
     logPromptAssembly({
@@ -1221,6 +1382,7 @@ export async function refineScriptWithAI({
       currentVersionId,
       editTarget: 'none',
       memoryIncluded: Boolean(personalizationContext),
+      copilotMemoryIncluded: Boolean(copilotMemoryContext),
       includedTranscript: false,
     })
 
@@ -1237,6 +1399,7 @@ export async function refineScriptWithAI({
       guides,
       characterSystemPrompt,
       personalizationContext,
+      copilotMemory,
       intentResult,
     })
 
@@ -1292,6 +1455,7 @@ export async function refineScriptWithAI({
     currentVersionId,
     editTarget: normalizedEditTarget,
     memoryIncluded: Boolean(personalizationContext),
+    copilotMemoryIncluded: Boolean(copilotMemoryContext),
     includedTranscript: false,
   })
 
@@ -1308,6 +1472,7 @@ export async function refineScriptWithAI({
             buildContextPriority(),
             buildReferenceContaminationGuard(),
             buildCopilotEvaluationRubric(),
+            buildCopilotMentorToneGuide(),
             buildCopilotEditPlaybook(targetSections),
             buildCopilotResponseModeRule(intentResult.responseMode),
             buildEditOutputInstruction(targetSections),
@@ -1338,6 +1503,7 @@ export async function refineScriptWithAI({
             personalizationContext
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
               : null,
+            copilotMemoryContext || null,
           ]
             .filter(Boolean)
             .join('\n\n'),
@@ -1383,6 +1549,7 @@ export async function refineScriptWithAI({
       sectionDiff,
       flowValidation,
       memoryIncluded: Boolean(personalizationContext),
+      copilotMemoryIncluded: Boolean(copilotMemoryContext),
       includedTranscript: false,
     })
     const parsedMessage = parsed.message?.trim() || ''
@@ -1533,8 +1700,11 @@ export const __scriptAssistantTest = {
   validateScriptFlow,
   buildEditScopeInstruction,
   buildCopilotEvaluationRubric,
+  buildCopilotMentorToneGuide,
   buildCopilotResponseModeRule,
   buildCopilotEditPlaybook,
+  normalizeCopilotMemory,
+  formatCopilotMemoryForPrompt,
   buildCopilotHookTemplateContext,
   buildCopilotNarrativePatternContext,
   buildNarrativeSectioningInstruction,

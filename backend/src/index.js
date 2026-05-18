@@ -4,7 +4,6 @@ import express from 'express'
 import multer from 'multer'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAccount, deleteAccount, listAccounts, resolveRequestAccount } from './lib/accounts.js'
@@ -61,6 +60,21 @@ import {
 import { logAIError } from './lib/ai-error-logger.js'
 import { assertBackendEnv } from './lib/env-validation.js'
 import {
+  createClientOrigins,
+  createRateLimiter,
+  createSecurityHeaders,
+  getClientIp,
+  getDefaultRateLimitIdentity,
+  normalizeOrigin,
+} from './lib/http-middleware.js'
+import {
+  readNumber,
+  readRequestCharacterId,
+  readString,
+  readTextList,
+} from './lib/request-readers.js'
+import { removeUploadedTempFile, validateUploadedFile } from './lib/upload-validation.js'
+import {
   applyCouponToUser,
   assertEntitlementAccess,
   assertUsageAllowed,
@@ -69,9 +83,6 @@ import {
 } from './lib/entitlements.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// Deploy trigger: backend touchpoint.
-// Comment-only test change for direct main push.
-// Railway redeploy check: backend service touchpoint.
 dotenv.config({ path: resolve(__dirname, '../../.env') })
 assertBackendEnv()
 
@@ -85,27 +96,11 @@ const defaultAllowedOrigins = [
   'https://www.hookai.kr',
   'https://hookai.kr',
 ]
-
-function normalizeOrigin(value = '') {
-  const raw = String(value || '').trim().replace(/^['"]|['"]$/g, '')
-  if (!raw) {
-    return ''
-  }
-
-  try {
-    return new URL(raw).origin
-  } catch {
-    return raw.replace(/\/+$/, '')
-  }
-}
-
-const configuredOrigins = [process.env.CLIENT_ORIGINS, clientOrigin, ...defaultAllowedOrigins]
-  .filter(Boolean)
-  .flatMap((value) => String(value).split(','))
-  .map((value) => normalizeOrigin(value))
-  .filter(Boolean)
-
-const clientOrigins = Array.from(new Set(configuredOrigins))
+const clientOrigins = createClientOrigins({
+  clientOrigin,
+  clientOrigins: process.env.CLIENT_ORIGINS,
+  defaultAllowedOrigins,
+})
 const uploadPdf = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -135,288 +130,7 @@ const uploadVideo = multer({
 })
 const isProduction = (process.env.NODE_ENV || 'development') === 'production'
 const enableTestRoutes = process.env.ENABLE_TEST_ROUTES === 'true'
-const enableRedisRateLimit = ['1', 'true', 'yes', 'on'].includes(
-  String(process.env.ENABLE_REDIS_RATE_LIMIT || 'true').trim().toLowerCase(),
-)
-const redisRateLimitUrl = String(process.env.REDIS_URL || '').trim()
-const REDIS_RATE_LIMIT_DISABLED = { value: false, reason: '' }
-let redisRateLimitClientPromise = null
-
-function securityHeaders(_req, res, next) {
-  res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('X-Frame-Options', 'DENY')
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-  )
-  if (isProduction) {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload')
-  }
-  next()
-}
-
-async function getRedisRateLimitClient() {
-  if (!enableRedisRateLimit || !redisRateLimitUrl || REDIS_RATE_LIMIT_DISABLED.value) {
-    return null
-  }
-
-  if (!redisRateLimitClientPromise) {
-    redisRateLimitClientPromise = (async () => {
-      try {
-        const redisModule = await import('redis')
-        const client = redisModule.createClient({ url: redisRateLimitUrl })
-        client.on('error', (error) => {
-          if (!REDIS_RATE_LIMIT_DISABLED.value) {
-            REDIS_RATE_LIMIT_DISABLED.value = true
-            REDIS_RATE_LIMIT_DISABLED.reason = error?.message || 'redis-client-error'
-            console.warn('[rate-limit] redis disabled:', REDIS_RATE_LIMIT_DISABLED.reason)
-          }
-        })
-        await client.connect()
-        return client
-      } catch (error) {
-        REDIS_RATE_LIMIT_DISABLED.value = true
-        REDIS_RATE_LIMIT_DISABLED.reason = error?.message || 'redis-init-failed'
-        console.warn('[rate-limit] redis disabled:', REDIS_RATE_LIMIT_DISABLED.reason)
-        return null
-      }
-    })()
-  }
-
-  return redisRateLimitClientPromise
-}
-
-function getClientIp(req) {
-  return String(req.ip || req.headers['x-forwarded-for'] || 'unknown')
-    .split(',')[0]
-    .trim() || 'unknown'
-}
-
-function getDefaultRateLimitIdentity(req) {
-  return {
-    key: getClientIp(req),
-    type: 'ip',
-  }
-}
-
-function createRateLimiter({ windowMs, max, keyPrefix = 'global', keyResolver = getDefaultRateLimitIdentity }) {
-  const counters = new Map()
-
-  return async function rateLimiter(req, _res, next) {
-    const now = Date.now()
-    const identity = keyResolver(req) || getDefaultRateLimitIdentity(req)
-    const identityKey = String(identity.key || '').trim() || getClientIp(req)
-    const identityType = String(identity.type || '').trim() || 'ip'
-    const key = `${keyPrefix}:${identityType}:${identityKey}`
-
-    req.rateLimit = {
-      keyPrefix,
-      keyType: identityType,
-      key,
-      windowMs,
-      max,
-    }
-
-    const redisClient = await getRedisRateLimitClient()
-    if (redisClient) {
-      try {
-        const count = await redisClient.incr(key)
-        if (count === 1) {
-          await redisClient.pExpire(key, windowMs)
-        }
-        if (count > max) {
-          const ttlMs = await redisClient.pTTL(key)
-          console.warn('[rate-limit] blocked', {
-            requestId: req.requestId,
-            stage: 'rate_limit',
-            keyPrefix,
-            keyType: identityType,
-            userId: req.auth?.userId || null,
-            ip: getClientIp(req),
-            method: req.method,
-            route: req.originalUrl,
-            retryAfterMs: ttlMs > 0 ? ttlMs : windowMs,
-          })
-          next(
-            new AppError('Too many requests. Please try again later.', {
-              code: 'RATE_LIMITED',
-              statusCode: 429,
-              details: {
-                retryAfterMs: ttlMs > 0 ? ttlMs : windowMs,
-                keyType: identityType,
-              },
-            }),
-          )
-          return
-        }
-        next()
-        return
-      } catch (error) {
-        console.warn('[rate-limit] redis check failed, fallback to memory:', error?.message || error)
-      }
-    }
-
-    const current = counters.get(key)
-
-    if (!current || now >= current.resetAt) {
-      counters.set(key, {
-        count: 1,
-        resetAt: now + windowMs,
-      })
-      next()
-      return
-    }
-
-    if (current.count >= max) {
-      console.warn('[rate-limit] blocked', {
-        requestId: req.requestId,
-        stage: 'rate_limit',
-        keyPrefix,
-        keyType: identityType,
-        userId: req.auth?.userId || null,
-        ip: getClientIp(req),
-        method: req.method,
-        route: req.originalUrl,
-        retryAfterMs: Math.max(current.resetAt - now, 0),
-      })
-      next(
-        new AppError('Too many requests. Please try again later.', {
-          code: 'RATE_LIMITED',
-          statusCode: 429,
-          details: {
-            retryAfterMs: Math.max(current.resetAt - now, 0),
-            keyType: identityType,
-          },
-        }),
-      )
-      return
-    }
-
-    current.count += 1
-    counters.set(key, current)
-    next()
-  }
-}
-
-function bytesAt(buffer, offset, bytes) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < offset + bytes.length) {
-    return false
-  }
-  return bytes.every((value, index) => buffer[offset + index] === value)
-}
-
-function isPdfByMagicBytes(buffer) {
-  return bytesAt(buffer, 0, [0x25, 0x50, 0x44, 0x46, 0x2d]) // %PDF-
-}
-
-function isVideoByMagicBytes(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 12) {
-    return false
-  }
-
-  const isIsoBmffFamily = String(buffer.subarray(4, 8)) === 'ftyp' // mp4/mov/m4v
-  if (isIsoBmffFamily) return true
-
-  const isMatroskaFamily = bytesAt(buffer, 0, [0x1a, 0x45, 0xdf, 0xa3]) // webm/mkv
-  if (isMatroskaFamily) return true
-
-  const isAvi =
-    String(buffer.subarray(0, 4)) === 'RIFF' &&
-    String(buffer.subarray(8, 12)) === 'AVI ' // avi
-  return isAvi
-}
-
-async function readMagicBytesFromUpload(file, size = 64) {
-  if (!file) {
-    return Buffer.alloc(0)
-  }
-
-  if (Buffer.isBuffer(file.buffer) && file.buffer.length > 0) {
-    return file.buffer.subarray(0, size)
-  }
-
-  if (typeof file.path === 'string' && file.path) {
-    const fsModule = await import('node:fs/promises')
-    const handle = await fsModule.open(file.path, 'r')
-    try {
-      const buffer = Buffer.alloc(size)
-      const { bytesRead } = await handle.read(buffer, 0, size, 0)
-      return buffer.subarray(0, bytesRead)
-    } finally {
-      await handle.close()
-    }
-  }
-
-  return Buffer.alloc(0)
-}
-
-async function removeUploadedTempFile(file) {
-  if (!file?.path) {
-    return
-  }
-
-  try {
-    await rm(file.path, { force: true })
-  } catch {
-    // ignore cleanup failures for temp files
-  }
-}
-
-async function validateUploadedFile(file, {
-  fieldName,
-  allowedMimePrefixes = [],
-  allowedMimeTypes = [],
-  allowedExtensions = [],
-  magicType = null,
-}) {
-  if (!file) {
-    throw new AppError(`${fieldName} file is required`, {
-      code: 'FILE_REQUIRED',
-      statusCode: 400,
-      details: { fieldName },
-    })
-  }
-
-  const mimeType = String(file.mimetype || '').toLowerCase()
-  const fileName = String(file.originalname || '').toLowerCase()
-  const extension = (fileName.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
-
-  const allowedByExactMime = allowedMimeTypes.some((item) => item.toLowerCase() === mimeType)
-  const allowedByPrefix = allowedMimePrefixes.some((prefix) => mimeType.startsWith(prefix.toLowerCase()))
-  const allowedByExtension = allowedExtensions.some((ext) => ext.toLowerCase() === extension)
-
-  if (!allowedByExactMime && !allowedByPrefix && !allowedByExtension) {
-    throw new AppError(`Unsupported ${fieldName} file type`, {
-      code: 'UNSUPPORTED_FILE_TYPE',
-      statusCode: 400,
-      details: {
-        fieldName,
-        mimeType,
-        extension,
-      },
-    })
-  }
-
-  const magicBytes = magicType ? await readMagicBytesFromUpload(file, 64) : null
-
-  if (magicType === 'pdf' && !isPdfByMagicBytes(magicBytes)) {
-    throw new AppError(`Unsupported ${fieldName} file signature`, {
-      code: 'INVALID_FILE_SIGNATURE',
-      statusCode: 400,
-      details: { fieldName, expected: 'pdf' },
-    })
-  }
-
-  if (magicType === 'video' && !isVideoByMagicBytes(magicBytes)) {
-    throw new AppError(`Unsupported ${fieldName} file signature`, {
-      code: 'INVALID_FILE_SIGNATURE',
-      statusCode: 400,
-      details: { fieldName, expected: 'video-container' },
-    })
-  }
-}
+const securityHeaders = createSecurityHeaders({ isProduction })
 
 function getUploadLogContext(req, file = req.file) {
   const fileName = String(file?.originalname || '')
@@ -444,78 +158,6 @@ function logReferenceUploadStage(req, stage, extra = {}) {
     ...getUploadLogContext(req),
     ...extra,
   })
-}
-
-function readString(value, { field, maxLength = 2000, required = false } = {}) {
-  const normalized = typeof value === 'string' ? value.trim() : ''
-
-  if (!normalized) {
-    if (required) {
-      throw new AppError(`${field} is required`, {
-        code: 'INVALID_INPUT',
-        statusCode: 400,
-        details: { field },
-      })
-    }
-    return ''
-  }
-
-  if (normalized.length > maxLength) {
-    throw new AppError(`${field} is too long`, {
-      code: 'INVALID_INPUT',
-      statusCode: 400,
-      details: { field, maxLength },
-    })
-  }
-
-  return normalized
-}
-
-function readRequestCharacterId(req) {
-  return readString(
-    req.body?.characterId ||
-      req.body?.character_id ||
-      req.query?.characterId ||
-      req.query?.character_id ||
-      req.headers['x-character-id'],
-    {
-      field: 'characterId',
-      maxLength: 80,
-    },
-  )
-}
-
-function readTextList(value, { maxItems = 12 } = {}) {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, maxItems)
-  }
-
-  if (typeof value === 'string') {
-    return value
-      .split(/[\n,]/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .slice(0, maxItems)
-  }
-
-  return []
-}
-
-function readNumber(value, { field, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY, fallback } = {}) {
-  if (value === undefined || value === null || value === '') {
-    return fallback
-  }
-
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
-    throw new AppError(`${field} is invalid`, {
-      code: 'INVALID_INPUT',
-      statusCode: 400,
-      details: { field, min, max },
-    })
-  }
-
-  return parsed
 }
 
 const askRateLimiter = createRateLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'ask' })
@@ -1583,13 +1225,14 @@ app.post(
         referenceId: req.body?.referenceId,
         selectedLabel: req.body?.selectedLabel,
         request: requestText,
-        sections: req.body?.sections,
-        editTarget: 'none',
-        currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
-        currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
-        characterSystemPrompt: character.systemPrompt,
-        personalizationContext: personalization.context,
-      })
+      sections: req.body?.sections,
+      editTarget: 'none',
+      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+      currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+      characterSystemPrompt: character.systemPrompt,
+      personalizationContext: personalization.context,
+      copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
+    })
       const memoryUpdate = await updatePersonalizationMemory({
         accountId: account.id,
         characterId: character.characterId,
@@ -1695,6 +1338,7 @@ app.post(
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: personalization.context,
+      copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
     })
     const memoryUpdate = await updatePersonalizationMemory({
       accountId: account.id,
@@ -1725,6 +1369,8 @@ app.post(
       autoApplied: false,
       canUndo: false,
       intent,
+      copilotIntent: result.copilotIntent,
+      responseMode: result.responseMode,
       message: result.message,
       sections: result.sections,
       proposedSections: result.sections,
@@ -1784,6 +1430,7 @@ app.post(
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: personalization.context,
+      copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
     })
     const memoryUpdate = await updatePersonalizationMemory({
       accountId: account.id,

@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { safeGetStorageItem, safeRemoveStorageItem, safeSetStorageItem } from './safeStorage'
 
 const ACCOUNT_STORAGE_KEY = 'studio:selected-account-id'
 const CHARACTER_STORAGE_KEY = 'studio:selected-character-id'
@@ -96,50 +97,34 @@ export async function parseApiResponse(response) {
 }
 
 export function getStoredAccountId() {
-  if (typeof window === 'undefined') {
-    return ''
-  }
-
-  return window.localStorage.getItem(ACCOUNT_STORAGE_KEY) || ''
+  return safeGetStorageItem(ACCOUNT_STORAGE_KEY, { fallback: '' }) || ''
 }
 
 export function setStoredAccountId(accountId) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
   const previousAccountId = getStoredAccountId()
   if (!accountId) {
-    window.localStorage.removeItem(ACCOUNT_STORAGE_KEY)
-    window.localStorage.removeItem(CHARACTER_STORAGE_KEY)
+    safeRemoveStorageItem(ACCOUNT_STORAGE_KEY)
+    safeRemoveStorageItem(CHARACTER_STORAGE_KEY)
     return
   }
 
-  window.localStorage.setItem(ACCOUNT_STORAGE_KEY, accountId)
+  safeSetStorageItem(ACCOUNT_STORAGE_KEY, accountId)
   if (previousAccountId && previousAccountId !== accountId) {
-    window.localStorage.removeItem(CHARACTER_STORAGE_KEY)
+    safeRemoveStorageItem(CHARACTER_STORAGE_KEY)
   }
 }
 
 export function getStoredCharacterId() {
-  if (typeof window === 'undefined') {
-    return ''
-  }
-
-  return window.localStorage.getItem(CHARACTER_STORAGE_KEY) || ''
+  return safeGetStorageItem(CHARACTER_STORAGE_KEY, { fallback: '' }) || ''
 }
 
 export function setStoredCharacterId(characterId) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
   if (!characterId) {
-    window.localStorage.removeItem(CHARACTER_STORAGE_KEY)
+    safeRemoveStorageItem(CHARACTER_STORAGE_KEY)
     return
   }
 
-  window.localStorage.setItem(CHARACTER_STORAGE_KEY, characterId)
+  safeSetStorageItem(CHARACTER_STORAGE_KEY, characterId)
 }
 
 export async function apiFetch(input, init = {}) {
