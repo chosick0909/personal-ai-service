@@ -7,6 +7,17 @@ export const COUPON_CODES = {
   challenge: 'CHEER_TO_CHALLENGE',
 }
 
+export const UNLIMITED_STUDENT_COUPON_CODES = new Set([
+  'WELCOME2INSTACAMPUS_0425',
+  'WELCOME2INSTACAMPUS_0518',
+])
+
+const UNLIMITED_LIMITS = {
+  monthlyReferenceLimit: null,
+  perReferenceCopilotLimit: null,
+  perReferenceFeedbackLimit: null,
+}
+
 const PLAN_LIMITS = {
   open_beta: {
     monthlyReferenceLimit: null,
@@ -78,6 +89,15 @@ function getPlanLimits(planType) {
   return PLAN_LIMITS[planType] || PLAN_LIMITS.paid
 }
 
+export function getCouponPlanLimits(planType, couponCode) {
+  const normalizedCode = normalizeCouponCode(couponCode)
+  if (planType === 'student' && UNLIMITED_STUDENT_COUPON_CODES.has(normalizedCode)) {
+    return UNLIMITED_LIMITS
+  }
+
+  return getPlanLimits(planType)
+}
+
 function getPlanPriority(planType) {
   return PLAN_PRIORITY[planType] || 0
 }
@@ -119,6 +139,35 @@ async function runEntitlementQuery(action, operation) {
   }
 }
 
+function readLimitValue(limitsRow, field, fallback) {
+  if (limitsRow && Object.prototype.hasOwnProperty.call(limitsRow, field)) {
+    return limitsRow[field]
+  }
+
+  return fallback
+}
+
+export function resolveEntitlementLimits(planType, limitsRow) {
+  const planLimits = getPlanLimits(planType)
+  return {
+    monthlyReferenceLimit: readLimitValue(
+      limitsRow,
+      'monthly_reference_limit',
+      planLimits.monthlyReferenceLimit,
+    ),
+    perReferenceCopilotLimit: readLimitValue(
+      limitsRow,
+      'per_reference_copilot_limit',
+      planLimits.perReferenceCopilotLimit,
+    ),
+    perReferenceFeedbackLimit: readLimitValue(
+      limitsRow,
+      'per_reference_feedback_limit',
+      planLimits.perReferenceFeedbackLimit,
+    ),
+  }
+}
+
 function normalizeEntitlement(row, limitsRow, usage = {}) {
   if (!row) {
     return {
@@ -128,15 +177,7 @@ function normalizeEntitlement(row, limitsRow, usage = {}) {
     }
   }
 
-  const planLimits = getPlanLimits(row.plan_type)
-  const limits = {
-    monthlyReferenceLimit:
-      limitsRow?.monthly_reference_limit ?? planLimits.monthlyReferenceLimit,
-    perReferenceCopilotLimit:
-      limitsRow?.per_reference_copilot_limit ?? planLimits.perReferenceCopilotLimit,
-    perReferenceFeedbackLimit:
-      limitsRow?.per_reference_feedback_limit ?? planLimits.perReferenceFeedbackLimit,
-  }
+  const limits = resolveEntitlementLimits(row.plan_type, limitsRow)
 
   return {
     hasAccess: true,
@@ -491,7 +532,7 @@ export async function applyCouponToUser({ userId, couponCode }) {
     ? await getStudentStartAt({ supabaseAdmin, userId: normalizedUserId, now, nowIso })
     : now
   const endsAt = getEntitlementEndAt(planType, startsAt)
-  const planLimits = getPlanLimits(planType)
+  const planLimits = getCouponPlanLimits(planType, coupon.code)
 
   const { data: entitlement, error: insertError } = await runEntitlementQuery('createEntitlement', () =>
     supabaseAdmin

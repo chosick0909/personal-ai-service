@@ -2,7 +2,7 @@ import { apiFetch, createApiError, parseApiResponse } from './api'
 import { supabase } from './supabase'
 
 const ENTITLEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
-const ENTITLEMENT_CACHE_VERSION = 2
+const ENTITLEMENT_CACHE_VERSION = 3
 
 async function getEntitlementCacheKey() {
   const {
