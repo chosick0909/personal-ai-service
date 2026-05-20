@@ -502,7 +502,7 @@ export function AppStateProvider({ children }) {
     } catch (error) {
       const message = error.message || '이용권 정보를 불러오지 못했습니다.'
       setEntitlementStatus((current) => {
-        if (silent && current?.hasAccess) {
+        if ((silent || error.isTransient) && current?.hasAccess) {
           return current
         }
 
@@ -511,6 +511,10 @@ export function AppStateProvider({ children }) {
           entitlement: null,
           usage: null,
           error: message,
+          errorCode: error.code || null,
+          requestId: error.requestId || null,
+          isTransientError: Boolean(error.isTransient),
+          isAuthExpired: Boolean(error.isAuthExpired),
         }
       })
       return null

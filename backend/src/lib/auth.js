@@ -1,4 +1,4 @@
-import { AppError } from './errors.js'
+import { AppError, isTransientFetchError } from './errors.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 
 function getAuthVerifierClient() {
@@ -41,11 +41,20 @@ export async function requireAuth(req, _res, next) {
       data = result?.data
       error = result?.error
     } catch (cause) {
-      throw new AppError('Auth verification failed. Check Supabase auth env configuration.', {
-        code: 'AUTH_VERIFICATION_FAILED',
-        statusCode: 500,
+      throw new AppError('인증 서버 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', {
+        code: 'AUTH_SERVICE_UNAVAILABLE',
+        statusCode: 503,
         exposeMessage: true,
         cause,
+      })
+    }
+
+    if (error && isTransientFetchError(error)) {
+      throw new AppError('인증 서버 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', {
+        code: 'AUTH_SERVICE_UNAVAILABLE',
+        statusCode: 503,
+        exposeMessage: true,
+        cause: error,
       })
     }
 

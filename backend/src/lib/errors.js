@@ -18,6 +18,31 @@ export class AppError extends Error {
   }
 }
 
+export function isTransientFetchError(error) {
+  const message = [
+    error?.message,
+    error?.cause?.message,
+    error?.details?.cause,
+    typeof error === 'string' ? error : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  const code = String(error?.code || error?.cause?.code || '').toUpperCase()
+
+  return (
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    message.includes('fetch failed') ||
+    message.includes('econnreset') ||
+    message.includes('network') ||
+    message.includes('timeout')
+  )
+}
+
 const SENSITIVE_KEY_PATTERN = /password|token|authorization|secret|api[-_]?key|cookie|session/i
 
 function sanitizeLogPayload(value, depth = 0) {

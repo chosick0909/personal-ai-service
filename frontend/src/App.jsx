@@ -3604,22 +3604,73 @@ function StudioShell() {
   }
 
   if (entitlementStatus?.error && !entitlementStatus?.hasAccess) {
+    const rawErrorText = String(entitlementStatus.error || '')
+    const cleanedErrorText = rawErrorText
+      .replace(/^\[[^\]]+\]\s*/, '')
+      .replace(/\s*·\s*requestId:.+$/i, '')
+      .trim()
+    const isTransientError = Boolean(entitlementStatus.isTransientError)
+    const isAuthExpired = Boolean(entitlementStatus.isAuthExpired)
+    const errorTitle = isTransientError
+      ? '접근 상태 확인이 지연되고 있어요'
+      : isAuthExpired
+        ? '로그인 상태를 다시 확인해주세요'
+        : '접근 상태를 확인하지 못했어요'
+    const errorMessage = isTransientError
+      ? '서버 연결이 잠시 불안정해서 이용권 상태를 확인하지 못했습니다. 계정 문제는 아닐 수 있으니 잠시 후 다시 확인해주세요.'
+      : isAuthExpired
+        ? '로그인 정보가 만료되었거나 브라우저 세션이 꼬였을 수 있습니다. 새로고침 후에도 계속되면 다시 로그인해주세요.'
+        : cleanedErrorText || '이용권 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'
+    const panelClassName = isTransientError
+      ? 'border-[#334155] bg-[#101826]'
+      : isAuthExpired
+        ? 'border-[#4B5563] bg-[#151820]'
+        : 'border-[#7C2D12] bg-[#1B1512]'
+    const titleClassName = isTransientError
+      ? 'text-[#BFDBFE]'
+      : isAuthExpired
+        ? 'text-[#E5E7EB]'
+        : 'text-[#FED7AA]'
+    const messageClassName = isTransientError
+      ? 'text-[#C7D2FE]'
+      : isAuthExpired
+        ? 'text-[#CBD5E1]'
+        : 'text-[#FDBA74]'
+
     return (
       <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
-        <div className="w-full max-w-[420px] rounded-[28px] border border-[#7F1D1D] bg-[#1B1216] px-6 py-6 text-center shadow-[0_24px_70px_rgba(0,0,0,0.42)]">
-          <div className="text-lg font-bold text-[#FECACA]">접근 상태를 불러오지 못했습니다</div>
-          <p className="mt-3 text-sm leading-6 text-[#FCA5A5]">
-            {entitlementStatus.error}
+        <div className={`w-full max-w-[440px] rounded-[28px] border px-6 py-6 text-center shadow-[0_24px_70px_rgba(0,0,0,0.42)] ${panelClassName}`}>
+          <div className={`text-lg font-bold ${titleClassName}`}>{errorTitle}</div>
+          <p className={`mt-3 text-sm leading-6 ${messageClassName}`}>
+            {errorMessage}
           </p>
-          <button
-            type="button"
-            className="mt-5 inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
-            onClick={() => {
-              void refreshEntitlement({ forceRefresh: true })
-            }}
-          >
-            다시 확인
-          </button>
+          {entitlementStatus.requestId ? (
+            <p className="mt-3 text-xs leading-5 text-[#64748B]">
+              문제가 계속되면 이 ID를 전달해주세요: {entitlementStatus.requestId}
+            </p>
+          ) : null}
+          <div className="mt-5 flex flex-col items-center justify-center gap-2 sm:flex-row">
+            <button
+              type="button"
+              className="inline-flex h-11 min-w-[112px] items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
+              onClick={() => {
+                void refreshEntitlement({ forceRefresh: true })
+              }}
+            >
+              다시 확인
+            </button>
+            {isAuthExpired ? (
+              <button
+                type="button"
+                className="inline-flex h-11 min-w-[112px] items-center justify-center rounded-full border border-[#3A414F] bg-[#161B24] px-5 text-sm font-semibold text-[#E5E7EB] transition hover:border-[#6B7280] hover:bg-[#1F2937]"
+                onClick={() => {
+                  void supabase.auth.signOut()
+                }}
+              >
+                다시 로그인
+              </button>
+            ) : null}
+          </div>
         </div>
       </main>
     )

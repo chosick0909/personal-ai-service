@@ -1,4 +1,4 @@
-import { AppError } from './errors.js'
+import { AppError, isTransientFetchError } from './errors.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 
 export const COUPON_CODES = {
@@ -129,6 +129,16 @@ async function runEntitlementQuery(action, operation) {
   try {
     return await operation()
   } catch (cause) {
+    if (isTransientFetchError(cause)) {
+      throw new AppError('서버 연결이 일시적으로 불안정해 이용권 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', {
+        code: 'ENTITLEMENT_SERVICE_UNAVAILABLE',
+        statusCode: 503,
+        exposeMessage: true,
+        details: { action },
+        cause,
+      })
+    }
+
     throw new AppError('이용권 정보를 처리하지 못했습니다. 잠시 후 다시 시도해주세요.', {
       code: 'ENTITLEMENT_QUERY_FAILED',
       statusCode: 500,
@@ -368,6 +378,15 @@ async function countUsageEvents({ supabaseAdmin, userId, entitlementId, eventTyp
   const { count, error } = await runEntitlementQuery('countUsageEvents', () => query)
 
   if (error) {
+    if (isTransientFetchError(error)) {
+      throw new AppError('서버 연결이 일시적으로 불안정해 사용량을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', {
+        code: 'USAGE_SERVICE_UNAVAILABLE',
+        statusCode: 503,
+        exposeMessage: true,
+        cause: error,
+      })
+    }
+
     throw new AppError('사용량 조회에 실패했습니다.', {
       code: 'USAGE_LOOKUP_FAILED',
       statusCode: 500,
