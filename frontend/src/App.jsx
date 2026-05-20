@@ -3561,6 +3561,7 @@ function StudioShell() {
     entitlementStatus,
     isEntitlementReady,
     refreshEntitlement,
+    logout,
   } = useAppState()
   const forcedEntitlementRefreshKeyRef = useRef('')
   const toastToneClass = {
@@ -3650,26 +3651,38 @@ function StudioShell() {
             </p>
           ) : null}
           <div className="mt-5 flex flex-col items-center justify-center gap-2 sm:flex-row">
-            <button
-              type="button"
-              className="inline-flex h-11 min-w-[112px] items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
-              onClick={() => {
-                void refreshEntitlement({ forceRefresh: true })
-              }}
-            >
-              다시 확인
-            </button>
             {isAuthExpired ? (
+              <>
+                <button
+                  type="button"
+                  className="inline-flex h-11 min-w-[112px] items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
+                  onClick={() => {
+                    void logout({ localOnly: true })
+                  }}
+                >
+                  다시 로그인
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-11 min-w-[112px] items-center justify-center rounded-full border border-[#3A414F] bg-[#161B24] px-5 text-sm font-semibold text-[#E5E7EB] transition hover:border-[#6B7280] hover:bg-[#1F2937]"
+                  onClick={() => {
+                    window.location.reload()
+                  }}
+                >
+                  새로고침
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                className="inline-flex h-11 min-w-[112px] items-center justify-center rounded-full border border-[#3A414F] bg-[#161B24] px-5 text-sm font-semibold text-[#E5E7EB] transition hover:border-[#6B7280] hover:bg-[#1F2937]"
+                className="inline-flex h-11 min-w-[112px] items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
                 onClick={() => {
-                  void supabase.auth.signOut()
+                  void refreshEntitlement({ forceRefresh: true })
                 }}
               >
-                다시 로그인
+                다시 확인
               </button>
-            ) : null}
+            )}
           </div>
         </div>
       </main>

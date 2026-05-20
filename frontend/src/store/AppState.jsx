@@ -772,10 +772,14 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const logout = async () => {
-    const { error } = await supabase.auth.signOut()
+  const logout = async ({ localOnly = false } = {}) => {
+    const { error } = await supabase.auth.signOut(localOnly ? { scope: 'local' } : undefined)
     if (error) {
-      throw new Error(error.message || '로그아웃에 실패했습니다.')
+      if (!localOnly) {
+        await supabase.auth.signOut({ scope: 'local' })
+      } else {
+        throw new Error(error.message || '로그아웃에 실패했습니다.')
+      }
     }
 
     setStoredAccountId('')
@@ -785,6 +789,8 @@ export function AppStateProvider({ children }) {
     setCurrentAccount(null)
     setProjects([])
     setCurrentProjectId(null)
+    setEntitlementStatus(null)
+    setIsEntitlementReady(true)
     resetStudioForAccount()
   }
 
