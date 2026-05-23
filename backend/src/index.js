@@ -25,7 +25,18 @@ import {
 } from './lib/admin.js'
 import { ingestDocument } from './lib/document-ingest.js'
 import { ingestPdfDocument } from './lib/pdf-ingest.js'
-import { classifyCopilotIntent, generateScriptFeedback, refineScriptWithAI } from './lib/script-assistant.js'
+import {
+  classifyCopilotIntent,
+  buildEditPlan,
+  createSectionDiff,
+  generateScriptFeedback,
+  refineScriptWithAI,
+  repairRefinedScriptWithQaIssues,
+  runFeedbackFallbackRuleCheck,
+  shouldUseHeavyQualityGateForCopilot,
+  validateScriptFlow,
+  validateRefinedScriptQuality,
+} from './lib/script-assistant.js'
 import { generateCaptionDraft } from './lib/caption-generator.js'
 import { getCaptionCategoryRule } from './lib/caption-category-rules.js'
 import { analyzeThumbnailImage, generateThumbnailTitles } from './lib/thumbnail-title.js'
@@ -179,6 +190,51 @@ const analyzeRateLimiter = createRateLimiter({
   },
 })
 const searchRateLimiter = createRateLimiter({ windowMs: 60_000, max: 120, keyPrefix: 'search' })
+
+function compactFeedbackList(value = []) {
+  if (!Array.isArray(value)) {
+    return ''
+  }
+  return value
+    .map((item) => String(item || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((item) => `- ${item}`)
+    .join('\n')
+}
+
+function buildFeedbackApplyRequest(feedback = {}, editTarget = 'all') {
+  const summary = String(feedback?.summary || '').trim()
+  const detail = String(feedback?.detail || '').trim()
+  const structureDiagnosis = feedback?.structureDiagnosis
+    ? JSON.stringify(feedback.structureDiagnosis).slice(0, 2500)
+    : ''
+  const issues = compactFeedbackList(feedback?.issues)
+  const recommendations = compactFeedbackList(feedback?.recommendations)
+  const normalizedEditTarget = String(editTarget || '').trim() || 'all'
+
+  return [
+    '아래 피드백 진단을 실제 대본 수정에 반영해줘.',
+    '피드백의 말과 수정본이 따로 놀면 안 된다.',
+    '단순히 문장을 예쁘게 다듬는 게 아니라, 피드백에서 지적한 문제를 실제로 해결해야 한다.',
+    'HOOK 문제면 HOOK을, BODY 문제면 BODY를, CTA 문제면 CTA를 고친다.',
+    '피드백에서 지적한 문제가 있는데 현재 문장을 그대로 반환하면 실패다. 최소한 문제가 지적된 섹션은 실제로 달라져야 한다.',
+    normalizedEditTarget !== 'all'
+      ? `수정 범위는 ${normalizedEditTarget}로 제한한다. 요청받지 않은 섹션은 원문 그대로 유지한다.`
+      : '수정 범위는 전체이지만, 문제가 없는 섹션은 억지로 바꾸지 않는다.',
+    '',
+    '[피드백 요약]',
+    summary || '-',
+    '',
+    '[피드백 상세]',
+    detail || '-',
+    issues ? ['', '[지적된 문제]', issues].join('\n') : '',
+    recommendations ? ['', '[추천 수정 방향]', recommendations].join('\n') : '',
+    structureDiagnosis ? ['', '[구조 진단]', structureDiagnosis].join('\n') : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
 
 initBackendSentry()
 
@@ -1327,6 +1383,14 @@ app.post(
       eventType: 'copilot_message',
       referenceId: req.body?.referenceId,
     })
+    const copilotMemory = req.body?.copilotMemory || req.body?.copilot_memory || {}
+    const editPlan = buildEditPlan({
+      userRequest: requestText,
+      currentSections: req.body?.sections,
+      intentResult: intent,
+      editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
+      copilotMemory,
+    })
     const result = await refineScriptWithAI({
       accountId: account.id,
       referenceId: req.body?.referenceId,
@@ -1338,22 +1402,155 @@ app.post(
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: personalization.context,
-      copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
+      copilotMemory,
+      editPlan,
+    })
+    const qualityStartedAt = Date.now()
+    const qaFeedback = {
+      summary: `일반 코파일럿 수정 요청: ${requestText}`,
+      detail: `내부 편집 계획: ${editPlan.strategy}`,
+      issues: [],
+      recommendations: [
+        ...(editPlan.change || []),
+        ...(editPlan.avoid || []).map((item) => `피해야 할 요소: ${item}`),
+      ],
+    }
+    const useHeavyQualityGate = shouldUseHeavyQualityGateForCopilot({
+      request: requestText,
+      editTarget: result.editTarget || editPlan.editTarget,
+      targetSections: editPlan.targetSections,
+    })
+    let finalSections = result.sections
+    let finalMessage = result.message
+    let finalChangedSections = result.changedSections || []
+    let finalFlowValidation = result.flowValidation
+    let qualityGate = {
+      passed: true,
+      repaired: false,
+      issueTypes: [],
+      fallbackUsed: false,
+      fallbackType: 'none',
+    }
+    let repairAttempted = false
+    let repairSuccess = false
+
+    if (useHeavyQualityGate) {
+      const qaResult = await validateRefinedScriptQuality({
+        accountId: account.id,
+        referenceId: req.body?.referenceId,
+        selectedLabel: req.body?.selectedLabel,
+        originalSections: req.body?.sections,
+        proposedSections: result.sections,
+        request: requestText,
+        editTarget: result.editTarget || editPlan.editTarget,
+        feedback: qaFeedback,
+        characterSystemPrompt: character.systemPrompt,
+        personalizationContext: personalization.context,
+      })
+      qualityGate = {
+        passed: qaResult.ok,
+        repaired: false,
+        issueTypes: qaResult.issueTypes || [],
+        fallbackUsed: false,
+        fallbackType: 'none',
+      }
+
+      if (qaResult.shouldRepair) {
+        repairAttempted = true
+        const repairResult = await repairRefinedScriptWithQaIssues({
+          accountId: account.id,
+          referenceId: req.body?.referenceId,
+          selectedLabel: req.body?.selectedLabel,
+          originalSections: req.body?.sections,
+          proposedSections: result.sections,
+          request: requestText,
+          editTarget: result.editTarget || editPlan.editTarget,
+          feedback: qaFeedback,
+          qaIssues: qaResult.issues,
+          characterSystemPrompt: character.systemPrompt,
+          personalizationContext: personalization.context,
+        })
+
+        if (repairResult.success) {
+          repairSuccess = true
+          finalSections = repairResult.sections
+          finalMessage = repairResult.message || finalMessage
+          qualityGate = {
+            ...qualityGate,
+            repaired: true,
+          }
+        } else {
+          finalSections = req.body?.sections || result.sections
+          finalMessage =
+            '수정본 품질 검사에서 위험 요소가 감지되어 기존 대본을 유지했습니다. 요청을 조금 더 구체적으로 주시면 다시 다듬어볼게요.'
+          qualityGate = {
+            ...qualityGate,
+            fallbackUsed: true,
+            fallbackType: 'original',
+          }
+        }
+      }
+    } else {
+      const ruleCheck = runFeedbackFallbackRuleCheck({
+        originalSections: req.body?.sections,
+        candidateSections: result.sections,
+        editTarget: result.editTarget || editPlan.editTarget,
+        feedback: qaFeedback,
+        request: requestText,
+      })
+      qualityGate = {
+        passed: ruleCheck.ok,
+        repaired: false,
+        issueTypes: ruleCheck.issueTypes || [],
+        fallbackUsed: false,
+        fallbackType: 'none',
+      }
+      if (ruleCheck.shouldRepair) {
+        finalSections = req.body?.sections || result.sections
+        finalMessage =
+          '수정 범위나 사실 정보가 흔들릴 수 있어 기존 대본을 유지했습니다. 바꿀 단어나 섹션을 더 구체적으로 알려주세요.'
+        qualityGate = {
+          ...qualityGate,
+          fallbackUsed: true,
+          fallbackType: 'original',
+        }
+      }
+    }
+
+    const finalDiff = createSectionDiff(req.body?.sections, finalSections)
+    finalChangedSections = ['hook', 'body', 'cta'].filter((key) => finalDiff[key])
+    finalFlowValidation = validateScriptFlow(finalSections)
+    console.info('[copilot-quality-gate]', {
+      account_id: account.id,
+      character_id: character.characterId,
+      reference_id: req.body?.referenceId || '',
+      script_version_id: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+      intent: intent.intent,
+      edit_target: result.editTarget || editPlan.editTarget || '',
+      edit_plan_strategy: editPlan.strategy,
+      qa_passed: qualityGate.passed,
+      qa_failed_issue_types: qualityGate.issueTypes || [],
+      repair_attempted: repairAttempted,
+      repair_success: repairSuccess,
+      session_memory_used: Boolean(Object.values(copilotMemory || {}).some((value) => Array.isArray(value) ? value.length : value)),
+      latency_ms: Date.now() - qualityStartedAt,
     })
     const memoryUpdate = await updatePersonalizationMemory({
       accountId: account.id,
       characterId: character.characterId,
       sessionId: personalization.sessionId,
       userInput: requestText,
-      assistantOutput: result.message || '',
+      assistantOutput: finalMessage || '',
       fallbackSession: copilotFallbackSession,
       mode: 'suggestion',
       source: 'copilot_suggestion',
       metadata: {
-        editTarget: result.editTarget || '',
+        editTarget: result.editTarget || editPlan.editTarget || '',
         selectedLabel: req.body?.selectedLabel || '',
-        changedSections: result.changedSections || [],
+        changedSections: finalChangedSections || [],
         referenceId: req.body?.referenceId || '',
+        editPlan,
+        qualityGate,
       },
     })
     await recordUsageEvent({
@@ -1371,16 +1568,19 @@ app.post(
       intent,
       copilotIntent: result.copilotIntent,
       responseMode: result.responseMode,
-      message: result.message,
-      sections: result.sections,
-      proposedSections: result.sections,
-      editTarget: result.editTarget,
-      changedSections: result.changedSections,
+      message: finalMessage,
+      sections: finalSections,
+      proposedSections: finalSections,
+      editTarget: result.editTarget || editPlan.editTarget,
+      changedSections: finalChangedSections,
       diff: {
-        changedSections: result.changedSections,
-        reason: result.message,
+        changedSections: finalChangedSections,
+        reason: finalMessage,
       },
-      flowValidation: result.flowValidation,
+      flowValidation: finalFlowValidation,
+      qualityGate,
+      editPlan,
+      sessionMemoryUsed: Boolean(Object.values(copilotMemory || {}).some((value) => Array.isArray(value) ? value.length : value)),
       personalization: {
         sessionId: personalization.sessionId,
         snapshot: personalization.snapshot,
@@ -1563,6 +1763,176 @@ app.post(
       feedbackRecord,
       proposedSections: result.suggestedSections,
       structureDiagnosis: result.structureDiagnosis || null,
+      personalization: {
+        sessionId: personalization.sessionId,
+        snapshot: personalization.snapshot,
+        memoryUpdate,
+      },
+    })
+  }),
+)
+
+app.post(
+  '/api/scripts/feedback/apply',
+  refineRateLimiter,
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
+    const feedback = req.body?.feedback && typeof req.body.feedback === 'object' ? req.body.feedback : {}
+    const editTarget = req.body?.editTarget || req.body?.edit_target || 'all'
+    const requestText = buildFeedbackApplyRequest(feedback, editTarget)
+    const sessionId =
+      req.body?.sessionId ||
+      req.body?.session_id ||
+      req.headers['x-session-id'] ||
+      `feedback-apply:${account.id}:${req.body?.referenceId || 'general'}`
+    const personalization = await buildPersonalizationContext({
+      accountId: account.id,
+      characterId: character.characterId,
+      sessionId,
+      fallbackSession: `feedback-apply:${account.id}:${req.body?.referenceId || 'general'}`,
+      mode: 'suggestion',
+      query: requestText,
+    })
+    const result = await refineScriptWithAI({
+      accountId: account.id,
+      referenceId: req.body?.referenceId,
+      selectedLabel: req.body?.selectedLabel,
+      request: requestText,
+      sections: req.body?.sections,
+      editTarget,
+      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+      currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+      characterSystemPrompt: character.systemPrompt,
+      personalizationContext: personalization.context,
+      copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
+    })
+    const qaStartedAt = Date.now()
+    const qaResult = await validateRefinedScriptQuality({
+      accountId: account.id,
+      referenceId: req.body?.referenceId,
+      selectedLabel: req.body?.selectedLabel,
+      originalSections: req.body?.sections,
+      proposedSections: result.sections,
+      request: requestText,
+      editTarget: result.editTarget || editTarget,
+      feedback,
+      characterSystemPrompt: character.systemPrompt,
+      personalizationContext: personalization.context,
+    })
+    let finalSections = result.sections
+    let finalMessage = result.message
+    let qualityGate = {
+      passed: qaResult.ok,
+      repaired: false,
+      issueTypes: qaResult.issueTypes || [],
+      fallbackUsed: false,
+      fallbackType: 'none',
+    }
+    let repairAttempted = false
+    let repairSuccess = false
+
+    if (qaResult.shouldRepair) {
+      repairAttempted = true
+      const repairResult = await repairRefinedScriptWithQaIssues({
+        accountId: account.id,
+        referenceId: req.body?.referenceId,
+        selectedLabel: req.body?.selectedLabel,
+        originalSections: req.body?.sections,
+        proposedSections: result.sections,
+        request: requestText,
+        editTarget: result.editTarget || editTarget,
+        feedback,
+        qaIssues: qaResult.issues,
+        characterSystemPrompt: character.systemPrompt,
+        personalizationContext: personalization.context,
+      })
+
+      if (repairResult.success) {
+        repairSuccess = true
+        finalSections = repairResult.sections
+        finalMessage = repairResult.message || finalMessage
+        qualityGate = {
+          ...qualityGate,
+          passed: false,
+          repaired: true,
+        }
+      } else {
+        const fallbackCheck = runFeedbackFallbackRuleCheck({
+          originalSections: req.body?.sections,
+          candidateSections: feedback?.suggestedSections,
+          editTarget: result.editTarget || editTarget,
+          feedback,
+          request: requestText,
+        })
+
+        if (feedback?.suggestedSections && !fallbackCheck.shouldRepair) {
+          finalSections = feedback.suggestedSections
+          finalMessage = '피드백 진단 기반 재수정이 어려워, 안전 검사에 통과한 피드백 제안안을 적용했습니다.'
+          qualityGate = {
+            ...qualityGate,
+            repaired: false,
+            fallbackUsed: true,
+            fallbackType: 'suggestedSections',
+          }
+        } else {
+          throw new AppError('Feedback apply quality gate failed', {
+            code: 'FEEDBACK_APPLY_QUALITY_FAILED',
+            statusCode: 502,
+            details: {
+              qaIssues: qaResult.issueTypes || [],
+              fallbackIssues: fallbackCheck.issueTypes || [],
+            },
+          })
+        }
+      }
+    }
+    const finalDiff = createSectionDiff(req.body?.sections, finalSections)
+    const finalChangedSections = ['hook', 'body', 'cta'].filter((key) => finalDiff[key])
+    const finalFlowValidation = validateScriptFlow(finalSections)
+    console.info('[feedback-apply-quality-gate]', {
+      account_id: account.id,
+      character_id: character.characterId,
+      reference_id: req.body?.referenceId || '',
+      qa_passed: qaResult.ok,
+      qa_failed_issue_types: qaResult.issueTypes || [],
+      repair_attempted: repairAttempted,
+      repair_success: repairSuccess,
+      fallback_used: qualityGate.fallbackUsed,
+      fallback_type: qualityGate.fallbackType,
+      edit_target: result.editTarget || editTarget || '',
+      latency_ms: Date.now() - qaStartedAt,
+    })
+    const memoryUpdate = await updatePersonalizationMemory({
+      accountId: account.id,
+      characterId: character.characterId,
+      sessionId: personalization.sessionId,
+      userInput: requestText,
+      assistantOutput: finalMessage || '',
+      fallbackSession: `feedback-apply:${account.id}:${req.body?.referenceId || 'general'}`,
+      mode: 'suggestion',
+      source: 'feedback_apply',
+      metadata: {
+        editTarget: result.editTarget || editTarget || '',
+        selectedLabel: req.body?.selectedLabel || '',
+        changedSections: finalChangedSections,
+        referenceId: req.body?.referenceId || '',
+        feedbackSummary: String(feedback?.summary || '').slice(0, 300),
+        qualityGate,
+      },
+    })
+
+    res.json({
+      hook: finalSections.hook,
+      body: finalSections.body,
+      cta: finalSections.cta,
+      sections: finalSections,
+      proposedSections: finalSections,
+      message: finalMessage,
+      editTarget: result.editTarget,
+      changedSections: finalChangedSections,
+      flowValidation: finalFlowValidation,
+      qualityGate,
       personalization: {
         sessionId: personalization.sessionId,
         snapshot: personalization.snapshot,

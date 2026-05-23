@@ -247,6 +247,17 @@ function uniqueCompactList(value = [], maxItems = 10) {
   return output
 }
 
+function normalizeFeedbackList(value = [], maxItems = 8) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item) => String(item || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, maxItems)
+}
+
 function normalizeCopilotMemory(memory = {}) {
   const source = memory && typeof memory === 'object' ? memory : {}
   return {
@@ -298,6 +309,132 @@ function formatCopilotMemoryForPrompt(memory = {}) {
     '- 섹션 잠금 규칙보다 우선하지 않는다. BODY만 수정 요청이면 HOOK/CTA는 절대 바꾸지 않는다.',
     '- 오래된 취향보다 현재 사용자 요청과 현재 초안의 맥락을 우선한다.',
   ].join('\n')
+}
+
+export function buildEditPlan({
+  userRequest = '',
+  currentSections,
+  intentResult = {},
+  editTarget = '',
+  copilotMemory = {},
+} = {}) {
+  const request = String(userRequest || '').trim()
+  const sections = normalizeSections(currentSections)
+  const normalizedTarget = normalizeEditTarget(intentResult.editTarget || editTarget, request)
+  const targetSections = getTargetSections(normalizedTarget)
+  const memory = normalizeCopilotMemory(copilotMemory)
+  const strategy = []
+  const preserve = [
+    '현재 초안의 주제와 상품/서비스 정보',
+    '사용자 입력에 있는 사실 정보',
+    '선택된 A/B/C 초안의 기본 역할과 흐름',
+  ]
+  const change = []
+  const avoid = [
+    '레퍼런스 원문 소재, 상품명, 고유명사, 비유 복사',
+    '없는 수치, 후기, 고객 사례, 전문가 권위 생성',
+    '요청받지 않은 섹션 변경',
+  ]
+
+  if (/자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체/i.test(request)) {
+    strategy.push('구어체화 + 번역체 제거 + 문장 호흡 정리')
+    change.push('어색하거나 기계적인 문장을 실제 사람이 말하듯 자연스럽게 바꾼다')
+    avoid.push('설명문처럼 길게 이어지는 문장')
+  }
+  if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)) {
+    strategy.push('판매 압박 제거 + 상황/정보 중심 전환')
+    change.push('구매를 밀기보다 저장/확인/이해할 이유를 먼저 준다')
+    avoid.push('과한 구매 압박과 흔한 광고성 표현')
+  }
+  if (/짧게|압축|간결|줄여|너무\s*길/i.test(request)) {
+    strategy.push('핵심만 남기고 문장 압축')
+    change.push('중복 설명과 장황한 연결어를 줄인다')
+  }
+  if (/강하게|세게|후킹감|첫\s*문장|훅/i.test(request) && targetSections.includes('hook')) {
+    strategy.push('첫 문장 긴장감 강화 + BODY/CTA 연결 유지')
+    change.push('타겟의 문제, 손해, 궁금증이 첫 문장에 더 빨리 보이게 한다')
+  }
+  if (/cta|씨티에이|마무리|구매|댓글|저장|신청|상담/i.test(request) && targetSections.includes('cta')) {
+    strategy.push('행동 이유가 보이는 CTA로 정리')
+    change.push('시청자가 왜 지금 행동해야 하는지 자연스럽게 붙인다')
+  }
+  if (memory.dislikedTone.length) {
+    avoid.push(...memory.dislikedTone)
+  }
+  if (memory.dislikedExpressions.length) {
+    avoid.push(...memory.dislikedExpressions)
+  }
+  if (memory.preferredTone.length) {
+    preserve.push(...memory.preferredTone)
+  }
+  if (memory.ctaPreference && targetSections.includes('cta')) {
+    preserve.push(memory.ctaPreference)
+  }
+  if (memory.recentUserCorrections.length) {
+    avoid.push(...memory.recentUserCorrections)
+  }
+
+  if (!strategy.length) {
+    strategy.push(
+      targetSections.length === SECTION_KEYS.length
+        ? '기존 구조를 유지한 전체 표현 개선'
+        : `${targetSections.map((key) => SECTION_LABELS[key]).join('/')} 범위 안에서 요청 표현만 개선`,
+    )
+  }
+  if (!change.length) {
+    change.push('요청받은 섹션의 표현, 연결성, 읽히는 리듬을 개선한다')
+  }
+
+  return {
+    editTarget: normalizedTarget,
+    targetSections,
+    strategy: uniqueCompactList(strategy, 5).join(' + '),
+    preserve: uniqueCompactList(preserve, 10),
+    change: uniqueCompactList(change, 8),
+    avoid: uniqueCompactList(avoid, 12),
+    reason: `사용자 요청 "${request.slice(0, 80)}"을 ${targetSections.map((key) => SECTION_LABELS[key]).join('/')} 범위에서 반영하기 위한 내부 편집 계획`,
+    currentSectionLengths: {
+      hook: sections.hook.length,
+      body: sections.body.length,
+      cta: sections.cta.length,
+    },
+  }
+}
+
+function formatEditPlanForPrompt(editPlan = null) {
+  if (!editPlan || typeof editPlan !== 'object') {
+    return ''
+  }
+  return [
+    '[내부 편집 계획]',
+    `- 수정 범위: ${editPlan.editTarget || 'all'}`,
+    `- 전략: ${editPlan.strategy || '-'}`,
+    editPlan.preserve?.length ? `- 유지: ${editPlan.preserve.join(', ')}` : '',
+    editPlan.change?.length ? `- 변경: ${editPlan.change.join(', ')}` : '',
+    editPlan.avoid?.length ? `- 회피: ${editPlan.avoid.join(', ')}` : '',
+    `- 이유: ${editPlan.reason || '-'}`,
+    '',
+    '편집 계획 적용 규칙:',
+    '- 이 계획은 내부 보조 정보이며 사용자 사실 정보, 레퍼런스 구조, 섹션 잠금보다 우선하지 않는다.',
+    '- 계획에 없는 새 소재나 수치를 만들지 않는다.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+export function shouldUseHeavyQualityGateForCopilot({
+  request = '',
+  editTarget = '',
+  targetSections,
+} = {}) {
+  const text = String(request || '')
+  const targets = Array.isArray(targetSections) && targetSections.length
+    ? targetSections
+    : getTargetSections(normalizeEditTarget(editTarget, text))
+  if (targets.length === SECTION_KEYS.length || targets.includes('body')) {
+    return true
+  }
+  return /(자연스럽게|말\s*되게|말되게|부자연|어색|번역체|광고\s*같|판매\s*같|상업적|구매\s*압박|레퍼런스|참고|톤|캐릭터|계정|전체|전반|다\s*바꿔|더\s*좋게|살려)/i.test(text)
 }
 
 function compactSummaryText(value = '', maxLength = 34) {
@@ -545,7 +682,7 @@ function extractProposedSections(parsed = {}, targetSections = SECTION_KEYS) {
   return normalizeSections(parsed.sections)
 }
 
-function createSectionDiff(previousSections = {}, nextSections = {}) {
+export function createSectionDiff(previousSections = {}, nextSections = {}) {
   const previous = normalizeSections(previousSections)
   const next = normalizeSections(nextSections)
 
@@ -560,7 +697,7 @@ function createSectionDiff(previousSections = {}, nextSections = {}) {
   }, {})
 }
 
-function validateScriptFlow(sections = {}) {
+export function validateScriptFlow(sections = {}) {
   const normalized = normalizeSections(sections)
   const issues = []
 
@@ -580,6 +717,133 @@ function validateScriptFlow(sections = {}) {
   return {
     ok: issues.length === 0,
     issues,
+  }
+}
+
+const QA_SEVERITIES = new Set(['high', 'medium', 'low'])
+const QA_REPAIR_SEVERITIES = new Set(['high', 'medium'])
+
+function createQaIssue({
+  type = 'quality_issue',
+  severity = 'medium',
+  section = 'all',
+  text = '',
+  reason = '',
+  suggestion = '',
+} = {}) {
+  const normalizedSection = SECTION_KEYS.includes(String(section || '').toLowerCase())
+    ? String(section).toLowerCase()
+    : 'all'
+  const normalizedSeverity = QA_SEVERITIES.has(String(severity || '').toLowerCase())
+    ? String(severity).toLowerCase()
+    : 'medium'
+
+  return {
+    type: String(type || 'quality_issue').replace(/\s+/g, '_').trim() || 'quality_issue',
+    severity: normalizedSeverity,
+    section: normalizedSection,
+    text: String(text || '').replace(/\s+/g, ' ').trim(),
+    reason: String(reason || '').replace(/\s+/g, ' ').trim(),
+    suggestion: String(suggestion || '').replace(/\s+/g, ' ').trim(),
+  }
+}
+
+function normalizeQaIssues(value = []) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item) => (item && typeof item === 'object' ? createQaIssue(item) : null))
+    .filter(Boolean)
+    .slice(0, 12)
+}
+
+function qaShouldRepair(issues = []) {
+  return normalizeQaIssues(issues).some((issue) => QA_REPAIR_SEVERITIES.has(issue.severity))
+}
+
+function collectNumbersFromText(value = '') {
+  return new Set(String(value || '').match(/\d+(?:[.,]\d+)?\s*(?:만|억|천|원|만원|개|명|회|번|배|%|퍼센트|kg|킬로|개월|일|시간|분)?/g) || [])
+}
+
+function findUnexpectedNumbers(candidateSections = {}, allowedText = '') {
+  const allowed = collectNumbersFromText(allowedText)
+  const candidate = collectNumbersFromText(Object.values(normalizeSections(candidateSections)).join('\n'))
+
+  return [...candidate].filter((item) => !allowed.has(item))
+}
+
+export function runFeedbackFallbackRuleCheck({
+  originalSections,
+  candidateSections,
+  editTarget = 'all',
+  feedback = {},
+  request = '',
+} = {}) {
+  const original = normalizeSections(originalSections)
+  const candidate = normalizeSections(candidateSections)
+  const targetSections = getTargetSections(normalizeEditTarget(editTarget, request))
+  const targetSet = new Set(targetSections)
+  const issues = []
+  const flowValidation = validateScriptFlow(candidate)
+
+  for (const issue of flowValidation.issues) {
+    issues.push(
+      createQaIssue({
+        type: 'empty_or_invalid_section',
+        severity: 'high',
+        section: 'all',
+        reason: issue,
+        suggestion: 'HOOK/BODY/CTA가 모두 채워진 수정본만 적용한다.',
+      }),
+    )
+  }
+
+  for (const key of SECTION_KEYS) {
+    if (!targetSet.has(key) && candidate[key] !== original[key]) {
+      issues.push(
+        createQaIssue({
+          type: 'section_lock_violation',
+          severity: 'high',
+          section: key,
+          text: candidate[key],
+          reason: `${SECTION_LABELS[key]}는 수정 대상이 아닌데 변경되었다.`,
+          suggestion: `${SECTION_LABELS[key]}는 원문 그대로 유지한다.`,
+        }),
+      )
+    }
+  }
+
+  const feedbackText = [
+    feedback?.summary,
+    feedback?.detail,
+    ...(Array.isArray(feedback?.issues) ? feedback.issues : []),
+    ...(Array.isArray(feedback?.recommendations) ? feedback.recommendations : []),
+    request,
+    Object.values(original).join('\n'),
+  ].join('\n')
+  const unexpectedNumbers = findUnexpectedNumbers(candidate, feedbackText)
+  for (const number of unexpectedNumbers.slice(0, 4)) {
+    issues.push(
+      createQaIssue({
+        type: 'unsupported_number',
+        severity: 'high',
+        section: 'all',
+        text: number,
+        reason: '원문/피드백/요청에 없는 수치가 새로 생성되었다.',
+        suggestion: '근거 없는 수치, 성과, 기간, 가격은 제거한다.',
+      }),
+    )
+  }
+
+  const issueTypes = issues.map((issue) => issue.type)
+
+  return {
+    ok: !qaShouldRepair(issues),
+    shouldRepair: qaShouldRepair(issues),
+    issues,
+    issueTypes,
   }
 }
 
@@ -1206,7 +1470,7 @@ function buildFeedbackUserPrompt({
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     '다음 JSON 형식으로만 답하세요: ' +
-    '{"score":82,"summary":"","detail":"","suggestedSections":{"hook":"","body":"","cta":""}}'
+    '{"score":82,"summary":"","detail":"","issues":[""],"recommendations":[""],"suggestedSections":{"hook":"","body":"","cta":""}}'
   )
 }
 
@@ -1356,6 +1620,7 @@ export async function refineScriptWithAI({
   characterSystemPrompt = '',
   personalizationContext = '',
   copilotMemory = {},
+  editPlan = null,
 }) {
   const normalizedRequest = request?.trim()
   const normalizedSections = normalizeSections(sections)
@@ -1373,6 +1638,7 @@ export async function refineScriptWithAI({
   const guides = buildReferenceGuides(reference)
   const intentResult = classifyCopilotIntentByRule(normalizedRequest, editTarget)
   const copilotMemoryContext = formatCopilotMemoryForPrompt(copilotMemory)
+  const editPlanContext = formatEditPlanForPrompt(editPlan)
 
   if (!intentResult.shouldEdit) {
     logPromptAssembly({
@@ -1504,6 +1770,7 @@ export async function refineScriptWithAI({
               ? `개인화 메모리 컨텍스트(반드시 반영):\n${personalizationContext}`
               : null,
             copilotMemoryContext || null,
+            editPlanContext || null,
           ]
             .filter(Boolean)
             .join('\n\n'),
@@ -1628,6 +1895,9 @@ export async function generateScriptFeedback({
             'HOOK은 긴장감 있게, BODY는 상황/경험형으로, CTA는 행동 이유를 담아 짧고 강하게 제안하라.',
             '평가 시 반드시 평가 기준표의 5개 항목을 기준으로 점수를 판단한다.',
             'summary/detail에는 좋은 점과 약한 점을 모두 담는다. 무조건 칭찬하지 않는다.',
+            'issues에는 실제 수정으로 해결해야 할 핵심 문제를 섹션명과 함께 1~4개로 적는다. 예: "HOOK: 첫 문장에 타겟 고민이 늦게 나온다."',
+            'recommendations에는 issues를 해결하기 위한 구체적인 수정 방향을 1~4개로 적는다.',
+            'suggestedSections는 issues/recommendations에서 말한 문제를 실제로 해결한 결과여야 한다. 진단과 수정본이 따로 놀면 실패다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
@@ -1663,6 +1933,8 @@ export async function generateScriptFeedback({
       score: Number(parsed.score) || 0,
       summary: parsed.summary?.trim() || '전체 구조는 괜찮지만 더 압축할 여지가 있습니다.',
       detail: parsed.detail?.trim() || 'HOOK, BODY, CTA의 역할을 더 또렷하게 나누면 성능이 좋아질 수 있습니다.',
+      issues: normalizeFeedbackList(parsed.issues),
+      recommendations: normalizeFeedbackList(parsed.recommendations),
       suggestedSections: normalizeSections(parsed.suggestedSections),
       structureDiagnosis,
     }
@@ -1678,6 +1950,253 @@ export async function generateScriptFeedback({
       statusCode: 502,
       cause: error,
     })
+  }
+}
+
+export async function validateRefinedScriptQuality({
+  accountId,
+  referenceId,
+  selectedLabel,
+  originalSections,
+  proposedSections,
+  request = '',
+  editTarget = 'all',
+  feedback = {},
+  characterSystemPrompt = '',
+  personalizationContext = '',
+}) {
+  const original = normalizeSections(originalSections)
+  const proposed = normalizeSections(proposedSections)
+  const ruleCheck = runFeedbackFallbackRuleCheck({
+    originalSections: original,
+    candidateSections: proposed,
+    editTarget,
+    feedback,
+    request,
+  })
+
+  const { supabaseAdmin, openai, models } = requireClients()
+  const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
+  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
+  const copilotModel = models.copilotModel || models.chatModel
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: copilotModel,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '당신은 숏폼 대본 수정본의 내부 QA 검사자다. 수정자가 아니다.',
+            '대본을 다시 작성하지 마라. 반드시 검사 결과 JSON만 반환한다.',
+            '검사 기준: 사용자 요청 반영, 피드백 진단 반영, 섹션 잠금, 자연스러운 한국어, 주제 이탈, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
+            'severity 기준: high는 반드시 repair, medium은 repair, low는 로그만 남기고 통과 가능하다.',
+            'high 예: 섹션 잠금 위반, 피드백 핵심 미반영, 레퍼런스 상품명/상황/비유 오염, 허위 수치/고객 사례/전문가 권위 생성, 빈 섹션.',
+            'medium 예: 어색한 한국어, 현재 주제와 맞지 않는 비유, 문장 연결 부자연스러움.',
+            'low 예: 약간 딱딱함, 더 짧게 다듬을 여지.',
+            buildReferenceContaminationGuard(),
+            characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
+            personalizationContext ? `개인화 메모리:\n${personalizationContext}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+        {
+          role: 'user',
+          content: [
+            `수정 범위: ${editTarget || 'all'}`,
+            `사용자/피드백 적용 요청:\n${request || '-'}`,
+            '',
+            buildDraftBlock(original),
+            '',
+            '[수정본]',
+            `HOOK: ${proposed.hook || '-'}`,
+            `BODY: ${proposed.body || '-'}`,
+            `CTA: ${proposed.cta || '-'}`,
+            '',
+            '[피드백]',
+            `summary: ${feedback?.summary || '-'}`,
+            `detail: ${feedback?.detail || '-'}`,
+            `issues: ${compactReferenceSignal((feedback?.issues || []).join(' / '), 1200) || '-'}`,
+            `recommendations: ${compactReferenceSignal((feedback?.recommendations || []).join(' / '), 1200) || '-'}`,
+            '',
+            referenceContext,
+            '',
+            '[룰 기반 선검사 이슈]',
+            ruleCheck.issues.length ? JSON.stringify(ruleCheck.issues) : '없음',
+            '',
+            'JSON 형식으로만 답하세요:',
+            '{"ok":true,"shouldRepair":false,"issues":[{"type":"unnatural_korean","severity":"medium","section":"body","text":"","reason":"","suggestion":""}]}',
+          ].join('\n'),
+        },
+      ],
+    })
+    logAIUsage('copilot-quality-qa', response, {
+      model: copilotModel,
+      accountId,
+      referenceId,
+      selectedLabel: selectedLabel || '',
+    })
+
+    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const llmIssues = normalizeQaIssues(parsed.issues)
+    const issues = [...ruleCheck.issues, ...llmIssues]
+    const shouldRepair = qaShouldRepair(issues)
+
+    return {
+      ok: !shouldRepair,
+      shouldRepair,
+      issues,
+      issueTypes: issues.map((issue) => issue.type),
+    }
+  } catch (error) {
+    logAIError('gpt', error, {
+      referenceId,
+      stage: 'script-quality-qa',
+      model: copilotModel,
+    })
+
+    return ruleCheck
+  }
+}
+
+export async function repairRefinedScriptWithQaIssues({
+  accountId,
+  referenceId,
+  selectedLabel,
+  originalSections,
+  proposedSections,
+  request = '',
+  editTarget = 'all',
+  feedback = {},
+  qaIssues = [],
+  characterSystemPrompt = '',
+  personalizationContext = '',
+}) {
+  const original = normalizeSections(originalSections)
+  const proposed = normalizeSections(proposedSections)
+  const targetSections = getTargetSections(normalizeEditTarget(editTarget, request))
+  const targetSet = new Set(targetSections)
+  const repairIssues = normalizeQaIssues(qaIssues).filter((issue) => QA_REPAIR_SEVERITIES.has(issue.severity))
+  const issueSections = new Set(
+    repairIssues
+      .flatMap((issue) => {
+        if (issue.section === 'all') {
+          return targetSections
+        }
+        return [issue.section]
+      })
+      .filter((section) => SECTION_KEYS.includes(section) && targetSet.has(section)),
+  )
+  const restoredLockedSections = applyEditScope(original, proposed, targetSections)
+
+  if (!issueSections.size) {
+    return {
+      success: true,
+      sections: restoredLockedSections,
+      message: '잠긴 섹션 변경을 원문으로 되돌렸습니다.',
+    }
+  }
+
+  const { supabaseAdmin, openai, models } = requireClients()
+  const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
+  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
+  const copilotModel = models.copilotModel || models.chatModel
+  const repairTargets = [...issueSections]
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: copilotModel,
+      temperature: 0.35,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '당신은 숏폼 대본 QA repair 편집자다. QA issue가 있는 섹션만 최소 수정한다.',
+            'QA issue가 없는 섹션은 수정본 그대로 유지한다.',
+            '잠긴 섹션은 원문 그대로 유지한다.',
+            '없는 사실, 허위 수치, 허위 후기, 허위 고객 사례, 허위 전문가 권위, 레퍼런스 소재를 만들지 않는다.',
+            '한국어가 어색한 문장은 실제 사람이 말하는 자연스러운 표현으로만 고친다.',
+            buildContextPriority(),
+            buildReferenceContaminationGuard(),
+            buildEditOutputInstruction(repairTargets),
+            characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
+            personalizationContext ? `개인화 메모리:\n${personalizationContext}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+        {
+          role: 'user',
+          content: [
+            `repair 대상 섹션: ${repairTargets.join(', ')}`,
+            `사용자/피드백 적용 요청:\n${request || '-'}`,
+            '',
+            '[원문]',
+            `HOOK: ${original.hook || '-'}`,
+            `BODY: ${original.body || '-'}`,
+            `CTA: ${original.cta || '-'}`,
+            '',
+            '[QA 전 수정본]',
+            `HOOK: ${proposed.hook || '-'}`,
+            `BODY: ${proposed.body || '-'}`,
+            `CTA: ${proposed.cta || '-'}`,
+            '',
+            '[피드백]',
+            `summary: ${feedback?.summary || '-'}`,
+            `detail: ${feedback?.detail || '-'}`,
+            `issues: ${compactReferenceSignal((feedback?.issues || []).join(' / '), 1200) || '-'}`,
+            `recommendations: ${compactReferenceSignal((feedback?.recommendations || []).join(' / '), 1200) || '-'}`,
+            '',
+            '[QA 이슈]',
+            JSON.stringify(repairIssues),
+            '',
+            referenceContext,
+            '',
+            'QA issue가 있는 섹션만 고쳐서 JSON으로 반환하세요.',
+          ].join('\n'),
+        },
+      ],
+    })
+    logAIUsage('copilot-quality-repair', response, {
+      model: copilotModel,
+      accountId,
+      referenceId,
+      selectedLabel: selectedLabel || '',
+      repairTargets,
+    })
+
+    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const repairedPartial = extractProposedSections(parsed, repairTargets)
+    const repaired = applyEditScope(restoredLockedSections, repairedPartial, repairTargets)
+    const postCheck = runFeedbackFallbackRuleCheck({
+      originalSections: original,
+      candidateSections: repaired,
+      editTarget,
+      feedback,
+      request,
+    })
+
+    return {
+      success: !postCheck.shouldRepair,
+      sections: repaired,
+      message: parsed.message?.trim() || 'QA 이슈를 기준으로 문제 섹션만 다시 다듬었습니다.',
+      postCheck,
+    }
+  } catch (error) {
+    logAIError('gpt', error, {
+      referenceId,
+      stage: 'script-quality-repair',
+      model: copilotModel,
+    })
+
+    return {
+      success: false,
+      sections: restoredLockedSections,
+      message: 'QA repair 생성에 실패했습니다.',
+      error,
+    }
   }
 }
 
@@ -1698,11 +2217,14 @@ export const __scriptAssistantTest = {
   extractProposedSections,
   createSectionDiff,
   validateScriptFlow,
+  runFeedbackFallbackRuleCheck,
   buildEditScopeInstruction,
   buildCopilotEvaluationRubric,
   buildCopilotMentorToneGuide,
   buildCopilotResponseModeRule,
   buildCopilotEditPlaybook,
+  buildEditPlan,
+  shouldUseHeavyQualityGateForCopilot,
   normalizeCopilotMemory,
   formatCopilotMemoryForPrompt,
   buildCopilotHookTemplateContext,

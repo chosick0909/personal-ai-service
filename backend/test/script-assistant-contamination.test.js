@@ -30,8 +30,11 @@ const {
   messageMentionsLockedSections,
   logPromptAssembly,
   classifyCopilotIntentByRule,
+  buildEditPlan,
+  shouldUseHeavyQualityGateForCopilot,
   buildNaturalResponseUserPrompt,
   createFallbackIntent,
+  runFeedbackFallbackRuleCheck,
 } = __scriptAssistantTest
 
 const currentDraft = {
@@ -106,6 +109,8 @@ test('feedback suggestedSections prompt uses current draft before reference stru
   assert.equal(prompt.indexOf('현재 초안'), 0)
   assert.ok(prompt.indexOf('현재 초안') < prompt.indexOf('레퍼런스 구조 참고'))
   assert.match(prompt, /suggestedSections/)
+  assert.match(prompt, /issues/)
+  assert.match(prompt, /recommendations/)
   assert.doesNotMatch(prompt, /분양권과 강남 재건축 투자/)
 })
 
@@ -520,4 +525,81 @@ test('partial edit diff and flow validation remain stable across repeated body e
     assert.equal(flow.ok, true)
     draft = next
   }
+})
+
+test('feedback fallback rule check blocks section lock violations', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      ...currentDraft,
+      hook: '수정 대상이 아닌 훅을 바꿨습니다.',
+      body: '기초를 올리는 순서를 더 자연스럽게 설명합니다.',
+    },
+    editTarget: 'body',
+    feedback: {
+      summary: 'BODY 연결이 약합니다.',
+      detail: 'BODY 첫 문장을 더 자연스럽게 이어야 합니다.',
+    },
+    request: 'BODY만 자연스럽게 해줘',
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'section_lock_violation'))
+})
+
+test('feedback fallback rule check blocks unsupported numbers', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      ...currentDraft,
+      body: `${currentDraft.body} 이 방법은 3일 만에 200% 좋아진다고 볼 수 있습니다.`,
+    },
+    editTarget: 'all',
+    feedback: {
+      summary: '과장 없이 자연스럽게 다듬어야 합니다.',
+      detail: '근거 없는 성과 표현을 피해야 합니다.',
+    },
+    request: '피드백대로 수정해줘',
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'unsupported_number'))
+})
+
+test('copilot edit plan translates naturalness requests into a concrete strategy', () => {
+  const plan = buildEditPlan({
+    userRequest: 'BODY만 자연스럽게 말 되게 바꿔줘',
+    currentSections: currentDraft,
+    editTarget: 'body',
+    copilotMemory: {
+      dislikedTone: ['광고 같거나 판매 압박이 강한 말투'],
+      recentUserCorrections: ['HOOK은 유지하고 요청한 다른 섹션만 바꾸길 원함'],
+    },
+  })
+
+  assert.equal(plan.editTarget, 'body')
+  assert.deepEqual(plan.targetSections, ['body'])
+  assert.match(plan.strategy, /구어체화/)
+  assert.ok(plan.avoid.some((item) => item.includes('광고')))
+  assert.ok(plan.avoid.some((item) => item.includes('HOOK은 유지')))
+})
+
+test('heavy copilot quality gate is reserved for broad or risky edit requests', () => {
+  assert.equal(
+    shouldUseHeavyQualityGateForCopilot({
+      request: 'BODY만 자연스럽게 해줘',
+      editTarget: 'body',
+    }),
+    true,
+  )
+  assert.equal(
+    shouldUseHeavyQualityGateForCopilot({
+      request: 'CTA에서 저장을 댓글로 바꿔줘',
+      editTarget: 'cta',
+      targetSections: ['cta'],
+    }),
+    false,
+  )
 })

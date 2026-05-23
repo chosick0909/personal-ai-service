@@ -451,6 +451,55 @@ export async function generateScriptFeedback({
   return payload.feedback
 }
 
+export async function applyScriptFeedback({
+  accountId,
+  referenceId,
+  scriptId,
+  currentVersionId,
+  selectedLabel,
+  sections,
+  feedback,
+  editTarget,
+  copilotMemory,
+}) {
+  const response = await apiFetch('/api/scripts/feedback/apply', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      accountId,
+      referenceId,
+      scriptId,
+      currentDraftId: scriptId,
+      currentVersionId,
+      scriptVersionId: currentVersionId,
+      selectedLabel,
+      sections,
+      feedback,
+      editTarget,
+      copilotMemory,
+    }),
+  })
+  const payload = await parseApiResponse(response)
+
+  if (!response.ok) {
+    throw createApiError(response, payload, '피드백 반영 수정본 생성에 실패했습니다.')
+  }
+
+  const appliedSections = payload.sections || payload.proposedSections || {
+    hook: payload.hook || '',
+    body: payload.body || '',
+    cta: payload.cta || '',
+  }
+
+  return {
+    sections: appliedSections,
+    message: payload.message || '',
+    qualityGate: payload.qualityGate || null,
+  }
+}
+
 export async function generateChatReply({
   accountId,
   referenceId,

@@ -81,6 +81,11 @@ export function updateCopilotMemoryFromUserMessage(memory = {}, message = '') {
     next.ctaPreference = next.ctaPreference || '구매 압박보다 저장/확인 이유를 먼저 주는 CTA'
   }
 
+  if (/딱딱|기계적|ai\s*같|챗gpt\s*같|로봇\s*같/i.test(text)) {
+    next = appendUnique(next, 'dislikedTone', '딱딱하거나 기계적인 말투', 8)
+    next = appendUnique(next, 'preferredTone', '실제 사람이 말하는 듯한 자연스러운 톤', 8)
+  }
+
   if (/자연스럽게|말하듯|사람\s*말|덜\s*딱딱|구어체/i.test(text)) {
     next = appendUnique(next, 'preferredTone', '자연스럽고 말하듯이 쓰는 톤', 8)
   }
@@ -95,6 +100,18 @@ export function updateCopilotMemoryFromUserMessage(memory = {}, message = '') {
 
   if (/훅.*좋.*너무\s*(세|강)|훅.*과하|후킹.*과하|너무\s*자극/i.test(text)) {
     next = appendUnique(next, 'preferredHookStyle', '긴장감은 유지하되 과한 후킹은 피함', 8)
+  }
+
+  if (/hook|훅/i.test(text) && /(유지|그대로|건드리지|살리고)/i.test(text)) {
+    next = appendUnique(next, 'recentUserCorrections', 'HOOK은 유지하고 요청한 다른 섹션만 바꾸길 원함', 10)
+  }
+
+  if (/(body|바디|본문)/i.test(text) && /(만|위주|중심)/i.test(text)) {
+    next = appendUnique(next, 'recentUserCorrections', 'BODY 중심 수정 요청에서는 HOOK/CTA를 건드리지 않길 원함', 10)
+  }
+
+  if (/cta|씨티에이|마무리|끝/i.test(text) && /(부담|압박|자연스럽|가볍|상담|저장|댓글)/i.test(text)) {
+    next.ctaPreference = '부담 없는 행동 이유 중심 CTA'
   }
 
   if (/무조건|역대급|지금\s*바로|대박|찐|개이득/.test(text)) {

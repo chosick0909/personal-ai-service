@@ -12,6 +12,7 @@ import { createAccount, deleteAccountById, listAccounts, loadAccountProfile } fr
 import { supabase } from '../lib/supabase'
 import {
   analyzeReferenceVideo,
+  applyScriptFeedback,
   createReferenceUploadSession,
   deleteReferenceVideo as deleteReferenceVideoRecord,
   fetchReferenceUploadSessionByClientUploadId,
@@ -2500,7 +2501,7 @@ export function AppStateProvider({ children }) {
   }
 
   const applyFeedback = async (targetFeedback = feedback) => {
-    if (isApplyingFeedback || targetFeedback?.applied || !targetFeedback?.suggestedSections) {
+    if (isApplyingFeedback || targetFeedback?.applied || !targetFeedback) {
       return
     }
 
@@ -2510,7 +2511,45 @@ export function AppStateProvider({ children }) {
     }
     setIsApplyingFeedback(true)
     const beforeSections = createEditorSections(editorSections)
-    const nextSections = createEditorSections(targetFeedback.suggestedSections)
+    let nextSections = null
+    let feedbackApplyMessage = ''
+
+    try {
+      const applyResult = await applyScriptFeedback({
+        accountId: requestAccountId,
+        referenceId: referenceData?.id,
+        scriptId: activeScriptId,
+        currentVersionId: versions[0]?.id,
+        selectedLabel: selectedScript?.label,
+        sections: beforeSections,
+        feedback: targetFeedback,
+        editTarget: targetFeedback.editTarget || targetFeedback.targetSection || 'all',
+        copilotMemory,
+      })
+
+      nextSections = createEditorSections(applyResult.sections)
+      feedbackApplyMessage = applyResult.message || ''
+    } catch (error) {
+      if (isCurrentAccountRequest(requestAccountId)) {
+        setChatMessages((current) => {
+          const next = [
+            ...current,
+            {
+              id: `feedback-apply-error-${Date.now()}`,
+              role: 'assistant',
+              content: error.message || '피드백 진단을 반영한 수정본 생성에 실패했습니다. 다시 시도해주세요.',
+            },
+          ]
+          syncHistory(activeReferenceIdRef.current, {
+            chatMessages: next,
+          })
+          return next
+        })
+        setIsApplyingFeedback(false)
+      }
+      return
+    }
+
     const serializedContent = serializeEditorSections(nextSections)
     if (!activeScriptId) {
       setEditorSections(nextSections)
@@ -2557,7 +2596,9 @@ export function AppStateProvider({ children }) {
       const appliedMessage = {
         id: `feedback-applied-${Date.now()}`,
         role: 'assistant',
-        content: '피드백 반영 전/후 버전을 저장하고 대본을 수정했습니다.',
+        content:
+          feedbackApplyMessage ||
+          '피드백에서 짚은 문제를 기준으로 다시 수정하고, 반영 전/후 버전을 저장했습니다.',
       }
 
       const appliedFeedback = {
