@@ -39,6 +39,8 @@ const {
   sanitizeUserFacingCopilotMessage,
   COPILOT_OPERATION_TYPES,
   COPILOT_QA_MODES,
+  extractTargetDurationSeconds,
+  buildDurationCharRange,
 } = __scriptAssistantTest
 
 const currentDraft = {
@@ -725,6 +727,57 @@ test('topic reframe QA does not fail only because old topic changed', () => {
 
   assert.equal(result.ok, true)
   assert.equal(result.shouldRepair, false)
+})
+
+test('duration compress intent extracts target seconds and builds char range', () => {
+  const intent = classifyCopilotIntentByRule('45초 안에 말하게 해줘', 'all')
+  const plan = buildEditPlan({
+    userRequest: '45초 안에 말하게 해줘',
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(extractTargetDurationSeconds('45초 안에 말하게 해줘'), 45)
+  assert.deepEqual(buildDurationCharRange(30), { min: 150, max: 195 })
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.DURATION_COMPRESS)
+  assert.equal(intent.targetDurationSeconds, 45)
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.DURATION_COMPRESS)
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.DURATION_COMPRESS)
+  assert.deepEqual(plan.targetCharRange, { min: 225, max: 293 })
+})
+
+test('duration compress QA flags overly long compressed drafts', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: currentDraft,
+    editTarget: 'all',
+    request: '10초로 압축해줘',
+    qaMode: COPILOT_QA_MODES.DURATION_COMPRESS,
+    targetSections: ['hook', 'body', 'cta'],
+    targetDurationSeconds: 10,
+    targetCharRange: buildDurationCharRange(10),
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'duration_range_miss'))
+})
+
+test('duration compress user-facing message hides internal terms', () => {
+  const message = sanitizeUserFacingCopilotMessage('QA에서 issue가 감지되어 repair 했습니다.', {
+    editPlan: {
+      operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+      targetDurationSeconds: 30,
+      targetSections: ['hook', 'body', 'cta'],
+    },
+    responseMode: 'edit_only',
+    changedSections: ['hook', 'body', 'cta'],
+  })
+
+  assert.match(message, /30초/)
+  assert.match(message, /압축/)
+  assert.doesNotMatch(message, /QA|issue|repair|fallback|intent|qaMode|operationType/i)
 })
 
 test('heavy copilot quality gate is reserved for broad or risky edit requests', () => {

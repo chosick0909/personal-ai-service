@@ -64,11 +64,13 @@ export default function Editor({ embedded = false }) {
     saveVersion,
     requestFeedback,
     isFeedbackLoading,
+    isChatLoading,
     feedback,
     goBackToResults,
     exportCurrentScriptPdf,
     copilotRemaining,
     setDraftMessage,
+    requestDurationCompress,
   } = useAppState()
   const totalLength =
     editorSections.hook.length + editorSections.body.length + editorSections.cta.length
@@ -80,7 +82,27 @@ export default function Editor({ embedded = false }) {
   const isFeedbackLimitReached = Number.isFinite(copilotRemaining.feedback) && copilotRemaining.feedback <= 0
   const isFeedbackButtonDisabled = isFeedbackLoading || isFeedbackLimitReached
   const [isScriptCopied, setIsScriptCopied] = useState(false)
+  const [durationTargetInput, setDurationTargetInput] = useState('')
   const copiedTimerRef = useRef(null)
+  const parsedDurationTarget = Number(durationTargetInput)
+  const normalizedDurationTarget = Number.isInteger(parsedDurationTarget) ? parsedDurationTarget : null
+  const isDurationTargetFilled = durationTargetInput.trim().length > 0
+  const isDurationTargetValid =
+    Number.isInteger(normalizedDurationTarget) &&
+    normalizedDurationTarget >= 10 &&
+    normalizedDurationTarget < totalSpeechSeconds
+  const durationButtonLabel = isDurationTargetValid
+    ? `${normalizedDurationTarget}초로 압축`
+    : '압축 제안 받기'
+  const durationHint = !isDurationTargetFilled
+    ? '현재 대본보다 짧은 시간만 입력할 수 있어요.'
+    : !Number.isInteger(normalizedDurationTarget)
+      ? '숫자만 입력해주세요.'
+      : normalizedDurationTarget < 10
+        ? '10초 이상 입력해주세요.'
+        : normalizedDurationTarget >= totalSpeechSeconds
+          ? '현재 대본보다 짧은 시간만 입력할 수 있어요.'
+          : '압축 결과는 코파일럿 제안으로 먼저 보여드려요.'
 
   useEffect(() => {
     return () => {
@@ -145,6 +167,13 @@ export default function Editor({ embedded = false }) {
       setIsScriptCopied(false)
       copiedTimerRef.current = null
     }, 1400)
+  }
+
+  const submitDurationCompress = async () => {
+    if (!isDurationTargetValid || isChatLoading || isEditorPreparing) {
+      return
+    }
+    await requestDurationCompress(normalizedDurationTarget)
   }
 
   return (
@@ -222,34 +251,75 @@ export default function Editor({ embedded = false }) {
           </div>
 
           <div className="mt-5 rounded-[22px] border border-[#2F3543] bg-[#131720] px-4 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm text-[#8E97A6]">
-                현재 총 분량{' '}
-                <span className="font-semibold text-[#E5E7EB]">
-                  {totalLength.toLocaleString()} 글자 · 약 {totalSpeechSeconds}초
-                </span>
-                {feedback ? (
-                  <>
-                    {' '}· 최근 피드백 <span className="font-semibold text-[#D1D5DB]">{feedback.score}점</span>
-                  </>
-                ) : null}
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm text-[#8E97A6]">
+                  현재 총 분량{' '}
+                  <span className="font-semibold text-[#E5E7EB]">
+                    {totalLength.toLocaleString()} 글자 · 약 {totalSpeechSeconds}초
+                  </span>
+                  {feedback ? (
+                    <>
+                      {' '}· 최근 피드백 <span className="font-semibold text-[#D1D5DB]">{feedback.score}점</span>
+                    </>
+                  ) : null}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={requestFeedback}
-                disabled={isFeedbackButtonDisabled || isEditorPreparing}
-                className="rounded-full border border-[#3A414F] bg-[#1B202A] px-5 py-2.5 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isEditorPreparing
-                  ? '초안 준비 중...'
-                  : isFeedbackLoading
-                  ? '피드백 생성 중...'
-                  : isFeedbackLimitReached
-                    ? '피드백 한도 도달'
-                    : `피드백 (${feedbackRemainingLabel})`}
-              </button>
+
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div className="rounded-[18px] border border-[#2A303B] bg-[#0F141D] px-4 py-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-[#CBD5E1]">시간 압축</span>
+                    <span className="text-[11px] text-[#7C8798]">최소 10초</span>
+                  </div>
+                  <div className="flex flex-wrap items-start gap-2">
+                    <div className="grid gap-1">
+                      <label className="flex h-10 items-center gap-2 rounded-full border border-[#2F3543] bg-[#151B26] px-3 text-xs text-[#94A3B8]">
+                        목표
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min="10"
+                          max={Math.max(10, totalSpeechSeconds - 1)}
+                          value={durationTargetInput}
+                          onChange={(event) => setDurationTargetInput(event.target.value.replace(/\D/g, ''))}
+                          className="h-7 w-16 rounded-full border border-[#3A414F] bg-[#0F141D] px-2 text-center text-sm font-semibold text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1]"
+                          placeholder="N"
+                          aria-label="압축 목표 초수"
+                        />
+                        초
+                      </label>
+                      <span className="pl-2 text-[11px] leading-4 text-[#94A3B8]">{durationHint}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={submitDurationCompress}
+                      disabled={!isDurationTargetValid || isChatLoading || isEditorPreparing}
+                      className="h-10 rounded-full border border-[#3A414F] bg-[#F8F5EF] px-4 text-xs font-semibold text-[#111827] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-[#1B202A] disabled:text-[#6B7280]"
+                    >
+                      {isChatLoading && isDurationTargetValid ? '생성 중...' : durationButtonLabel}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={requestFeedback}
+                    disabled={isFeedbackButtonDisabled || isEditorPreparing}
+                    className="h-12 rounded-full border border-[#3A414F] bg-[#1B202A] px-6 text-sm font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isEditorPreparing
+                      ? '초안 준비 중...'
+                      : isFeedbackLoading
+                      ? '피드백 생성 중...'
+                      : isFeedbackLimitReached
+                        ? '피드백 한도 도달'
+                      : `피드백 (${feedbackRemainingLabel})`}
+                  </button>
+                </div>
+              </div>
             </div>
-            <p className="mt-3 text-xs leading-5 text-[#94A3B8]">남은 횟수: 피드백 {feedbackRemainingLabel} · 수정 {chatRemainingLabel}</p>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

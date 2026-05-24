@@ -2808,9 +2808,14 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const sendChatMessage = async () => {
+  const sendChatMessage = async (options = {}) => {
+    const requestOptions = options && typeof options === 'object' && !options.preventDefault ? options : {}
     const requestAccountId = currentAccount?.id
-    const normalized = draftMessage.trim()
+    const explicitMessage = typeof requestOptions.message === 'string'
+    const normalized = (explicitMessage ? requestOptions.message : draftMessage).trim()
+    const targetDurationSeconds = Number.isFinite(Number(requestOptions.targetDurationSeconds))
+      ? Number(requestOptions.targetDurationSeconds)
+      : null
 
     if (!requestAccountId || !normalized) {
       return
@@ -2823,14 +2828,16 @@ export function AppStateProvider({ children }) {
     }
     const nextCopilotMemory = updateCopilotMemoryFromUserMessage(copilotMemory, normalized)
 
-    setDraftMessage('')
+    if (!explicitMessage) {
+      setDraftMessage('')
+    }
     setCopilotMemory(nextCopilotMemory)
     setIsChatLoading(true)
     setChatMessages((current) => {
       const next = [...current, userMessage]
       syncHistory(activeReferenceIdRef.current, {
         chatMessages: next,
-        draftMessage: '',
+        draftMessage: explicitMessage ? draftMessage : '',
         editTarget,
         copilotMemory: nextCopilotMemory,
       })
@@ -2848,6 +2855,7 @@ export function AppStateProvider({ children }) {
         editorSections,
         message: normalized,
         copilotMemory: nextCopilotMemory,
+        targetDurationSeconds,
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -2960,6 +2968,18 @@ export function AppStateProvider({ children }) {
         setIsChatLoading(false)
       }
     }
+  }
+
+  const requestDurationCompress = async (targetSeconds) => {
+    const seconds = Number(targetSeconds)
+    if (!Number.isFinite(seconds)) {
+      return
+    }
+
+    await sendChatMessage({
+      message: `${Math.floor(seconds)}초로 압축해줘`,
+      targetDurationSeconds: Math.floor(seconds),
+    })
   }
 
   const getSuggestionVersionTitle = (target = 'all') => {
@@ -3280,6 +3300,7 @@ export function AppStateProvider({ children }) {
       requestFeedback,
       applyFeedback,
       sendChatMessage,
+      requestDurationCompress,
       applySuggestion,
       restoreVersion,
       openVersionHistory,

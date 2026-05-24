@@ -35,6 +35,7 @@ import {
   runFeedbackFallbackRuleCheck,
   sanitizeUserFacingCopilotMessage,
   shouldUseHeavyQualityGateForCopilot,
+  normalizeTargetDurationSeconds,
   validateScriptFlow,
   validateRefinedScriptQuality,
 } from './lib/script-assistant.js'
@@ -102,6 +103,15 @@ const app = express()
 const port = Number(process.env.PORT || 3001)
 const host = process.env.HOST || '0.0.0.0'
 const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:8080'
+function estimateSectionsSeconds(sections = {}) {
+  const text = [sections?.hook, sections?.body, sections?.cta].join(' ')
+  const count = String(text || '').replace(/\s+/g, '').length
+  if (!count) {
+    return 0
+  }
+  return Math.max(1, Math.round(count / 5))
+}
+
 const defaultAllowedOrigins = [
   'http://localhost:8080',
   'http://localhost:4173',
@@ -1246,6 +1256,23 @@ app.post(
       required: true,
       maxLength: 3000,
     })
+    const targetDurationRaw = req.body?.targetDurationSeconds ?? req.body?.target_duration_seconds
+    const targetDurationSeconds = normalizeTargetDurationSeconds(targetDurationRaw)
+    if (targetDurationRaw !== undefined && targetDurationRaw !== null && !targetDurationSeconds) {
+      throw new AppError('목표 시간은 10초 이상으로 입력해주세요.', {
+        code: 'INVALID_DURATION_TARGET',
+        statusCode: 400,
+      })
+    }
+    if (targetDurationSeconds) {
+      const currentEstimatedSeconds = estimateSectionsSeconds(req.body?.sections)
+      if (currentEstimatedSeconds > 0 && targetDurationSeconds >= currentEstimatedSeconds) {
+        throw new AppError('현재 대본보다 짧은 시간만 입력할 수 있어요.', {
+          code: 'INVALID_DURATION_TARGET',
+          statusCode: 400,
+        })
+      }
+    }
     const sessionId =
       req.body?.sessionId ||
       req.body?.session_id ||
@@ -1264,6 +1291,7 @@ app.post(
       message: requestText,
       sections: req.body?.sections,
       editTarget: req.body?.editTarget || req.body?.edit_target || '',
+      targetDurationSeconds,
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: intentPersonalization.context,
     })
@@ -1478,6 +1506,7 @@ app.post(
       intentResult: intent,
       editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
       copilotMemory,
+      targetDurationSeconds,
     })
     const result = await refineScriptWithAI({
       accountId: account.id,
@@ -1540,6 +1569,8 @@ app.post(
         requestedMaterials: editPlan.requestedMaterials,
         targetSections: editPlan.targetSections,
         preserveSections: editPlan.preserveSections,
+        targetDurationSeconds: editPlan.targetDurationSeconds,
+        targetCharRange: editPlan.targetCharRange,
       })
       qualityGate = {
         passed: qaResult.ok,
@@ -1568,6 +1599,8 @@ app.post(
           requestedMaterials: editPlan.requestedMaterials,
           targetSections: editPlan.targetSections,
           preserveSections: editPlan.preserveSections,
+          targetDurationSeconds: editPlan.targetDurationSeconds,
+          targetCharRange: editPlan.targetCharRange,
         })
 
         if (repairResult.success) {
@@ -1600,6 +1633,8 @@ app.post(
         newSubject: editPlan.newSubject,
         requestedMaterials: editPlan.requestedMaterials,
         targetSections: editPlan.targetSections,
+        targetDurationSeconds: editPlan.targetDurationSeconds,
+        targetCharRange: editPlan.targetCharRange,
       })
       qualityGate = {
         passed: ruleCheck.ok,

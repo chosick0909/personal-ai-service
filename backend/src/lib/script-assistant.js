@@ -56,12 +56,17 @@ const COPILOT_OPERATION_TYPES = {
   EDIT_PARTIAL: 'edit_partial',
   TOPIC_REFRAME: 'topic_reframe',
   INSERT_MATERIAL: 'insert_material',
+  DURATION_COMPRESS: 'duration_compress',
 }
 const COPILOT_QA_MODES = {
   PRESERVE_TOPIC: 'preserve_topic',
   REFRAME_TOPIC: 'reframe_topic',
   INSERT_MATERIAL: 'insert_material',
+  DURATION_COMPRESS: 'duration_compress',
 }
+const MIN_DURATION_COMPRESS_SECONDS = 10
+const DURATION_CHAR_RATE_MIN = 5
+const DURATION_CHAR_RATE_MAX = 6.5
 const COPILOT_MEMORY_ARRAY_KEYS = [
   'preferredTone',
   'dislikedTone',
@@ -319,6 +324,71 @@ function tokenizeForRequestMatch(value = '') {
   )
 }
 
+export function normalizeTargetDurationSeconds(value) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return null
+  }
+
+  const seconds = Math.floor(numeric)
+  return seconds >= MIN_DURATION_COMPRESS_SECONDS ? seconds : null
+}
+
+export function extractTargetDurationSeconds(request = '') {
+  const text = String(request || '').trim()
+  if (!text) {
+    return null
+  }
+
+  const patterns = [
+    /(\d{1,3})\s*초\s*(?:안에|이내|로|까지)?\s*(?:말하게|압축|줄여|줄이|맞춰|정리|만들)/i,
+    /(?:압축|줄여|줄이|맞춰|정리|말하게).{0,16}?(\d{1,3})\s*초/i,
+    /(\d{1,3})\s*초\s*(?:분량|짜리)/i,
+  ]
+
+  for (const pattern of patterns) {
+    const seconds = normalizeTargetDurationSeconds(text.match(pattern)?.[1])
+    if (seconds) {
+      return seconds
+    }
+  }
+
+  return null
+}
+
+export function buildDurationCharRange(targetDurationSeconds) {
+  const seconds = normalizeTargetDurationSeconds(targetDurationSeconds)
+  if (!seconds) {
+    return null
+  }
+
+  return {
+    min: Math.round(seconds * DURATION_CHAR_RATE_MIN),
+    max: Math.round(seconds * DURATION_CHAR_RATE_MAX),
+  }
+}
+
+function countSpeechCharacters(value = '') {
+  return String(value || '').replace(/\s+/g, '').length
+}
+
+function countSectionSpeechCharacters(sections = {}) {
+  const normalized = normalizeSections(sections)
+  return countSpeechCharacters(`${normalized.hook}\n${normalized.body}\n${normalized.cta}`)
+}
+
+function estimateSpeechSecondsFromSections(sections = {}) {
+  const count = countSectionSpeechCharacters(sections)
+  if (!count) {
+    return 0
+  }
+  return Math.max(1, Math.round(count / DURATION_CHAR_RATE_MIN))
+}
+
 function extractRequestedMaterials(request = '', newSubject = '') {
   const text = String(request || '').trim()
   if (!/(넣어|넣어줘|추가|포함|반영)/i.test(text)) {
@@ -397,10 +467,19 @@ export function buildEditPlan({
   intentResult = {},
   editTarget = '',
   copilotMemory = {},
+  targetDurationSeconds = null,
 } = {}) {
   const request = String(userRequest || '').trim()
   const sections = normalizeSections(currentSections)
-  const normalizedTarget = normalizeEditTarget(intentResult.editTarget || editTarget, request)
+  const durationTarget =
+    normalizeTargetDurationSeconds(targetDurationSeconds) ||
+    normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) ||
+    extractTargetDurationSeconds(request)
+  const isDurationCompress =
+    Boolean(durationTarget) || intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+  const normalizedTarget = isDurationCompress
+    ? 'all'
+    : normalizeEditTarget(intentResult.editTarget || editTarget, request)
   const explicitPreserveSections = detectExplicitPreserveSections(request)
   const explicitPreserveSet = new Set(explicitPreserveSections)
   let targetSections = getTargetSections(normalizedTarget)
@@ -420,19 +499,23 @@ export function buildEditPlan({
       : extractRequestedMaterials(request, detectedNewSubject),
     8,
   )
-  const operationType =
-    intentResult.operationType ||
+  const operationType = isDurationCompress
+    ? COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+    : intentResult.operationType ||
     (detectedNewSubject
       ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
       : requestedMaterials.length
         ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
         : COPILOT_OPERATION_TYPES.EDIT_PARTIAL)
   const qaMode =
-    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+    operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+      ? COPILOT_QA_MODES.DURATION_COMPRESS
+      : operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
       ? COPILOT_QA_MODES.REFRAME_TOPIC
       : operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL
         ? COPILOT_QA_MODES.INSERT_MATERIAL
         : COPILOT_QA_MODES.PRESERVE_TOPIC
+  const targetCharRange = durationTarget ? buildDurationCharRange(durationTarget) : null
   const strategy = []
   const preserve = [
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
@@ -457,6 +540,21 @@ export function buildEditPlan({
     strategy.push(`${targetSections.map((key) => SECTION_LABELS[key]).join('/')}에 요청 소재 삽입 + 잠금 섹션 유지`)
     change.push(`요청 소재를 자연스럽게 포함한다: ${requestedMaterials.join(', ') || '사용자 지정 소재'}`)
     avoid.push('소재 추가를 이유로 요청하지 않은 섹션까지 다시 쓰기')
+  }
+  if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+    strategy.push(`${durationTarget || '목표'}초 기준 삭제 중심 압축 + HOOK/BODY/CTA 구조 유지`)
+    preserve.push('현재 주제, 상품/서비스, 타겟, 핵심 메시지, CTA 의도')
+    change.push(
+      `목표 분량 ${durationTarget || '-'}초${
+        targetCharRange ? `, 공백 제외 약 ${targetCharRange.min}-${targetCharRange.max}자` : ''
+      }에 맞게 중복 설명과 부연 설명을 줄인다`,
+    )
+    avoid.push(
+      '새 내용 추가',
+      '없는 수치/후기/사례/효과/권위 생성',
+      '핵심 메시지를 과도하게 삭제하기',
+      'CTA를 없애거나 행동 유도 의도를 바꾸기',
+    )
   }
 
   if (/자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체/i.test(request)) {
@@ -514,6 +612,8 @@ export function buildEditPlan({
     preserveSections,
     operationType,
     qaMode,
+    targetDurationSeconds: durationTarget,
+    targetCharRange,
     newSubject: detectedNewSubject,
     requestedMaterials,
     carryOverStrategy: {
@@ -532,6 +632,10 @@ export function buildEditPlan({
       body: sections.body.length,
       cta: sections.cta.length,
     },
+    currentSpeech: {
+      characters: countSectionSpeechCharacters(sections),
+      estimatedSeconds: estimateSpeechSecondsFromSections(sections),
+    },
   }
 }
 
@@ -544,6 +648,11 @@ function formatEditPlanForPrompt(editPlan = null) {
     `- 수정 범위: ${editPlan.editTarget || 'all'}`,
     `- 작업 유형: ${editPlan.operationType || COPILOT_OPERATION_TYPES.EDIT_PARTIAL}`,
     `- QA 기준: ${editPlan.qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
+    editPlan.targetDurationSeconds
+      ? `- 목표 압축 시간: ${editPlan.targetDurationSeconds}초${
+          editPlan.targetCharRange ? ` (공백 제외 약 ${editPlan.targetCharRange.min}-${editPlan.targetCharRange.max}자)` : ''
+        }`
+      : '',
     editPlan.newSubject ? `- 새 주제: ${editPlan.newSubject}` : '',
     editPlan.requestedMaterials?.length ? `- 요청 소재: ${editPlan.requestedMaterials.join(', ')}` : '',
     editPlan.preserveSections?.length ? `- 유지 섹션: ${editPlan.preserveSections.map((key) => SECTION_LABELS[key]).join(', ')}` : '',
@@ -558,6 +667,8 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- 단, 사용자가 새 주제/새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지 규칙보다 우선한다.',
     '- topic_reframe이면 기존 주제의 소재/사실은 버릴 수 있고, 레퍼런스 구조/리듬/톤/CTA 스타일을 가능한 유지한다.',
     '- insert_material이면 targetSections에만 요청 소재를 넣고 preserveSections는 원문 그대로 유지한다.',
+    '- duration_compress이면 새 대본 생성이 아니라 삭제 중심 압축이다. 새 내용/수치/후기/사례/효과/권위를 만들지 않고 HOOK/BODY/CTA와 CTA 의도를 유지한다.',
+    '- duration_compress에서는 목표 글자 수를 참고하되, 정확한 글자 수보다 자연스러운 문장과 핵심 메시지 보존을 우선한다.',
     '- 계획에 없는 새 소재나 수치를 만들지 않는다.',
   ]
     .filter(Boolean)
@@ -575,6 +686,7 @@ export function shouldUseHeavyQualityGateForCopilot({
     ? targetSections
     : getTargetSections(normalizeEditTarget(editTarget, text))
   if (
+    operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ||
     operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL
   ) {
@@ -687,10 +799,26 @@ function buildFallbackRefineMessage(previousSections = {}, nextSections = {}) {
   return `${changes.slice(0, 2).join('. ')}.`
 }
 
-function classifyCopilotIntentByRule(request = '', editTarget = '') {
+function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}) {
   const text = String(request || '').trim()
   const normalizedEditTarget = String(editTarget || '').trim().toLowerCase()
   const hasExplicitSectionTarget = SECTION_KEYS.includes(normalizedEditTarget)
+  const targetDurationSeconds =
+    normalizeTargetDurationSeconds(options.targetDurationSeconds) || extractTargetDurationSeconds(text)
+  if (targetDurationSeconds) {
+    return {
+      intent: COPILOT_INTENTS.EDIT,
+      shouldEdit: true,
+      responseMode: 'edit_only',
+      editTarget: 'all',
+      confidence: 0.92,
+      reason: '사용자가 목표 초수에 맞춘 대본 압축을 요청함',
+      operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+      targetDurationSeconds,
+      newSubject: '',
+      requestedMaterials: [],
+    }
+  }
   const newSubject = extractRequestedNewSubject(text)
   const requestedMaterials = extractRequestedMaterials(text, newSubject)
   const operationType = newSubject
@@ -1021,6 +1149,11 @@ function buildCopilotIntentTemplateMessage({
     return `좋아요. 요청하신 내용을 ${targetLabel}에 자연스럽게 넣었어요. 다른 섹션은 흐름이 흔들리지 않도록 최대한 유지했습니다.`
   }
 
+  if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+    const seconds = editPlan?.targetDurationSeconds
+    return `좋아요. 현재 대본의 핵심과 CTA는 유지하면서${seconds ? ` ${seconds}초 안에 말할 수 있게` : ''} 압축했어요. 중복 설명과 부연만 덜어내서 더 짧게 읽히도록 정리했습니다.`
+  }
+
   if (responseMode === 'advice_then_edit') {
     return `좋아요. 기존 주제와 흐름은 유지하면서 ${targetLabel}에서 가장 어색한 부분을 먼저 다듬었어요. 읽히는 흐름이 더 자연스럽게 이어지도록 정리했습니다.`
   }
@@ -1063,6 +1196,8 @@ export function runFeedbackFallbackRuleCheck({
   newSubject = '',
   requestedMaterials = [],
   targetSections: plannedTargetSections = null,
+  targetDurationSeconds = null,
+  targetCharRange = null,
 } = {}) {
   const original = normalizeSections(originalSections)
   const candidate = normalizeSections(candidateSections)
@@ -1155,6 +1290,37 @@ export function runFeedbackFallbackRuleCheck({
             text: material,
             reason: '사용자가 넣으라고 한 소재가 수정 대상 섹션에 반영되지 않았다.',
             suggestion: `요청 소재 "${material}"을 자연스럽게 포함한다.`,
+          }),
+        )
+      }
+    }
+  }
+
+  if (qaMode === COPILOT_QA_MODES.DURATION_COMPRESS) {
+    const range = targetCharRange || buildDurationCharRange(targetDurationSeconds || extractTargetDurationSeconds(request))
+    if (range) {
+      const characterCount = countSectionSpeechCharacters(candidate)
+      if (characterCount > Math.round(range.max * 1.2)) {
+        issues.push(
+          createQaIssue({
+            type: 'duration_range_miss',
+            severity: 'medium',
+            section: 'all',
+            text: `${characterCount}자`,
+            reason: `목표 초수에 비해 압축본이 아직 길다. 목표는 공백 제외 약 ${range.min}-${range.max}자다.`,
+            suggestion: '중복 설명과 부연 설명을 더 줄이되 HOOK/BODY/CTA와 CTA 의도는 유지한다.',
+          }),
+        )
+      }
+      if (characterCount < Math.round(range.min * 0.65)) {
+        issues.push(
+          createQaIssue({
+            type: 'core_message_loss',
+            severity: 'medium',
+            section: 'all',
+            text: `${characterCount}자`,
+            reason: '목표보다 지나치게 짧아 핵심 메시지가 손실됐을 가능성이 있다.',
+            suggestion: '핵심 메시지와 CTA 의도를 유지할 만큼만 문장을 보강한다.',
           }),
         )
       }
@@ -1271,7 +1437,23 @@ export async function classifyCopilotIntent({
   editTarget = '',
   characterSystemPrompt = '',
   personalizationContext = '',
+  targetDurationSeconds = null,
 }) {
+  const durationIntent = classifyCopilotIntentByRule(message, editTarget, { targetDurationSeconds })
+  if (durationIntent.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+    return {
+      intent: 'edit_request',
+      editTarget: 'all',
+      shouldModifyScript: true,
+      operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+      targetDurationSeconds: durationIntent.targetDurationSeconds,
+      newSubject: '',
+      requestedMaterials: [],
+      reply: '',
+      reason: durationIntent.reason,
+    }
+  }
+
   const fallback = createFallbackIntent(message, editTarget)
   if (fallback) {
     return fallback
@@ -1302,7 +1484,8 @@ export async function classifyCopilotIntent({
             '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
             '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
-            '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입.',
+            '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입, duration_compress=목표 초수에 맞춘 삭제 중심 압축.',
+            '사용자가 "30초로 압축", "45초 안에 말하게", "N초로 줄여줘"처럼 목표 초수를 말하면 duration_compress이고 targetDurationSeconds를 추출한다.',
             '사용자가 "주제를 ~로", "~로 바꿔줘", "~소재로 다시"처럼 새 주제를 명시하면 topic_reframe이고 newSubject를 추출한다.',
             '사용자가 "BODY에 ~ 넣어줘", "~도 포함해줘"처럼 소재 추가를 요청하면 insert_material이고 requestedMaterials를 추출한다.',
             'topic_reframe에도 requestedMaterials가 함께 있을 수 있다. 예: "여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘".',
@@ -1334,7 +1517,7 @@ export async function classifyCopilotIntent({
             `CTA: ${normalizedSections.cta.slice(0, 160) || '-'}`,
             '',
             'JSON 형식:',
-            '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|null","newSubject":"","requestedMaterials":[],"shouldModifyScript":false,"reply":"","reason":""}',
+            '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|duration_compress|null","targetDurationSeconds":null,"newSubject":"","requestedMaterials":[],"shouldModifyScript":false,"reply":"","reason":""}',
           ].join('\n'),
         },
       ],
@@ -1364,10 +1547,13 @@ export async function classifyCopilotIntent({
         : null
     const fallbackNewSubject = extractRequestedNewSubject(normalizedMessage)
     const fallbackMaterials = extractRequestedMaterials(normalizedMessage, fallbackNewSubject)
-    const parsedOperationType = [
+    const parsedTargetDurationSeconds =
+      normalizeTargetDurationSeconds(parsed.targetDurationSeconds) || extractTargetDurationSeconds(normalizedMessage)
+    let parsedOperationType = [
       COPILOT_OPERATION_TYPES.EDIT_PARTIAL,
       COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
       COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
+      COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
     ].includes(parsed.operationType)
       ? parsed.operationType
       : fallbackNewSubject
@@ -1375,12 +1561,18 @@ export async function classifyCopilotIntent({
         : fallbackMaterials.length
           ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
           : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
+    if (parsedOperationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS && !parsedTargetDurationSeconds) {
+      parsedOperationType = COPILOT_OPERATION_TYPES.EDIT_PARTIAL
+    }
 
     return {
       intent,
-      editTarget: target,
+      editTarget: parsedOperationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ? 'all' : target,
       shouldModifyScript: intent === 'edit_request' && Boolean(parsed.shouldModifyScript),
       operationType: intent === 'edit_request' ? parsedOperationType : null,
+      targetDurationSeconds: intent === 'edit_request'
+        ? parsedTargetDurationSeconds
+        : null,
       newSubject: intent === 'edit_request' ? cleanRequestedPhrase(parsed.newSubject || fallbackNewSubject) : '',
       requestedMaterials: intent === 'edit_request'
         ? uniqueCompactList(
@@ -2329,6 +2521,8 @@ export async function validateRefinedScriptQuality({
   requestedMaterials = [],
   targetSections: plannedTargetSections = null,
   preserveSections = [],
+  targetDurationSeconds = null,
+  targetCharRange = null,
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -2342,6 +2536,8 @@ export async function validateRefinedScriptQuality({
     newSubject,
     requestedMaterials,
     targetSections: plannedTargetSections,
+    targetDurationSeconds,
+    targetCharRange,
   })
 
   const { supabaseAdmin, openai, models } = requireClients()
@@ -2363,6 +2559,7 @@ export async function validateRefinedScriptQuality({
             'preserve_topic: 기존 주제/사실/섹션 흐름 보존을 강하게 검사한다.',
             'reframe_topic: 기존 주제와 달라졌다는 이유로 실패 처리하지 말고, 새 주제가 명확히 반영됐는지와 기존 주제에 어중간하게 끌려가지 않았는지를 검사한다.',
             'insert_material: 요청 소재가 targetSections에 실제로 들어갔는지, preserveSections가 불필요하게 바뀌지 않았는지 검사한다.',
+            'duration_compress: 새 대본 생성이 아니라 삭제 중심 압축인지 검사한다. 목표 글자 범위 근처인지, HOOK/BODY/CTA와 CTA 의도/핵심 메시지가 유지됐는지, 새 사실/수치/후기/효과가 생기지 않았는지 검사한다.',
             '공통 기준: 사용자 요청 반영, 피드백 진단 반영, 섹션 잠금, 자연스러운 한국어, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
             'severity 기준: high는 반드시 repair, medium은 repair, low는 로그만 남기고 통과 가능하다.',
             'high 예: 섹션 잠금 위반, 피드백 핵심 미반영, 레퍼런스 상품명/상황/비유 오염, 허위 수치/고객 사례/전문가 권위 생성, 빈 섹션.',
@@ -2383,6 +2580,8 @@ export async function validateRefinedScriptQuality({
             `새 주제: ${newSubject || '-'}`,
             `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
+            `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
+            `목표 글자 범위(공백 제외): ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '-'}`,
             `사용자/피드백 적용 요청:\n${request || '-'}`,
             '',
             buildDraftBlock(original),
@@ -2455,6 +2654,8 @@ export async function repairRefinedScriptWithQaIssues({
   requestedMaterials = [],
   targetSections: plannedTargetSections = null,
   preserveSections = [],
+  targetDurationSeconds = null,
+  targetCharRange = null,
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -2507,6 +2708,9 @@ export async function repairRefinedScriptWithQaIssues({
             qaMode === COPILOT_QA_MODES.INSERT_MATERIAL
               ? `이번 작업은 요청 소재 누락/삽입 위치 문제를 다듬는 작업이다. 요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`
               : null,
+            qaMode === COPILOT_QA_MODES.DURATION_COMPRESS
+              ? `이번 작업은 목표 ${targetDurationSeconds || '지정'}초에 맞춘 삭제 중심 압축 결과를 다듬는 작업이다. 새 내용은 만들지 말고 공백 제외 목표 범위 ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '안'}에 가깝게 줄인다.`
+              : null,
             '없는 사실, 허위 수치, 허위 후기, 허위 고객 사례, 허위 전문가 권위, 레퍼런스 소재를 만들지 않는다.',
             '한국어가 어색한 문장은 실제 사람이 말하는 자연스러운 표현으로만 고친다.',
             '사용자에게 보여줄 message에는 QA, 품질 검사, 위험 요소, issue, repair, fallback, 내부 검사 같은 시스템/개발 용어를 절대 쓰지 않는다.',
@@ -2528,6 +2732,8 @@ export async function repairRefinedScriptWithQaIssues({
             `새 주제: ${newSubject || '-'}`,
             `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
+            `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
+            `목표 글자 범위(공백 제외): ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '-'}`,
             `사용자/피드백 적용 요청:\n${request || '-'}`,
             '',
             '[원문]',
@@ -2577,6 +2783,8 @@ export async function repairRefinedScriptWithQaIssues({
       newSubject,
       requestedMaterials,
       targetSections,
+      targetDurationSeconds,
+      targetCharRange,
     })
 
     return {
@@ -2640,6 +2848,9 @@ export const __scriptAssistantTest = {
   sanitizeUserFacingCopilotMessage,
   COPILOT_OPERATION_TYPES,
   COPILOT_QA_MODES,
+  normalizeTargetDurationSeconds,
+  extractTargetDurationSeconds,
+  buildDurationCharRange,
   createFallbackIntent,
   messageMentionsLockedSections,
   logPromptAssembly,

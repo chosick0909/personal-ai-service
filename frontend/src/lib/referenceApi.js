@@ -545,6 +545,7 @@ export async function generateChatReply({
   message,
   editorSections,
   copilotMemory,
+  targetDurationSeconds,
 }) {
   const response = await apiFetch('/api/scripts/copilot', {
     method: 'POST',
@@ -563,6 +564,7 @@ export async function generateChatReply({
       message,
       sections: editorSections,
       copilotMemory,
+      targetDurationSeconds,
     }),
   })
   const payload = await parseApiResponse(response)
