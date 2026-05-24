@@ -33,6 +33,7 @@ import {
   refineScriptWithAI,
   repairRefinedScriptWithQaIssues,
   runFeedbackFallbackRuleCheck,
+  sanitizeUserFacingCopilotMessage,
   shouldUseHeavyQualityGateForCopilot,
   validateScriptFlow,
   validateRefinedScriptQuality,
@@ -997,7 +998,15 @@ app.post(
       eventType: 'reference_analysis',
     })
     const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
-    const result = await analyzeReferenceVideo({
+    let accepted = false
+    let resolveAccepted
+    let rejectAccepted
+    const acceptedPromise = new Promise((resolve, reject) => {
+      resolveAccepted = resolve
+      rejectAccepted = reject
+    })
+
+    const analysisPromise = analyzeReferenceVideo({
       accountId: account.id,
       scriptText,
       topic: req.body?.topic,
@@ -1009,18 +1018,43 @@ app.post(
         character?.profile?.settings && typeof character.profile.settings === 'object'
           ? character.profile.settings
           : {},
+      onAnalysisPreviewReady: async (previewReference) => {
+        if (accepted) {
+          return
+        }
+        accepted = true
+        resolveAccepted(previewReference)
+      },
     })
 
-    await recordUsageEvent({
-      userId: req.auth?.userId,
-      entitlementId: usageStatus.entitlement.id,
-      eventType: 'reference_analysis',
-      referenceId: result?.id || null,
-    })
+    analysisPromise
+      .then(async (result) => {
+        if (!accepted) {
+          accepted = true
+          resolveAccepted(result)
+        }
+        await recordUsageEvent({
+          userId: req.auth?.userId,
+          entitlementId: usageStatus.entitlement.id,
+          eventType: 'reference_analysis',
+          referenceId: result?.id || null,
+        })
+      })
+      .catch((error) => {
+        if (!accepted) {
+          accepted = true
+          rejectAccepted(error)
+        }
+        logAIError('analysis', error, {
+          stage: 'async-reference-script-analysis',
+          accountId: account.id,
+        })
+      })
 
-    res.status(201).json({
-      message: 'Reference script analyzed successfully',
-      analysis: result,
+    const previewReference = await acceptedPromise
+    res.status(202).json({
+      message: 'Reference script analysis accepted',
+      analysis: previewReference,
     })
   }),
 )
@@ -1473,6 +1507,7 @@ app.post(
       request: requestText,
       editTarget: result.editTarget || editPlan.editTarget,
       targetSections: editPlan.targetSections,
+      operationType: editPlan.operationType,
     })
     let finalSections = result.sections
     let finalMessage = result.message
@@ -1500,6 +1535,11 @@ app.post(
         feedback: qaFeedback,
         characterSystemPrompt: character.systemPrompt,
         personalizationContext: personalization.context,
+        qaMode: editPlan.qaMode,
+        newSubject: editPlan.newSubject,
+        requestedMaterials: editPlan.requestedMaterials,
+        targetSections: editPlan.targetSections,
+        preserveSections: editPlan.preserveSections,
       })
       qualityGate = {
         passed: qaResult.ok,
@@ -1523,6 +1563,11 @@ app.post(
           qaIssues: qaResult.issues,
           characterSystemPrompt: character.systemPrompt,
           personalizationContext: personalization.context,
+          qaMode: editPlan.qaMode,
+          newSubject: editPlan.newSubject,
+          requestedMaterials: editPlan.requestedMaterials,
+          targetSections: editPlan.targetSections,
+          preserveSections: editPlan.preserveSections,
         })
 
         if (repairResult.success) {
@@ -1536,7 +1581,7 @@ app.post(
         } else {
           finalSections = req.body?.sections || result.sections
           finalMessage =
-            '지금 요청은 사실 정보나 수정 범위가 조금 흔들릴 수 있어서, 대본은 일단 그대로 두었어요. 넣고 싶은 표현이나 바꿀 섹션을 조금만 더 구체적으로 주시면 그 범위 안에서 안전하게 다시 다듬어볼게요.'
+            '요청하신 내용을 반영하려 했지만, 기존 대본 흐름과 충돌하는 부분이 있어 자동 적용하지 않았어요. 새 주제로 전체를 다시 만들거나, 특정 섹션에만 추가하는 방식으로 다시 요청해 주세요.'
           qualityGate = {
             ...qualityGate,
             fallbackUsed: true,
@@ -1551,6 +1596,10 @@ app.post(
         editTarget: result.editTarget || editPlan.editTarget,
         feedback: qaFeedback,
         request: requestText,
+        qaMode: editPlan.qaMode,
+        newSubject: editPlan.newSubject,
+        requestedMaterials: editPlan.requestedMaterials,
+        targetSections: editPlan.targetSections,
       })
       qualityGate = {
         passed: ruleCheck.ok,
@@ -1562,7 +1611,7 @@ app.post(
       if (ruleCheck.shouldRepair) {
         finalSections = req.body?.sections || result.sections
         finalMessage =
-          '지금은 바꾸려는 범위가 살짝 애매해서 대본은 그대로 유지했어요. 예를 들어 “BODY에 한 문장만 추가해줘”처럼 섹션이나 표현을 지정해주시면 그 부분만 깔끔하게 다듬어볼게요.'
+          '요청하신 내용을 반영하려 했지만, 기존 대본 흐름과 충돌하는 부분이 있어 자동 적용하지 않았어요. 새 주제로 전체를 다시 만들거나, 특정 섹션에만 추가하는 방식으로 다시 요청해 주세요.'
         qualityGate = {
           ...qualityGate,
           fallbackUsed: true,
@@ -1574,6 +1623,11 @@ app.post(
     const finalDiff = createSectionDiff(req.body?.sections, finalSections)
     finalChangedSections = ['hook', 'body', 'cta'].filter((key) => finalDiff[key])
     finalFlowValidation = validateScriptFlow(finalSections)
+    finalMessage = sanitizeUserFacingCopilotMessage(finalMessage, {
+      editPlan,
+      responseMode: result.responseMode,
+      changedSections: finalChangedSections,
+    })
     console.info('[copilot-quality-gate]', {
       account_id: account.id,
       character_id: character.characterId,
@@ -1582,6 +1636,8 @@ app.post(
       intent: intent.intent,
       edit_target: result.editTarget || editPlan.editTarget || '',
       edit_plan_strategy: editPlan.strategy,
+      operation_type: editPlan.operationType,
+      qa_mode: editPlan.qaMode,
       qa_passed: qualityGate.passed,
       qa_failed_issue_types: qualityGate.issueTypes || [],
       repair_attempted: repairAttempted,
@@ -1922,7 +1978,7 @@ app.post(
 
         if (feedback?.suggestedSections && !fallbackCheck.shouldRepair) {
           finalSections = feedback.suggestedSections
-          finalMessage = '피드백 진단 기반 재수정이 어려워, 안전 검사에 통과한 피드백 제안안을 적용했습니다.'
+          finalMessage = '피드백에서 짚은 방향을 기준으로 적용 가능한 수정안을 반영했어요. 흐름을 크게 흔들지 않는 선에서 문장을 정리했습니다.'
           qualityGate = {
             ...qualityGate,
             repaired: false,

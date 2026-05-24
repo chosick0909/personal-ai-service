@@ -35,6 +35,10 @@ const {
   buildNaturalResponseUserPrompt,
   createFallbackIntent,
   runFeedbackFallbackRuleCheck,
+  detectExplicitPreserveSections,
+  sanitizeUserFacingCopilotMessage,
+  COPILOT_OPERATION_TYPES,
+  COPILOT_QA_MODES,
 } = __scriptAssistantTest
 
 const currentDraft = {
@@ -584,6 +588,143 @@ test('copilot edit plan translates naturalness requests into a concrete strategy
   assert.match(plan.strategy, /구어체화/)
   assert.ok(plan.avoid.some((item) => item.includes('광고')))
   assert.ok(plan.avoid.some((item) => item.includes('HOOK은 유지')))
+})
+
+test('copilot edit plan classifies explicit topic reframe requests', () => {
+  const intent = classifyCopilotIntentByRule('여름철 감염 예방법으로 바꿔줘', 'all')
+  const plan = buildEditPlan({
+    userRequest: '여름철 감염 예방법으로 바꿔줘',
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.REFRAME_TOPIC)
+  assert.equal(plan.newSubject, '여름철 감염 예방법')
+  assert.deepEqual(plan.targetSections, ['hook', 'body', 'cta'])
+  assert.match(plan.strategy, /새 주제/)
+  assert.ok(plan.avoid.some((item) => item.includes('기존 주제')))
+})
+
+test('copilot edit plan supports topic reframe with requested materials', () => {
+  const request = '여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.REFRAME_TOPIC)
+  assert.equal(plan.newSubject, '여름철 감염 예방법')
+  assert.deepEqual(plan.requestedMaterials, ['손씻기', '물 자주 마시기'])
+})
+
+test('copilot edit plan keeps locked sections for insert material requests', () => {
+  const request = 'BODY에 손씻기랑 물 자주 마시기 넣어줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.INSERT_MATERIAL)
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.INSERT_MATERIAL)
+  assert.deepEqual(plan.targetSections, ['body'])
+  assert.deepEqual(plan.preserveSections, ['hook', 'cta'])
+  assert.deepEqual(plan.requestedMaterials, ['손씻기', '물 자주 마시기'])
+})
+
+test('explicit preserve wording locks sections even during topic reframe', () => {
+  const request = 'HOOK은 유지하고 여름철 감염 예방법으로 바꿔줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.deepEqual(detectExplicitPreserveSections(request), ['hook'])
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '여름철 감염 예방법')
+  assert.deepEqual(plan.targetSections, ['body', 'cta'])
+  assert.deepEqual(plan.preserveSections, ['hook'])
+})
+
+test('copilot user-facing message templates hide internal terms', () => {
+  const message = sanitizeUserFacingCopilotMessage('QA에서 위험 요소가 감지되어 repair 했습니다.', {
+    editPlan: {
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '물광토너',
+      targetSections: ['hook', 'body', 'cta'],
+    },
+    responseMode: 'edit_only',
+    changedSections: ['hook', 'body', 'cta'],
+  })
+
+  assert.match(message, /물광토너/)
+  assert.doesNotMatch(message, /QA|위험 요소|repair|내부|fallback|intent|qaMode|operationType/i)
+})
+
+test('insert material user-facing message names target section and preserves others', () => {
+  const message = sanitizeUserFacingCopilotMessage('요청을 반영했습니다.', {
+    editPlan: {
+      operationType: COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
+      targetSections: ['body'],
+    },
+    responseMode: 'edit_only',
+    changedSections: ['body'],
+  })
+
+  assert.match(message, /BODY/)
+  assert.match(message, /다른 섹션/)
+  assert.doesNotMatch(message, /요청을 반영/)
+})
+
+test('insert material QA requires requested material in target section only', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      ...currentDraft,
+      body: '기초를 바르는 순서를 정리해보세요.',
+    },
+    editTarget: 'body',
+    request: 'BODY에 손씻기랑 물 자주 마시기 넣어줘',
+    qaMode: COPILOT_QA_MODES.INSERT_MATERIAL,
+    requestedMaterials: ['손씻기', '물 자주 마시기'],
+    targetSections: ['body'],
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'requested_material_missing'))
+})
+
+test('topic reframe QA does not fail only because old topic changed', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      hook: '여름철 감염은 작은 생활 습관에서 갈릴 수 있습니다.',
+      body: '외출 후 손씻기와 물 자주 마시기를 챙기면 기본 관리 흐름이 훨씬 쉬워집니다.',
+      cta: '오늘 외출 전후 루틴으로 저장해두고 체크해보세요.',
+    },
+    editTarget: 'all',
+    request: '여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘',
+    qaMode: COPILOT_QA_MODES.REFRAME_TOPIC,
+    newSubject: '여름철 감염 예방법',
+    requestedMaterials: ['손씻기', '물 자주 마시기'],
+    targetSections: ['hook', 'body', 'cta'],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.shouldRepair, false)
 })
 
 test('heavy copilot quality gate is reserved for broad or risky edit requests', () => {

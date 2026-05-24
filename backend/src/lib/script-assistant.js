@@ -52,6 +52,16 @@ const COPILOT_INTENTS = {
   COMPARE: 'compare_versions',
   BRAINSTORM: 'brainstorm_options',
 }
+const COPILOT_OPERATION_TYPES = {
+  EDIT_PARTIAL: 'edit_partial',
+  TOPIC_REFRAME: 'topic_reframe',
+  INSERT_MATERIAL: 'insert_material',
+}
+const COPILOT_QA_MODES = {
+  PRESERVE_TOPIC: 'preserve_topic',
+  REFRAME_TOPIC: 'reframe_topic',
+  INSERT_MATERIAL: 'insert_material',
+}
 const COPILOT_MEMORY_ARRAY_KEYS = [
   'preferredTone',
   'dislikedTone',
@@ -258,6 +268,76 @@ function normalizeFeedbackList(value = [], maxItems = 8) {
     .slice(0, maxItems)
 }
 
+function cleanRequestedPhrase(value = '') {
+  return String(value || '')
+    .replace(/^[\s"'“”‘’.,:;·\-–—]+|[\s"'“”‘’.,:;·\-–—]+$/g, '')
+    .replace(/^(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리)(?:은|는|을|를|만)?\s*(?:유지|그대로|고정|잠그|살리고|남기고|두고)\s*(?:하고|한\s*채|,)?\s*/i, '')
+    .replace(/^(주제|소재|내용|방향)(?:를|은|는)?\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractRequestedNewSubject(request = '') {
+  const text = String(request || '').trim()
+  const patterns = [
+    /주제(?:를|은|는)?\s*(.+?)\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정|다시\s*(?:만들|써|작성))/i,
+    /주제(?:를|은|는)?\s*(.+?)\s*(?:으로|로)\s+.+?(?:넣어|추가|포함|반영)/i,
+    /^(.+?)\s*(?:으로|로)\s+.+?(?:넣어|추가|포함|반영)/i,
+    /(?:^|[\s,])(.+?)\s*(?:으로|로)\s*(?:주제\s*)?(?:바꿔|바꾸|변경|다시\s*(?:만들|써|작성))/i,
+    /(.+?)\s*소재(?:로|으로)\s*(?:다시\s*)?(?:만들|써|작성|바꿔|바꾸)/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    const subject = cleanRequestedPhrase(match?.[1] || '')
+    if (subject && subject.length <= 80 && !/자연스럽게|광고\s*같지\s*않게|말\s*되게|세게|강하게|짧게|길게/i.test(subject)) {
+      return subject
+    }
+  }
+
+  return ''
+}
+
+function splitRequestedMaterials(value = '') {
+  return uniqueCompactList(
+    String(value || '')
+      .split(/\s*(?:,|\/|·|그리고|및|랑|하고|와|과)\s*/g)
+      .map((item) => cleanRequestedPhrase(item))
+      .filter((item) => item && item.length <= 60),
+    8,
+  )
+}
+
+function tokenizeForRequestMatch(value = '') {
+  return uniqueCompactList(
+    String(value || '')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .split(/\s+/g)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2),
+    8,
+  )
+}
+
+function extractRequestedMaterials(request = '', newSubject = '') {
+  const text = String(request || '').trim()
+  if (!/(넣어|넣어줘|추가|포함|반영)/i.test(text)) {
+    return []
+  }
+
+  let materialSource = text
+  if (newSubject) {
+    materialSource = materialSource.replace(newSubject, '')
+    materialSource = materialSource.replace(/^\s*(?:으로|로)\s*/, '')
+  }
+  materialSource = materialSource
+    .replace(/(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|중간|내용|CTA|씨티에이|마무리|끝\s*문장)\s*(?:에|에는|에다가|쪽에)?/gi, '')
+    .replace(/(?:넣어줘|넣어|추가해줘|추가|포함해줘|포함|반영해줘|반영).*/i, '')
+    .replace(/(?:주제(?:를|은|는)?\s*)?.+?\s*(?:으로|로)\s*$/i, '')
+
+  return splitRequestedMaterials(materialSource)
+}
+
 function normalizeCopilotMemory(memory = {}) {
   const source = memory && typeof memory === 'object' ? memory : {}
   return {
@@ -321,11 +401,43 @@ export function buildEditPlan({
   const request = String(userRequest || '').trim()
   const sections = normalizeSections(currentSections)
   const normalizedTarget = normalizeEditTarget(intentResult.editTarget || editTarget, request)
-  const targetSections = getTargetSections(normalizedTarget)
+  const explicitPreserveSections = detectExplicitPreserveSections(request)
+  const explicitPreserveSet = new Set(explicitPreserveSections)
+  let targetSections = getTargetSections(normalizedTarget)
+  if (explicitPreserveSet.size && normalizedTarget === 'all') {
+    const unlockedTargets = SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
+    if (unlockedTargets.length) {
+      targetSections = unlockedTargets
+    }
+  }
+  const targetSet = new Set(targetSections)
+  const preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
   const memory = normalizeCopilotMemory(copilotMemory)
+  const detectedNewSubject = cleanRequestedPhrase(intentResult.newSubject || extractRequestedNewSubject(request))
+  const requestedMaterials = uniqueCompactList(
+    Array.isArray(intentResult.requestedMaterials) && intentResult.requestedMaterials.length
+      ? intentResult.requestedMaterials.map((item) => cleanRequestedPhrase(item))
+      : extractRequestedMaterials(request, detectedNewSubject),
+    8,
+  )
+  const operationType =
+    intentResult.operationType ||
+    (detectedNewSubject
+      ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+      : requestedMaterials.length
+        ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+        : COPILOT_OPERATION_TYPES.EDIT_PARTIAL)
+  const qaMode =
+    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+      ? COPILOT_QA_MODES.REFRAME_TOPIC
+      : operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+        ? COPILOT_QA_MODES.INSERT_MATERIAL
+        : COPILOT_QA_MODES.PRESERVE_TOPIC
   const strategy = []
   const preserve = [
-    '현재 초안의 주제와 상품/서비스 정보',
+    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+      ? '레퍼런스 구조, 문장 리듬, 톤, CTA 스타일'
+      : '현재 초안의 주제와 상품/서비스 정보',
     '사용자 입력에 있는 사실 정보',
     '선택된 A/B/C 초안의 기본 역할과 흐름',
   ]
@@ -335,6 +447,17 @@ export function buildEditPlan({
     '없는 수치, 후기, 고객 사례, 전문가 권위 생성',
     '요청받지 않은 섹션 변경',
   ]
+
+  if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
+    strategy.push('새 주제 기준 재구성 + 레퍼런스 구조/리듬 유지')
+    change.push(`기존 소재에 끌려가지 않고 새 주제 "${detectedNewSubject || '사용자가 명시한 새 주제'}" 중심으로 HOOK/BODY/CTA를 맞춘다`)
+    avoid.push('기존 주제의 상품/상황/고객 pain point를 어중간하게 섞기')
+  }
+  if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) {
+    strategy.push(`${targetSections.map((key) => SECTION_LABELS[key]).join('/')}에 요청 소재 삽입 + 잠금 섹션 유지`)
+    change.push(`요청 소재를 자연스럽게 포함한다: ${requestedMaterials.join(', ') || '사용자 지정 소재'}`)
+    avoid.push('소재 추가를 이유로 요청하지 않은 섹션까지 다시 쓰기')
+  }
 
   if (/자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체/i.test(request)) {
     strategy.push('구어체화 + 번역체 제거 + 문장 호흡 정리')
@@ -388,6 +511,17 @@ export function buildEditPlan({
   return {
     editTarget: normalizedTarget,
     targetSections,
+    preserveSections,
+    operationType,
+    qaMode,
+    newSubject: detectedNewSubject,
+    requestedMaterials,
+    carryOverStrategy: {
+      preserveReferenceStructure: true,
+      preserveTone: true,
+      preserveCtaStyle: true,
+      preserveSectionLength: operationType !== COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+    },
     strategy: uniqueCompactList(strategy, 5).join(' + '),
     preserve: uniqueCompactList(preserve, 10),
     change: uniqueCompactList(change, 8),
@@ -408,6 +542,11 @@ function formatEditPlanForPrompt(editPlan = null) {
   return [
     '[내부 편집 계획]',
     `- 수정 범위: ${editPlan.editTarget || 'all'}`,
+    `- 작업 유형: ${editPlan.operationType || COPILOT_OPERATION_TYPES.EDIT_PARTIAL}`,
+    `- QA 기준: ${editPlan.qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
+    editPlan.newSubject ? `- 새 주제: ${editPlan.newSubject}` : '',
+    editPlan.requestedMaterials?.length ? `- 요청 소재: ${editPlan.requestedMaterials.join(', ')}` : '',
+    editPlan.preserveSections?.length ? `- 유지 섹션: ${editPlan.preserveSections.map((key) => SECTION_LABELS[key]).join(', ')}` : '',
     `- 전략: ${editPlan.strategy || '-'}`,
     editPlan.preserve?.length ? `- 유지: ${editPlan.preserve.join(', ')}` : '',
     editPlan.change?.length ? `- 변경: ${editPlan.change.join(', ')}` : '',
@@ -415,7 +554,10 @@ function formatEditPlanForPrompt(editPlan = null) {
     `- 이유: ${editPlan.reason || '-'}`,
     '',
     '편집 계획 적용 규칙:',
-    '- 이 계획은 내부 보조 정보이며 사용자 사실 정보, 레퍼런스 구조, 섹션 잠금보다 우선하지 않는다.',
+    '- 이 계획은 내부 보조 정보이며 섹션 잠금보다 우선하지 않는다.',
+    '- 단, 사용자가 새 주제/새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지 규칙보다 우선한다.',
+    '- topic_reframe이면 기존 주제의 소재/사실은 버릴 수 있고, 레퍼런스 구조/리듬/톤/CTA 스타일을 가능한 유지한다.',
+    '- insert_material이면 targetSections에만 요청 소재를 넣고 preserveSections는 원문 그대로 유지한다.',
     '- 계획에 없는 새 소재나 수치를 만들지 않는다.',
   ]
     .filter(Boolean)
@@ -426,11 +568,18 @@ export function shouldUseHeavyQualityGateForCopilot({
   request = '',
   editTarget = '',
   targetSections,
+  operationType = COPILOT_OPERATION_TYPES.EDIT_PARTIAL,
 } = {}) {
   const text = String(request || '')
   const targets = Array.isArray(targetSections) && targetSections.length
     ? targetSections
     : getTargetSections(normalizeEditTarget(editTarget, text))
+  if (
+    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ||
+    operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+  ) {
+    return true
+  }
   if (targets.length === SECTION_KEYS.length || targets.includes('body')) {
     return true
   }
@@ -441,6 +590,47 @@ function compactSummaryText(value = '', maxLength = 34) {
   const text = String(value || '').replace(/\s+/g, ' ').trim()
   if (!text) return ''
   return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
+}
+
+function formatSectionListForUser(sections = SECTION_KEYS) {
+  const normalized = Array.isArray(sections) && sections.length
+    ? sections.filter((key) => SECTION_KEYS.includes(key))
+    : SECTION_KEYS
+
+  if (normalized.length === SECTION_KEYS.length) {
+    return '전체 흐름'
+  }
+
+  return normalized.map((key) => SECTION_LABELS[key]).join('/')
+}
+
+function detectExplicitPreserveSections(request = '') {
+  const text = String(request || '')
+  const compact = text.replace(/\s+/g, '').toLowerCase()
+  const preserved = new Set()
+  const preserveSignal = '(?:유지|그대로|건드리지|건들지|냅둬|놔둬|두고|살리고|남기고|고정|잠그)'
+
+  if (new RegExp(`(?:hook|훅|후킹|첫문장|첫 문장|도입|오프닝)(?:은|는|을|를|만)?\\s*${preserveSignal}`, 'i').test(text)) {
+    preserved.add('hook')
+  }
+  if (new RegExp(`(?:body|바디|본문|내용|전개)(?:은|는|을|를|만)?\\s*${preserveSignal}`, 'i').test(text)) {
+    preserved.add('body')
+  }
+  if (new RegExp(`(?:cta|씨티에이|마무리|행동유도|행동 유도|클로징)(?:은|는|을|를|만)?\\s*${preserveSignal}`, 'i').test(text)) {
+    preserved.add('cta')
+  }
+
+  if (/(hook|훅|후킹|첫문장|첫 문장|도입|오프닝).*?(유지|그대로|고정|잠그)/i.test(text) || /hook(?:은|는)?유지|훅(?:은|는)?유지/.test(compact)) {
+    preserved.add('hook')
+  }
+  if (/(body|바디|본문|내용|전개).*?(유지|그대로|고정|잠그)/i.test(text) || /body(?:은|는)?유지|본문(?:은|는)?유지/.test(compact)) {
+    preserved.add('body')
+  }
+  if (/(cta|씨티에이|마무리|행동유도|행동 유도|클로징).*?(유지|그대로|고정|잠그)/i.test(text) || /cta(?:은|는)?유지|마무리(?:은|는)?유지/.test(compact)) {
+    preserved.add('cta')
+  }
+
+  return SECTION_KEYS.filter((key) => preserved.has(key))
 }
 
 function isGenericRefineMessage(message = '') {
@@ -501,6 +691,13 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
   const text = String(request || '').trim()
   const normalizedEditTarget = String(editTarget || '').trim().toLowerCase()
   const hasExplicitSectionTarget = SECTION_KEYS.includes(normalizedEditTarget)
+  const newSubject = extractRequestedNewSubject(text)
+  const requestedMaterials = extractRequestedMaterials(text, newSubject)
+  const operationType = newSubject
+    ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+    : requestedMaterials.length
+      ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+      : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
   const editPattern =
     /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|넣어|넣어줘|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게)/i
   const advicePattern =
@@ -522,6 +719,9 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
       reason: wantsAdvice || wantsVagueImprove
         ? '사용자가 문제 진단과 수정을 함께 요청함'
         : '사용자가 명시적인 수정 동사를 사용함',
+      operationType,
+      newSubject,
+      requestedMaterials,
     }
   }
 
@@ -544,6 +744,9 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
       editTarget: normalizedEditTarget,
       confidence: 0.66,
       reason: 'UI에서 특정 수정 섹션이 선택되어 있어 수정 요청으로 처리함',
+      operationType,
+      newSubject,
+      requestedMaterials,
     }
   }
 
@@ -560,12 +763,22 @@ function classifyCopilotIntentByRule(request = '', editTarget = '') {
 function inferRequestedSections(request = '') {
   const text = String(request || '').toLowerCase()
   const normalized = text.replace(/\s+/g, '')
+  const preservedSections = detectExplicitPreserveSections(request)
+  const preservedSet = new Set(preservedSections)
+  const withoutPreserved = (sections = SECTION_KEYS) => {
+    const editable = SECTION_KEYS.filter((key) => sections.includes(key) && !preservedSet.has(key))
+    if (editable.length) {
+      return editable
+    }
+    const fallbackEditable = SECTION_KEYS.filter((key) => !preservedSet.has(key))
+    return fallbackEditable.length ? fallbackEditable : sections
+  }
 
   if (
     /전체|전부|모두|다\s*바꿔|다\s*수정|전체적으로|전반적으로/.test(request) ||
     /all|entire|whole/.test(text)
   ) {
-    return SECTION_KEYS
+    return withoutPreserved(SECTION_KEYS)
   }
 
   const requested = new Set()
@@ -580,20 +793,24 @@ function inferRequestedSections(request = '') {
   }
 
   if (/hook만|훅만|후킹만|첫문장만|첫 문장만|도입만|오프닝만/i.test(request)) {
-    return ['hook']
+    return withoutPreserved(['hook'])
   }
   if (/body만|바디만|본문만|중간만|내용만|전개만/i.test(request)) {
-    return ['body']
+    return withoutPreserved(['body'])
   }
   if (/cta만|씨티에이만|콜투액션만|행동유도만|행동 유도만|마무리만|끝문장만|끝 문장만|클로징만/i.test(request)) {
-    return ['cta']
+    return withoutPreserved(['cta'])
   }
 
   if (normalized.includes('hook/')) requested.add('hook')
   if (normalized.includes('body/')) requested.add('body')
   if (normalized.includes('/cta')) requested.add('cta')
 
-  return requested.size ? SECTION_KEYS.filter((key) => requested.has(key)) : SECTION_KEYS
+  if (requested.size) {
+    return withoutPreserved(SECTION_KEYS.filter((key) => requested.has(key)))
+  }
+
+  return withoutPreserved(SECTION_KEYS)
 }
 
 function normalizeEditTarget(editTarget = '', request = '') {
@@ -763,6 +980,68 @@ function qaShouldRepair(issues = []) {
   return normalizeQaIssues(issues).some((issue) => QA_REPAIR_SEVERITIES.has(issue.severity))
 }
 
+function sanitizeUserFacingRepairMessage(message) {
+  const text = String(message || '').trim()
+  if (!text) {
+    return '문제였던 부분만 다시 다듬었어요. 핵심 흐름은 유지하면서 어색하거나 과해 보일 수 있는 표현을 정리했습니다.'
+  }
+
+  const internalPattern = /QA|quality\s*gate|repair|fallback|issue|이슈|품질\s*검사|검사에서|위험\s*요소|내부|안전\s*검사|사회적\s*증거/i
+  if (internalPattern.test(text)) {
+    return '문제였던 부분만 다시 다듬었어요. 핵심 흐름은 유지하면서 어색하거나 과해 보일 수 있는 표현을 정리했습니다.'
+  }
+
+  return text
+}
+
+const COPILOT_USER_MESSAGE_INTERNAL_PATTERN =
+  /QA|quality\s*gate|repair|리페어|fallback|issue|intent|qaMode|operationType|품질\s*검사|검사에서|검증\s*실패|위험\s*요소|내부\s*편집\s*계획|내부\s*검사|안전\s*검사|사회적\s*증거/i
+
+function buildCopilotIntentTemplateMessage({
+  editPlan = {},
+  responseMode = 'edit_only',
+  changedSections = [],
+} = {}) {
+  const operationType = editPlan?.operationType || COPILOT_OPERATION_TYPES.EDIT_PARTIAL
+  const targetSections = Array.isArray(editPlan?.targetSections) && editPlan.targetSections.length
+    ? editPlan.targetSections
+    : changedSections
+  const targetLabel = formatSectionListForUser(targetSections)
+
+  if (responseMode === 'advice_only') {
+    return '전체적으로 방향은 괜찮지만, 가장 약한 부분을 조금 더 선명하게 만들면 좋아요. 원하면 그 부분부터 바로 다듬어볼게요.'
+  }
+
+  if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
+    const subject = editPlan?.newSubject || '요청하신 새 주제'
+    return `좋아요. 이번엔 기존 주제에 끌려가지 않도록 "${subject}" 중심으로 다시 잡았어요. HOOK/BODY/CTA가 새 주제 기준으로 자연스럽게 이어지도록 정리했습니다.`
+  }
+
+  if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) {
+    return `좋아요. 요청하신 내용을 ${targetLabel}에 자연스럽게 넣었어요. 다른 섹션은 흐름이 흔들리지 않도록 최대한 유지했습니다.`
+  }
+
+  if (responseMode === 'advice_then_edit') {
+    return `좋아요. 기존 주제와 흐름은 유지하면서 ${targetLabel}에서 가장 어색한 부분을 먼저 다듬었어요. 읽히는 흐름이 더 자연스럽게 이어지도록 정리했습니다.`
+  }
+
+  return `좋아요. 기존 주제와 흐름은 유지하면서 ${targetLabel} 표현만 더 자연스럽게 다듬었어요.`
+}
+
+export function sanitizeUserFacingCopilotMessage(message, context = {}) {
+  const text = String(message || '').trim()
+  const fallback = buildCopilotIntentTemplateMessage(context)
+  if (!text) {
+    return fallback
+  }
+
+  if (COPILOT_USER_MESSAGE_INTERNAL_PATTERN.test(text) || isGenericRefineMessage(text)) {
+    return fallback
+  }
+
+  return text
+}
+
 function collectNumbersFromText(value = '') {
   return new Set(String(value || '').match(/\d+(?:[.,]\d+)?\s*(?:만|억|천|원|만원|개|명|회|번|배|%|퍼센트|kg|킬로|개월|일|시간|분)?/g) || [])
 }
@@ -780,10 +1059,16 @@ export function runFeedbackFallbackRuleCheck({
   editTarget = 'all',
   feedback = {},
   request = '',
+  qaMode = COPILOT_QA_MODES.PRESERVE_TOPIC,
+  newSubject = '',
+  requestedMaterials = [],
+  targetSections: plannedTargetSections = null,
 } = {}) {
   const original = normalizeSections(originalSections)
   const candidate = normalizeSections(candidateSections)
-  const targetSections = getTargetSections(normalizeEditTarget(editTarget, request))
+  const targetSections = Array.isArray(plannedTargetSections) && plannedTargetSections.length
+    ? plannedTargetSections.filter((section) => SECTION_KEYS.includes(section))
+    : getTargetSections(normalizeEditTarget(editTarget, request))
   const targetSet = new Set(targetSections)
   const issues = []
   const flowValidation = validateScriptFlow(candidate)
@@ -835,6 +1120,45 @@ export function runFeedbackFallbackRuleCheck({
         suggestion: '근거 없는 수치, 성과, 기간, 가격은 제거한다.',
       }),
     )
+  }
+
+  const candidateText = Object.values(candidate).join('\n')
+  if (qaMode === COPILOT_QA_MODES.REFRAME_TOPIC && newSubject) {
+    const subjectTokens = tokenizeForRequestMatch(newSubject)
+    const matched = subjectTokens.some((token) => candidateText.includes(token))
+    if (!matched) {
+      issues.push(
+        createQaIssue({
+          type: 'new_subject_missing',
+          severity: 'high',
+          section: 'all',
+          text: newSubject,
+          reason: '사용자가 명시한 새 주제가 수정본에 충분히 반영되지 않았다.',
+          suggestion: `대본을 "${newSubject}" 중심으로 다시 맞춘다.`,
+        }),
+      )
+    }
+  }
+
+  const materialTokens = uniqueCompactList(requestedMaterials, 8)
+  if ((qaMode === COPILOT_QA_MODES.INSERT_MATERIAL || materialTokens.length) && materialTokens.length) {
+    const targetText = targetSections.map((section) => candidate[section]).join('\n')
+    for (const material of materialTokens) {
+      const tokens = tokenizeForRequestMatch(material)
+      const matched = tokens.some((token) => targetText.includes(token))
+      if (!matched) {
+        issues.push(
+          createQaIssue({
+            type: 'requested_material_missing',
+            severity: 'high',
+            section: targetSections.length === 1 ? targetSections[0] : 'all',
+            text: material,
+            reason: '사용자가 넣으라고 한 소재가 수정 대상 섹션에 반영되지 않았다.',
+            suggestion: `요청 소재 "${material}"을 자연스럽게 포함한다.`,
+          }),
+        )
+      }
+    }
   }
 
   const issueTypes = issues.map((issue) => issue.type)
@@ -978,6 +1302,10 @@ export async function classifyCopilotIntent({
             '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
             '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
+            '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입.',
+            '사용자가 "주제를 ~로", "~로 바꿔줘", "~소재로 다시"처럼 새 주제를 명시하면 topic_reframe이고 newSubject를 추출한다.',
+            '사용자가 "BODY에 ~ 넣어줘", "~도 포함해줘"처럼 소재 추가를 요청하면 insert_material이고 requestedMaterials를 추출한다.',
+            'topic_reframe에도 requestedMaterials가 함께 있을 수 있다. 예: "여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘".',
             'intent는 greeting, edit_request, feedback_request, advise_script, explain_script, compare_versions, brainstorm_options, question, clarification 중 하나만 사용한다.',
             'edit_request일 때만 shouldModifyScript=true다.',
             'feedback_request는 피드백 실행 대상이므로 shouldModifyScript=false다.',
@@ -1006,7 +1334,7 @@ export async function classifyCopilotIntent({
             `CTA: ${normalizedSections.cta.slice(0, 160) || '-'}`,
             '',
             'JSON 형식:',
-            '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","shouldModifyScript":false,"reply":"","reason":""}',
+            '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|null","newSubject":"","requestedMaterials":[],"shouldModifyScript":false,"reply":"","reason":""}',
           ].join('\n'),
         },
       ],
@@ -1034,11 +1362,34 @@ export async function classifyCopilotIntent({
       : intent === 'edit_request'
         ? normalizeEditTarget(editTarget, normalizedMessage)
         : null
+    const fallbackNewSubject = extractRequestedNewSubject(normalizedMessage)
+    const fallbackMaterials = extractRequestedMaterials(normalizedMessage, fallbackNewSubject)
+    const parsedOperationType = [
+      COPILOT_OPERATION_TYPES.EDIT_PARTIAL,
+      COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
+    ].includes(parsed.operationType)
+      ? parsed.operationType
+      : fallbackNewSubject
+        ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+        : fallbackMaterials.length
+          ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+          : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
 
     return {
       intent,
       editTarget: target,
       shouldModifyScript: intent === 'edit_request' && Boolean(parsed.shouldModifyScript),
+      operationType: intent === 'edit_request' ? parsedOperationType : null,
+      newSubject: intent === 'edit_request' ? cleanRequestedPhrase(parsed.newSubject || fallbackNewSubject) : '',
+      requestedMaterials: intent === 'edit_request'
+        ? uniqueCompactList(
+            Array.isArray(parsed.requestedMaterials)
+              ? parsed.requestedMaterials.map((item) => cleanRequestedPhrase(item))
+              : fallbackMaterials,
+            8,
+          )
+        : [],
       reply: String(parsed.reply || '').trim() ||
         (intent === 'question'
           ? '좋은 질문입니다. 이 초안에서 어떤 부분을 더 보고 싶은지 알려주시면 기준을 잡아드릴게요.'
@@ -1681,7 +2032,10 @@ export async function refineScriptWithAI({
   }
 
   const normalizedEditTarget = normalizeEditTarget(intentResult.editTarget || editTarget, normalizedRequest)
-  const targetSections = getTargetSections(normalizedEditTarget)
+  const targetSections =
+    Array.isArray(editPlan?.targetSections) && editPlan.targetSections.length
+      ? editPlan.targetSections.filter((key) => SECTION_KEYS.includes(key))
+      : getTargetSections(normalizedEditTarget)
   let hookTemplateContext = ''
   let matchedHookTemplateKeys = []
   let narrativePatternContext = ''
@@ -1820,14 +2174,20 @@ export async function refineScriptWithAI({
       includedTranscript: false,
     })
     const parsedMessage = parsed.message?.trim() || ''
+    const fallbackMessage = buildFallbackRefineMessage(normalizedSections, nextSections)
+    const rawMessage =
+      parsedMessage &&
+      !isGenericRefineMessage(parsedMessage) &&
+      !messageMentionsLockedSections(parsedMessage, targetSections)
+        ? parsedMessage
+        : fallbackMessage
 
     return {
-      message:
-        parsedMessage &&
-        !isGenericRefineMessage(parsedMessage) &&
-        !messageMentionsLockedSections(parsedMessage, targetSections)
-          ? parsedMessage
-          : buildFallbackRefineMessage(normalizedSections, nextSections),
+      message: sanitizeUserFacingCopilotMessage(rawMessage, {
+        editPlan,
+        responseMode: intentResult.responseMode,
+        changedSections,
+      }),
       sections: nextSections,
       editTarget: normalizedEditTarget,
       changedSections,
@@ -1964,6 +2324,11 @@ export async function validateRefinedScriptQuality({
   feedback = {},
   characterSystemPrompt = '',
   personalizationContext = '',
+  qaMode = COPILOT_QA_MODES.PRESERVE_TOPIC,
+  newSubject = '',
+  requestedMaterials = [],
+  targetSections: plannedTargetSections = null,
+  preserveSections = [],
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -1973,6 +2338,10 @@ export async function validateRefinedScriptQuality({
     editTarget,
     feedback,
     request,
+    qaMode,
+    newSubject,
+    requestedMaterials,
+    targetSections: plannedTargetSections,
   })
 
   const { supabaseAdmin, openai, models } = requireClients()
@@ -1990,7 +2359,11 @@ export async function validateRefinedScriptQuality({
           content: [
             '당신은 숏폼 대본 수정본의 내부 QA 검사자다. 수정자가 아니다.',
             '대본을 다시 작성하지 마라. 반드시 검사 결과 JSON만 반환한다.',
-            '검사 기준: 사용자 요청 반영, 피드백 진단 반영, 섹션 잠금, 자연스러운 한국어, 주제 이탈, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
+            '검사 기준은 qaMode에 따라 달라진다. 사용자 명시 요청을 기존 대본 보존 규칙보다 우선한다.',
+            'preserve_topic: 기존 주제/사실/섹션 흐름 보존을 강하게 검사한다.',
+            'reframe_topic: 기존 주제와 달라졌다는 이유로 실패 처리하지 말고, 새 주제가 명확히 반영됐는지와 기존 주제에 어중간하게 끌려가지 않았는지를 검사한다.',
+            'insert_material: 요청 소재가 targetSections에 실제로 들어갔는지, preserveSections가 불필요하게 바뀌지 않았는지 검사한다.',
+            '공통 기준: 사용자 요청 반영, 피드백 진단 반영, 섹션 잠금, 자연스러운 한국어, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
             'severity 기준: high는 반드시 repair, medium은 repair, low는 로그만 남기고 통과 가능하다.',
             'high 예: 섹션 잠금 위반, 피드백 핵심 미반영, 레퍼런스 상품명/상황/비유 오염, 허위 수치/고객 사례/전문가 권위 생성, 빈 섹션.',
             'medium 예: 어색한 한국어, 현재 주제와 맞지 않는 비유, 문장 연결 부자연스러움.',
@@ -2006,6 +2379,10 @@ export async function validateRefinedScriptQuality({
           role: 'user',
           content: [
             `수정 범위: ${editTarget || 'all'}`,
+            `qaMode: ${qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
+            `새 주제: ${newSubject || '-'}`,
+            `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
+            `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
             `사용자/피드백 적용 요청:\n${request || '-'}`,
             '',
             buildDraftBlock(original),
@@ -2073,10 +2450,17 @@ export async function repairRefinedScriptWithQaIssues({
   qaIssues = [],
   characterSystemPrompt = '',
   personalizationContext = '',
+  qaMode = COPILOT_QA_MODES.PRESERVE_TOPIC,
+  newSubject = '',
+  requestedMaterials = [],
+  targetSections: plannedTargetSections = null,
+  preserveSections = [],
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
-  const targetSections = getTargetSections(normalizeEditTarget(editTarget, request))
+  const targetSections = Array.isArray(plannedTargetSections) && plannedTargetSections.length
+    ? plannedTargetSections.filter((section) => SECTION_KEYS.includes(section))
+    : getTargetSections(normalizeEditTarget(editTarget, request))
   const targetSet = new Set(targetSections)
   const repairIssues = normalizeQaIssues(qaIssues).filter((issue) => QA_REPAIR_SEVERITIES.has(issue.severity))
   const issueSections = new Set(
@@ -2113,11 +2497,20 @@ export async function repairRefinedScriptWithQaIssues({
         {
           role: 'system',
           content: [
-            '당신은 숏폼 대본 QA repair 편집자다. QA issue가 있는 섹션만 최소 수정한다.',
-            'QA issue가 없는 섹션은 수정본 그대로 유지한다.',
+            '당신은 숏폼 대본을 최종으로 다듬는 편집자다. 문제가 확인된 섹션만 최소 수정한다.',
+            '문제가 없는 섹션은 수정본 그대로 유지한다.',
             '잠긴 섹션은 원문 그대로 유지한다.',
+            '사용자가 새 주제나 새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지보다 우선한다.',
+            qaMode === COPILOT_QA_MODES.REFRAME_TOPIC
+              ? `이번 작업은 새 주제 "${newSubject || '사용자가 명시한 새 주제'}"가 잘 반영되도록 다듬는 작업이다. 기존 주제의 소재/사실에 끌려가지 않는다.`
+              : null,
+            qaMode === COPILOT_QA_MODES.INSERT_MATERIAL
+              ? `이번 작업은 요청 소재 누락/삽입 위치 문제를 다듬는 작업이다. 요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`
+              : null,
             '없는 사실, 허위 수치, 허위 후기, 허위 고객 사례, 허위 전문가 권위, 레퍼런스 소재를 만들지 않는다.',
             '한국어가 어색한 문장은 실제 사람이 말하는 자연스러운 표현으로만 고친다.',
+            '사용자에게 보여줄 message에는 QA, 품질 검사, 위험 요소, issue, repair, fallback, 내부 검사 같은 시스템/개발 용어를 절대 쓰지 않는다.',
+            'message는 "문제였던 부분만 다시 다듬었어요. ..."처럼 사용자가 이해하기 쉬운 말로 한두 문장만 쓴다.',
             buildContextPriority(),
             buildReferenceContaminationGuard(),
             buildEditOutputInstruction(repairTargets),
@@ -2131,6 +2524,10 @@ export async function repairRefinedScriptWithQaIssues({
           role: 'user',
           content: [
             `repair 대상 섹션: ${repairTargets.join(', ')}`,
+            `qaMode: ${qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
+            `새 주제: ${newSubject || '-'}`,
+            `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
+            `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
             `사용자/피드백 적용 요청:\n${request || '-'}`,
             '',
             '[원문]',
@@ -2154,7 +2551,7 @@ export async function repairRefinedScriptWithQaIssues({
             '',
             referenceContext,
             '',
-            'QA issue가 있는 섹션만 고쳐서 JSON으로 반환하세요.',
+            '문제가 확인된 섹션만 고쳐서 JSON으로 반환하세요.',
           ].join('\n'),
         },
       ],
@@ -2176,12 +2573,16 @@ export async function repairRefinedScriptWithQaIssues({
       editTarget,
       feedback,
       request,
+      qaMode,
+      newSubject,
+      requestedMaterials,
+      targetSections,
     })
 
     return {
       success: !postCheck.shouldRepair,
       sections: repaired,
-      message: parsed.message?.trim() || 'QA 이슈를 기준으로 문제 섹션만 다시 다듬었습니다.',
+      message: sanitizeUserFacingRepairMessage(parsed.message),
       postCheck,
     }
   } catch (error) {
@@ -2233,6 +2634,12 @@ export const __scriptAssistantTest = {
   shouldUseHookTemplatesForRefine,
   shouldUseNarrativePatternsForRefine,
   classifyCopilotIntentByRule,
+  detectExplicitPreserveSections,
+  extractRequestedNewSubject,
+  extractRequestedMaterials,
+  sanitizeUserFacingCopilotMessage,
+  COPILOT_OPERATION_TYPES,
+  COPILOT_QA_MODES,
   createFallbackIntent,
   messageMentionsLockedSections,
   logPromptAssembly,

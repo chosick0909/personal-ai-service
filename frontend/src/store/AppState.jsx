@@ -2009,6 +2009,7 @@ export function AppStateProvider({ children }) {
     setIsEditorEntering(false)
     setIsResultEntering(false)
 
+    let keepAnalyzingAfterAccepted = false
     try {
       const analysis = await analyzeReferenceScriptText({
         scriptText: normalizedScriptText,
@@ -2043,6 +2044,18 @@ export function AppStateProvider({ children }) {
           reference: completedReference,
         },
       })
+      if (isProcessingLikeReferenceStatus(completedReference.status) && completedReference.hasAnalysisPreview) {
+        keepAnalyzingAfterAccepted = true
+        setCurrentStep('result')
+        setUploadPhase('server-accepted')
+        setIsAnalyzing(true)
+        setIsResultEntering(true)
+        window.setTimeout(() => {
+          if (isCurrentAccountRequest(requestAccountId)) {
+            setIsResultEntering(false)
+          }
+        }, 420)
+      }
     } catch (error) {
       if (!isCurrentAnalysisRequest()) {
         canceledAnalysisTokensRef.current.delete(requestToken)
@@ -2072,7 +2085,7 @@ export function AppStateProvider({ children }) {
       if (analysisAbortControllerRef.current === requestAbortController) {
         analysisAbortControllerRef.current = null
       }
-      if (isCurrentAnalysisRequest()) {
+      if (isCurrentAnalysisRequest() && !keepAnalyzingAfterAccepted) {
         setIsAnalyzing(false)
       }
     }

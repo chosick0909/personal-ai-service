@@ -4266,6 +4266,7 @@ export async function analyzeReferenceVideo({
   characterSystemPrompt = '',
   accountSettings = {},
   onProcessingCreated = null,
+  onAnalysisPreviewReady = null,
 }) {
   const normalizedScriptText = String(scriptText || '').trim()
   const isTextReference = Boolean(normalizedScriptText)
@@ -4704,30 +4705,32 @@ export async function analyzeReferenceVideo({
           `시각 분석 요약:\n${frameSummary || '첫 3초 프레임에서 유효한 음성 전사를 얻지 못했습니다.'}`,
         ].join('\n\n')
 
-    const ingestedDocument = await runStage(
-      'ingest-document',
-      { ...baseContext, transcriptEmpty: !normalizedTranscript, transcriptQuality: transcriptQuality.level },
-      async () =>
-        ingestDocument({
-          accountId,
-          title: normalizedTitle,
-          source: 'reference-video-transcript',
-          content: transcriptDocumentContent,
-          metadata: {
-            topic: normalizedTopic,
-            originalFilename: normalizedOriginalName,
-            transcriptEmpty: !normalizedTranscript,
-            transcriptQuality: transcriptQuality.level,
-            transcriptQualityScore: transcriptQuality.score,
-            transcriptQualityReasons: transcriptQuality.reasons,
-            hasAudio,
-            transcriptCapped,
-            transcriptCapSeconds: cappedAudioSeconds,
-            category: 'reference-video',
-          },
-        }),
-      stageHooks,
-    )
+    const ingestedDocument = isTextReference
+      ? { document: { id: null } }
+      : await runStage(
+          'ingest-document',
+          { ...baseContext, transcriptEmpty: !normalizedTranscript, transcriptQuality: transcriptQuality.level },
+          async () =>
+            ingestDocument({
+              accountId,
+              title: normalizedTitle,
+              source: 'reference-video-transcript',
+              content: transcriptDocumentContent,
+              metadata: {
+                topic: normalizedTopic,
+                originalFilename: normalizedOriginalName,
+                transcriptEmpty: !normalizedTranscript,
+                transcriptQuality: transcriptQuality.level,
+                transcriptQualityScore: transcriptQuality.score,
+                transcriptQualityReasons: transcriptQuality.reasons,
+                hasAudio,
+                transcriptCapped,
+                transcriptCapSeconds: cappedAudioSeconds,
+                category: 'reference-video',
+              },
+            }),
+          stageHooks,
+        )
 
     const analysisResponse = await runStage(
       'analysis-gpt',
@@ -4803,7 +4806,7 @@ export async function analyzeReferenceVideo({
     const analysisResult = normalizeAnalysisYearReferences(parsedAnalysisResult)
     const generationGuides = buildGenerationGuides({ analysisResult })
     const shouldGenerateDrafts = Boolean(normalizedTranscript)
-    await runStage(
+    const previewReference = await runStage(
       'save-reference-preview',
       baseContext,
       async () =>
@@ -4835,7 +4838,7 @@ export async function analyzeReferenceVideo({
             failure_message: null,
             analysis_stage_metrics: stageMetrics,
             transcript_quality: transcriptQuality,
-            document_id: ingestedDocument.document.id,
+            document_id: ingestedDocument?.document?.id || null,
           },
           removableColumns: [
             'project_id',
@@ -4850,6 +4853,9 @@ export async function analyzeReferenceVideo({
         }),
       stageHooks,
     )
+    if (typeof onAnalysisPreviewReady === 'function' && previewReference) {
+      await onAnalysisPreviewReady(previewReference)
+    }
     const referenceGuard = {
       surfaceTerms: extractReferenceSurfaceTerms({
         title: normalizedTitle,
@@ -4918,26 +4924,28 @@ export async function analyzeReferenceVideo({
     let generatedVariations = []
 
     if (shouldGenerateDrafts) {
-      const variationKnowledge = await runStage(
-        'retrieve-global-knowledge',
-        baseContext,
-        async () =>
-          retrieveGlobalKnowledgeContext({
-            title: '',
-            topic: [
-              topicFocusPrompt || null,
-              `카테고리: ${categoryGuard.category}`,
-              `전략: ${VARIATION_CONFIGS.map((config) => config.angle).join(', ')}`,
-              `검색 힌트: ${VARIATION_CONFIGS.map((config) => config.retrievalHint).join(' / ')}`,
-            ]
-              .filter(Boolean)
-              .join('\n'),
-            transcript: '',
-            frameSummary: '',
-            topK: 5,
-          }),
-        stageHooks,
-      )
+      const variationKnowledge = isTextReference
+        ? { contextText: '', items: [] }
+        : await runStage(
+            'retrieve-global-knowledge',
+            baseContext,
+            async () =>
+              retrieveGlobalKnowledgeContext({
+                title: '',
+                topic: [
+                  topicFocusPrompt || null,
+                  `카테고리: ${categoryGuard.category}`,
+                  `전략: ${VARIATION_CONFIGS.map((config) => config.angle).join(', ')}`,
+                  `검색 힌트: ${VARIATION_CONFIGS.map((config) => config.retrievalHint).join(' / ')}`,
+                ]
+                  .filter(Boolean)
+                  .join('\n'),
+                transcript: '',
+                frameSummary: '',
+                topK: 5,
+              }),
+            stageHooks,
+          )
       const compactKnowledgeContext = clampText(
         variationKnowledge.contextText || '',
         VARIATION_CONTEXT_TEXT_MAX,
@@ -4965,7 +4973,7 @@ export async function analyzeReferenceVideo({
             hookAnalysis: analysisResult.hookAnalysis || '',
             structureBlueprint,
             settingCues: guardPromptSummary.settingCues,
-            topK: 6,
+            topK: isTextReference ? 4 : 6,
           }),
         stageHooks,
       )
@@ -5467,24 +5475,26 @@ export async function analyzeReferenceVideo({
         },
       })
       const diversifiedVariations = enforceVariationDiversity(hookDiversifiedVariations, categoryGuard)
-      const playbookCorrectedVariations = await runStage(
-        'writing-playbook-batch-correction',
-        baseContext,
-        async () =>
-          applyWritingPlaybookBatchCorrection({
-            openai,
-            playbookModel,
-            variations: diversifiedVariations,
-            structureBlueprint,
-            categoryGuard,
-            referenceGuard,
-            guardPromptSummary,
-            topicFocusPrompt,
-            accountId,
-            referenceId: processingReference.id,
-          }),
-        stageHooks,
-      )
+      const playbookCorrectedVariations = isTextReference
+        ? diversifiedVariations
+        : await runStage(
+            'writing-playbook-batch-correction',
+            baseContext,
+            async () =>
+              applyWritingPlaybookBatchCorrection({
+                openai,
+                playbookModel,
+                variations: diversifiedVariations,
+                structureBlueprint,
+                categoryGuard,
+                referenceGuard,
+                guardPromptSummary,
+                topicFocusPrompt,
+                accountId,
+                referenceId: processingReference.id,
+              }),
+            stageHooks,
+          )
       generatedVariations = enforceVariationDiversity(playbookCorrectedVariations, categoryGuard)
     }
 
@@ -5516,7 +5526,7 @@ export async function analyzeReferenceVideo({
           analysis_stage_metrics: stageMetrics,
           transcript_quality: transcriptQuality,
           processing_completed_at: new Date().toISOString(),
-          document_id: ingestedDocument.document.id,
+          document_id: ingestedDocument?.document?.id || null,
         }
 
         return persistReferenceVideoRowWithFallback({
@@ -5555,20 +5565,37 @@ export async function analyzeReferenceVideo({
       })
     }
 
-    await runStage(
-      'sync-reference-analysis',
-      baseContext,
-      async () =>
-        syncReferenceAnalysis({
-          supabaseAdmin,
+    if (isTextReference) {
+      void syncReferenceAnalysis({
+        supabaseAdmin,
+        accountId,
+        legacyReferenceVideo: row,
+        transcriptDocumentContent,
+        topic: normalizedTopic,
+        source: normalizedOriginalName,
+      }).catch((error) => {
+        console.warn('[reference-video-analysis] text reference background sync failed', {
           accountId,
-          legacyReferenceVideo: row,
-          transcriptDocumentContent,
-          topic: normalizedTopic,
-          source: normalizedOriginalName,
-        }),
-      stageHooks,
-    )
+          referenceId: row?.id || processingReference.id,
+          message: error?.message || 'unknown',
+        })
+      })
+    } else {
+      await runStage(
+        'sync-reference-analysis',
+        baseContext,
+        async () =>
+          syncReferenceAnalysis({
+            supabaseAdmin,
+            accountId,
+            legacyReferenceVideo: row,
+            transcriptDocumentContent,
+            topic: normalizedTopic,
+            source: normalizedOriginalName,
+          }),
+        stageHooks,
+      )
+    }
 
     const output = {
       ...row,

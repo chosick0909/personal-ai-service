@@ -152,6 +152,35 @@ export default function UploadSection() {
   }, [displayedAnalyzeProgress, uploadPhase])
 
   const uploadPhaseSteps = useMemo(() => {
+    if (inputMode === 'script' && (currentStep === 'analyzing' || isAnalyzing)) {
+      return [
+        {
+          label: '대본 접수',
+          description: '완료',
+          active: false,
+          done: true,
+        },
+        {
+          label: '구조 분석',
+          description: 'AI 처리',
+          active: true,
+          done: false,
+        },
+        {
+          label: '초안 생성',
+          description: 'A/B/C',
+          active: false,
+          done: false,
+        },
+        {
+          label: '완료',
+          description: '결과 확인',
+          active: false,
+          done: false,
+        },
+      ]
+    }
+
     const activeIndex =
       uploadPhase === 'creating-session' || uploadPhase === 'uploading'
         ? 0
@@ -185,7 +214,7 @@ export default function UploadSection() {
       active: activeIndex === index,
       done: activeIndex > index,
     }))
-  }, [currentStep, isAnalyzing, uploadPhase])
+  }, [currentStep, inputMode, isAnalyzing, uploadPhase])
 
   const analyzeDelayNotice = useMemo(() => {
     if (!isAnalysisStep) {
@@ -352,7 +381,7 @@ export default function UploadSection() {
             dragActive
               ? 'border-[#8B95A7] bg-[#181C25]'
               : 'border-[#2F3543] bg-[#131720]'
-          }`}
+          } ${inputMode === 'script' && currentStep !== 'analyzing' ? 'md:h-auto md:py-12' : ''}`}
         >
           <input
             ref={fileInputRef}
@@ -366,24 +395,28 @@ export default function UploadSection() {
           />
 
           <div className="flex min-h-[280px] flex-col items-center justify-center text-center md:h-full md:min-h-0">
-            <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2A2F3C_0%,#1F2430_100%)] shadow-[0_1px_3px_rgba(0,0,0,0.30)] md:h-20 md:w-20">
-              {currentStep === 'analyzing' ? (
-                <div
-                  className="flex h-11 w-11 items-center justify-center rounded-full md:h-14 md:w-14"
-                  style={{
-                    background: `conic-gradient(#7C3AED ${displayedAnalyzeProgress * 3.6}deg, #2F3543 ${displayedAnalyzeProgress * 3.6}deg 360deg)`,
-                  }}
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#141923] text-[10px] font-semibold text-[#E5E7EB] md:h-[50px] md:w-[50px] md:text-xs">
-                    {displayedAnalyzeProgress}%
+            {inputMode !== 'script' || currentStep === 'analyzing' ? (
+              <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(135deg,#2A2F3C_0%,#1F2430_100%)] shadow-[0_1px_3px_rgba(0,0,0,0.30)] md:h-20 md:w-20">
+                {currentStep === 'analyzing' ? (
+                  <div
+                    className="flex h-11 w-11 items-center justify-center rounded-full md:h-14 md:w-14"
+                    style={{
+                      background: `conic-gradient(#7C3AED ${displayedAnalyzeProgress * 3.6}deg, #2F3543 ${displayedAnalyzeProgress * 3.6}deg 360deg)`,
+                    }}
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#141923] text-[10px] font-semibold text-[#E5E7EB] md:h-[50px] md:w-[50px] md:text-xs">
+                      {displayedAnalyzeProgress}%
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <UploadIcon />
-              )}
-            </div>
+                ) : (
+                  <UploadIcon />
+                )}
+              </div>
+            ) : null}
 
-            <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:mt-8 md:text-xs">
+            <div className={`text-[10px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:text-xs ${
+              inputMode === 'script' && currentStep !== 'analyzing' ? 'mt-0' : 'mt-4 md:mt-8'
+            }`}>
               {currentStep === 'analyzing'
                 ? `분석 중 ${displayedAnalyzeProgress}%`
                 : inputMode === 'script'
@@ -410,7 +443,9 @@ export default function UploadSection() {
 
             <p className="mt-2 text-[11px] leading-4.5 text-[#8E97A6] md:text-sm md:leading-6">
               {currentStep === 'analyzing'
-                ? '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
+                ? inputMode === 'script'
+                  ? '대본 구조 분석과 A/B/C 초안 생성을 진행 중입니다.'
+                  : '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
                 : inputMode === 'script'
                   ? '영상 화면 정보 없이 대본의 문장 구조, 후킹 흐름, 설득 흐름만 빠르게 분석합니다.'
                 : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다. (긴 영상은 앞부분 중심으로 분석)'}
@@ -467,7 +502,9 @@ export default function UploadSection() {
               </div>
             ) : null}
 
-            <div className="mt-4 flex flex-row items-center justify-center gap-4 md:mt-8 md:gap-5">
+            <div className={`flex flex-row items-center justify-center gap-4 md:gap-5 ${
+              inputMode === 'script' && currentStep !== 'analyzing' ? 'mt-6 md:mt-8' : 'mt-4 md:mt-8'
+            }`}>
               {currentStep === 'analyzing' || isAnalyzing ? (
                 <button
                   type="button"
@@ -484,7 +521,7 @@ export default function UploadSection() {
                   onClick={handleScriptAnalyze}
                   className="btn-solid-contrast inline-flex h-11 min-w-[132px] items-center justify-center rounded-full px-5 text-xs font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:h-14 md:min-w-[180px] md:px-6 md:text-base"
                 >
-                  대본 빠른 분석
+                  대본 분석 시작
                 </button>
               ) : (
                 <button
