@@ -30,6 +30,7 @@ const {
   messageMentionsLockedSections,
   logPromptAssembly,
   classifyCopilotIntentByRule,
+  parseEditInstruction,
   buildEditPlan,
   shouldUseHeavyQualityGateForCopilot,
   buildNaturalResponseUserPrompt,
@@ -610,6 +611,46 @@ test('copilot edit plan classifies explicit topic reframe requests', () => {
   assert.ok(plan.avoid.some((item) => item.includes('기존 주제')))
 })
 
+test('parse edit instruction separates old and new subjects from X 말고 Y requests', () => {
+  const instruction = parseEditInstruction('주제를 만두말고 치킨너겟으로 바꿔줘')
+
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(instruction.newSubject, '치킨너겟')
+  assert.deepEqual(instruction.oldSubjectToRemove, ['만두'])
+  assert.equal(instruction.allowComparisonWithOldSubject, false)
+  assert.ok(instruction.forbiddenSurfacePhrases.includes('만두말고'))
+  assert.ok(instruction.forbiddenSurfacePhrases.includes('만두 대신'))
+})
+
+test('parse edit instruction handles multiple old subjects and comparison exceptions', () => {
+  const reframe = parseEditInstruction('만두랑 떡볶이는 빼고 치킨너겟으로 가자')
+  assert.equal(reframe.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(reframe.newSubject, '치킨너겟')
+  assert.deepEqual(reframe.oldSubjectToRemove, ['만두', '떡볶이'])
+  assert.deepEqual(reframe.explicitRemove, ['만두', '떡볶이'])
+
+  const comparison = parseEditInstruction('만두랑 치킨너겟 비교하는 느낌으로 써줘')
+  assert.equal(comparison.allowComparisonWithOldSubject, true)
+  assert.notEqual(comparison.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+})
+
+test('copilot edit plan prioritizes structured instruction over raw request wording', () => {
+  const request = '주제를 만두말고 치킨너겟으로 바꿔줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '치킨너겟')
+  assert.deepEqual(plan.oldSubjectToRemove, ['만두'])
+  assert.ok(plan.forbiddenSurfacePhrases.includes('만두말고'))
+  assert.ok(plan.avoid.some((item) => item.includes('만두')))
+})
+
 test('copilot edit plan supports topic reframe with requested materials', () => {
   const request = '여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘'
   const intent = classifyCopilotIntentByRule(request, 'all')
@@ -729,6 +770,51 @@ test('topic reframe QA does not fail only because old topic changed', () => {
   assert.equal(result.shouldRepair, false)
 })
 
+test('topic reframe QA blocks old subject and forbidden instruction leakage', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      hook: '만두말고 치킨너겟으로 저녁 고민을 줄여보세요.',
+      body: '만두 대신 치킨너겟을 에어프라이어에 넣으면 간식 준비가 쉬워집니다.',
+      cta: '댓글에 너겟을 남겨주세요.',
+    },
+    editTarget: 'all',
+    request: '주제를 만두말고 치킨너겟으로 바꿔줘',
+    qaMode: COPILOT_QA_MODES.REFRAME_TOPIC,
+    newSubject: '치킨너겟',
+    oldSubjectToRemove: ['만두'],
+    forbiddenSurfacePhrases: ['만두말고', '만두 대신'],
+    allowComparisonWithOldSubject: false,
+    targetSections: ['hook', 'body', 'cta'],
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'forbidden_phrase_leakage'))
+  assert.ok(result.issues.some((issue) => issue.type === 'old_subject_leakage'))
+})
+
+test('topic reframe QA allows old subject only for explicit comparison requests', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      hook: '만두와 치킨너겟, 아이 간식으로 뭐가 더 편할까요?',
+      body: '만두는 데우는 방식이 다양하고, 치킨너겟은 바삭한 식감이 장점이라 상황에 따라 다르게 고르면 됩니다.',
+      cta: '댓글에 비교표라고 남기면 체크 기준을 보내드릴게요.',
+    },
+    editTarget: 'all',
+    request: '만두랑 치킨너겟 비교하는 느낌으로 써줘',
+    qaMode: COPILOT_QA_MODES.REFRAME_TOPIC,
+    newSubject: '치킨너겟',
+    oldSubjectToRemove: ['만두'],
+    allowComparisonWithOldSubject: true,
+    targetSections: ['hook', 'body', 'cta'],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.shouldRepair, false)
+})
+
 test('duration compress intent extracts target seconds and builds char range', () => {
   const intent = classifyCopilotIntentByRule('45초 안에 말하게 해줘', 'all')
   const plan = buildEditPlan({
@@ -765,7 +851,7 @@ test('duration compress QA flags overly long compressed drafts', () => {
 })
 
 test('duration compress user-facing message hides internal terms', () => {
-  const message = sanitizeUserFacingCopilotMessage('QA에서 issue가 감지되어 repair 했습니다.', {
+  const message = sanitizeUserFacingCopilotMessage('QA 이슈(근거 없는 수치 제거, 20초 분량 압축, CTA 초점 단일화)만 반영해 hook/body/cta 최소 수정했어요.', {
     editPlan: {
       operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
       targetDurationSeconds: 30,
@@ -777,7 +863,21 @@ test('duration compress user-facing message hides internal terms', () => {
 
   assert.match(message, /30초/)
   assert.match(message, /압축/)
-  assert.doesNotMatch(message, /QA|issue|repair|fallback|intent|qaMode|operationType/i)
+  assert.doesNotMatch(message, /QA|이슈|근거 없는 수치|최소 수정|hook\/body\/cta|issue|repair|fallback|intent|qaMode|operationType/i)
+})
+
+test('repair-style QA issue messages are sanitized for users', () => {
+  const message = sanitizeUserFacingCopilotMessage('QA 이슈(근거 없는 수치 삭제, ‘만두말고’ 대비/전환 명확화)만 최소 수정했어요.', {
+    editPlan: {
+      operationType: COPILOT_OPERATION_TYPES.EDIT_PARTIAL,
+      targetSections: ['hook', 'body'],
+    },
+    responseMode: 'edit_only',
+    changedSections: ['hook', 'body'],
+  })
+
+  assert.match(message, /좋아요|다듬/)
+  assert.doesNotMatch(message, /QA|이슈|근거 없는 수치|최소 수정|삭제|명확화/i)
 })
 
 test('heavy copilot quality gate is reserved for broad or risky edit requests', () => {

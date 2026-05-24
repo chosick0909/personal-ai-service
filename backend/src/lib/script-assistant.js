@@ -57,6 +57,9 @@ const COPILOT_OPERATION_TYPES = {
   TOPIC_REFRAME: 'topic_reframe',
   INSERT_MATERIAL: 'insert_material',
   DURATION_COMPRESS: 'duration_compress',
+  TONE_ADJUST: 'tone_adjust',
+  PARTIAL_REWRITE: 'partial_rewrite',
+  UNKNOWN: 'unknown',
 }
 const COPILOT_QA_MODES = {
   PRESERVE_TOPIC: 'preserve_topic',
@@ -278,8 +281,172 @@ function cleanRequestedPhrase(value = '') {
     .replace(/^[\s"'“”‘’.,:;·\-–—]+|[\s"'“”‘’.,:;·\-–—]+$/g, '')
     .replace(/^(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리)(?:은|는|을|를|만)?\s*(?:유지|그대로|고정|잠그|살리고|남기고|두고)\s*(?:하고|한\s*채|,)?\s*/i, '')
     .replace(/^(주제|소재|내용|방향)(?:를|은|는)?\s*/i, '')
+    .replace(/(?:으로|로)?\s*(?:바꿔줘|바꿔|바꾸어줘|바꾸|변경해줘|변경|수정해줘|수정|가자|다시\s*(?:만들어줘|만들|써줘|써|작성해줘|작성))\s*$/i, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function stripTrailingKoreanParticle(value = '') {
+  return String(value || '').replace(/\s*(?:은|는|을|를|이|가)$/u, '').trim()
+}
+
+function normalizeComparableText(value = '') {
+  return String(value || '').replace(/\s+/g, '').toLowerCase()
+}
+
+function parseSubjectList(value = '') {
+  return uniqueCompactList(
+    String(value || '')
+      .replace(/^(?:주제|소재|내용|방향)(?:를|은|는)?\s*/i, '')
+      .split(/\s*(?:,|\/|·|그리고|및|랑|하고|와|과)\s*/g)
+      .map((item) => stripTrailingKoreanParticle(cleanRequestedPhrase(item)))
+      .filter((item) => item && item.length <= 60),
+    8,
+  )
+}
+
+function buildForbiddenSurfacePhrases(oldSubjects = []) {
+  const phrases = []
+  for (const subject of uniqueCompactList(oldSubjects, 8)) {
+    phrases.push(
+      `${subject}말고`,
+      `${subject} 말고`,
+      `${subject}대신`,
+      `${subject} 대신`,
+      `${subject}빼고`,
+      `${subject} 빼고`,
+      `${subject}는 빼고`,
+      `${subject}은 빼고`,
+      `${subject} 버리고`,
+      `기존 ${subject}`,
+    )
+  }
+  return uniqueCompactList(phrases, 24)
+}
+
+function parseTopicReframeInstruction(text = '') {
+  const source = String(text || '').trim()
+  if (!source) {
+    return null
+  }
+
+  const patterns = [
+    /(?:주제(?:를|은|는)?\s*)?(.+?)\s*(?:말고|대신|빼고)\s*(.+?)\s*(?:으로|로)(?:\s|$)/i,
+    /(?:주제(?:를|은|는)?\s*)?(.+?)\s*(?:는|은)?\s*빼고\s*(.+?)\s*(?:으로|로)(?:\s|$)/i,
+    /(?:기존\s*)?(.+?)\s*(?:버리고|버려|제외하고)\s*(.+?)\s*(?:으로|로)(?:\s|$)/i,
+    /(?:주제(?:를|은|는)?\s*)?(.+?)\s*에서\s*(.+?)\s*(?:으로|로)(?:\s|$)/i,
+    /(?:주제(?:를|은|는)?\s*)?(.+?)\s*(?:을|를)\s*(.+?)\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정)/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern)
+    if (!match) {
+      continue
+    }
+    const oldSubjectToRemove = parseSubjectList(match[1])
+    const newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(match[2]))
+    if (oldSubjectToRemove.length && newSubject && newSubject.length <= 80) {
+      return {
+        newSubject,
+        oldSubjectToRemove,
+        forbiddenSurfacePhrases: buildForbiddenSurfacePhrases(oldSubjectToRemove),
+      }
+    }
+  }
+
+  return null
+}
+
+export function parseEditInstruction(request = '', intentResult = {}) {
+  const text = String(request || '').trim()
+  const targetDurationSeconds =
+    normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) || extractTargetDurationSeconds(text)
+  const allowComparisonWithOldSubject = /(비교|대비|차이|vs|VS|비교해|비교하는|비교해서)/i.test(text)
+
+  const instruction = {
+    operationType: COPILOT_OPERATION_TYPES.UNKNOWN,
+    newSubject: '',
+    oldSubjectToRemove: [],
+    forbiddenSurfacePhrases: [],
+    requestedMaterials: [],
+    explicitKeep: detectExplicitPreserveSections(text),
+    explicitRemove: [],
+    allowComparisonWithOldSubject,
+  }
+
+  if (targetDurationSeconds) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+    }
+  }
+
+  const topicReframe = parseTopicReframeInstruction(text)
+  if (topicReframe && !allowComparisonWithOldSubject) {
+    const requestedMaterials = extractRequestedMaterials(text, topicReframe.newSubject)
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: topicReframe.newSubject,
+      oldSubjectToRemove: topicReframe.oldSubjectToRemove,
+      forbiddenSurfacePhrases: topicReframe.forbiddenSurfacePhrases,
+      requestedMaterials,
+      explicitRemove: topicReframe.oldSubjectToRemove,
+    }
+  }
+
+  if (topicReframe && allowComparisonWithOldSubject) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+      newSubject: topicReframe.newSubject,
+      oldSubjectToRemove: topicReframe.oldSubjectToRemove,
+      forbiddenSurfacePhrases: [],
+      requestedMaterials: extractRequestedMaterials(text, topicReframe.newSubject),
+      explicitRemove: [],
+    }
+  }
+
+  const detectedNewSubject = cleanRequestedPhrase(intentResult.newSubject || extractRequestedNewSubject(text))
+  const requestedMaterials = uniqueCompactList(
+    Array.isArray(intentResult.requestedMaterials) && intentResult.requestedMaterials.length
+      ? intentResult.requestedMaterials.map((item) => cleanRequestedPhrase(item))
+      : extractRequestedMaterials(text, detectedNewSubject),
+    8,
+  )
+
+  if (detectedNewSubject) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: detectedNewSubject,
+      requestedMaterials,
+    }
+  }
+
+  if (requestedMaterials.length) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
+      requestedMaterials,
+    }
+  }
+
+  if (/자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체|광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(text)) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.TONE_ADJUST,
+    }
+  }
+
+  if (/고쳐|수정|바꿔|바꾸|다듬|개선|보완|리라이트|rewrite|edit|revise|fix/i.test(text)) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+    }
+  }
+
+  return instruction
 }
 
 function extractRequestedNewSubject(request = '') {
@@ -475,8 +642,11 @@ export function buildEditPlan({
     normalizeTargetDurationSeconds(targetDurationSeconds) ||
     normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) ||
     extractTargetDurationSeconds(request)
+  const structuredEditInstruction = parseEditInstruction(request, intentResult)
   const isDurationCompress =
-    Boolean(durationTarget) || intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+    Boolean(durationTarget) ||
+    intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
+    structuredEditInstruction.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
   const normalizedTarget = isDurationCompress
     ? 'all'
     : normalizeEditTarget(intentResult.editTarget || editTarget, request)
@@ -492,16 +662,28 @@ export function buildEditPlan({
   const targetSet = new Set(targetSections)
   const preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
   const memory = normalizeCopilotMemory(copilotMemory)
-  const detectedNewSubject = cleanRequestedPhrase(intentResult.newSubject || extractRequestedNewSubject(request))
+  const detectedNewSubject = cleanRequestedPhrase(
+    structuredEditInstruction.newSubject || intentResult.newSubject || extractRequestedNewSubject(request),
+  )
   const requestedMaterials = uniqueCompactList(
     Array.isArray(intentResult.requestedMaterials) && intentResult.requestedMaterials.length
       ? intentResult.requestedMaterials.map((item) => cleanRequestedPhrase(item))
-      : extractRequestedMaterials(request, detectedNewSubject),
+      : structuredEditInstruction.requestedMaterials?.length
+        ? structuredEditInstruction.requestedMaterials
+        : extractRequestedMaterials(request, detectedNewSubject),
     8,
   )
+  const structuredOperationType =
+    structuredEditInstruction.operationType && structuredEditInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
+      ? structuredEditInstruction.operationType
+      : ''
+  const oldSubjectToRemove = uniqueCompactList(structuredEditInstruction.oldSubjectToRemove, 8)
+  const forbiddenSurfacePhrases = uniqueCompactList(structuredEditInstruction.forbiddenSurfacePhrases, 24)
+  const allowComparisonWithOldSubject = Boolean(structuredEditInstruction.allowComparisonWithOldSubject)
   const operationType = isDurationCompress
     ? COPILOT_OPERATION_TYPES.DURATION_COMPRESS
-    : intentResult.operationType ||
+    : structuredOperationType ||
+    intentResult.operationType ||
     (detectedNewSubject
       ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
       : requestedMaterials.length
@@ -535,6 +717,12 @@ export function buildEditPlan({
     strategy.push('새 주제 기준 재구성 + 레퍼런스 구조/리듬 유지')
     change.push(`기존 소재에 끌려가지 않고 새 주제 "${detectedNewSubject || '사용자가 명시한 새 주제'}" 중심으로 HOOK/BODY/CTA를 맞춘다`)
     avoid.push('기존 주제의 상품/상황/고객 pain point를 어중간하게 섞기')
+    if (oldSubjectToRemove.length && !allowComparisonWithOldSubject) {
+      avoid.push(...oldSubjectToRemove.map((subject) => `기존 소재 "${subject}"를 비교/대비 표현으로도 남기지 않기`))
+    }
+    if (forbiddenSurfacePhrases.length) {
+      avoid.push(...forbiddenSurfacePhrases)
+    }
   }
   if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) {
     strategy.push(`${targetSections.map((key) => SECTION_LABELS[key]).join('/')}에 요청 소재 삽입 + 잠금 섹션 유지`)
@@ -615,7 +803,13 @@ export function buildEditPlan({
     targetDurationSeconds: durationTarget,
     targetCharRange,
     newSubject: detectedNewSubject,
+    oldSubjectToRemove,
+    forbiddenSurfacePhrases,
     requestedMaterials,
+    explicitKeep: structuredEditInstruction.explicitKeep || [],
+    explicitRemove: structuredEditInstruction.explicitRemove || [],
+    allowComparisonWithOldSubject,
+    structuredEditInstruction,
     carryOverStrategy: {
       preserveReferenceStructure: true,
       preserveTone: true,
@@ -654,6 +848,11 @@ function formatEditPlanForPrompt(editPlan = null) {
         }`
       : '',
     editPlan.newSubject ? `- 새 주제: ${editPlan.newSubject}` : '',
+    editPlan.oldSubjectToRemove?.length ? `- 제거할 기존 소재: ${editPlan.oldSubjectToRemove.join(', ')}` : '',
+    editPlan.forbiddenSurfacePhrases?.length ? `- 대본 금지 표현: ${editPlan.forbiddenSurfacePhrases.join(', ')}` : '',
+    editPlan.oldSubjectToRemove?.length
+      ? `- 기존 소재 비교 허용: ${editPlan.allowComparisonWithOldSubject ? '예' : '아니오'}`
+      : '',
     editPlan.requestedMaterials?.length ? `- 요청 소재: ${editPlan.requestedMaterials.join(', ')}` : '',
     editPlan.preserveSections?.length ? `- 유지 섹션: ${editPlan.preserveSections.map((key) => SECTION_LABELS[key]).join(', ')}` : '',
     `- 전략: ${editPlan.strategy || '-'}`,
@@ -663,9 +862,14 @@ function formatEditPlanForPrompt(editPlan = null) {
     `- 이유: ${editPlan.reason || '-'}`,
     '',
     '편집 계획 적용 규칙:',
+    '- 우선순위: structured edit plan > editTarget/section lock > account/character tone > current script > reference structure > raw user request.',
+    '- 사용자 원문은 의도 해석용 보조 정보다. 실제 대본 작성은 structured edit plan을 최우선으로 따른다.',
+    '- raw user request의 표현을 대본 문장에 그대로 복사하지 않는다.',
     '- 이 계획은 내부 보조 정보이며 섹션 잠금보다 우선하지 않는다.',
     '- 단, 사용자가 새 주제/새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지 규칙보다 우선한다.',
     '- topic_reframe이면 기존 주제의 소재/사실은 버릴 수 있고, 레퍼런스 구조/리듬/톤/CTA 스타일을 가능한 유지한다.',
+    '- forbiddenSurfacePhrases가 있으면 대본에 절대 사용하지 않는다.',
+    '- allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남기지 않는다. 비교/대비 표현으로도 쓰지 않는다.',
     '- insert_material이면 targetSections에만 요청 소재를 넣고 preserveSections는 원문 그대로 유지한다.',
     '- duration_compress이면 새 대본 생성이 아니라 삭제 중심 압축이다. 새 내용/수치/후기/사례/효과/권위를 만들지 않고 HOOK/BODY/CTA와 CTA 의도를 유지한다.',
     '- duration_compress에서는 목표 글자 수를 참고하되, 정확한 글자 수보다 자연스러운 문장과 핵심 메시지 보존을 우선한다.',
@@ -819,13 +1023,21 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
       requestedMaterials: [],
     }
   }
-  const newSubject = extractRequestedNewSubject(text)
-  const requestedMaterials = extractRequestedMaterials(text, newSubject)
-  const operationType = newSubject
-    ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
-    : requestedMaterials.length
-      ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
-      : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
+  const parsedInstruction = parseEditInstruction(text, {
+    targetDurationSeconds,
+  })
+  const newSubject = parsedInstruction.newSubject || extractRequestedNewSubject(text)
+  const requestedMaterials = parsedInstruction.requestedMaterials?.length
+    ? parsedInstruction.requestedMaterials
+    : extractRequestedMaterials(text, newSubject)
+  const operationType =
+    parsedInstruction.operationType && parsedInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
+      ? parsedInstruction.operationType
+      : newSubject
+        ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+        : requestedMaterials.length
+          ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+          : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
   const editPattern =
     /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|넣어|넣어줘|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게)/i
   const advicePattern =
@@ -1114,7 +1326,7 @@ function sanitizeUserFacingRepairMessage(message) {
     return '문제였던 부분만 다시 다듬었어요. 핵심 흐름은 유지하면서 어색하거나 과해 보일 수 있는 표현을 정리했습니다.'
   }
 
-  const internalPattern = /QA|quality\s*gate|repair|fallback|issue|이슈|품질\s*검사|검사에서|위험\s*요소|내부|안전\s*검사|사회적\s*증거/i
+  const internalPattern = /QA|quality\s*gate|repair|fallback|issue|이슈|품질\s*검사|검사에서|위험\s*요소|내부|안전\s*검사|사회적\s*증거|근거\s*없는\s*수치|최소\s*수정|hook\/body\/cta/i
   if (internalPattern.test(text)) {
     return '문제였던 부분만 다시 다듬었어요. 핵심 흐름은 유지하면서 어색하거나 과해 보일 수 있는 표현을 정리했습니다.'
   }
@@ -1123,7 +1335,7 @@ function sanitizeUserFacingRepairMessage(message) {
 }
 
 const COPILOT_USER_MESSAGE_INTERNAL_PATTERN =
-  /QA|quality\s*gate|repair|리페어|fallback|issue|intent|qaMode|operationType|품질\s*검사|검사에서|검증\s*실패|위험\s*요소|내부\s*편집\s*계획|내부\s*검사|안전\s*검사|사회적\s*증거/i
+  /QA|quality\s*gate|repair|리페어|fallback|issue|이슈|intent|qaMode|operationType|품질\s*검사|검사에서|검증\s*실패|위험\s*요소|내부\s*편집\s*계획|내부\s*검사|안전\s*검사|사회적\s*증거|근거\s*없는\s*수치|최소\s*수정|hook\/body\/cta/i
 
 function buildCopilotIntentTemplateMessage({
   editPlan = {},
@@ -1186,6 +1398,25 @@ function findUnexpectedNumbers(candidateSections = {}, allowedText = '') {
   return [...candidate].filter((item) => !allowed.has(item))
 }
 
+function textIncludesLoosePhrase(text = '', phrase = '') {
+  const source = String(text || '')
+  const target = String(phrase || '').trim()
+  if (!source || !target) {
+    return false
+  }
+  return source.includes(target) || normalizeComparableText(source).includes(normalizeComparableText(target))
+}
+
+function subjectLeakAllowedByNewSubject(subject = '', newSubject = '') {
+  const normalizedSubject = normalizeComparableText(subject)
+  const normalizedNewSubject = normalizeComparableText(newSubject)
+  return Boolean(
+    normalizedSubject &&
+      normalizedNewSubject &&
+      (normalizedNewSubject.includes(normalizedSubject) || normalizedSubject.includes(normalizedNewSubject)),
+  )
+}
+
 export function runFeedbackFallbackRuleCheck({
   originalSections,
   candidateSections,
@@ -1195,6 +1426,9 @@ export function runFeedbackFallbackRuleCheck({
   qaMode = COPILOT_QA_MODES.PRESERVE_TOPIC,
   newSubject = '',
   requestedMaterials = [],
+  oldSubjectToRemove = [],
+  forbiddenSurfacePhrases = [],
+  allowComparisonWithOldSubject = false,
   targetSections: plannedTargetSections = null,
   targetDurationSeconds = null,
   targetCharRange = null,
@@ -1258,6 +1492,59 @@ export function runFeedbackFallbackRuleCheck({
   }
 
   const candidateText = Object.values(candidate).join('\n')
+  const forbiddenPhrases = uniqueCompactList(forbiddenSurfacePhrases, 24)
+  for (const phrase of forbiddenPhrases) {
+    if (textIncludesLoosePhrase(candidateText, phrase)) {
+      issues.push(
+        createQaIssue({
+          type: 'forbidden_phrase_leakage',
+          severity: 'high',
+          section: 'all',
+          text: phrase,
+          reason: '사용자 편집 지시문 표면 표현이 대본 문장에 섞였다.',
+          suggestion: '편집 지시문 표현은 제거하고 새 주제/소재만 자연스럽게 반영한다.',
+        }),
+      )
+    }
+  }
+
+  const oldSubjects = uniqueCompactList(oldSubjectToRemove, 8)
+  if (oldSubjects.length && !allowComparisonWithOldSubject) {
+    for (const subject of oldSubjects) {
+      if (subjectLeakAllowedByNewSubject(subject, newSubject)) {
+        continue
+      }
+      if (textIncludesLoosePhrase(candidateText, subject)) {
+        issues.push(
+          createQaIssue({
+            type: 'old_subject_leakage',
+            severity: 'high',
+            section: 'all',
+            text: subject,
+            reason: '새 주제로 바꾸는 요청에서 제거해야 할 기존 소재가 대본에 남았다.',
+            suggestion: `기존 소재 "${subject}"는 제거하고 "${newSubject || '새 주제'}" 중심으로 다시 정리한다.`,
+          }),
+        )
+      }
+    }
+  }
+  if (
+    oldSubjects.length &&
+    qaMode === COPILOT_QA_MODES.REFRAME_TOPIC &&
+    !allowComparisonWithOldSubject &&
+    /말고|대신|빼고|버리고|제외하고/i.test(candidateText)
+  ) {
+    issues.push(
+      createQaIssue({
+        type: 'instruction_leakage',
+        severity: 'medium',
+        section: 'all',
+        reason: '편집 지시처럼 보이는 전환 표현이 대본에 남았다.',
+        suggestion: '사용자 지시문을 설명하지 말고 새 주제 기준의 자연스러운 대본 문장으로 바꾼다.',
+      }),
+    )
+  }
+
   if (qaMode === COPILOT_QA_MODES.REFRAME_TOPIC && newSubject) {
     const subjectTokens = tokenizeForRequestMatch(newSubject)
     const matched = subjectTokens.some((token) => candidateText.includes(token))
@@ -2519,6 +2806,9 @@ export async function validateRefinedScriptQuality({
   qaMode = COPILOT_QA_MODES.PRESERVE_TOPIC,
   newSubject = '',
   requestedMaterials = [],
+  oldSubjectToRemove = [],
+  forbiddenSurfacePhrases = [],
+  allowComparisonWithOldSubject = false,
   targetSections: plannedTargetSections = null,
   preserveSections = [],
   targetDurationSeconds = null,
@@ -2535,6 +2825,9 @@ export async function validateRefinedScriptQuality({
     qaMode,
     newSubject,
     requestedMaterials,
+    oldSubjectToRemove,
+    forbiddenSurfacePhrases,
+    allowComparisonWithOldSubject,
     targetSections: plannedTargetSections,
     targetDurationSeconds,
     targetCharRange,
@@ -2560,6 +2853,9 @@ export async function validateRefinedScriptQuality({
             'reframe_topic: 기존 주제와 달라졌다는 이유로 실패 처리하지 말고, 새 주제가 명확히 반영됐는지와 기존 주제에 어중간하게 끌려가지 않았는지를 검사한다.',
             'insert_material: 요청 소재가 targetSections에 실제로 들어갔는지, preserveSections가 불필요하게 바뀌지 않았는지 검사한다.',
             'duration_compress: 새 대본 생성이 아니라 삭제 중심 압축인지 검사한다. 목표 글자 범위 근처인지, HOOK/BODY/CTA와 CTA 의도/핵심 메시지가 유지됐는지, 새 사실/수치/후기/효과가 생기지 않았는지 검사한다.',
+            'structured edit plan에 forbiddenSurfacePhrases가 있으면 해당 표현은 대본에 절대 남으면 안 된다.',
+            'allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남으면 안 된다. 비교/대비 표현으로도 쓰지 않는다.',
+            'instruction_leakage, forbidden_phrase_leakage, old_subject_leakage, mixed_subject_contamination을 검사한다.',
             '공통 기준: 사용자 요청 반영, 피드백 진단 반영, 섹션 잠금, 자연스러운 한국어, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
             'severity 기준: high는 반드시 repair, medium은 repair, low는 로그만 남기고 통과 가능하다.',
             'high 예: 섹션 잠금 위반, 피드백 핵심 미반영, 레퍼런스 상품명/상황/비유 오염, 허위 수치/고객 사례/전문가 권위 생성, 빈 섹션.',
@@ -2578,6 +2874,9 @@ export async function validateRefinedScriptQuality({
             `수정 범위: ${editTarget || 'all'}`,
             `qaMode: ${qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
             `새 주제: ${newSubject || '-'}`,
+            `제거할 기존 소재: ${uniqueCompactList(oldSubjectToRemove, 8).join(', ') || '-'}`,
+            `대본 금지 표현: ${uniqueCompactList(forbiddenSurfacePhrases, 24).join(', ') || '-'}`,
+            `기존 소재 비교 허용: ${allowComparisonWithOldSubject ? '예' : '아니오'}`,
             `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
             `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
@@ -2652,6 +2951,9 @@ export async function repairRefinedScriptWithQaIssues({
   qaMode = COPILOT_QA_MODES.PRESERVE_TOPIC,
   newSubject = '',
   requestedMaterials = [],
+  oldSubjectToRemove = [],
+  forbiddenSurfacePhrases = [],
+  allowComparisonWithOldSubject = false,
   targetSections: plannedTargetSections = null,
   preserveSections = [],
   targetDurationSeconds = null,
@@ -2705,6 +3007,15 @@ export async function repairRefinedScriptWithQaIssues({
             qaMode === COPILOT_QA_MODES.REFRAME_TOPIC
               ? `이번 작업은 새 주제 "${newSubject || '사용자가 명시한 새 주제'}"가 잘 반영되도록 다듬는 작업이다. 기존 주제의 소재/사실에 끌려가지 않는다.`
               : null,
+            uniqueCompactList(forbiddenSurfacePhrases, 24).length
+              ? `대본에 절대 쓰면 안 되는 사용자 지시 표현: ${uniqueCompactList(forbiddenSurfacePhrases, 24).join(', ')}`
+              : null,
+            uniqueCompactList(oldSubjectToRemove, 8).length && !allowComparisonWithOldSubject
+              ? `제거해야 할 기존 소재: ${uniqueCompactList(oldSubjectToRemove, 8).join(', ')}. 비교/대비 표현으로도 남기지 않는다.`
+              : null,
+            uniqueCompactList(oldSubjectToRemove, 8).length && allowComparisonWithOldSubject
+              ? `기존 소재 비교가 허용된 요청이다. 단, 비교가 아닌 기존 주제 오염으로 남기지 않는다. 기존 소재: ${uniqueCompactList(oldSubjectToRemove, 8).join(', ')}`
+              : null,
             qaMode === COPILOT_QA_MODES.INSERT_MATERIAL
               ? `이번 작업은 요청 소재 누락/삽입 위치 문제를 다듬는 작업이다. 요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`
               : null,
@@ -2730,6 +3041,9 @@ export async function repairRefinedScriptWithQaIssues({
             `repair 대상 섹션: ${repairTargets.join(', ')}`,
             `qaMode: ${qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
             `새 주제: ${newSubject || '-'}`,
+            `제거할 기존 소재: ${uniqueCompactList(oldSubjectToRemove, 8).join(', ') || '-'}`,
+            `대본 금지 표현: ${uniqueCompactList(forbiddenSurfacePhrases, 24).join(', ') || '-'}`,
+            `기존 소재 비교 허용: ${allowComparisonWithOldSubject ? '예' : '아니오'}`,
             `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
             `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
@@ -2782,6 +3096,9 @@ export async function repairRefinedScriptWithQaIssues({
       qaMode,
       newSubject,
       requestedMaterials,
+      oldSubjectToRemove,
+      forbiddenSurfacePhrases,
+      allowComparisonWithOldSubject,
       targetSections,
       targetDurationSeconds,
       targetCharRange,
@@ -2842,6 +3159,7 @@ export const __scriptAssistantTest = {
   shouldUseHookTemplatesForRefine,
   shouldUseNarrativePatternsForRefine,
   classifyCopilotIntentByRule,
+  parseEditInstruction,
   detectExplicitPreserveSections,
   extractRequestedNewSubject,
   extractRequestedMaterials,
