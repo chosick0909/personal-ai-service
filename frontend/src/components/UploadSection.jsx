@@ -62,6 +62,7 @@ export default function UploadSection() {
   const {
     currentStep,
     analyzeReference,
+    analyzeReferenceScript,
     cancelCurrentAnalysis,
     isAnalyzing,
     analyzeError,
@@ -71,7 +72,10 @@ export default function UploadSection() {
     setUploadTopic,
     uploadTitle,
     setUploadTitle,
+    referenceScriptText,
+    setReferenceScriptText,
   } = useAppState()
+  const [inputMode, setInputMode] = useState('video')
   const [dragActive, setDragActive] = useState(false)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
   const [analyzeElapsedSec, setAnalyzeElapsedSec] = useState(0)
@@ -233,6 +237,19 @@ export default function UploadSection() {
     await analyzeReference(file, { topic: uploadTopic })
   }
 
+  const handleScriptAnalyze = async () => {
+    if (isAnalyzing) {
+      return
+    }
+    const normalized = referenceScriptText.trim()
+    if (normalized.length < 20) {
+      setLocalUploadError('분석할 레퍼런스 대본을 최소 20자 이상 입력해주세요.')
+      return
+    }
+    setLocalUploadError('')
+    await analyzeReferenceScript(normalized, { topic: uploadTopic })
+  }
+
   const handleCancelAnalysis = async () => {
     setIsCanceling(true)
     const canceled = await cancelCurrentAnalysis()
@@ -252,7 +269,9 @@ export default function UploadSection() {
         <h1 className="mt-1 text-center text-[28px] font-bold leading-[1.1] tracking-[-0.03em] text-[#F3F4F6] md:mt-6 md:text-[42px] md:leading-[63px]">
           레퍼런스 업로드
         </h1>
-        <p className="mt-1.5 text-center text-[13px] leading-5 text-[#8E97A6] md:text-base md:leading-7">분석할 영상 레퍼런스를 업로드하세요</p>
+        <p className="mt-1.5 text-center text-[13px] leading-5 text-[#8E97A6] md:text-base md:leading-7">
+          영상 파일을 올리거나, 레퍼런스 대본만 붙여넣어 빠르게 분석하세요
+        </p>
 
         {!isAnalyzing && currentStep !== 'analyzing' ? (
           <div className="mx-auto mt-4 w-full max-w-[680px] md:mt-8">
@@ -291,14 +310,41 @@ export default function UploadSection() {
           </div>
         ) : null}
 
+        {!isAnalyzing && currentStep !== 'analyzing' ? (
+          <div className="mx-auto mt-4 grid w-full max-w-[680px] grid-cols-2 gap-2 rounded-2xl border border-[#2F3543] bg-[#10151E] p-1.5 md:mt-6">
+            {[
+              { key: 'video', label: '영상으로 분석' },
+              { key: 'script', label: '대본으로 분석' },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  setInputMode(item.key)
+                  setLocalUploadError('')
+                }}
+                className={`h-10 rounded-xl text-sm font-semibold transition ${
+                  inputMode === item.key
+                    ? 'bg-[#F8F5EF] text-[#111827]'
+                    : 'text-[#94A3B8] hover:bg-[#171B24] hover:text-[#E5E7EB]'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <div
           onDragOver={(event) => {
             event.preventDefault()
+            if (inputMode !== 'video') return
             setDragActive(true)
           }}
           onDragLeave={() => setDragActive(false)}
           onDrop={(event) => {
             event.preventDefault()
+            if (inputMode !== 'video') return
             setDragActive(false)
             handleFile(event.dataTransfer.files?.[0] || null)
           }}
@@ -338,12 +384,18 @@ export default function UploadSection() {
             </div>
 
             <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB] md:mt-8 md:text-xs">
-              {currentStep === 'analyzing' ? `분석 중 ${displayedAnalyzeProgress}%` : '파일 선택'}
+              {currentStep === 'analyzing'
+                ? `분석 중 ${displayedAnalyzeProgress}%`
+                : inputMode === 'script'
+                  ? '대본 입력'
+                  : '파일 선택'}
             </div>
 
             <h2 className="mt-2.5 text-[23px] font-bold leading-[1.14] tracking-[-0.03em] text-[#F3F4F6] md:mt-4 md:text-2xl md:leading-8">
               {currentStep === 'analyzing'
                 ? 'AI가 레퍼런스 구조를 분석하고 있습니다'
+                : inputMode === 'script'
+                  ? '레퍼런스 대본을 붙여넣으세요'
                 : (
                   <>
                     <span className="md:hidden">레퍼런스 영상을 선택하세요</span>
@@ -359,8 +411,23 @@ export default function UploadSection() {
             <p className="mt-2 text-[11px] leading-4.5 text-[#8E97A6] md:text-sm md:leading-6">
               {currentStep === 'analyzing'
                 ? '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
+                : inputMode === 'script'
+                  ? '영상 화면 정보 없이 대본의 문장 구조, 후킹 흐름, 설득 흐름만 빠르게 분석합니다.'
                 : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다. (긴 영상은 앞부분 중심으로 분석)'}
             </p>
+            {!isAnalyzing && currentStep !== 'analyzing' && inputMode === 'script' ? (
+              <div className="mt-5 w-full max-w-[620px]">
+                <textarea
+                  value={referenceScriptText}
+                  onChange={(event) => setReferenceScriptText(event.target.value)}
+                  placeholder="레퍼런스 릴스의 자막/대본을 그대로 붙여넣어 주세요."
+                  className="min-h-[150px] w-full resize-y rounded-3xl border border-[#374151] bg-[#0F141D] px-4 py-4 text-left text-sm leading-6 text-[#F8FAFC] outline-none transition placeholder:text-[#6B7280] focus:border-[#CBD5E1] md:min-h-[190px]"
+                />
+                <p className="mt-2 text-left text-[11px] leading-4.5 text-[#8E97A6] md:text-xs md:leading-5">
+                  빠르지만 화면 전환, 제품 노출, 표정, 자막 위치 같은 시각 정보는 반영되지 않습니다.
+                </p>
+              </div>
+            ) : null}
             {currentStep === 'analyzing' ? (
               <p className="mt-1 text-[11px] text-[#9CA3AF] md:text-xs">{analyzeStageText}</p>
             ) : null}
@@ -410,14 +477,25 @@ export default function UploadSection() {
                   분석 중단
                 </button>
               ) : null}
-              <button
-                type="button"
-                disabled={isAnalyzing}
-                onClick={() => fileInputRef.current?.click()}
-                className="btn-solid-contrast inline-flex h-11 min-w-[116px] items-center justify-center rounded-full px-5 text-xs font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:h-14 md:min-w-[150px] md:px-6 md:text-base"
-              >
-                {isAnalyzing ? '분석 중...' : '파일 업로드'}
-              </button>
+              {inputMode === 'script' && currentStep !== 'analyzing' ? (
+                <button
+                  type="button"
+                  disabled={isAnalyzing}
+                  onClick={handleScriptAnalyze}
+                  className="btn-solid-contrast inline-flex h-11 min-w-[132px] items-center justify-center rounded-full px-5 text-xs font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:h-14 md:min-w-[180px] md:px-6 md:text-base"
+                >
+                  대본 빠른 분석
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isAnalyzing}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn-solid-contrast inline-flex h-11 min-w-[116px] items-center justify-center rounded-full px-5 text-xs font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:h-14 md:min-w-[150px] md:px-6 md:text-base"
+                >
+                  {isAnalyzing ? '분석 중...' : '파일 업로드'}
+                </button>
+              )}
             </div>
           </div>
         </div>

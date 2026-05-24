@@ -331,6 +331,41 @@ export async function analyzeReferenceVideo({
   return mapReferenceAnalysisToUi(payload.analysis)
 }
 
+export async function analyzeReferenceScriptText({
+  scriptText,
+  topic,
+  title,
+  accountId,
+  projectId,
+  clientUploadId,
+  signal,
+}) {
+  const response = await apiFetch('/api/reference-videos/analyze-text', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(clientUploadId ? { 'x-idempotency-key': String(clientUploadId) } : {}),
+    },
+    timeoutMs: 8 * 60 * 1000,
+    body: JSON.stringify({
+      scriptText,
+      accountId,
+      projectId: projectId || null,
+      title: title?.trim() || '',
+      topic: topic?.trim() || '',
+      idempotencyKey: clientUploadId || '',
+    }),
+    signal,
+  })
+  const payload = await parseApiResponse(response)
+
+  if (!response.ok) {
+    throw createApiError(response, payload, '대본 분석에 실패했습니다.')
+  }
+
+  return mapReferenceAnalysisToUi(payload.analysis)
+}
+
 function appendAccountQuery(path, accountId) {
   const normalizedAccountId = String(accountId || '').trim()
   if (!normalizedAccountId) {

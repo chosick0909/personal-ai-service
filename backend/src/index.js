@@ -971,6 +971,60 @@ app.post(
   }),
 )
 
+app.post(
+  '/api/reference-videos/analyze-text',
+  analyzeRateLimiter,
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const scriptText = String(req.body?.scriptText || req.body?.transcript || '').trim()
+
+    if (scriptText.length < 20) {
+      throw new AppError('레퍼런스 대본은 최소 20자 이상 입력해주세요.', {
+        code: 'REFERENCE_SCRIPT_TOO_SHORT',
+        statusCode: 400,
+      })
+    }
+
+    if (scriptText.length > 20000) {
+      throw new AppError('레퍼런스 대본이 너무 깁니다. 2만 자 이하로 줄여주세요.', {
+        code: 'REFERENCE_SCRIPT_TOO_LONG',
+        statusCode: 400,
+      })
+    }
+
+    const usageStatus = await assertUsageAllowed({
+      userId: req.auth?.userId,
+      eventType: 'reference_analysis',
+    })
+    const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
+    const result = await analyzeReferenceVideo({
+      accountId: account.id,
+      scriptText,
+      topic: req.body?.topic,
+      title: req.body?.title || '대본 레퍼런스',
+      projectId: req.body?.projectId || null,
+      idempotencyKey: req.headers['x-idempotency-key'] || req.body?.idempotencyKey || '',
+      characterSystemPrompt: character.systemPrompt,
+      accountSettings:
+        character?.profile?.settings && typeof character.profile.settings === 'object'
+          ? character.profile.settings
+          : {},
+    })
+
+    await recordUsageEvent({
+      userId: req.auth?.userId,
+      entitlementId: usageStatus.entitlement.id,
+      eventType: 'reference_analysis',
+      referenceId: result?.id || null,
+    })
+
+    res.status(201).json({
+      message: 'Reference script analyzed successfully',
+      analysis: result,
+    })
+  }),
+)
+
 app.get(
   '/api/documents',
   asyncHandler(async (req, res) => {
@@ -1482,7 +1536,7 @@ app.post(
         } else {
           finalSections = req.body?.sections || result.sections
           finalMessage =
-            '수정본 품질 검사에서 위험 요소가 감지되어 기존 대본을 유지했습니다. 요청을 조금 더 구체적으로 주시면 다시 다듬어볼게요.'
+            '지금 요청은 사실 정보나 수정 범위가 조금 흔들릴 수 있어서, 대본은 일단 그대로 두었어요. 넣고 싶은 표현이나 바꿀 섹션을 조금만 더 구체적으로 주시면 그 범위 안에서 안전하게 다시 다듬어볼게요.'
           qualityGate = {
             ...qualityGate,
             fallbackUsed: true,
@@ -1508,7 +1562,7 @@ app.post(
       if (ruleCheck.shouldRepair) {
         finalSections = req.body?.sections || result.sections
         finalMessage =
-          '수정 범위나 사실 정보가 흔들릴 수 있어 기존 대본을 유지했습니다. 바꿀 단어나 섹션을 더 구체적으로 알려주세요.'
+          '지금은 바꾸려는 범위가 살짝 애매해서 대본은 그대로 유지했어요. 예를 들어 “BODY에 한 문장만 추가해줘”처럼 섹션이나 표현을 지정해주시면 그 부분만 깔끔하게 다듬어볼게요.'
         qualityGate = {
           ...qualityGate,
           fallbackUsed: true,

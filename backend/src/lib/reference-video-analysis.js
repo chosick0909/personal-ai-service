@@ -4256,6 +4256,7 @@ async function persistReusedReferenceVideo({
 
 export async function analyzeReferenceVideo({
   file,
+  scriptText = '',
   topic,
   title,
   accountId,
@@ -4266,9 +4267,19 @@ export async function analyzeReferenceVideo({
   accountSettings = {},
   onProcessingCreated = null,
 }) {
-  if (!file) {
+  const normalizedScriptText = String(scriptText || '').trim()
+  const isTextReference = Boolean(normalizedScriptText)
+
+  if (!file && !isTextReference) {
     throw new AppError('video file is required', {
       code: 'VIDEO_FILE_REQUIRED',
+      statusCode: 400,
+    })
+  }
+
+  if (isTextReference && normalizedScriptText.length < 20) {
+    throw new AppError('레퍼런스 대본은 최소 20자 이상 입력해주세요.', {
+      code: 'REFERENCE_SCRIPT_TOO_SHORT',
       statusCode: 400,
     })
   }
@@ -4287,7 +4298,10 @@ export async function analyzeReferenceVideo({
     })
   }
 
-  const normalizedOriginalName = normalizeUploadedText(file.originalname)
+  const normalizedOriginalName = isTextReference
+    ? normalizeUploadedText(title) || 'reference-script.txt'
+    : normalizeUploadedText(file.originalname)
+  const sourceMimeType = isTextReference ? 'text/plain' : file.mimetype
   const normalizedTitle = normalizeReferenceTitle({
     title,
     originalFilename: normalizedOriginalName,
@@ -4298,8 +4312,12 @@ export async function analyzeReferenceVideo({
   const openai = getOpenAIClient()
   const { chatModel, variationModel, playbookModel } = getOpenAIModels()
   const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey)
-  const fileFingerprint = await computeUploadedFileFingerprint(file)
-  const analysisFingerprint = hashText(`${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}`)
+  const fileFingerprint = isTextReference
+    ? hashText(normalizedScriptText)
+    : await computeUploadedFileFingerprint(file)
+  const analysisFingerprint = hashText(
+    `${isTextReference ? 'script-text' : 'video'}:${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}`,
+  )
   const topicFocusPrompt = buildTopicFocusPrompt(normalizedTopic, normalizedTitle)
   const analysisReuseCacheKey = buildAnalysisReuseCacheKey({
     accountId,
@@ -4373,7 +4391,7 @@ export async function analyzeReferenceVideo({
     title: normalizedTitle,
     topic: normalizedTopic,
     originalFilename: normalizedOriginalName,
-    mimeType: file.mimetype,
+    mimeType: sourceMimeType,
     idempotencyKey: normalizedIdempotencyKey,
     analysisFingerprint,
   })
@@ -4442,7 +4460,7 @@ export async function analyzeReferenceVideo({
           title: normalizedTitle,
           topic: normalizedTopic,
           originalFilename: normalizedOriginalName,
-          mimeType: file.mimetype,
+          mimeType: sourceMimeType,
           cachedAnalysis,
         })
 
@@ -4522,85 +4540,130 @@ export async function analyzeReferenceVideo({
       },
     }
 
-    const created = await runStage('workspace', baseContext, async () => createVideoWorkspace(file), stageHooks)
-    workspace = created.workspace
+    let durationSeconds = null
+    let cappedAudioSeconds = null
+    let transcriptCapped = false
+    let hasAudio = false
+    let transcript = {
+      text: '',
+      segments: [],
+      duration: null,
+      model: null,
+    }
+    let frames = []
+    let frameAnalysis = {
+      summary: '',
+      frames: [],
+    }
 
-    const durationSeconds = await runStage(
-      'probe-duration',
-      baseContext,
-      async () => getVideoDuration(created.videoPath),
-      stageHooks,
-    )
-    const cappedAudioSeconds =
-      Number.isFinite(DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS) && DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS > 0
-        ? Math.max(30, Math.min(180, DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS))
-        : 90
-    const transcriptCapped = durationSeconds > cappedAudioSeconds
-    const hasAudio = await runStage(
-      'probe-audio-stream',
-      baseContext,
-      async () => hasAudioStream(created.videoPath),
-      stageHooks,
-    )
-    const transcriptPromise = hasAudio
-      ? (async () => {
-          const audioPath = await runStage(
-            'extract-audio',
-            baseContext,
-            async () =>
-              extractAudioTrack(created.videoPath, workspace, {
-                maxDurationSeconds: cappedAudioSeconds,
-              }),
-            stageHooks,
-          )
-
-          return runStage(
-            'transcription',
-            baseContext,
-            async () =>
-              transcribeVideoAudio(audioPath, {
-                title: normalizedTitle,
-                topic: normalizedTopic,
-              }),
-            stageHooks,
-          )
-        })()
-      : Promise.resolve({
-          text: '',
-          segments: [],
-          duration: null,
-          model: null,
-        })
-
-    const frameAnalysisPromise = (async () => {
-      const extractedFrames = await runStage(
-        'extract-frames',
-        { ...baseContext, durationSeconds },
-        async () => extractFrames(created.videoPath, workspace, durationSeconds),
+    if (isTextReference) {
+      await runStage(
+        'prepare-script-text',
+        baseContext,
+        async () => {
+          transcript = {
+            text: normalizedScriptText,
+            segments: [],
+            duration: null,
+            model: 'manual-text-input',
+          }
+          frameAnalysis = {
+            summary: '대본 텍스트만 입력되어 시각 프레임 분석은 생략되었습니다.',
+            frames: [
+              {
+                timestamp: 0,
+                observation: '대본 텍스트 기반 분석',
+                hookReason: '영상 화면/자막/제품 노출 타이밍은 제공되지 않았으므로 추정하지 않습니다.',
+              },
+            ],
+          }
+          return { ok: true }
+        },
         stageHooks,
       )
-      const analyzedFrames = await runStage(
-        'vision',
-        { ...baseContext, frameCount: extractedFrames.length },
-        async () =>
-          analyzeVideoFrames(extractedFrames, {
-            title: normalizedTitle,
-            topic: normalizedTopic,
-          }),
+    } else {
+      const created = await runStage('workspace', baseContext, async () => createVideoWorkspace(file), stageHooks)
+      workspace = created.workspace
+
+      durationSeconds = await runStage(
+        'probe-duration',
+        baseContext,
+        async () => getVideoDuration(created.videoPath),
         stageHooks,
       )
+      cappedAudioSeconds =
+        Number.isFinite(DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS) && DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS > 0
+          ? Math.max(30, Math.min(180, DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS))
+          : 90
+      transcriptCapped = durationSeconds > cappedAudioSeconds
+      hasAudio = await runStage(
+        'probe-audio-stream',
+        baseContext,
+        async () => hasAudioStream(created.videoPath),
+        stageHooks,
+      )
+      const transcriptPromise = hasAudio
+        ? (async () => {
+            const audioPath = await runStage(
+              'extract-audio',
+              baseContext,
+              async () =>
+                extractAudioTrack(created.videoPath, workspace, {
+                  maxDurationSeconds: cappedAudioSeconds,
+                }),
+              stageHooks,
+            )
 
-      return {
-        frames: extractedFrames,
-        frameAnalysis: analyzedFrames,
-      }
-    })()
+            return runStage(
+              'transcription',
+              baseContext,
+              async () =>
+                transcribeVideoAudio(audioPath, {
+                  title: normalizedTitle,
+                  topic: normalizedTopic,
+                }),
+              stageHooks,
+            )
+          })()
+        : Promise.resolve({
+            text: '',
+            segments: [],
+            duration: null,
+            model: null,
+          })
 
-    const [transcript, frameAnalysisBundle] = await Promise.all([
-      transcriptPromise,
-      frameAnalysisPromise,
-    ])
-    const { frames, frameAnalysis } = frameAnalysisBundle
+      const frameAnalysisPromise = (async () => {
+        const extractedFrames = await runStage(
+          'extract-frames',
+          { ...baseContext, durationSeconds },
+          async () => extractFrames(created.videoPath, workspace, durationSeconds),
+          stageHooks,
+        )
+        const analyzedFrames = await runStage(
+          'vision',
+          { ...baseContext, frameCount: extractedFrames.length },
+          async () =>
+            analyzeVideoFrames(extractedFrames, {
+              title: normalizedTitle,
+              topic: normalizedTopic,
+            }),
+          stageHooks,
+        )
+
+        return {
+          frames: extractedFrames,
+          frameAnalysis: analyzedFrames,
+        }
+      })()
+
+      const [nextTranscript, frameAnalysisBundle] = await Promise.all([
+        transcriptPromise,
+        frameAnalysisPromise,
+      ])
+      transcript = nextTranscript
+      frames = frameAnalysisBundle.frames
+      frameAnalysis = frameAnalysisBundle.frameAnalysis
+    }
     const normalizedTranscript = transcript.text?.trim()
     const frameSummary = [
       frameAnalysis.summary?.trim(),
@@ -4608,12 +4671,27 @@ export async function analyzeReferenceVideo({
     ]
       .filter(Boolean)
       .join('\n')
-    const transcriptQuality = scoreTranscriptReliability({
-      text: normalizedTranscript || '',
-      segments: transcript.segments || [],
-      durationSeconds: transcript.duration || durationSeconds,
-      hasAudio,
-    })
+    const transcriptQuality = isTextReference
+      ? {
+          score: 100,
+          level: 'high',
+          reliable: true,
+          reasons: ['사용자가 직접 입력한 대본 텍스트'],
+          stats: {
+            chars: normalizedTranscript?.length || 0,
+            sentences: splitScriptSentences(normalizedTranscript || '').length,
+            tokens: String(normalizedTranscript || '').split(/\s+/).filter(Boolean).length,
+            uniqueRatio: null,
+            segmentCount: 0,
+            density: null,
+          },
+        }
+      : scoreTranscriptReliability({
+          text: normalizedTranscript || '',
+          segments: transcript.segments || [],
+          durationSeconds: transcript.duration || durationSeconds,
+          hasAudio,
+        })
     const transcriptReliabilityPrompt = buildTranscriptReliabilityPrompt(transcriptQuality)
     const transcriptForAnalysis = transcriptQuality.reliable ? normalizedTranscript : ''
 
@@ -4662,8 +4740,13 @@ export async function analyzeReferenceVideo({
           {
             role: 'system',
             content: [
-              '당신은 숏폼 레퍼런스 영상을 분석하는 한국어 전략가다. 전사와 첫 3초 프레임 분석을 함께 보고 구조, 후킹 포인트, 심리기제, AI 피드백을 JSON으로만 반환한다.',
+              isTextReference
+                ? '당신은 숏폼 레퍼런스 대본을 분석하는 한국어 전략가다. 입력된 대본 텍스트만 보고 구조, 후킹 포인트, 심리기제, AI 피드백을 JSON으로만 반환한다.'
+                : '당신은 숏폼 레퍼런스 영상을 분석하는 한국어 전략가다. 전사와 첫 3초 프레임 분석을 함께 보고 구조, 후킹 포인트, 심리기제, AI 피드백을 JSON으로만 반환한다.',
               `현재 기준 연도는 ${CURRENT_CONTENT_YEAR}년이다.`,
+              isTextReference
+                ? '중요: 영상 화면/자막/제품 노출 타이밍/편집점은 제공되지 않았다. 절대 추정하지 말고, 대본 문장 구조와 발화 흐름만 분석한다.'
+                : null,
               transcriptQuality.reliable
                 ? '중요: structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback은 전사(텍스트) 기준으로 분석한다.'
                 : '중요: 전사 신뢰도가 낮다. structureAnalysis/hookAnalysis/psychologyAnalysis/aiFeedback에서 전사를 핵심 근거로 과신하지 말고, 첫 3초 프레임/사용자 입력 주제/확인 가능한 자막 단서를 우선한다.',
@@ -4687,7 +4770,9 @@ export async function analyzeReferenceVideo({
               `전사${transcriptQuality.reliable ? '' : '(불안정, 제한 참고)'}:\n${
                 transcriptForAnalysis || normalizedTranscript || '전사 추출 없음'
               }\n\n` +
-              `첫 3초 프레임 분석:\n${JSON.stringify(frameAnalysis, null, 2)}\n\n` +
+              (isTextReference
+                ? `시각 정보:\n대본 텍스트 입력 모드이므로 영상 프레임 정보 없음. 화면 요소를 추정하지 말 것.\n\n`
+                : `첫 3초 프레임 분석:\n${JSON.stringify(frameAnalysis, null, 2)}\n\n`) +
               '응답 포맷 규칙:\n' +
               '- JSON 구조는 절대 변경하지 마세요.\n' +
               '- 각 필드 텍스트는 사람이 읽기 좋게 자연스럽게 작성하세요.\n' +
@@ -4732,7 +4817,7 @@ export async function analyzeReferenceVideo({
             title: normalizedTitle,
             topic: normalizedTopic,
             original_filename: normalizedOriginalName,
-            mime_type: file.mimetype,
+            mime_type: sourceMimeType,
             duration_seconds: durationSeconds,
             transcript: normalizedTranscript || '',
             transcript_segments: transcript.segments,
@@ -5412,7 +5497,7 @@ export async function analyzeReferenceVideo({
           title: normalizedTitle,
           topic: normalizedTopic,
           original_filename: normalizedOriginalName,
-          mime_type: file.mimetype,
+          mime_type: sourceMimeType,
           duration_seconds: durationSeconds,
           transcript: normalizedTranscript || '',
           transcript_segments: transcript.segments,

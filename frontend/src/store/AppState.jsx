@@ -11,6 +11,7 @@ import { getStoredAccountId, setStoredAccountId } from '../lib/api'
 import { createAccount, deleteAccountById, listAccounts, loadAccountProfile } from '../lib/accountApi'
 import { supabase } from '../lib/supabase'
 import {
+  analyzeReferenceScriptText,
   analyzeReferenceVideo,
   applyScriptFeedback,
   createReferenceUploadSession,
@@ -357,6 +358,7 @@ export function AppStateProvider({ children }) {
   const [activeScriptId, setActiveScriptId] = useState(null)
   const [uploadTopic, setUploadTopic] = useState('')
   const [uploadTitle, setUploadTitle] = useState('')
+  const [referenceScriptText, setReferenceScriptText] = useState('')
   const [analyzeError, setAnalyzeError] = useState('')
   const [analyzeErrorType, setAnalyzeErrorType] = useState('')
   const [uploadPhase, setUploadPhase] = useState('idle')
@@ -590,6 +592,7 @@ export function AppStateProvider({ children }) {
     setActiveScriptId(null)
     setUploadTopic('')
     setUploadTitle('')
+    setReferenceScriptText('')
     setAnalyzeError('')
     setUploadPhase('idle')
     setIsAnalyzing(false)
@@ -1945,6 +1948,136 @@ export function AppStateProvider({ children }) {
     }
   }
 
+  const analyzeReferenceScript = async (scriptText, options = {}) => {
+    const requestAccountId = currentAccount?.id
+    const normalizedScriptText = String(scriptText || '').trim()
+    if (!requestAccountId) {
+      throw new Error('계정을 먼저 선택하세요.')
+    }
+    if (normalizedScriptText.length < 20) {
+      setAnalyzeError('레퍼런스 대본은 최소 20자 이상 입력해주세요.')
+      setAnalyzeErrorType('unsupported-file')
+      return
+    }
+
+    const requestToken = analysisRunTokenRef.current + 1
+    analysisRunTokenRef.current = requestToken
+    canceledAnalysisTokensRef.current.delete(requestToken)
+    analysisAbortControllerRef.current?.abort()
+    const requestAbortController = new AbortController()
+    analysisAbortControllerRef.current = requestAbortController
+    const isCurrentAnalysisRequest = () =>
+      isCurrentAccountRequest(requestAccountId) && analysisRunTokenRef.current === requestToken
+
+    const normalizedTopic = typeof options.topic === 'string'
+      ? options.topic.trim()
+      : uploadTopic.trim()
+    const displayTopic = normalizedTopic || '일반'
+    const persistedProjectId = getPersistedCurrentProjectId()
+    const clientUploadId = createClientUploadId()
+    const createdAt = new Date().toISOString()
+    const localReference = {
+      id: `reference-${Date.now()}`,
+      title: uploadTitle.trim() || '대본 레퍼런스',
+      fileName: '대본 직접 입력',
+      topic: displayTopic,
+      projectId: persistedProjectId,
+      createdAt,
+      status: 'processing',
+    }
+
+    activeReferenceIdRef.current = localReference.id
+    setReferenceData(localReference)
+    setGeneratedScripts([])
+    setSelectedScript(null)
+    setSelectedScriptId(null)
+    setActiveScriptId(null)
+    setVersions([])
+    setFeedback(null)
+    setEditorSections(createEditorSections())
+    setPendingSuggestion(null)
+    setAnalyzeError('')
+    setAnalyzeErrorType('')
+    setUploadPhase('analyzing')
+    setChatMessages([])
+    setCopilotUsage(createInitialCopilotUsage())
+    setCopilotMemory(createInitialCopilotMemory())
+    setReferenceHistory((current) => [localReference, ...current])
+    setCurrentStep('analyzing')
+    setIsAnalyzing(true)
+    setViewTransition('idle')
+    setIsEditorEntering(false)
+    setIsResultEntering(false)
+
+    try {
+      const analysis = await analyzeReferenceScriptText({
+        scriptText: normalizedScriptText,
+        accountId: requestAccountId,
+        topic: normalizedTopic,
+        title: uploadTitle,
+        projectId: persistedProjectId,
+        clientUploadId,
+        signal: requestAbortController.signal,
+      })
+      if (!isCurrentAnalysisRequest()) {
+        return
+      }
+
+      const completedReference = {
+        ...localReference,
+        ...analysis.reference,
+        status: isProcessingLikeReferenceStatus(analysis.reference?.status)
+          ? analysis.reference.status
+          : 'ready',
+      }
+      if (!isProcessingLikeReferenceStatus(completedReference.status)) {
+        void refreshEntitlement({ referenceId: completedReference.id, silent: true })
+      }
+      setUploadTitle('')
+      setReferenceScriptText('')
+      applyReferenceAnalysisResult({
+        accountId: requestAccountId,
+        baseReference: localReference,
+        analysis: {
+          ...analysis,
+          reference: completedReference,
+        },
+      })
+    } catch (error) {
+      if (!isCurrentAnalysisRequest()) {
+        canceledAnalysisTokensRef.current.delete(requestToken)
+        return
+      }
+      if (error?.name === 'AbortError' && !/timeout/i.test(String(error?.message || ''))) {
+        canceledAnalysisTokensRef.current.delete(requestToken)
+        return
+      }
+      console.groupCollapsed('[reference-analysis] script analyze failed')
+      console.error('message:', error.message)
+      console.error('code:', error.code || null)
+      console.error('details:', error.details || null)
+      console.error('requestId:', error.requestId || null)
+      console.error(error)
+      console.groupEnd()
+      const analyzedFailure = classifyAnalyzeFailure(error)
+      setAnalyzeError(analyzedFailure.message || '대본 분석에 실패했습니다. 잠시 후 다시 시도해주세요.')
+      setAnalyzeErrorType(analyzedFailure.type)
+      setCurrentStep('upload')
+      setUploadPhase('failed')
+      setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
+      if (activeReferenceIdRef.current === localReference.id) {
+        activeReferenceIdRef.current = null
+      }
+    } finally {
+      if (analysisAbortControllerRef.current === requestAbortController) {
+        analysisAbortControllerRef.current = null
+      }
+      if (isCurrentAnalysisRequest()) {
+        setIsAnalyzing(false)
+      }
+    }
+  }
+
   const selectScript = async (scriptId) => {
     const requestAccountId = currentAccount?.id
     const nextScript = generatedScripts.find((item) => item.id === scriptId)
@@ -3070,6 +3203,7 @@ export function AppStateProvider({ children }) {
       editTarget,
       uploadTopic,
       uploadTitle,
+      referenceScriptText,
       uploadPhase,
       analyzeError,
       analyzeErrorType,
@@ -3126,6 +3260,7 @@ export function AppStateProvider({ children }) {
       refreshEntitlement,
       applyCoupon,
       analyzeReference,
+      analyzeReferenceScript,
       selectScript,
       openReference,
       saveVersion,
@@ -3141,6 +3276,7 @@ export function AppStateProvider({ children }) {
       setEditTarget: updateEditTarget,
       setUploadTopic,
       setUploadTitle,
+      setReferenceScriptText,
       setIsVersionModalOpen,
       setToast,
       serializeEditorSections,
@@ -3189,6 +3325,7 @@ export function AppStateProvider({ children }) {
       selectedScriptId,
       uploadTitle,
       uploadTopic,
+      referenceScriptText,
       uploadPhase,
       viewTransition,
       versions,
