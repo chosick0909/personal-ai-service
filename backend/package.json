@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "test": "node --test",
     "backfill:writing-playbook": "node scripts/backfill-writing-playbook-embeddings.js",
-    "summarize-ai-usage": "node scripts/summarize-ai-usage.js"
+    "summarize-ai-usage": "node scripts/summarize-ai-usage.js",
+    "summarize-product-metrics": "node scripts/summarize-product-metrics.js"
   },
   "license": "ISC",
   "description": "Express API backend for the personal AI service",

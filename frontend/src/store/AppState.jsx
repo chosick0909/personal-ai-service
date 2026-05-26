@@ -2923,6 +2923,9 @@ export function AppStateProvider({ children }) {
         changedSections: response.changedSections,
         flowValidation: response.flowValidation,
         intent: response.intent,
+        editPlan: response.editPlan,
+        qualityGate: response.qualityGate,
+        sessionId: response.personalization?.sessionId,
       }
 
       setCopilotUsage((current) => {
@@ -3037,6 +3040,9 @@ export function AppStateProvider({ children }) {
           selectedLabel: selectedScript?.label,
           editTarget: sourceEditTarget,
           changedSections: sourceMessage?.changedSections || [],
+          intent: sourceMessage?.intent?.intent || sourceMessage?.intent || '',
+          operationType: sourceMessage?.editPlan?.operationType || '',
+          sessionId: sourceMessage?.sessionId || '',
           source: 'copilot_suggestion_apply',
         },
       })

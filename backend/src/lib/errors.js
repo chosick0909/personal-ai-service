@@ -1,3 +1,5 @@
+import { recordCopilotQualityEventSafe } from './analytics-logger.js'
+
 export class AppError extends Error {
   constructor(
     message,
@@ -140,6 +142,39 @@ export function errorHandler(error, req, res, _next) {
     details: sanitizeLogPayload(details),
     cause: error.cause?.message || null,
   })
+
+  if (
+    req.method === 'POST' &&
+    (
+      req.originalUrl === '/api/scripts/copilot' ||
+      req.originalUrl === '/api/scripts/feedback' ||
+      req.originalUrl === '/api/scripts/feedback/apply'
+    )
+  ) {
+    recordCopilotQualityEventSafe({
+      accountId: req.body?.accountId || req.body?.account_id,
+      userId: req.auth?.userId,
+      referenceId: req.body?.referenceId,
+      scriptId: req.body?.scriptId,
+      scriptVersionId: req.body?.scriptVersionId,
+      sessionId: req.body?.sessionId || req.body?.session_id || req.headers['x-session-id'],
+      eventType: 'failed',
+      userRequest: req.body?.message || req.body?.request,
+      intent: req.originalUrl.includes('/feedback/apply')
+        ? 'feedback_apply'
+        : req.originalUrl.includes('/feedback')
+          ? 'feedback_request'
+          : null,
+      editTarget: req.body?.editTarget || req.body?.edit_target,
+      latencyMs: null,
+      errorCode: code,
+      metadata: {
+        route: req.originalUrl,
+        statusCode,
+        requestId: req.requestId,
+      },
+    })
+  }
 
   res.status(statusCode).json({
     error: {

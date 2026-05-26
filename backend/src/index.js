@@ -71,6 +71,7 @@ import {
   initBackendSentry,
 } from './lib/sentry.js'
 import { logAIError } from './lib/ai-error-logger.js'
+import { recordCopilotQualityEventSafe } from './lib/analytics-logger.js'
 import { assertBackendEnv } from './lib/env-validation.js'
 import {
   createClientOrigins,
@@ -1217,6 +1218,7 @@ app.post(
   '/api/scripts/:id/versions',
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
+    const startedAt = Date.now()
     const result = await saveScriptVersion({
       accountId: account.id,
       scriptId: req.params.id,
@@ -1226,6 +1228,28 @@ app.post(
       score: req.body?.score ?? null,
       metadata: req.body?.metadata ?? {},
     })
+    const metadata = req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}
+    if (metadata.source === 'copilot_suggestion_apply') {
+      recordCopilotQualityEventSafe({
+        accountId: account.id,
+        userId: req.auth?.userId,
+        referenceId: metadata.referenceId,
+        scriptId: req.params.id,
+        scriptVersionId: result?.version?.id,
+        sessionId: metadata.sessionId || metadata.session_id,
+        eventType: 'suggestion_applied',
+        intent: metadata.intent,
+        operationType: metadata.operationType || metadata.operation_type,
+        editTarget: metadata.editTarget || metadata.edit_target,
+        changedSections: metadata.changedSections,
+        latencyMs: Date.now() - startedAt,
+        metadata: {
+          versionType: req.body?.versionType || '',
+          deduplicated: Boolean(result?.deduplicated),
+          source: metadata.source,
+        },
+      })
+    }
 
     res.status(201).json(result)
   }),
@@ -1249,6 +1273,7 @@ app.post(
   '/api/scripts/copilot',
   refineRateLimiter,
   asyncHandler(async (req, res) => {
+    const routeStartedAt = Date.now()
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const requestText = readString(req.body?.message || req.body?.request, {
@@ -1357,6 +1382,26 @@ app.post(
           referenceId: req.body?.referenceId || '',
         },
       })
+      recordCopilotQualityEventSafe({
+        accountId: account.id,
+        userId: req.auth?.userId,
+        referenceId: req.body?.referenceId,
+        scriptId: req.body?.scriptId,
+        scriptVersionId: req.body?.scriptVersionId,
+        sessionId: personalization.sessionId,
+        eventType: 'feedback_created',
+        userRequest: requestText,
+        intent: intent.intent,
+        editTarget: 'all',
+        changedSections: [],
+        latencyMs: Date.now() - routeStartedAt,
+        metadata: {
+          selectedLabel: req.body?.selectedLabel || '',
+          feedbackRecordId: feedbackRecord?.id || null,
+          score: result.score ?? null,
+          source: 'copilot_intent',
+        },
+      })
 
       res.json({
         type: 'feedback',
@@ -1426,6 +1471,27 @@ app.post(
         eventType: 'copilot_message',
         referenceId: req.body?.referenceId,
       })
+      recordCopilotQualityEventSafe({
+        accountId: account.id,
+        userId: req.auth?.userId,
+        referenceId: req.body?.referenceId,
+        scriptId: req.body?.scriptId,
+        scriptVersionId: req.body?.scriptVersionId,
+        sessionId: personalization.sessionId,
+        eventType: 'reply_only',
+        userRequest: requestText,
+        intent: intent.intent,
+        operationType: result?.editPlan?.operationType || '',
+        editTarget: 'none',
+        changedSections: [],
+        qualityGate: result?.qualityGate || {},
+        latencyMs: Date.now() - routeStartedAt,
+        metadata: {
+          selectedLabel: req.body?.selectedLabel || '',
+          responseMode: result.responseMode || '',
+          copilotIntent: result.copilotIntent || '',
+        },
+      })
       res.json({
         type: 'reply',
         mode: 'advice',
@@ -1468,6 +1534,24 @@ app.post(
         fallbackSession: copilotFallbackSession,
         mode: 'question',
         source: 'question',
+      })
+      recordCopilotQualityEventSafe({
+        accountId: account.id,
+        userId: req.auth?.userId,
+        referenceId: req.body?.referenceId,
+        scriptId: req.body?.scriptId,
+        scriptVersionId: req.body?.scriptVersionId,
+        sessionId: personalization.sessionId,
+        eventType: 'reply_only',
+        userRequest: requestText,
+        intent: intent.intent,
+        editTarget: 'none',
+        changedSections: [],
+        latencyMs: Date.now() - routeStartedAt,
+        metadata: {
+          selectedLabel: req.body?.selectedLabel || '',
+          reason: intent.reason || '',
+        },
       })
       res.json({
         type: 'reply',
@@ -1719,6 +1803,30 @@ app.post(
       eventType: 'copilot_message',
       referenceId: req.body?.referenceId,
     })
+    recordCopilotQualityEventSafe({
+      accountId: account.id,
+      userId: req.auth?.userId,
+      referenceId: req.body?.referenceId,
+      scriptId: req.body?.scriptId,
+      scriptVersionId: req.body?.currentVersionId || req.body?.scriptVersionId,
+      sessionId: personalization.sessionId,
+      eventType: 'suggestion_created',
+      userRequest: requestText,
+      intent: intent.intent,
+      operationType: editPlan.operationType,
+      editTarget: result.editTarget || editPlan.editTarget,
+      changedSections: finalChangedSections,
+      qualityGate,
+      editPlan,
+      latencyMs: Date.now() - routeStartedAt,
+      metadata: {
+        selectedLabel: req.body?.selectedLabel || '',
+        responseMode: result.responseMode || '',
+        useHeavyQualityGate,
+        repairAttempted,
+        repairSuccess,
+      },
+    })
 
     res.json({
       type: 'refine',
@@ -1842,6 +1950,7 @@ app.post(
   '/api/scripts/feedback',
   feedbackRateLimiter,
   asyncHandler(async (req, res) => {
+    const routeStartedAt = Date.now()
     const account = await resolveRequestAccount(req)
     const usageStatus = await assertUsageAllowed({
       userId: req.auth?.userId,
@@ -1914,6 +2023,26 @@ app.post(
         referenceId: req.body?.referenceId || '',
       },
     })
+    recordCopilotQualityEventSafe({
+      accountId: account.id,
+      userId: req.auth?.userId,
+      referenceId: req.body?.referenceId,
+      scriptId: req.body?.scriptId,
+      scriptVersionId: req.body?.scriptVersionId,
+      sessionId: personalization.sessionId,
+      eventType: 'feedback_created',
+      userRequest: feedbackRequestText,
+      intent: 'feedback_request',
+      editTarget: 'all',
+      changedSections: [],
+      latencyMs: Date.now() - routeStartedAt,
+      metadata: {
+        selectedLabel: req.body?.selectedLabel || '',
+        feedbackRecordId: feedbackRecord?.id || null,
+        score: result.score ?? null,
+        source: 'feedback_route',
+      },
+    })
 
     res.json({
       mode: 'feedback',
@@ -1936,6 +2065,7 @@ app.post(
   '/api/scripts/feedback/apply',
   refineRateLimiter,
   asyncHandler(async (req, res) => {
+    const routeStartedAt = Date.now()
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
     const feedback = req.body?.feedback && typeof req.body.feedback === 'object' ? req.body.feedback : {}
@@ -2083,6 +2213,28 @@ app.post(
         referenceId: req.body?.referenceId || '',
         feedbackSummary: String(feedback?.summary || '').slice(0, 300),
         qualityGate,
+      },
+    })
+    recordCopilotQualityEventSafe({
+      accountId: account.id,
+      userId: req.auth?.userId,
+      referenceId: req.body?.referenceId,
+      scriptId: req.body?.scriptId,
+      scriptVersionId: req.body?.scriptVersionId,
+      sessionId: personalization.sessionId,
+      eventType: 'feedback_applied',
+      userRequest: requestText,
+      intent: 'feedback_apply',
+      operationType: 'feedback_apply',
+      editTarget: result.editTarget || editTarget || '',
+      changedSections: finalChangedSections,
+      qualityGate,
+      latencyMs: Date.now() - routeStartedAt,
+      metadata: {
+        selectedLabel: req.body?.selectedLabel || '',
+        feedbackSummary: String(feedback?.summary || '').slice(0, 300),
+        repairAttempted,
+        repairSuccess,
       },
     })
 
