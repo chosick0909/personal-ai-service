@@ -1574,6 +1574,8 @@ app.post(
         preserveSections: editPlan.preserveSections,
         targetDurationSeconds: editPlan.targetDurationSeconds,
         targetCharRange: editPlan.targetCharRange,
+        editPlan,
+        copilotMemory,
       })
       qualityGate = {
         passed: qaResult.ok,
@@ -1607,6 +1609,8 @@ app.post(
           preserveSections: editPlan.preserveSections,
           targetDurationSeconds: editPlan.targetDurationSeconds,
           targetCharRange: editPlan.targetCharRange,
+          editPlan,
+          copilotMemory,
         })
 
         if (repairResult.success) {
@@ -1644,6 +1648,8 @@ app.post(
         targetSections: editPlan.targetSections,
         targetDurationSeconds: editPlan.targetDurationSeconds,
         targetCharRange: editPlan.targetCharRange,
+        editPlan,
+        copilotMemory,
       })
       qualityGate = {
         passed: ruleCheck.ok,
@@ -1948,6 +1954,7 @@ app.post(
       mode: 'suggestion',
       query: requestText,
     })
+    const copilotMemory = req.body?.copilotMemory || req.body?.copilot_memory || {}
     const result = await refineScriptWithAI({
       accountId: account.id,
       referenceId: req.body?.referenceId,
@@ -1959,7 +1966,7 @@ app.post(
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: personalization.context,
-      copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
+      copilotMemory,
     })
     const qaStartedAt = Date.now()
     const qaResult = await validateRefinedScriptQuality({
@@ -1973,6 +1980,7 @@ app.post(
       feedback,
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: personalization.context,
+      copilotMemory,
     })
     let finalSections = result.sections
     let finalMessage = result.message
@@ -2000,6 +2008,7 @@ app.post(
         qaIssues: qaResult.issues,
         characterSystemPrompt: character.systemPrompt,
         personalizationContext: personalization.context,
+        copilotMemory,
       })
 
       if (repairResult.success) {
@@ -2018,6 +2027,7 @@ app.post(
           editTarget: result.editTarget || editTarget,
           feedback,
           request: requestText,
+          copilotMemory,
         })
 
         if (feedback?.suggestedSections && !fallbackCheck.shouldRepair) {

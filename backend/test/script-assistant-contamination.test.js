@@ -232,6 +232,34 @@ test('body-only refine request locks hook and cta in prompt and post-processing'
   assert.match(prompt, /잠금 섹션: HOOK, CTA는 원문 그대로 반환한다/)
 })
 
+test('extract proposed sections strips visible section labels from model output', () => {
+  const sections = extractProposedSections(
+    {
+      sections: {
+        hook: 'HOOK: 블로그 처음인데, 뭐부터 써야 할지 막막하죠?',
+        body: 'BODY: 하루 1시간만 있어도 첫 글은 시작할 수 있어요.',
+        cta: 'CTA: 댓글에 루틴이라고 남겨주세요.',
+      },
+    },
+    ['hook', 'body', 'cta'],
+  )
+
+  assert.equal(sections.hook, '블로그 처음인데, 뭐부터 써야 할지 막막하죠?')
+  assert.equal(sections.body, '하루 1시간만 있어도 첫 글은 시작할 수 있어요.')
+  assert.equal(sections.cta, '댓글에 루틴이라고 남겨주세요.')
+})
+
+test('single-section extraction strips visible section label from model output', () => {
+  const sections = extractProposedSections(
+    {
+      section: 'BODY: 아이 등원 후 1시간이면 첫 문단부터 충분히 시작할 수 있어요.',
+    },
+    ['body'],
+  )
+
+  assert.equal(sections.body, '아이 등원 후 1시간이면 첫 문단부터 충분히 시작할 수 있어요.')
+})
+
 test('locked-section message is rejected for partial edits', () => {
   assert.equal(messageMentionsLockedSections('HOOK은 유지하고 BODY만 바꿨습니다.', ['body']), true)
   assert.equal(messageMentionsLockedSections('BODY는 근거를 더 선명하게 풀었습니다.', ['body']), false)
@@ -367,17 +395,54 @@ test('copilot memory prompt is session-scoped and below section locks', () => {
     ctaPreference: '구매 압박보다 저장 이유 먼저',
     recentUserCorrections: Array.from({ length: 12 }, (_, index) => `교정 ${index + 1}`),
     lastAcceptedVersionSummary: 'B안처럼 말하듯이 푼 버전을 선호함',
+    memoryEvents: [
+      {
+        type: 'constraint',
+        value: 'HOOK은 유지',
+        confidence: 0.95,
+        source: 'section_lock_signal',
+        scope: 'session',
+      },
+      {
+        type: 'preference',
+        value: '직전보다 이전 버전의 방향을 더 선호할 수 있음',
+        confidence: 0.6,
+        source: 'previous_version_signal',
+        scope: 'session',
+      },
+      {
+        type: 'topic_reframe',
+        value: '기존 소재를 제거하고 새 소재 중심으로 재구성하는 요청',
+        confidence: 0.9,
+        source: 'topic_reframe_signal',
+        oldSubjectToRemove: ['만두'],
+        newSubject: '치킨너겟',
+      },
+      {
+        type: 'unknown',
+        value: '무시되어야 함',
+        confidence: 1,
+      },
+    ],
   })
 
   assert.deepEqual(memory.preferredTone, ['자연스럽고 말하듯이 쓰는 톤'])
   assert.equal(memory.recentUserCorrections.length, 10)
+  assert.equal(memory.memoryEvents.length, 3)
+  assert.ok(memory.memoryEvents.some((event) => event.type === 'constraint' && event.confidence === 0.95))
+  assert.ok(memory.memoryEvents.some((event) => event.type === 'topic_reframe' && event.newSubject === '치킨너겟'))
 
   const context = formatCopilotMemoryForPrompt(memory)
   assert.match(context, /현재 코파일럿 세션에서 학습한 사용자 선호/)
   assert.match(context, /광고 같은 말투/)
   assert.match(context, /짧고 압축적으로/)
+  assert.match(context, /강한 세션 제약\/선호/)
+  assert.match(context, /HOOK은 유지/)
+  assert.match(context, /약한 참고 신호/)
+  assert.match(context, /이전 버전/)
   assert.match(context, /섹션 잠금 규칙보다 우선하지 않는다/)
   assert.match(context, /BODY만 수정 요청이면 HOOK\/CTA는 절대 바꾸지 않는다/)
+  assert.match(context, /confidence가 높은 constraint만 강하게 참고/)
 })
 
 test('copilot edit playbook separates fixed rules from hook template retrieval', () => {
@@ -591,6 +656,13 @@ test('copilot edit plan translates naturalness requests into a concrete strategy
   assert.match(plan.strategy, /구어체화/)
   assert.ok(plan.avoid.some((item) => item.includes('광고')))
   assert.ok(plan.avoid.some((item) => item.includes('HOOK은 유지')))
+  assert.equal(plan.primaryGoal, '자연스러운 구어체로 정리')
+  assert.equal(plan.revisionStyle, 'rewrite_light')
+  assert.equal(plan.sectionInstructions.hook.action, 'keep')
+  assert.equal(plan.sectionInstructions.body.action, 'revise')
+  assert.equal(plan.sectionInstructions.cta.action, 'keep')
+  assert.ok(plan.mustKeep.some((item) => item.includes('HOOK')))
+  assert.ok(plan.mustChange.some((item) => item.includes('구어체')))
 })
 
 test('copilot edit plan classifies explicit topic reframe requests', () => {
@@ -649,6 +721,11 @@ test('copilot edit plan prioritizes structured instruction over raw request word
   assert.deepEqual(plan.oldSubjectToRemove, ['만두'])
   assert.ok(plan.forbiddenSurfacePhrases.includes('만두말고'))
   assert.ok(plan.avoid.some((item) => item.includes('만두')))
+  assert.equal(plan.primaryGoal, '새 주제 "치킨너겟" 중심 재구성')
+  assert.equal(plan.revisionStyle, 'reframe_subject')
+  assert.equal(plan.sectionInstructions.hook.action, 'replace')
+  assert.ok(plan.mustChange.some((item) => item.includes('치킨너겟')))
+  assert.ok(plan.mustAvoid.some((item) => item.includes('만두말고')))
 })
 
 test('copilot edit plan supports topic reframe with requested materials', () => {
@@ -815,6 +892,86 @@ test('topic reframe QA allows old subject only for explicit comparison requests'
   assert.equal(result.shouldRepair, false)
 })
 
+test('edit plan QA blocks keep section instruction violations', () => {
+  const plan = buildEditPlan({
+    userRequest: 'BODY만 자연스럽게 말 되게 바꿔줘',
+    currentSections: currentDraft,
+    editTarget: 'body',
+  })
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      ...currentDraft,
+      hook: '바뀌면 안 되는 훅입니다.',
+      body: '기초 순서를 더 말하듯이 정리했습니다.',
+    },
+    editTarget: 'body',
+    request: 'BODY만 자연스럽게 말 되게 바꿔줘',
+    qaMode: plan.qaMode,
+    targetSections: plan.targetSections,
+    editPlan: plan,
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'section_instruction_violation'))
+})
+
+test('memory constraint QA blocks high confidence hook keep violations', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      ...currentDraft,
+      hook: '세션 제약이 있는데 바뀐 훅입니다.',
+      body: '기초 순서를 더 자연스럽게 이어서 설명합니다.',
+    },
+    editTarget: 'body',
+    request: 'BODY만 자연스럽게 해줘',
+    targetSections: ['body'],
+    copilotMemory: {
+      memoryEvents: [
+        {
+          type: 'constraint',
+          value: 'HOOK은 유지',
+          confidence: 0.95,
+          source: 'section_lock_signal',
+          scope: 'session',
+        },
+      ],
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'memory_constraint_violated'))
+})
+
+test('current explicit hook request overrides hook keep memory constraint', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      ...currentDraft,
+      hook: '이번 요청에서 명시적으로 바꾼 훅입니다.',
+    },
+    editTarget: 'hook',
+    request: '훅만 더 세게 고쳐줘',
+    targetSections: ['hook'],
+    copilotMemory: {
+      memoryEvents: [
+        {
+          type: 'constraint',
+          value: 'HOOK은 유지',
+          confidence: 0.95,
+          source: 'section_lock_signal',
+          scope: 'session',
+        },
+      ],
+    },
+  })
+
+  assert.equal(result.issues.some((issue) => issue.type === 'memory_constraint_violated'), false)
+})
+
 test('duration compress intent extracts target seconds and builds char range', () => {
   const intent = classifyCopilotIntentByRule('45초 안에 말하게 해줘', 'all')
   const plan = buildEditPlan({
@@ -864,6 +1021,22 @@ test('duration compress user-facing message hides internal terms', () => {
   assert.match(message, /30초/)
   assert.match(message, /압축/)
   assert.doesNotMatch(message, /QA|이슈|근거 없는 수치|최소 수정|hook\/body\/cta|issue|repair|fallback|intent|qaMode|operationType/i)
+})
+
+test('duration compress user-facing message does not say a problem was fixed', () => {
+  const message = sanitizeUserFacingCopilotMessage('문제였던 부분만 다시 다듬었어요. 중복 문장을 덜고 40초 분량에 맞춰 더 짧게 압축했어요.', {
+    editPlan: {
+      operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+      targetDurationSeconds: 40,
+      targetSections: ['hook', 'body', 'cta'],
+    },
+    responseMode: 'edit_only',
+    changedSections: ['hook', 'body', 'cta'],
+  })
+
+  assert.match(message, /40초/)
+  assert.match(message, /압축/)
+  assert.doesNotMatch(message, /문제였던|문제였던 부분|문제.*다시 다듬/)
 })
 
 test('repair-style QA issue messages are sanitized for users', () => {

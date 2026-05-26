@@ -29,11 +29,29 @@ function requireClients() {
   }
 }
 
+const SECTION_SURFACE_LABEL_PATTERNS = {
+  hook: /^(?:hook|훅|후킹)\s*[:：]\s*/i,
+  body: /^(?:body|바디|본문)\s*[:：]\s*/i,
+  cta: /^(?:cta|씨티에이|마무리|콜투액션)\s*[:：]\s*/i,
+}
+
+function stripSectionSurfaceLabel(value = '', section = '') {
+  let text = String(value || '').trim()
+  const pattern = SECTION_SURFACE_LABEL_PATTERNS[section]
+  if (!pattern) {
+    return text
+  }
+  for (let index = 0; index < 3 && pattern.test(text); index += 1) {
+    text = text.replace(pattern, '').trim()
+  }
+  return text
+}
+
 function normalizeSections(sections = {}) {
   return {
-    hook: sections.hook?.trim() || '',
-    body: sections.body?.trim() || '',
-    cta: sections.cta?.trim() || '',
+    hook: stripSectionSurfaceLabel(sections.hook, 'hook'),
+    body: stripSectionSurfaceLabel(sections.body, 'body'),
+    cta: stripSectionSurfaceLabel(sections.cta, 'cta'),
   }
 }
 
@@ -586,7 +604,49 @@ function normalizeCopilotMemory(memory = {}) {
     ctaPreference: String(source.ctaPreference || '').replace(/\s+/g, ' ').trim(),
     recentUserCorrections: uniqueCompactList(source.recentUserCorrections, 10),
     lastAcceptedVersionSummary: String(source.lastAcceptedVersionSummary || '').replace(/\s+/g, ' ').trim(),
+    memoryEvents: normalizeCopilotMemoryEvents(source.memoryEvents),
   }
+}
+
+function normalizeCopilotMemoryEvents(events = []) {
+  if (!Array.isArray(events)) {
+    return []
+  }
+  const allowedTypes = new Set(['preference', 'dislike', 'constraint', 'topic_reframe'])
+  const seen = new Set()
+  const output = []
+  for (const event of events) {
+    if (!event || typeof event !== 'object') {
+      continue
+    }
+    const type = allowedTypes.has(event.type) ? event.type : ''
+    const value = String(event.value || '').replace(/\s+/g, ' ').trim()
+    if (!type || !value) {
+      continue
+    }
+    const confidence = Math.max(0, Math.min(1, Number(event.confidence || 0.7)))
+    const source = String(event.source || '').replace(/\s+/g, ' ').trim()
+    const oldSubjectToRemove = uniqueCompactList(event.oldSubjectToRemove, 5)
+    const newSubject = String(event.newSubject || '').replace(/\s+/g, ' ').trim()
+    const key = JSON.stringify({ type, value, oldSubjectToRemove, newSubject })
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    output.push({
+      type,
+      value,
+      confidence,
+      source,
+      scope: 'session',
+      ...(oldSubjectToRemove.length ? { oldSubjectToRemove } : {}),
+      ...(newSubject ? { newSubject } : {}),
+    })
+    if (output.length >= 12) {
+      break
+    }
+  }
+  return output
 }
 
 function formatCopilotMemoryForPrompt(memory = {}) {
@@ -611,6 +671,22 @@ function formatCopilotMemoryForPrompt(memory = {}) {
   addText('CTA 선호', normalized.ctaPreference)
   addList('최근 사용자 교정', normalized.recentUserCorrections)
   addText('최근 선호 버전 요약', normalized.lastAcceptedVersionSummary)
+  const strongEvents = normalized.memoryEvents.filter((event) => event.confidence >= 0.85)
+  const weakEvents = normalized.memoryEvents.filter((event) => event.confidence < 0.85)
+  if (strongEvents.length) {
+    lines.push(
+      `- 강한 세션 제약/선호: ${strongEvents
+        .map((event) => `${event.value} (confidence ${event.confidence.toFixed(2)})`)
+        .join(' / ')}`,
+    )
+  }
+  if (weakEvents.length) {
+    lines.push(
+      `- 약한 참고 신호: ${weakEvents
+        .map((event) => `${event.value} (confidence ${event.confidence.toFixed(2)})`)
+        .join(' / ')}`,
+    )
+  }
 
   if (!lines.length) {
     return ''
@@ -624,6 +700,8 @@ function formatCopilotMemoryForPrompt(memory = {}) {
     '- 현재 대본 세션 안에서만 사용하는 취향 보조 정보다.',
     '- 사용자 상품/타겟/사실 정보, 레퍼런스 구조, A/B/C 전략보다 우선하지 않는다.',
     '- 섹션 잠금 규칙보다 우선하지 않는다. BODY만 수정 요청이면 HOOK/CTA는 절대 바꾸지 않는다.',
+    '- confidence가 높은 constraint만 강하게 참고한다. 낮은 confidence 신호는 취향 참고로만 사용한다.',
+    '- 메모리에 있는 과거 주제 변경 신호보다 현재 사용자 요청을 우선한다.',
     '- 오래된 취향보다 현재 사용자 요청과 현재 초안의 맥락을 우선한다.',
   ].join('\n')
 }
@@ -793,6 +871,32 @@ export function buildEditPlan({
   if (!change.length) {
     change.push('요청받은 섹션의 표현, 연결성, 읽히는 리듬을 개선한다')
   }
+  const primaryGoal = resolvePrimaryGoal({
+    operationType,
+    request,
+    newSubject: detectedNewSubject,
+    requestedMaterials,
+    targetDurationSeconds: durationTarget,
+  })
+  const revisionStyle = resolveRevisionStyle({ operationType, request })
+  const sectionInstructions = buildSectionInstructions({
+    operationType,
+    targetSections,
+    preserveSections,
+    request,
+  })
+  const guardrails = buildPlanGuardrails({
+    operationType,
+    request,
+    targetSections,
+    preserveSections,
+    newSubject: detectedNewSubject,
+    requestedMaterials,
+    oldSubjectToRemove,
+    forbiddenSurfacePhrases,
+    allowComparisonWithOldSubject,
+    targetDurationSeconds: durationTarget,
+  })
 
   return {
     editTarget: normalizedTarget,
@@ -800,6 +904,9 @@ export function buildEditPlan({
     preserveSections,
     operationType,
     qaMode,
+    primaryGoal,
+    revisionStyle,
+    sectionInstructions,
     targetDurationSeconds: durationTarget,
     targetCharRange,
     newSubject: detectedNewSubject,
@@ -820,6 +927,9 @@ export function buildEditPlan({
     preserve: uniqueCompactList(preserve, 10),
     change: uniqueCompactList(change, 8),
     avoid: uniqueCompactList(avoid, 12),
+    mustKeep: guardrails.mustKeep,
+    mustChange: guardrails.mustChange,
+    mustAvoid: guardrails.mustAvoid,
     reason: `사용자 요청 "${request.slice(0, 80)}"을 ${targetSections.map((key) => SECTION_LABELS[key]).join('/')} 범위에서 반영하기 위한 내부 편집 계획`,
     currentSectionLengths: {
       hook: sections.hook.length,
@@ -842,6 +952,9 @@ function formatEditPlanForPrompt(editPlan = null) {
     `- 수정 범위: ${editPlan.editTarget || 'all'}`,
     `- 작업 유형: ${editPlan.operationType || COPILOT_OPERATION_TYPES.EDIT_PARTIAL}`,
     `- QA 기준: ${editPlan.qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
+    editPlan.primaryGoal ? `- 핵심 목표: ${editPlan.primaryGoal}` : '',
+    editPlan.revisionStyle ? `- 수정 방식: ${editPlan.revisionStyle}` : '',
+    editPlan.sectionInstructions ? `- 섹션별 지시: ${JSON.stringify(editPlan.sectionInstructions)}` : '',
     editPlan.targetDurationSeconds
       ? `- 목표 압축 시간: ${editPlan.targetDurationSeconds}초${
           editPlan.targetCharRange ? ` (공백 제외 약 ${editPlan.targetCharRange.min}-${editPlan.targetCharRange.max}자)` : ''
@@ -859,6 +972,9 @@ function formatEditPlanForPrompt(editPlan = null) {
     editPlan.preserve?.length ? `- 유지: ${editPlan.preserve.join(', ')}` : '',
     editPlan.change?.length ? `- 변경: ${editPlan.change.join(', ')}` : '',
     editPlan.avoid?.length ? `- 회피: ${editPlan.avoid.join(', ')}` : '',
+    editPlan.mustKeep?.length ? `- 반드시 유지: ${editPlan.mustKeep.join(', ')}` : '',
+    editPlan.mustChange?.length ? `- 반드시 변경: ${editPlan.mustChange.join(', ')}` : '',
+    editPlan.mustAvoid?.length ? `- 절대 금지: ${editPlan.mustAvoid.join(', ')}` : '',
     `- 이유: ${editPlan.reason || '-'}`,
     '',
     '편집 계획 적용 규칙:',
@@ -866,6 +982,10 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- 사용자 원문은 의도 해석용 보조 정보다. 실제 대본 작성은 structured edit plan을 최우선으로 따른다.',
     '- raw user request의 표현을 대본 문장에 그대로 복사하지 않는다.',
     '- 이 계획은 내부 보조 정보이며 섹션 잠금보다 우선하지 않는다.',
+    '- sectionInstructions에서 action=keep인 섹션은 원문 그대로 유지한다.',
+    '- mustKeep은 정말 깨지면 안 되는 핵심만 담은 목록이다. mustKeep을 핑계로 mustChange를 무시하지 않는다.',
+    '- mustChange는 이번 요청의 핵심 변경점이다. 수정본에서 실제로 반영한다.',
+    '- mustAvoid는 대본에 절대 나오면 안 되는 표현/위험 요소다.',
     '- 단, 사용자가 새 주제/새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지 규칙보다 우선한다.',
     '- topic_reframe이면 기존 주제의 소재/사실은 버릴 수 있고, 레퍼런스 구조/리듬/톤/CTA 스타일을 가능한 유지한다.',
     '- forbiddenSurfacePhrases가 있으면 대본에 절대 사용하지 않는다.',
@@ -1232,7 +1352,7 @@ function extractProposedSections(parsed = {}, targetSections = SECTION_KEYS) {
   if (targetSections.length === 1) {
     const target = targetSections[0]
     return {
-      [target]: String(parsed.section || parsed.sections?.[target] || '').trim(),
+      [target]: stripSectionSurfaceLabel(parsed.section || parsed.sections?.[target] || '', target),
     }
   }
 
@@ -1380,6 +1500,13 @@ export function sanitizeUserFacingCopilotMessage(message, context = {}) {
     return fallback
   }
 
+  if (
+    context?.editPlan?.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS &&
+    /문제였던\s*부분|문제였던|문제.*다시\s*다듬/i.test(text)
+  ) {
+    return fallback
+  }
+
   if (COPILOT_USER_MESSAGE_INTERNAL_PATTERN.test(text) || isGenericRefineMessage(text)) {
     return fallback
   }
@@ -1417,6 +1544,218 @@ function subjectLeakAllowedByNewSubject(subject = '', newSubject = '') {
   )
 }
 
+function resolvePrimaryGoal({ operationType, request = '', newSubject = '', requestedMaterials = [], targetDurationSeconds = null } = {}) {
+  if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
+    return newSubject ? `새 주제 "${newSubject}" 중심 재구성` : '새 주제 중심 재구성'
+  }
+  if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) {
+    return requestedMaterials.length ? `요청 소재 삽입: ${requestedMaterials.join(', ')}` : '요청 소재 삽입'
+  }
+  if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+    return targetDurationSeconds ? `${targetDurationSeconds}초 기준 삭제 중심 압축` : '목표 시간 기준 삭제 중심 압축'
+  }
+  if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)) {
+    return '광고감/판매 압박 제거'
+  }
+  if (/자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체/i.test(request)) {
+    return '자연스러운 구어체로 정리'
+  }
+  return '요청 범위 안에서 표현 개선'
+}
+
+function resolveRevisionStyle({ operationType, request = '' } = {}) {
+  if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) return 'delete_only'
+  if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) return 'reframe_subject'
+  if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) return 'insert_material'
+  if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|자연스럽게|말\s*되게|말되게|구어체|부자연|어색|번역체/i.test(request)) {
+    return 'rewrite_light'
+  }
+  return 'rewrite_light'
+}
+
+function buildSectionInstructions({ operationType, targetSections = SECTION_KEYS, preserveSections = [], request = '' } = {}) {
+  const targetSet = new Set(targetSections)
+  const preserveSet = new Set(preserveSections)
+  const targetLabel = targetSections.map((key) => SECTION_LABELS[key]).join('/')
+  const instructions = {}
+
+  for (const section of SECTION_KEYS) {
+    if (!targetSet.has(section) || preserveSet.has(section)) {
+      instructions[section] = {
+        action: 'keep',
+        reason: preserveSet.has(section)
+          ? `사용자가 ${SECTION_LABELS[section]} 유지/잠금을 명시했거나 수정 대상에서 제외됨`
+          : `수정 대상이 ${targetLabel || '지정 섹션'}이므로 ${SECTION_LABELS[section]}는 유지`,
+      }
+      continue
+    }
+
+    if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+      instructions[section] = {
+        action: 'compress',
+        reason: '목표 초수에 맞춘 삭제 중심 압축 대상',
+      }
+    } else if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
+      instructions[section] = {
+        action: 'replace',
+        reason: '사용자가 새 주제 중심 재구성을 요청함',
+      }
+    } else if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) {
+      instructions[section] = {
+        action: 'insert',
+        reason: '사용자가 이 섹션에 소재 추가를 요청함',
+      }
+    } else {
+      instructions[section] = {
+        action: 'revise',
+        reason: request ? '사용자 요청 범위 안에서 표현과 흐름을 개선' : '수정 대상 섹션 표현 개선',
+      }
+    }
+  }
+
+  return instructions
+}
+
+function buildPlanGuardrails({
+  operationType,
+  request = '',
+  targetSections = SECTION_KEYS,
+  preserveSections = [],
+  newSubject = '',
+  requestedMaterials = [],
+  oldSubjectToRemove = [],
+  forbiddenSurfacePhrases = [],
+  allowComparisonWithOldSubject = false,
+  targetDurationSeconds = null,
+} = {}) {
+  const mustKeep = []
+  const mustChange = []
+  const mustAvoid = [
+    '없는 수치/후기/고객 사례/전문가 권위 생성',
+    '레퍼런스 원문 소재/상품명/고유명사 복사',
+  ]
+
+  if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
+    mustKeep.push('레퍼런스 구조/문장 리듬/CTA 방식')
+    mustChange.push(newSubject ? `새 주제 "${newSubject}"를 중심에 둔다` : '사용자가 명시한 새 주제를 중심에 둔다')
+    if (oldSubjectToRemove.length && !allowComparisonWithOldSubject) {
+      mustAvoid.push(...oldSubjectToRemove.map((subject) => `기존 소재 "${subject}" 노출`))
+    }
+  } else {
+    mustKeep.push('현재 주제/상품/타겟')
+  }
+
+  if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) {
+    mustChange.push(requestedMaterials.length ? `요청 소재 포함: ${requestedMaterials.join(', ')}` : '요청 소재를 수정 대상 섹션에 포함')
+    mustKeep.push('지정하지 않은 섹션 원문')
+  }
+
+  if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+    mustKeep.push('HOOK/BODY/CTA 구조', 'CTA 의도', '핵심 메시지')
+    mustChange.push(targetDurationSeconds ? `${targetDurationSeconds}초 기준으로 중복/부연 설명 제거` : '목표 초수 기준으로 중복/부연 설명 제거')
+    mustAvoid.push('새 내용 추가', 'CTA 삭제')
+  }
+
+  if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)) {
+    mustChange.push('판매 압박을 줄이고 행동 이유를 먼저 제시')
+    mustAvoid.push('과한 구매 압박과 광고성 표현')
+  }
+
+  if (/자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체/i.test(request)) {
+    mustChange.push('기계적/번역체 표현을 구어체로 정리')
+    mustAvoid.push('설명문처럼 길게 이어지는 문장')
+  }
+
+  for (const section of preserveSections) {
+    mustKeep.push(`${SECTION_LABELS[section]} 원문`)
+  }
+
+  if (forbiddenSurfacePhrases.length) {
+    mustAvoid.push(...forbiddenSurfacePhrases)
+  }
+
+  return {
+    mustKeep: uniqueCompactList(mustKeep, 6),
+    mustChange: uniqueCompactList(mustChange, 6),
+    mustAvoid: uniqueCompactList(mustAvoid, 10),
+  }
+}
+
+function getStrongMemoryConstraints(memory = {}) {
+  const normalized = normalizeCopilotMemory(memory)
+  return normalized.memoryEvents.filter((event) => event.type === 'constraint' && event.confidence >= 0.85)
+}
+
+function currentRequestOverridesMemoryConstraint(request = '', constraintValue = '', targetSections = SECTION_KEYS) {
+  const text = String(request || '')
+  const value = String(constraintValue || '')
+  if (/HOOK|훅/i.test(value) && targetSections.includes('hook') && /(hook|훅|후킹|첫\s*문장).*(고쳐|수정|바꿔|다듬|강하게|자연스럽게)|(?:고쳐|수정|바꿔|다듬).*(hook|훅|후킹|첫\s*문장)/i.test(text)) {
+    return true
+  }
+  if (/BODY|바디|본문/i.test(value) && targetSections.includes('body') && /(body|바디|본문).*(고쳐|수정|바꿔|다듬|자연스럽게)|(?:고쳐|수정|바꿔|다듬).*(body|바디|본문)/i.test(text)) {
+    return true
+  }
+  if (/CTA|씨티에이|마무리/i.test(value) && targetSections.includes('cta') && /(cta|씨티에이|마무리|끝\s*문장).*(고쳐|수정|바꿔|다듬)|(?:고쳐|수정|바꿔|다듬).*(cta|씨티에이|마무리|끝\s*문장)/i.test(text)) {
+    return true
+  }
+  return false
+}
+
+function evaluateMemoryConstraintViolations({
+  original,
+  candidate,
+  request = '',
+  targetSections = SECTION_KEYS,
+  copilotMemory = {},
+} = {}) {
+  const issues = []
+  const constraints = getStrongMemoryConstraints(copilotMemory)
+  for (const constraint of constraints) {
+    if (currentRequestOverridesMemoryConstraint(request, constraint.value, targetSections)) {
+      continue
+    }
+    if (/HOOK은 유지|HOOK.*유지|훅.*유지/i.test(constraint.value) && candidate.hook !== original.hook) {
+      issues.push(
+        createQaIssue({
+          type: 'memory_constraint_violated',
+          severity: 'high',
+          section: 'hook',
+          text: candidate.hook,
+          reason: `세션 메모리의 강한 제약을 어겼다: ${constraint.value}`,
+          suggestion: '최신 요청이 HOOK 수정을 명시하지 않았다면 HOOK은 원문 그대로 유지한다.',
+        }),
+      )
+    }
+    if (/BODY 중심.*HOOK\/CTA 유지|HOOK\/CTA 유지/i.test(constraint.value)) {
+      if (!targetSections.includes('hook') && candidate.hook !== original.hook) {
+        issues.push(
+          createQaIssue({
+            type: 'memory_constraint_violated',
+            severity: 'high',
+            section: 'hook',
+            text: candidate.hook,
+            reason: `세션 메모리의 강한 제약을 어겼다: ${constraint.value}`,
+            suggestion: 'BODY 중심 요청에서는 HOOK을 원문 그대로 유지한다.',
+          }),
+        )
+      }
+      if (!targetSections.includes('cta') && candidate.cta !== original.cta) {
+        issues.push(
+          createQaIssue({
+            type: 'memory_constraint_violated',
+            severity: 'high',
+            section: 'cta',
+            text: candidate.cta,
+            reason: `세션 메모리의 강한 제약을 어겼다: ${constraint.value}`,
+            suggestion: 'BODY 중심 요청에서는 CTA를 원문 그대로 유지한다.',
+          }),
+        )
+      }
+    }
+  }
+  return issues
+}
+
 export function runFeedbackFallbackRuleCheck({
   originalSections,
   candidateSections,
@@ -1429,6 +1768,8 @@ export function runFeedbackFallbackRuleCheck({
   oldSubjectToRemove = [],
   forbiddenSurfacePhrases = [],
   allowComparisonWithOldSubject = false,
+  editPlan = null,
+  copilotMemory = {},
   targetSections: plannedTargetSections = null,
   targetDurationSeconds = null,
   targetCharRange = null,
@@ -1468,6 +1809,34 @@ export function runFeedbackFallbackRuleCheck({
       )
     }
   }
+  const sectionInstructions =
+    editPlan && typeof editPlan === 'object' && editPlan.sectionInstructions && typeof editPlan.sectionInstructions === 'object'
+      ? editPlan.sectionInstructions
+      : {}
+  for (const key of SECTION_KEYS) {
+    const instruction = sectionInstructions[key]
+    if (instruction?.action === 'keep' && candidate[key] !== original[key]) {
+      issues.push(
+        createQaIssue({
+          type: 'section_instruction_violation',
+          severity: 'high',
+          section: key,
+          text: candidate[key],
+          reason: `${SECTION_LABELS[key]}는 editPlan에서 keep으로 지정됐는데 변경되었다. ${instruction.reason || ''}`.trim(),
+          suggestion: `${SECTION_LABELS[key]}는 원문 그대로 유지한다.`,
+        }),
+      )
+    }
+  }
+  issues.push(
+    ...evaluateMemoryConstraintViolations({
+      original,
+      candidate,
+      request,
+      targetSections,
+      copilotMemory,
+    }),
+  )
 
   const feedbackText = [
     feedback?.summary,
@@ -2813,6 +3182,8 @@ export async function validateRefinedScriptQuality({
   preserveSections = [],
   targetDurationSeconds = null,
   targetCharRange = null,
+  editPlan = null,
+  copilotMemory = {},
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -2828,9 +3199,11 @@ export async function validateRefinedScriptQuality({
     oldSubjectToRemove,
     forbiddenSurfacePhrases,
     allowComparisonWithOldSubject,
+    editPlan,
     targetSections: plannedTargetSections,
     targetDurationSeconds,
     targetCharRange,
+    copilotMemory,
   })
 
   const { supabaseAdmin, openai, models } = requireClients()
@@ -2854,6 +3227,13 @@ export async function validateRefinedScriptQuality({
             'insert_material: 요청 소재가 targetSections에 실제로 들어갔는지, preserveSections가 불필요하게 바뀌지 않았는지 검사한다.',
             'duration_compress: 새 대본 생성이 아니라 삭제 중심 압축인지 검사한다. 목표 글자 범위 근처인지, HOOK/BODY/CTA와 CTA 의도/핵심 메시지가 유지됐는지, 새 사실/수치/후기/효과가 생기지 않았는지 검사한다.',
             'structured edit plan에 forbiddenSurfacePhrases가 있으면 해당 표현은 대본에 절대 남으면 안 된다.',
+            'structured edit plan의 sectionInstructions, mustKeep, mustChange, mustAvoid를 검사한다.',
+            'sectionInstructions에서 action=keep인 섹션이 바뀌면 section_instruction_violation이다.',
+            'mustChange의 핵심 변경점이 반영되지 않으면 must_change_missing 또는 edit_plan_not_followed다.',
+            'mustKeep의 핵심 정보가 사라지면 must_keep_lost다.',
+            'mustAvoid가 대본에 남으면 edit_plan_not_followed다.',
+            '세션 메모리의 confidence 높은 constraint를 검사한다. 단, 현재 사용자 요청이 해당 섹션 수정을 명시한 경우 현재 요청을 우선한다.',
+            '강한 세션 제약을 어기면 memory_constraint_violated다.',
             'allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남으면 안 된다. 비교/대비 표현으로도 쓰지 않는다.',
             'instruction_leakage, forbidden_phrase_leakage, old_subject_leakage, mixed_subject_contamination을 검사한다.',
             '공통 기준: 사용자 요청 반영, 피드백 진단 반영, 섹션 잠금, 자연스러운 한국어, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
@@ -2881,6 +3261,17 @@ export async function validateRefinedScriptQuality({
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
             `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
             `목표 글자 범위(공백 제외): ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '-'}`,
+            editPlan ? `[structured edit plan]\n${JSON.stringify({
+              primaryGoal: editPlan.primaryGoal || '',
+              revisionStyle: editPlan.revisionStyle || '',
+              sectionInstructions: editPlan.sectionInstructions || {},
+              mustKeep: editPlan.mustKeep || [],
+              mustChange: editPlan.mustChange || [],
+              mustAvoid: editPlan.mustAvoid || [],
+            })}` : '',
+            getStrongMemoryConstraints(copilotMemory).length
+              ? `[strong session constraints]\n${JSON.stringify(getStrongMemoryConstraints(copilotMemory))}`
+              : '',
             `사용자/피드백 적용 요청:\n${request || '-'}`,
             '',
             buildDraftBlock(original),
@@ -2958,6 +3349,8 @@ export async function repairRefinedScriptWithQaIssues({
   preserveSections = [],
   targetDurationSeconds = null,
   targetCharRange = null,
+  editPlan = null,
+  copilotMemory = {},
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -3003,6 +3396,21 @@ export async function repairRefinedScriptWithQaIssues({
             '당신은 숏폼 대본을 최종으로 다듬는 편집자다. 문제가 확인된 섹션만 최소 수정한다.',
             '문제가 없는 섹션은 수정본 그대로 유지한다.',
             '잠긴 섹션은 원문 그대로 유지한다.',
+            editPlan?.sectionInstructions
+              ? 'structured edit plan의 sectionInstructions를 따른다. action=keep인 섹션은 원문 그대로 유지한다.'
+              : null,
+            editPlan?.mustKeep?.length
+              ? `반드시 유지할 것: ${uniqueCompactList(editPlan.mustKeep, 6).join(', ')}`
+              : null,
+            editPlan?.mustChange?.length
+              ? `반드시 반영할 것: ${uniqueCompactList(editPlan.mustChange, 6).join(', ')}`
+              : null,
+            editPlan?.mustAvoid?.length
+              ? `절대 피할 것: ${uniqueCompactList(editPlan.mustAvoid, 10).join(', ')}`
+              : null,
+            getStrongMemoryConstraints(copilotMemory).length
+              ? `세션 메모리의 강한 제약: ${getStrongMemoryConstraints(copilotMemory).map((event) => event.value).join(' / ')}. 단, 현재 사용자 요청이 해당 섹션 수정을 명시하면 현재 요청을 우선한다.`
+              : null,
             '사용자가 새 주제나 새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지보다 우선한다.',
             qaMode === COPILOT_QA_MODES.REFRAME_TOPIC
               ? `이번 작업은 새 주제 "${newSubject || '사용자가 명시한 새 주제'}"가 잘 반영되도록 다듬는 작업이다. 기존 주제의 소재/사실에 끌려가지 않는다.`
@@ -3025,7 +3433,9 @@ export async function repairRefinedScriptWithQaIssues({
             '없는 사실, 허위 수치, 허위 후기, 허위 고객 사례, 허위 전문가 권위, 레퍼런스 소재를 만들지 않는다.',
             '한국어가 어색한 문장은 실제 사람이 말하는 자연스러운 표현으로만 고친다.',
             '사용자에게 보여줄 message에는 QA, 품질 검사, 위험 요소, issue, repair, fallback, 내부 검사 같은 시스템/개발 용어를 절대 쓰지 않는다.',
-            'message는 "문제였던 부분만 다시 다듬었어요. ..."처럼 사용자가 이해하기 쉬운 말로 한두 문장만 쓴다.',
+            qaMode === COPILOT_QA_MODES.DURATION_COMPRESS
+              ? 'duration_compress의 message에는 "문제였던 부분", "고쳤다" 같은 문제 해결 표현을 쓰지 않는다. 목표 시간에 맞춰 핵심만 압축했다는 식으로 한두 문장만 쓴다.'
+              : 'message는 사용자가 이해하기 쉬운 말로 한두 문장만 쓴다. QA/repair 같은 내부 과정은 말하지 않는다.',
             buildContextPriority(),
             buildReferenceContaminationGuard(),
             buildEditOutputInstruction(repairTargets),
@@ -3048,6 +3458,17 @@ export async function repairRefinedScriptWithQaIssues({
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
             `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
             `목표 글자 범위(공백 제외): ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '-'}`,
+            editPlan ? `[structured edit plan]\n${JSON.stringify({
+              primaryGoal: editPlan.primaryGoal || '',
+              revisionStyle: editPlan.revisionStyle || '',
+              sectionInstructions: editPlan.sectionInstructions || {},
+              mustKeep: editPlan.mustKeep || [],
+              mustChange: editPlan.mustChange || [],
+              mustAvoid: editPlan.mustAvoid || [],
+            })}` : '',
+            getStrongMemoryConstraints(copilotMemory).length
+              ? `[strong session constraints]\n${JSON.stringify(getStrongMemoryConstraints(copilotMemory))}`
+              : '',
             `사용자/피드백 적용 요청:\n${request || '-'}`,
             '',
             '[원문]',
@@ -3099,9 +3520,11 @@ export async function repairRefinedScriptWithQaIssues({
       oldSubjectToRemove,
       forbiddenSurfacePhrases,
       allowComparisonWithOldSubject,
+      editPlan,
       targetSections,
       targetDurationSeconds,
       targetCharRange,
+      copilotMemory,
     })
 
     return {
