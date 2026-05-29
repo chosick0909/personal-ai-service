@@ -8,6 +8,7 @@ const REFERENCE_SCRIPT_SECTION_TITLE = '레퍼런스 스크립트'
 const REFERENCE_SCRIPT_SECTION_DESCRIPTION = '업로드한 레퍼런스 영상에서 추출한 전체 스크립트입니다.'
 const MISSING_TRANSCRIPT_DRAFT_MESSAGE =
   '전사 텍스트를 추출하지 못해서 초안을 생성할 수 없습니다. 음성이 또렷한 영상이나 자막이 있는 영상을 업로드해주세요.'
+const EDITOR_SCROLL_EVENT = 'hookai:scroll-editor'
 // Deploy touchpoint: keep the reference script heading fixed.
 
 function BackIcon() {
@@ -315,6 +316,19 @@ export default function ResultCards() {
 
     return () => window.clearTimeout(timer)
   }, [shouldScrollToEditor, currentStep, selectedScript])
+
+  useEffect(() => {
+    const handleEditorScrollRequest = () => {
+      setActiveResultStep(resultSteps.length - 1)
+      setShouldScrollToEditor(true)
+    }
+
+    window.addEventListener(EDITOR_SCROLL_EVENT, handleEditorScrollRequest)
+
+    return () => {
+      window.removeEventListener(EDITOR_SCROLL_EVENT, handleEditorScrollRequest)
+    }
+  }, [resultSteps.length])
 
   useEffect(() => {
     return () => {

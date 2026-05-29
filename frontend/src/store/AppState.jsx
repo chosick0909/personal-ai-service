@@ -78,6 +78,7 @@ import {
 } from './appStateCache'
 
 const AppStateContext = createContext(null)
+const EDITOR_SCROLL_EVENT = 'hookai:scroll-editor'
 const OAUTH_NOISE_KEYS = new Set([
   'error',
   'error_code',
@@ -572,6 +573,16 @@ export function AppStateProvider({ children }) {
           : item,
       ),
     )
+  }
+
+  const requestEditorScroll = () => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent(EDITOR_SCROLL_EVENT))
+    }, 80)
   }
 
   const resetStudioForAccount = () => {
@@ -3015,12 +3026,15 @@ export function AppStateProvider({ children }) {
     if (!activeScriptId) {
       setEditorSections(nextSections)
       setPendingSuggestion(null)
+      setCurrentStep('editor')
+      setViewTransition('to-editor')
       syncHistory(activeReferenceIdRef.current, {
         editorContent: serializedContent,
         pendingSuggestion: null,
         lastStep: 'editor',
       })
       showToast('AI 수정안을 에디터에 반영했습니다')
+      requestEditorScroll()
       return
     }
 
@@ -3053,6 +3067,8 @@ export function AppStateProvider({ children }) {
 
       setEditorSections(nextSections)
       setPendingSuggestion(null)
+      setCurrentStep('editor')
+      setViewTransition('to-editor')
 
       setVersions((current) => {
         const next = [nextVersion, ...current]
@@ -3080,7 +3096,8 @@ export function AppStateProvider({ children }) {
         return next
       })
 
-      showToast('AI 수정안을 저장 내역에 자동 저장했습니다.', 'success')
+      showToast('AI 수정안을 에디터에 반영하고 저장 내역에 남겼습니다.', 'success')
+      requestEditorScroll()
     } catch (error) {
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
