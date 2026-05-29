@@ -36,6 +36,7 @@ const {
   buildNaturalResponseUserPrompt,
   createFallbackIntent,
   runFeedbackFallbackRuleCheck,
+  buildPartialSafeFeedbackApplyFallback,
   detectExplicitPreserveSections,
   sanitizeUserFacingCopilotMessage,
   COPILOT_OPERATION_TYPES,
@@ -638,6 +639,87 @@ test('feedback fallback rule check blocks unsupported numbers', () => {
   assert.equal(result.ok, false)
   assert.equal(result.shouldRepair, true)
   assert.ok(result.issues.some((issue) => issue.type === 'unsupported_number'))
+})
+
+test('partial safe feedback apply fallback applies only safe sections after unsafe candidate failure', () => {
+  const result = buildPartialSafeFeedbackApplyFallback({
+    originalSections: currentDraft,
+    candidateSources: [
+      {
+        source: 'refine',
+        sections: {
+          hook: '이 방법은 3일 만에 200% 좋아집니다.',
+          body: `${currentDraft.body} 원문 흐름을 유지합니다.`,
+          cta: '댓글에 루틴이라고 남기면 부담 없이 확인할 체크리스트를 보내드릴게요.',
+        },
+      },
+    ],
+    editTarget: 'all',
+    feedback: {
+      summary: 'CTA를 더 자연스럽게 바꿔야 합니다.',
+      detail: '판매 압박보다 저장/댓글 이유를 주는 CTA가 좋습니다.',
+    },
+    request: '피드백대로 적용해줘',
+  })
+
+  assert.equal(result.success, true)
+  assert.deepEqual(result.changedSections, ['body', 'cta'])
+  assert.equal(result.sections.hook, currentDraft.hook)
+  assert.match(result.sections.cta, /체크리스트/)
+})
+
+test('partial safe feedback apply fallback respects edit target section locks', () => {
+  const result = buildPartialSafeFeedbackApplyFallback({
+    originalSections: currentDraft,
+    candidateSources: [
+      {
+        source: 'refine',
+        sections: {
+          hook: '수정 대상이 아닌 훅입니다.',
+          body: '수정 대상이 아닌 바디입니다.',
+          cta: '댓글에 루틴이라고 남기면 오늘 바로 쓸 체크리스트를 보내드릴게요.',
+        },
+      },
+    ],
+    editTarget: 'cta',
+    feedback: {
+      summary: 'CTA가 약합니다.',
+      detail: '댓글 행동 이유를 더 선명하게 주세요.',
+    },
+    request: 'CTA만 피드백대로 적용해줘',
+  })
+
+  assert.equal(result.success, true)
+  assert.deepEqual(result.changedSections, ['cta'])
+  assert.equal(result.sections.hook, currentDraft.hook)
+  assert.equal(result.sections.body, currentDraft.body)
+  assert.match(result.sections.cta, /체크리스트/)
+})
+
+test('partial safe feedback apply fallback keeps original when every candidate is unsafe', () => {
+  const result = buildPartialSafeFeedbackApplyFallback({
+    originalSections: currentDraft,
+    candidateSources: [
+      {
+        source: 'suggestedSections',
+        sections: {
+          ...currentDraft,
+          cta: '3일 만에 200% 좋아지는 방법을 바로 구매하세요.',
+        },
+      },
+    ],
+    editTarget: 'cta',
+    feedback: {
+      summary: 'CTA를 자연스럽게 바꿔야 합니다.',
+      detail: '근거 없는 수치와 구매 압박은 피해야 합니다.',
+    },
+    request: 'CTA만 피드백대로 적용해줘',
+  })
+
+  assert.equal(result.success, false)
+  assert.deepEqual(result.changedSections, [])
+  assert.deepEqual(result.sections, currentDraft)
+  assert.ok(result.issueTypes.includes('unsupported_number'))
 })
 
 test('copilot edit plan translates naturalness requests into a concrete strategy', () => {

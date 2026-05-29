@@ -28,6 +28,7 @@ import { ingestPdfDocument } from './lib/pdf-ingest.js'
 import {
   classifyCopilotIntent,
   buildEditPlan,
+  buildPartialSafeFeedbackApplyFallback,
   createSectionDiff,
   generateScriptFeedback,
   refineScriptWithAI,
@@ -2151,33 +2152,41 @@ app.post(
           repaired: true,
         }
       } else {
-        const fallbackCheck = runFeedbackFallbackRuleCheck({
+        const fallbackResult = buildPartialSafeFeedbackApplyFallback({
           originalSections: req.body?.sections,
-          candidateSections: feedback?.suggestedSections,
+          candidateSources: [
+            { source: 'repair', sections: repairResult.sections },
+            { source: 'refine', sections: result.sections },
+            { source: 'suggestedSections', sections: feedback?.suggestedSections },
+          ],
           editTarget: result.editTarget || editTarget,
           feedback,
           request: requestText,
           copilotMemory,
         })
 
-        if (feedback?.suggestedSections && !fallbackCheck.shouldRepair) {
-          finalSections = feedback.suggestedSections
-          finalMessage = '피드백에서 짚은 방향을 기준으로 적용 가능한 수정안을 반영했어요. 흐름을 크게 흔들지 않는 선에서 문장을 정리했습니다.'
+        if (fallbackResult.success) {
+          finalSections = fallbackResult.sections
+          finalMessage = '피드백 중 안전하게 반영 가능한 부분만 먼저 적용했어요. 전체 흐름은 유지하면서 적용 가능한 섹션만 정리했습니다.'
           qualityGate = {
             ...qualityGate,
             repaired: false,
             fallbackUsed: true,
-            fallbackType: 'suggestedSections',
+            fallbackType: 'partial_safe_apply',
+            partialAppliedSections: fallbackResult.changedSections,
+            fallbackIssueTypes: fallbackResult.issueTypes,
           }
         } else {
-          throw new AppError('Feedback apply quality gate failed', {
-            code: 'FEEDBACK_APPLY_QUALITY_FAILED',
-            statusCode: 502,
-            details: {
-              qaIssues: qaResult.issueTypes || [],
-              fallbackIssues: fallbackCheck.issueTypes || [],
-            },
-          })
+          finalSections = fallbackResult.sections
+          finalMessage = '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
+          qualityGate = {
+            ...qualityGate,
+            repaired: false,
+            fallbackUsed: true,
+            fallbackType: 'original',
+            partialAppliedSections: [],
+            fallbackIssueTypes: fallbackResult.issueTypes,
+          }
         }
       }
     }
@@ -2194,6 +2203,7 @@ app.post(
       repair_success: repairSuccess,
       fallback_used: qualityGate.fallbackUsed,
       fallback_type: qualityGate.fallbackType,
+      partial_applied_sections: qualityGate.partialAppliedSections || [],
       edit_target: result.editTarget || editTarget || '',
       latency_ms: Date.now() - qaStartedAt,
     })
@@ -2235,6 +2245,7 @@ app.post(
         feedbackSummary: String(feedback?.summary || '').slice(0, 300),
         repairAttempted,
         repairSuccess,
+        partialAppliedSections: qualityGate.partialAppliedSections || [],
       },
     })
 

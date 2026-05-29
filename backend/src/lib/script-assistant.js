@@ -1993,6 +1993,105 @@ export function runFeedbackFallbackRuleCheck({
   }
 }
 
+export function buildPartialSafeFeedbackApplyFallback({
+  originalSections,
+  candidateSources = [],
+  editTarget = 'all',
+  feedback = {},
+  request = '',
+  qaMode = COPILOT_QA_MODES.PRESERVE_TOPIC,
+  newSubject = '',
+  requestedMaterials = [],
+  oldSubjectToRemove = [],
+  forbiddenSurfacePhrases = [],
+  allowComparisonWithOldSubject = false,
+  editPlan = null,
+  copilotMemory = {},
+  targetSections: plannedTargetSections = null,
+  targetDurationSeconds = null,
+  targetCharRange = null,
+} = {}) {
+  const original = normalizeSections(originalSections)
+  const targetSections = Array.isArray(plannedTargetSections) && plannedTargetSections.length
+    ? plannedTargetSections.filter((section) => SECTION_KEYS.includes(section))
+    : getTargetSections(normalizeEditTarget(editTarget, request))
+  let partialSections = { ...original }
+  const changedSections = []
+  const fallbackIssues = []
+
+  for (const source of Array.isArray(candidateSources) ? candidateSources : []) {
+    const sourceName = source?.source || source?.name || 'candidate'
+    const candidate = normalizeSections(source?.sections || source?.candidateSections || source)
+
+    for (const section of targetSections) {
+      if (changedSections.includes(section)) {
+        continue
+      }
+      if (!String(candidate[section] || '').trim() || candidate[section] === original[section]) {
+        continue
+      }
+
+      const trialSections = {
+        ...partialSections,
+        [section]: candidate[section],
+      }
+      const trialChangedSections = SECTION_KEYS.filter((key) => trialSections[key] !== original[key])
+      const trialCheck = runFeedbackFallbackRuleCheck({
+        originalSections: original,
+        candidateSections: trialSections,
+        editTarget: trialChangedSections.length === SECTION_KEYS.length ? 'all' : section,
+        feedback,
+        request,
+        qaMode,
+        newSubject,
+        requestedMaterials,
+        oldSubjectToRemove,
+        forbiddenSurfacePhrases,
+        allowComparisonWithOldSubject,
+        editPlan,
+        targetSections: trialChangedSections,
+        targetDurationSeconds,
+        targetCharRange,
+        copilotMemory,
+      })
+
+      if (trialCheck.shouldRepair) {
+        fallbackIssues.push(
+          ...trialCheck.issues.map((issue) => ({
+            ...issue,
+            fallbackSource: sourceName,
+            fallbackSection: section,
+          })),
+        )
+        continue
+      }
+
+      partialSections = trialSections
+      changedSections.push(section)
+    }
+  }
+
+  if (!changedSections.length) {
+    return {
+      success: false,
+      sections: original,
+      changedSections: [],
+      fallbackType: 'original',
+      issueTypes: [...new Set(fallbackIssues.map((issue) => issue.type))],
+      issues: fallbackIssues,
+    }
+  }
+
+  return {
+    success: true,
+    sections: partialSections,
+    changedSections,
+    fallbackType: 'partial_safe_apply',
+    issueTypes: [...new Set(fallbackIssues.map((issue) => issue.type))],
+    issues: fallbackIssues,
+  }
+}
+
 function messageMentionsLockedSections(message = '', targetSections = SECTION_KEYS) {
   const targetSet = new Set(targetSections)
   const locked = SECTION_KEYS.filter((key) => !targetSet.has(key))
@@ -3567,6 +3666,7 @@ export const __scriptAssistantTest = {
   createSectionDiff,
   validateScriptFlow,
   runFeedbackFallbackRuleCheck,
+  buildPartialSafeFeedbackApplyFallback,
   buildEditScopeInstruction,
   buildCopilotEvaluationRubric,
   buildCopilotMentorToneGuide,
