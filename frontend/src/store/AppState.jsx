@@ -223,14 +223,7 @@ const initialState = {
   referenceData: null,
   generatedScripts: [],
   selectedScript: null,
-  chatMessages: [
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content:
-        '우측 패널에서는 수정 요청과 피드백을 다룹니다. A/B/C 안 중 하나를 고른 뒤 “톤을 더 날카롭게 바꿔줘” 같은 요청을 넣을 수 있습니다.',
-    },
-  ],
+  chatMessages: [],
   versions: [],
   referenceHistory: [],
   feedback: null,
@@ -564,15 +557,80 @@ export function AppStateProvider({ children }) {
       return
     }
 
+    const hasOwn = (key) => Object.prototype.hasOwnProperty.call(patch || {}, key)
+    const sessionScriptId =
+      hasOwn('selectedScriptId') && patch.selectedScriptId === null
+        ? null
+        : String(
+            patch.selectedScriptId ||
+              selectedScriptId ||
+              selectedScript?.id ||
+              '',
+          ).trim()
+    const shouldUpdateVariantSession =
+      Boolean(sessionScriptId) &&
+      [
+        'activeScriptId',
+        'editorContent',
+        'versions',
+        'feedback',
+        'pendingSuggestion',
+        'draftMessage',
+        'editTarget',
+        'copilotMemory',
+        'chatMessages',
+      ].some(hasOwn)
+
     setReferenceHistory((current) =>
-      current.map((item) =>
-        item.id === referenceId
-          ? {
-              ...item,
-              ...patch,
-            }
-          : item,
-      ),
+      current.map((item) => {
+        if (item.id !== referenceId) {
+          return item
+        }
+
+        const nextItem = {
+          ...item,
+          ...patch,
+        }
+
+        if (!shouldUpdateVariantSession) {
+          return nextItem
+        }
+
+        const previousSession = item.variantSessions?.[sessionScriptId] || {}
+        const nextSession = {
+          ...previousSession,
+          selectedScriptId: sessionScriptId,
+          activeScriptId: hasOwn('activeScriptId')
+            ? patch.activeScriptId
+            : previousSession.activeScriptId || item.activeScriptId || null,
+          editorContent: hasOwn('editorContent')
+            ? patch.editorContent
+            : previousSession.editorContent || item.editorContent || '',
+          versions: hasOwn('versions') ? patch.versions : previousSession.versions || item.versions || [],
+          feedback: hasOwn('feedback') ? patch.feedback : previousSession.feedback || item.feedback || null,
+          pendingSuggestion: hasOwn('pendingSuggestion')
+            ? patch.pendingSuggestion
+            : previousSession.pendingSuggestion || item.pendingSuggestion || null,
+          draftMessage: hasOwn('draftMessage')
+            ? patch.draftMessage
+            : previousSession.draftMessage || item.draftMessage || '',
+          editTarget: hasOwn('editTarget') ? patch.editTarget : previousSession.editTarget || item.editTarget || 'all',
+          copilotMemory: hasOwn('copilotMemory')
+            ? patch.copilotMemory
+            : previousSession.copilotMemory || item.copilotMemory || createInitialCopilotMemory(),
+          chatMessages: hasOwn('chatMessages')
+            ? patch.chatMessages
+            : previousSession.chatMessages || item.chatMessages || [],
+        }
+
+        return {
+          ...nextItem,
+          variantSessions: {
+            ...(item.variantSessions || {}),
+            [sessionScriptId]: nextSession,
+          },
+        }
+      }),
     )
   }
 
@@ -2107,43 +2165,91 @@ export function AppStateProvider({ children }) {
     const requestAccountId = currentAccount?.id
     const nextScript = generatedScripts.find((item) => item.id === scriptId)
     const activeHistoryItem = referenceHistory.find((item) => item.id === activeReferenceIdRef.current)
+    const currentVariantScriptId = selectedScriptId || selectedScript?.id || null
+    const variantSessions = activeHistoryItem?.variantSessions || {}
+    const targetVariantSession = variantSessions[scriptId] || null
     const restoredActiveScriptId =
-      activeScriptId ||
+      targetVariantSession?.activeScriptId ||
       (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem.activeScriptId : null)
 
     if (!requestAccountId || !nextScript || isEditorPreparing) {
       return
     }
 
+    if (currentVariantScriptId && currentVariantScriptId !== scriptId) {
+      syncHistory(activeReferenceIdRef.current, {
+        selectedScriptId: currentVariantScriptId,
+        activeScriptId,
+        editorContent: serializeEditorSections(editorSections),
+        versions,
+        feedback,
+        pendingSuggestion,
+        draftMessage,
+        editTarget,
+        copilotUsage,
+        copilotMemory,
+        chatMessages,
+      })
+    }
+
     if (
-      (selectedScript?.id === scriptId || selectedScriptId === scriptId || activeHistoryItem?.selectedScriptId === scriptId) &&
+      (targetVariantSession ||
+        selectedScript?.id === scriptId ||
+        selectedScriptId === scriptId ||
+        activeHistoryItem?.selectedScriptId === scriptId) &&
       restoredActiveScriptId
     ) {
-      const restoredEditorSections = activeHistoryItem?.editorContent
-        ? deserializeEditorContent(activeHistoryItem.editorContent)
+      const restoredEditorSections = targetVariantSession?.editorContent || activeHistoryItem?.editorContent
+        ? deserializeEditorContent(targetVariantSession?.editorContent || activeHistoryItem.editorContent)
         : editorSections
-      const restoredVersions = Array.isArray(activeHistoryItem?.versions) && activeHistoryItem.versions.length
-        ? activeHistoryItem.versions
+      const restoredVersions = Array.isArray(targetVariantSession?.versions) && targetVariantSession.versions.length
+        ? targetVariantSession.versions
+        : Array.isArray(activeHistoryItem?.versions) && activeHistoryItem.versions.length
+          ? activeHistoryItem.versions
         : versions
+      const restoredFeedback = targetVariantSession?.feedback || activeHistoryItem?.feedback || null
+      const restoredPendingSuggestion =
+        targetVariantSession?.pendingSuggestion || activeHistoryItem?.pendingSuggestion || null
+      const restoredDraftMessage =
+        typeof targetVariantSession?.draftMessage === 'string'
+          ? targetVariantSession.draftMessage
+          : typeof activeHistoryItem?.draftMessage === 'string'
+            ? activeHistoryItem.draftMessage
+            : ''
+      const restoredEditTarget = COPILOT_EDIT_TARGETS.has(targetVariantSession?.editTarget)
+        ? targetVariantSession.editTarget
+        : COPILOT_EDIT_TARGETS.has(activeHistoryItem?.editTarget)
+          ? activeHistoryItem.editTarget
+          : 'all'
+      const restoredChatMessages =
+        Array.isArray(targetVariantSession?.chatMessages) && targetVariantSession.chatMessages.length
+          ? targetVariantSession.chatMessages
+          : Array.isArray(activeHistoryItem?.chatMessages) &&
+              activeHistoryItem.chatMessages.length &&
+              activeHistoryItem.selectedScriptId === scriptId
+            ? activeHistoryItem.chatMessages
+            : initialState.chatMessages
+      const restoredUsage =
+        activeHistoryItem?.copilotUsage ||
+        copilotUsage ||
+        createInitialCopilotUsage()
+      const restoredCopilotMemory = normalizeCopilotMemory(
+        targetVariantSession?.copilotMemory ||
+          (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem?.copilotMemory : null) ||
+          createInitialCopilotMemory(),
+      )
 
       setSelectedScript(nextScript)
       setSelectedScriptId(scriptId)
       setActiveScriptId(restoredActiveScriptId)
       setEditorSections(restoredEditorSections)
       setVersions(restoredVersions)
-      setFeedback(activeHistoryItem?.feedback || feedback)
-      setPendingSuggestion(activeHistoryItem?.pendingSuggestion || pendingSuggestion)
-      setDraftMessage(
-        typeof activeHistoryItem?.draftMessage === 'string' ? activeHistoryItem.draftMessage : draftMessage,
-      )
-      setEditTarget(COPILOT_EDIT_TARGETS.has(activeHistoryItem?.editTarget) ? activeHistoryItem.editTarget : editTarget)
-      if (Array.isArray(activeHistoryItem?.chatMessages) && activeHistoryItem.chatMessages.length) {
-        setChatMessages(activeHistoryItem.chatMessages)
-      }
-      if (activeHistoryItem?.copilotUsage) {
-        setCopilotUsage(activeHistoryItem.copilotUsage)
-      }
-      const restoredCopilotMemory = normalizeCopilotMemory(activeHistoryItem?.copilotMemory || copilotMemory)
+      setFeedback(restoredFeedback)
+      setPendingSuggestion(restoredPendingSuggestion)
+      setDraftMessage(restoredDraftMessage)
+      setEditTarget(restoredEditTarget)
+      setChatMessages(restoredChatMessages)
+      setCopilotUsage(restoredUsage)
       setCopilotMemory(restoredCopilotMemory)
       setCurrentStep('editor')
       setViewTransition('to-editor')
@@ -2154,16 +2260,13 @@ export function AppStateProvider({ children }) {
         activeScriptId: restoredActiveScriptId,
         editorContent: serializeEditorSections(restoredEditorSections),
         versions: restoredVersions,
-        feedback: activeHistoryItem?.feedback || feedback,
-        pendingSuggestion: activeHistoryItem?.pendingSuggestion || pendingSuggestion,
-        draftMessage:
-          typeof activeHistoryItem?.draftMessage === 'string' ? activeHistoryItem.draftMessage : draftMessage,
-        editTarget: COPILOT_EDIT_TARGETS.has(activeHistoryItem?.editTarget) ? activeHistoryItem.editTarget : editTarget,
-        copilotUsage: activeHistoryItem?.copilotUsage || copilotUsage,
+        feedback: restoredFeedback,
+        pendingSuggestion: restoredPendingSuggestion,
+        draftMessage: restoredDraftMessage,
+        editTarget: restoredEditTarget,
+        copilotUsage: restoredUsage,
         copilotMemory: restoredCopilotMemory,
-        chatMessages: Array.isArray(activeHistoryItem?.chatMessages) && activeHistoryItem.chatMessages.length
-          ? activeHistoryItem.chatMessages
-          : chatMessages,
+        chatMessages: restoredChatMessages,
         lastStep: 'editor',
       })
       setTimeout(() => {
@@ -2182,7 +2285,7 @@ export function AppStateProvider({ children }) {
     setPendingSuggestion(null)
     setDraftMessage('')
     setEditTarget('all')
-    setCopilotUsage(createInitialCopilotUsage())
+    setChatMessages(initialState.chatMessages)
     setCopilotMemory(createInitialCopilotMemory())
     setIsEditorPreparing(true)
     setCurrentStep('editor')
@@ -2216,8 +2319,9 @@ export function AppStateProvider({ children }) {
         pendingSuggestion: null,
         draftMessage: '',
         editTarget: 'all',
-        copilotUsage: createInitialCopilotUsage(),
+        copilotUsage,
         copilotMemory: createInitialCopilotMemory(),
+        chatMessages: initialState.chatMessages,
         lastStep: 'editor',
       })
       setViewTransition('idle')
@@ -2616,6 +2720,7 @@ export function AppStateProvider({ children }) {
         currentVersionId: versions[0]?.id,
         selectedLabel: selectedScript?.label,
         sections: editorSections,
+        previousFeedback: feedback?.applied && feedback?.staleAfterApply ? feedback : null,
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -2754,11 +2859,13 @@ export function AppStateProvider({ children }) {
         title: '피드백 반영본',
         sections: nextSections,
         versionType: 'feedback_apply',
-        score: targetFeedback.score,
+        score: null,
         metadata: {
           referenceId: referenceData?.id,
           selectedLabel: selectedScript?.label,
           feedbackSummary: targetFeedback.summary,
+          feedbackOriginalScore: targetFeedback.score ?? null,
+          needsFeedbackRecheck: true,
         },
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
@@ -2779,6 +2886,7 @@ export function AppStateProvider({ children }) {
       const appliedFeedback = {
         ...targetFeedback,
         applied: true,
+        staleAfterApply: true,
       }
 
       setFeedback(appliedFeedback)

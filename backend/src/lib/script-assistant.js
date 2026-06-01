@@ -294,6 +294,123 @@ function normalizeFeedbackList(value = [], maxItems = 8) {
     .slice(0, maxItems)
 }
 
+const FEEDBACK_VERDICT_CONFIG = {
+  ready: {
+    label: '바로 사용 가능',
+    recommendedAction: '그대로 사용하기',
+  },
+  minor_edit: {
+    label: '가볍게 다듬으면 사용 가능',
+    recommendedAction: '가볍게 다듬고 사용하기',
+  },
+  needs_edit: {
+    label: '수정 후 사용 권장',
+    recommendedAction: '수정해서 사용 가능하게 만들기',
+  },
+  rewrite_recommended: {
+    label: '새 방향 권장',
+    recommendedAction: '새 방향으로 다시 잡기',
+  },
+}
+
+function getBaseFeedbackVerdictStatus(score = 0) {
+  const numericScore = Number(score) || 0
+  if (numericScore >= 85) return 'ready'
+  if (numericScore >= 75) return 'minor_edit'
+  if (numericScore >= 60) return 'needs_edit'
+  return 'rewrite_recommended'
+}
+
+function clampFeedbackVerdictStatus(status = 'needs_edit', maxStatus = 'needs_edit') {
+  const order = ['rewrite_recommended', 'needs_edit', 'minor_edit', 'ready']
+  const statusIndex = order.indexOf(status)
+  const maxIndex = order.indexOf(maxStatus)
+  if (statusIndex < 0) return maxStatus
+  if (maxIndex < 0) return status
+  return order[Math.min(statusIndex, maxIndex)]
+}
+
+function detectFeedbackCriticalIssue({ sections = {}, issues = [], recommendations = [] } = {}) {
+  const normalizedSections = normalizeSections(sections)
+  const feedbackText = [...normalizeFeedbackList(issues, 12), ...normalizeFeedbackList(recommendations, 12)].join(' ')
+  const compactText = feedbackText.replace(/\s+/g, ' ')
+  const missingSections = SECTION_KEYS.filter((key) => !normalizedSections[key])
+
+  if (missingSections.length) {
+    return {
+      maxStatus: 'needs_edit',
+      reason: `${missingSections.map((key) => SECTION_LABELS[key]).join('/')}가 비어 있어 바로 사용하기에는 보완이 필요합니다.`,
+    }
+  }
+
+  if (/(?:CTA|씨티에이|마무리).{0,18}(?:없|비어|빠져|약함|부족)/i.test(compactText)) {
+    return {
+      maxStatus: 'needs_edit',
+      reason: 'CTA가 충분히 작동하지 않아 행동 유도 문장을 보완한 뒤 사용하는 편이 좋습니다.',
+    }
+  }
+
+  if (/(?:허위|근거\s*없는|과장|보장|후기|권위|전문가|수치|효과)/i.test(compactText)) {
+    return {
+      maxStatus: 'needs_edit',
+      reason: '신뢰를 해칠 수 있는 표현이 있어 근거와 표현을 정리한 뒤 사용하는 편이 좋습니다.',
+    }
+  }
+
+  if (/(?:주제\s*이탈|타겟\s*불일치|레퍼런스.{0,12}오염|사용자\s*지시문|지시문\s*누수|연결.{0,12}붕괴|흐름.{0,12}붕괴)/i.test(compactText)) {
+    return {
+      maxStatus: 'rewrite_recommended',
+      reason: '대본의 핵심 흐름이나 주제 정합성이 흔들려 방향을 다시 잡는 편이 안전합니다.',
+    }
+  }
+
+  return null
+}
+
+function buildFeedbackVerdict({ score = 0, sections = {}, issues = [], recommendations = [] } = {}) {
+  const normalizedIssues = normalizeFeedbackList(issues, 8)
+  const normalizedRecommendations = normalizeFeedbackList(recommendations, 8)
+  const criticalIssue = detectFeedbackCriticalIssue({
+    sections,
+    issues: normalizedIssues,
+    recommendations: normalizedRecommendations,
+  })
+  const status = criticalIssue
+    ? clampFeedbackVerdictStatus(getBaseFeedbackVerdictStatus(score), criticalIssue.maxStatus)
+    : getBaseFeedbackVerdictStatus(score)
+  const config = FEEDBACK_VERDICT_CONFIG[status] || FEEDBACK_VERDICT_CONFIG.needs_edit
+  const firstIssue = normalizedIssues[0] || ''
+  const firstRecommendation = normalizedRecommendations[0] || ''
+
+  let reason = criticalIssue?.reason || ''
+  if (!reason) {
+    if (status === 'ready') {
+      reason = firstIssue
+        ? `전체적으로 바로 사용 가능한 수준이고, 굳이 다듬는다면 ${firstIssue.replace(/^(HOOK|BODY|CTA)\s*[:：]\s*/i, '')} 정도만 확인하면 됩니다.`
+        : 'HOOK, BODY, CTA 흐름이 안정적이라 지금 바로 사용해도 괜찮습니다.'
+    } else if (status === 'minor_edit') {
+      reason = firstRecommendation
+        ? `큰 방향은 괜찮고, ${firstRecommendation.replace(/^(HOOK|BODY|CTA)\s*[:：]\s*/i, '')} 정도만 다듬으면 더 자연스럽습니다.`
+        : '전체 흐름은 괜찮고 한두 문장만 다듬으면 바로 사용하기 좋습니다.'
+    } else if (status === 'needs_edit') {
+      reason = firstIssue
+        ? `${firstIssue.replace(/^(HOOK|BODY|CTA)\s*[:：]\s*/i, '')} 부분을 보완한 뒤 사용하는 것을 권장합니다.`
+        : '지금 바로 쓰기에는 설득 흐름이 약해 문제 섹션을 정리한 뒤 사용하는 편이 좋습니다.'
+    } else {
+      reason = firstIssue
+        ? `${firstIssue.replace(/^(HOOK|BODY|CTA)\s*[:：]\s*/i, '')} 문제가 커서 부분 수정이나 새 방향 재정리가 필요합니다.`
+        : '부분 수정만으로는 애매해 새 방향으로 다시 잡는 편이 좋습니다.'
+    }
+  }
+
+  return {
+    status,
+    label: config.label,
+    reason,
+    recommendedAction: config.recommendedAction,
+  }
+}
+
 function cleanRequestedPhrase(value = '') {
   return String(value || '')
     .replace(/^[\s"'“”‘’.,:;·\-–—]+|[\s"'“”‘’.,:;·\-–—]+$/g, '')
@@ -321,6 +438,65 @@ function parseSubjectList(value = '') {
       .filter((item) => item && item.length <= 60),
     8,
   )
+}
+
+function normalizeOperationType(value = '') {
+  const normalized = String(value || '').trim()
+  return Object.values(COPILOT_OPERATION_TYPES).includes(normalized)
+    ? normalized
+    : COPILOT_OPERATION_TYPES.UNKNOWN
+}
+
+function normalizeSemanticEditInstruction(raw = {}, request = '') {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const operationType = normalizeOperationType(source.operationType)
+  const oldSubjectToRemove = parseSubjectList(
+    Array.isArray(source.oldSubjectToRemove) ? source.oldSubjectToRemove.join(',') : source.oldSubjectToRemove,
+  )
+  const forbiddenSurfacePhrases = uniqueCompactList(
+    [
+      ...(Array.isArray(source.forbiddenSurfacePhrases) ? source.forbiddenSurfacePhrases : []),
+      ...buildForbiddenSurfacePhrases(oldSubjectToRemove),
+    ].map((item) => cleanRequestedPhrase(item)),
+    24,
+  )
+  const newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(source.newSubject || ''))
+  const requestedMaterials = uniqueCompactList(
+    Array.isArray(source.requestedMaterials)
+      ? source.requestedMaterials.map((item) => cleanRequestedPhrase(item)).filter(Boolean)
+      : splitRequestedMaterials(source.requestedMaterials || ''),
+    8,
+  )
+  const explicitKeep = uniqueCompactList(
+    Array.isArray(source.explicitKeep)
+      ? source.explicitKeep.map((item) => cleanRequestedPhrase(item)).filter(Boolean)
+      : [],
+    8,
+  )
+  const explicitRemove = uniqueCompactList(
+    [
+      ...(Array.isArray(source.explicitRemove)
+        ? source.explicitRemove.map((item) => cleanRequestedPhrase(item)).filter(Boolean)
+        : []),
+      ...oldSubjectToRemove,
+    ],
+    8,
+  )
+
+  return {
+    operationType,
+    newSubject,
+    oldSubjectToRemove,
+    forbiddenSurfacePhrases,
+    requestedMaterials,
+    salesContext: cleanRequestedPhrase(source.salesContext || extractSalesContext(request)),
+    toneHint: cleanRequestedPhrase(source.toneHint || extractToneHint(request)),
+    explicitKeep,
+    explicitRemove,
+    allowComparisonWithOldSubject: Boolean(source.allowComparisonWithOldSubject),
+    confidence: Math.max(0, Math.min(1, Number(source.confidence || 0))),
+    reason: String(source.reason || '').replace(/\s+/g, ' ').trim(),
+  }
 }
 
 function buildForbiddenSurfacePhrases(oldSubjects = []) {
@@ -469,6 +645,8 @@ export function parseEditInstruction(request = '', intentResult = {}) {
   const targetDurationSeconds =
     normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) || extractTargetDurationSeconds(text)
   const allowComparisonWithOldSubject = /(비교|대비|차이|vs|VS|비교해|비교하는|비교해서)/i.test(text)
+  const semanticInstruction = normalizeSemanticEditInstruction(intentResult.structuredEditInstruction || intentResult, text)
+  const hasSemanticInstructionSource = Boolean(intentResult.structuredEditInstruction)
 
   const instruction = {
     operationType: COPILOT_OPERATION_TYPES.UNKNOWN,
@@ -487,6 +665,46 @@ export function parseEditInstruction(request = '', intentResult = {}) {
     return {
       ...instruction,
       operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+    }
+  }
+
+  if (
+    hasSemanticInstructionSource &&
+    semanticInstruction.operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME &&
+    semanticInstruction.newSubject
+  ) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: semanticInstruction.newSubject,
+      oldSubjectToRemove: semanticInstruction.oldSubjectToRemove,
+      forbiddenSurfacePhrases: semanticInstruction.forbiddenSurfacePhrases,
+      requestedMaterials: semanticInstruction.requestedMaterials.length
+        ? semanticInstruction.requestedMaterials
+        : extractTopicReframeMaterials(text, semanticInstruction.newSubject),
+      salesContext: semanticInstruction.salesContext,
+      toneHint: semanticInstruction.toneHint,
+      explicitKeep: uniqueCompactList([...instruction.explicitKeep, ...semanticInstruction.explicitKeep], 8),
+      explicitRemove: uniqueCompactList(semanticInstruction.explicitRemove, 8),
+      allowComparisonWithOldSubject: semanticInstruction.allowComparisonWithOldSubject || allowComparisonWithOldSubject,
+    }
+  }
+
+  if (
+    hasSemanticInstructionSource &&
+    semanticInstruction.operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL &&
+    semanticInstruction.requestedMaterials.length
+  ) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
+      oldSubjectToRemove: semanticInstruction.oldSubjectToRemove,
+      forbiddenSurfacePhrases: semanticInstruction.forbiddenSurfacePhrases,
+      requestedMaterials: semanticInstruction.requestedMaterials,
+      salesContext: semanticInstruction.salesContext,
+      toneHint: semanticInstruction.toneHint,
+      explicitKeep: uniqueCompactList([...instruction.explicitKeep, ...semanticInstruction.explicitKeep], 8),
+      explicitRemove: uniqueCompactList(semanticInstruction.explicitRemove, 8),
     }
   }
 
@@ -875,9 +1093,25 @@ export function buildEditPlan({
     structuredEditInstruction.operationType && structuredEditInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
       ? structuredEditInstruction.operationType
       : ''
-  const oldSubjectToRemove = uniqueCompactList(structuredEditInstruction.oldSubjectToRemove, 8)
-  const forbiddenSurfacePhrases = uniqueCompactList(structuredEditInstruction.forbiddenSurfacePhrases, 24)
-  const allowComparisonWithOldSubject = Boolean(structuredEditInstruction.allowComparisonWithOldSubject)
+  const semanticInstruction = normalizeSemanticEditInstruction(intentResult.structuredEditInstruction || intentResult, request)
+  const oldSubjectToRemove = uniqueCompactList(
+    [
+      ...(structuredEditInstruction.oldSubjectToRemove || []),
+      ...(semanticInstruction.oldSubjectToRemove || []),
+    ],
+    8,
+  )
+  const forbiddenSurfacePhrases = uniqueCompactList(
+    [
+      ...(structuredEditInstruction.forbiddenSurfacePhrases || []),
+      ...(semanticInstruction.forbiddenSurfacePhrases || []),
+      ...buildForbiddenSurfacePhrases(oldSubjectToRemove),
+    ],
+    24,
+  )
+  const allowComparisonWithOldSubject = Boolean(
+    structuredEditInstruction.allowComparisonWithOldSubject || semanticInstruction.allowComparisonWithOldSubject,
+  )
   const operationType = isDurationCompress
     ? COPILOT_OPERATION_TYPES.DURATION_COMPRESS
     : structuredOperationType ||
@@ -2356,6 +2590,97 @@ function createFallbackIntent(message = '', editTarget = '') {
   return null
 }
 
+function shouldUseSemanticInstructionExtractor(message = '', fallbackIntent = null) {
+  const text = String(message || '').trim()
+  if (!text || fallbackIntent?.intent !== 'edit_request') {
+    return false
+  }
+
+  if (extractTargetDurationSeconds(text)) {
+    return false
+  }
+
+  const compact = text.replace(/\s+/g, '')
+  const hasComplexReframeSignal =
+    /(주제|소재|방향).{0,24}(바꿔|바꾸|변경|다시|가자)|(?:말고|대신|빼고|버리고|제외하고)|(?:으로|로).{0,20}(바꿔|바꾸|변경|다시|가자)/i.test(
+      text,
+    )
+  const hasMaterialOrContextSignal =
+    /(남편|아이|가족|육아맘|상황|느낌|공구|공동구매|만족도|전자레인지|에어프라이|냉동실|꺼내|바로|상담|구매|링크|모집)/i.test(
+      text,
+    )
+  const hasMultiSentence = /[?.!。]\s*\S/.test(text) || text.split(/\s+/g).length >= 10
+
+  return hasComplexReframeSignal || (hasMultiSentence && hasMaterialOrContextSignal) || compact.length >= 45
+}
+
+async function extractCopilotInstructionWithLLM({
+  openai,
+  model,
+  message = '',
+  sections,
+  editTarget = '',
+}) {
+  const normalizedSections = normalizeSections(sections)
+  const normalizedMessage = String(message || '').trim()
+  if (!normalizedMessage) {
+    return null
+  }
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 0,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '당신은 HookAI 코파일럿 사용자 요청을 구조화된 편집 명령으로 정규화하는 파서다.',
+          '대본을 작성하지 않는다. 사용자 문장을 대본에 넣을 문장으로 보지 말고, 편집 의도/새 주제/삭제할 기존 소재/삽입할 상황 힌트로 분리한다.',
+          '출력은 JSON만 반환한다.',
+          'operationType은 topic_reframe, insert_material, duration_compress, tone_adjust, partial_rewrite, edit_partial, unknown 중 하나다.',
+          'topic_reframe: 사용자가 새 주제/상품/소재로 바꾸려는 요청이다. 예: "삼겹살로 주제 바꿔줘", "물광토너 주제로", "만두말고 치킨너겟으로".',
+          'insert_material: 기존 대본에 특정 소재를 추가하는 요청이다. 예: "BODY에 손씻기 넣어줘".',
+          'tone_adjust: 주제는 유지하고 말투/광고감/자연스러움만 바꾸는 요청이다.',
+          'partial_rewrite/edit_partial: 특정 섹션이나 일부 표현만 수정하는 요청이다.',
+          '사용자 요청의 raw 표현은 대본 문장에 복사할 표현이 아니다. "만두말고" 같은 표현은 forbiddenSurfacePhrases에 넣는다.',
+          'newSubject는 최종 중심 주제/상품만 짧게 추출한다. 예: "간편 냉동볶음밥", "삼겹살", "치킨너겟".',
+          'requestedMaterials는 대본에 그대로 복사할 문장이 아니라 반영할 상황/소재 힌트다.',
+          'salesContext는 공구/상담/구매링크/모집 같은 판매 맥락만 짧게 추출한다.',
+          'toneHint는 가족 생활 공감형, 자연스럽고 말하듯이, 공구 느낌처럼 톤 방향만 적는다.',
+          '비교 요청이면 allowComparisonWithOldSubject=true다. 아니면 oldSubjectToRemove는 대본에 남기지 않는 소재다.',
+        ].join('\n'),
+      },
+      {
+        role: 'user',
+        content: [
+          `현재 선택 UI editTarget: ${editTarget || 'all'}`,
+          `사용자 요청: ${normalizedMessage}`,
+          '',
+          '[현재 초안 일부]',
+          `HOOK: ${normalizedSections.hook.slice(0, 160) || '-'}`,
+          `BODY: ${normalizedSections.body.slice(0, 220) || '-'}`,
+          `CTA: ${normalizedSections.cta.slice(0, 140) || '-'}`,
+          '',
+          'JSON 형식:',
+          '{"operationType":"topic_reframe|insert_material|duration_compress|tone_adjust|partial_rewrite|edit_partial|unknown","newSubject":"","oldSubjectToRemove":[],"forbiddenSurfacePhrases":[],"requestedMaterials":[],"salesContext":"","toneHint":"","explicitKeep":[],"explicitRemove":[],"allowComparisonWithOldSubject":false,"targetDurationSeconds":null,"confidence":0,"reason":""}',
+        ].join('\n'),
+      },
+    ],
+  })
+
+  logAIUsage('copilot-instruction-extract', response, {
+    model,
+  })
+
+  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+  const instruction = normalizeSemanticEditInstruction(parsed, normalizedMessage)
+  return {
+    ...instruction,
+    targetDurationSeconds:
+      normalizeTargetDurationSeconds(parsed.targetDurationSeconds) || extractTargetDurationSeconds(normalizedMessage),
+  }
+}
+
 export async function classifyCopilotIntent({
   message,
   sections,
@@ -2380,12 +2705,65 @@ export async function classifyCopilotIntent({
   }
 
   const fallback = createFallbackIntent(message, editTarget)
+  const normalizedMessage = String(message || '').trim()
+  const normalizedSections = normalizeSections(sections)
+
+  if (
+    fallback?.intent === 'edit_request' &&
+    shouldUseSemanticInstructionExtractor(normalizedMessage, fallback) &&
+    hasOpenAIConfig()
+  ) {
+    const { openai, models } = requireClients()
+    try {
+      const semanticInstruction = await extractCopilotInstructionWithLLM({
+        openai,
+        model: models.chatModel,
+        message: normalizedMessage,
+        sections: normalizedSections,
+        editTarget,
+      })
+      if (semanticInstruction?.operationType && semanticInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN) {
+        const targetDuration =
+          normalizeTargetDurationSeconds(semanticInstruction.targetDurationSeconds) ||
+          normalizeTargetDurationSeconds(targetDurationSeconds)
+        const operationType =
+          semanticInstruction.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS && !targetDuration
+            ? COPILOT_OPERATION_TYPES.EDIT_PARTIAL
+            : semanticInstruction.operationType
+        return {
+          intent: 'edit_request',
+          editTarget: operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+            ? 'all'
+            : normalizeEditTarget(editTarget, normalizedMessage),
+          shouldModifyScript: true,
+          operationType,
+          targetDurationSeconds: operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ? targetDuration : null,
+          newSubject: operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ? semanticInstruction.newSubject : '',
+          requestedMaterials: semanticInstruction.requestedMaterials || [],
+          oldSubjectToRemove: semanticInstruction.oldSubjectToRemove || [],
+          forbiddenSurfacePhrases: semanticInstruction.forbiddenSurfacePhrases || [],
+          salesContext: semanticInstruction.salesContext || '',
+          toneHint: semanticInstruction.toneHint || '',
+          explicitKeep: semanticInstruction.explicitKeep || [],
+          explicitRemove: semanticInstruction.explicitRemove || [],
+          allowComparisonWithOldSubject: Boolean(semanticInstruction.allowComparisonWithOldSubject),
+          structuredEditInstruction: semanticInstruction,
+          reply: '',
+          reason: semanticInstruction.reason || '복합 수정 요청을 의미 기반 편집 명령으로 정규화함',
+        }
+      }
+    } catch (error) {
+      logAIError('gpt', error, {
+        stage: 'copilot-instruction-extract',
+        message: normalizedMessage,
+        model: models.chatModel,
+      })
+    }
+  }
+
   if (fallback) {
     return fallback
   }
-
-  const normalizedMessage = String(message || '').trim()
-  const normalizedSections = normalizeSections(sections)
 
   if (!hasOpenAIConfig()) {
     return {
@@ -2926,17 +3304,40 @@ function buildFeedbackUserPrompt({
   selectedLabel,
   referenceContext,
   guides,
+  previousFeedback = null,
 }) {
   const normalizedSections = normalizeSections(sections)
+  const previousScore = Number(previousFeedback?.score)
+  const hasPreviousFeedback = previousFeedback && typeof previousFeedback === 'object'
+  const previousFeedbackContext = hasPreviousFeedback
+    ? [
+        '[이전 피드백 반영 후 재평가 컨텍스트]',
+        Number.isFinite(previousScore) ? `이전 피드백 점수: ${previousScore}점` : '',
+        `이전 피드백 요약: ${compactReferenceSignal(previousFeedback.summary || '', 600) || '-'}`,
+        `이전 피드백 문제: ${compactReferenceSignal(normalizeFeedbackList(previousFeedback.issues, 6).join(' / '), 900) || '-'}`,
+        `이전 피드백 수정 방향: ${compactReferenceSignal(normalizeFeedbackList(previousFeedback.recommendations, 6).join(' / '), 900) || '-'}`,
+        '재평가 규칙:',
+        '- 현재 초안은 위 피드백을 반영한 뒤의 대본일 수 있다.',
+        '- 먼저 이전 피드백에서 지적한 문제가 해결됐는지 판단한다.',
+        '- 이전 문제가 해결됐고 새 치명 문제가 없다면 점수를 이전보다 낮게 주지 않는다.',
+        '- 이전보다 낮은 점수를 줄 때는 새로 생긴 명확한 퇴행/치명 문제를 summary/detail/issues에 구체적으로 설명한다.',
+        '- 단순히 더 높은 기준을 갑자기 적용해 점수를 낮추지 않는다.',
+      ].filter(Boolean).join('\n')
+    : ''
 
   return (
     `${buildDraftBlock(normalizedSections)}\n\n` +
     `선택한 안: ${selectedLabel || '-'}\n\n` +
     `${referenceContext}\n\n` +
+    (previousFeedbackContext ? `${previousFeedbackContext}\n\n` : '') +
     `${buildCopilotEvaluationRubric()}\n\n` +
     `${buildCopilotMentorToneGuide()}\n\n` +
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
+    '피드백 오염 방지 규칙:\n' +
+    '- 현재 제공된 HOOK/BODY/CTA에 없는 상품, 음식, 소재, 주제, 상황을 새로 만들지 않는다.\n' +
+    '- 이전 대화에서 나온 주제나 수정 요청은 현재 초안에 직접 포함되어 있지 않으면 무시한다.\n' +
+    '- suggestedSections는 현재 초안의 주제와 상품을 유지해야 하며 피드백 과정에서 다른 주제로 바꾸지 않는다.\n\n' +
     '다음 JSON 형식으로만 답하세요: ' +
     '{"score":82,"summary":"","detail":"","issues":[""],"recommendations":[""],"suggestedSections":{"hook":"","body":"","cta":""}}'
   )
@@ -3337,6 +3738,7 @@ export async function generateScriptFeedback({
   currentVersionId = '',
   characterSystemPrompt = '',
   personalizationContext = '',
+  previousFeedback = null,
 }) {
   const normalizedSections = normalizeSections(sections)
   const { supabaseAdmin, openai, models } = requireClients()
@@ -3366,11 +3768,17 @@ export async function generateScriptFeedback({
             buildReferenceContaminationGuard(),
             buildCopilotEvaluationRubric(),
             'suggestedSections는 반드시 현재 초안을 개선한 결과여야 한다. 레퍼런스 전사/원문 내용을 기준으로 재생성하지 않는다.',
+            '피드백 기준: 현재 제공된 HOOK/BODY/CTA에 없는 상품, 음식, 소재, 주제, 상황을 새로 만들지 않는다.',
+            '피드백 기준: 이전 대화에서 나온 주제나 수정 요청은 현재 초안에 직접 포함되어 있지 않으면 무시한다.',
             'suggestedSections를 작성할 때는 설명형/교과서형 문장을 피하고, 실제 사람이 말하는 톤으로 다시 써라.',
+            'suggestedSections는 현재 초안의 주제와 상품을 유지해야 한다. 피드백 과정에서 다른 주제로 바꾸지 않는다.',
             'suggestedSections는 선택 초안의 문장 단위 구조 설계도, 길이감, 문장 역할 순서, 심리 트리거, CTA 위치를 가능한 한 유지한다.',
             '피드백 반영안이 레퍼런스 구조를 버리고 새 대본처럼 바뀌면 실패다.',
             'HOOK은 긴장감 있게, BODY는 상황/경험형으로, CTA는 행동 이유를 담아 짧고 강하게 제안하라.',
             '평가 시 반드시 평가 기준표의 5개 항목을 기준으로 점수를 판단한다.',
+            previousFeedback && typeof previousFeedback === 'object'
+              ? '재평가 기준: 이전 피드백 반영 후 재평가라면, 이전 피드백의 핵심 문제가 해결됐는지 먼저 확인한다. 해결됐고 새 치명 문제가 없다면 점수를 이전보다 낮게 주지 않는다. 낮게 줄 때는 새 퇴행 사유를 명확히 적는다.'
+              : null,
             'summary/detail에는 좋은 점과 약한 점을 모두 담는다. 무조건 칭찬하지 않는다.',
             'issues에는 실제 수정으로 해결해야 할 핵심 문제를 섹션명과 함께 1~4개로 적는다. 예: "HOOK: 첫 문장에 타겟 고민이 늦게 나온다."',
             'recommendations에는 issues를 해결하기 위한 구체적인 수정 방향을 1~4개로 적는다.',
@@ -3392,6 +3800,7 @@ export async function generateScriptFeedback({
             selectedLabel,
             referenceContext,
             guides,
+            previousFeedback,
           }),
         },
       ],
@@ -3405,14 +3814,25 @@ export async function generateScriptFeedback({
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
     const structureDiagnosis = buildStructureDiagnosis(reference, selectedLabel, parsed)
+    const score = Number(parsed.score) || 0
+    const issues = normalizeFeedbackList(parsed.issues)
+    const recommendations = normalizeFeedbackList(parsed.recommendations)
+    const suggestedSections = normalizeSections(parsed.suggestedSections)
+    const verdict = buildFeedbackVerdict({
+      score,
+      sections: normalizedSections,
+      issues,
+      recommendations,
+    })
 
     return {
-      score: Number(parsed.score) || 0,
+      score,
       summary: parsed.summary?.trim() || '전체 구조는 괜찮지만 더 압축할 여지가 있습니다.',
       detail: parsed.detail?.trim() || 'HOOK, BODY, CTA의 역할을 더 또렷하게 나누면 성능이 좋아질 수 있습니다.',
-      issues: normalizeFeedbackList(parsed.issues),
-      recommendations: normalizeFeedbackList(parsed.recommendations),
-      suggestedSections: normalizeSections(parsed.suggestedSections),
+      issues,
+      recommendations,
+      suggestedSections,
+      verdict,
       structureDiagnosis,
     }
   } catch (error) {
@@ -3864,6 +4284,7 @@ export const __scriptAssistantTest = {
   normalizeTargetDurationSeconds,
   extractTargetDurationSeconds,
   buildDurationCharRange,
+  buildFeedbackVerdict,
   createFallbackIntent,
   messageMentionsLockedSections,
   logPromptAssembly,

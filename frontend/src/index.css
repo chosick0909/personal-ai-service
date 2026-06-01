@@ -145,6 +145,18 @@ a {
   pointer-events: none;
 }
 
+.ready-verdict-card {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(134, 239, 172, 0.36) !important;
+  box-shadow: 0 0 0 1px rgba(134, 239, 172, 0.1) inset;
+}
+
+.ready-verdict-card > * {
+  position: relative;
+  z-index: 1;
+}
+
 @keyframes shimmer-sweep {
   0% {
     transform: translateX(-140%);
@@ -166,6 +178,13 @@ a {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-selected::after,
+  .recommend-card-enter {
+    animation: none;
   }
 }
 

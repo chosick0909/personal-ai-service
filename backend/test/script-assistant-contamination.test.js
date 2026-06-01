@@ -43,6 +43,7 @@ const {
   COPILOT_QA_MODES,
   extractTargetDurationSeconds,
   buildDurationCharRange,
+  buildFeedbackVerdict,
 } = __scriptAssistantTest
 
 const currentDraft = {
@@ -79,6 +80,31 @@ test('refine/feedback reference context excludes full transcript content', () =>
   for (const term of poisonTerms) {
     assert.equal(context.includes(term), false, `context leaked transcript term: ${term}`)
   }
+})
+
+test('feedback verdict marks high score drafts as ready', () => {
+  const verdict = buildFeedbackVerdict({
+    score: 88,
+    sections: currentDraft,
+    issues: [],
+    recommendations: [],
+  })
+
+  assert.equal(verdict.status, 'ready')
+  assert.equal(verdict.label, '바로 사용 가능')
+  assert.equal(verdict.recommendedAction, '그대로 사용하기')
+})
+
+test('feedback verdict downgrades critical issues even with high score', () => {
+  const verdict = buildFeedbackVerdict({
+    score: 90,
+    sections: currentDraft,
+    issues: ['CTA: 행동 유도가 빠져 있습니다.'],
+    recommendations: ['CTA에 저장 이유를 넣어주세요.'],
+  })
+
+  assert.equal(verdict.status, 'needs_edit')
+  assert.equal(verdict.label, '수정 후 사용 권장')
 })
 
 test('refine prompt orders rubric and playbook before current draft while keeping draft source of truth', () => {
@@ -120,6 +146,19 @@ test('feedback suggestedSections prompt uses current draft before reference stru
   assert.match(prompt, /issues/)
   assert.match(prompt, /recommendations/)
   assert.doesNotMatch(prompt, /분양권과 강남 재건축 투자/)
+})
+
+test('feedback prompt forbids introducing topics from previous conversations', () => {
+  const context = buildReferenceStructureContext(reference)
+  const prompt = buildFeedbackUserPrompt({
+    sections: currentDraft,
+    selectedLabel: 'B',
+    referenceContext: context,
+    guides: {},
+  })
+
+  assert.match(prompt, /현재 제공된 HOOK\/BODY\/CTA에 없는 상품, 음식, 소재, 주제, 상황을 새로 만들지 않는다/)
+  assert.match(prompt, /이전 대화에서 나온 주제나 수정 요청은 현재 초안에 직접 포함되어 있지 않으면 무시한다/)
 })
 
 test('five repeated prompt assemblies do not reintroduce reference transcript terms', () => {
@@ -852,6 +891,59 @@ test('copilot edit plan separates subject, sales context, tone, and situation hi
   assert.ok(!plan.requestedMaterials.some((item) => /공구\s*느낌/.test(item)))
   assert.ok(plan.mustChange.some((item) => item.includes('음식 공구')))
   assert.ok(plan.avoid.some((item) => item.includes('그대로 복사')))
+})
+
+test('copilot edit plan accepts semantic instruction extractor output for complex reframe requests', () => {
+  const request =
+    '주제를 간편 냉동볶음밥으로 바꿔볼래? 남편/아이들이 밥 먹고 나서도 배고프다고 할 때 냉동실에서 꺼내서 전자레인지/에어프라이기를 돌려서 바로 줄 수 있는 그런느낌. 그리고 남편/아이들의 만족도도 너무 좋다는 느낌까지'
+  const semanticIntent = {
+    intent: 'edit_request',
+    shouldModifyScript: true,
+    editTarget: 'all',
+    operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+    newSubject: '간편 냉동볶음밥',
+    requestedMaterials: [
+      '남편과 아이들이 밥 먹고 나서도 배고프다고 하는 상황',
+      '냉동실에서 꺼내 전자레인지나 에어프라이기로 바로 줄 수 있음',
+      '남편과 아이들의 만족도가 좋음',
+    ],
+    salesContext: '음식 공구',
+    toneHint: '가족 생활 공감형',
+    structuredEditInstruction: {
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '간편 냉동볶음밥',
+      requestedMaterials: [
+        '남편과 아이들이 밥 먹고 나서도 배고프다고 하는 상황',
+        '냉동실에서 꺼내 전자레인지나 에어프라이기로 바로 줄 수 있음',
+        '남편과 아이들의 만족도가 좋음',
+      ],
+      salesContext: '음식 공구',
+      toneHint: '가족 생활 공감형',
+      oldSubjectToRemove: [],
+      forbiddenSurfacePhrases: [],
+      explicitKeep: [],
+      explicitRemove: [],
+      allowComparisonWithOldSubject: false,
+      confidence: 0.9,
+    },
+  }
+  const instruction = parseEditInstruction(request, semanticIntent)
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: semanticIntent,
+    editTarget: 'all',
+  })
+
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(instruction.newSubject, '간편 냉동볶음밥')
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '간편 냉동볶음밥')
+  assert.equal(plan.salesContext, '음식 공구')
+  assert.match(plan.toneHint, /가족 생활 공감형/)
+  assert.ok(plan.requestedMaterials.some((item) => item.includes('전자레인지') && item.includes('에어프라이')))
+  assert.ok(!plan.newSubject.includes('전자레인지'))
+  assert.ok(!plan.newSubject.includes('꺼내서'))
 })
 
 test('copilot parser handles common live Korean edit requests without leaking user wording', () => {

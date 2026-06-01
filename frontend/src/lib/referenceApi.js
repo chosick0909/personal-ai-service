@@ -460,6 +460,7 @@ export async function generateScriptFeedback({
   currentVersionId,
   selectedLabel,
   sections,
+  previousFeedback,
 }) {
   const response = await apiFetch('/api/scripts/feedback', {
     method: 'POST',
@@ -475,6 +476,7 @@ export async function generateScriptFeedback({
       scriptVersionId: currentVersionId,
       selectedLabel,
       sections,
+      previousFeedback,
     }),
   })
   const payload = await parseApiResponse(response)

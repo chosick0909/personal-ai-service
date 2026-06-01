@@ -270,6 +270,8 @@ function buildFeedbackApplyRequest(feedback = {}, editTarget = 'all') {
     '단순히 문장을 예쁘게 다듬는 게 아니라, 피드백에서 지적한 문제를 실제로 해결해야 한다.',
     'HOOK 문제면 HOOK을, BODY 문제면 BODY를, CTA 문제면 CTA를 고친다.',
     '피드백에서 지적한 문제가 있는데 현재 문장을 그대로 반환하면 실패다. 최소한 문제가 지적된 섹션은 실제로 달라져야 한다.',
+    '최종 목표는 피드백에서 지적한 문제가 해결되어 바로 사용 가능한 수준(85점 이상에 가까운 상태)으로 끌어올리는 것이다.',
+    '점수를 조작하거나 점수 문구를 만들지 말고, 실제 HOOK/BODY/CTA 품질 개선으로 그 수준에 맞춘다.',
     normalizedEditTarget !== 'all'
       ? `수정 범위는 ${normalizedEditTarget}로 제한한다. 요청받지 않은 섹션은 원문 그대로 유지한다.`
       : '수정 범위는 전체이지만, 문제가 없는 섹션은 억지로 바꾸지 않는다.',
@@ -2070,7 +2072,7 @@ app.post(
       currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
-      personalizationContext: personalization.context,
+      previousFeedback: req.body?.previousFeedback || req.body?.previous_feedback || null,
     })
     let feedbackRecord = null
 
@@ -2084,6 +2086,7 @@ app.post(
         metadata: {
           selectedLabel: req.body?.selectedLabel,
           suggestedSections: result.suggestedSections,
+          verdict: result.verdict,
           referenceId: req.body?.referenceId,
         },
       })
@@ -2125,6 +2128,7 @@ app.post(
         selectedLabel: req.body?.selectedLabel || '',
         feedbackRecordId: feedbackRecord?.id || null,
         score: result.score ?? null,
+        verdictStatus: result.verdict?.status || null,
         source: 'feedback_route',
       },
     })
@@ -2169,7 +2173,8 @@ app.post(
       mode: 'suggestion',
       query: requestText,
     })
-    const copilotMemory = req.body?.copilotMemory || req.body?.copilot_memory || {}
+    const feedbackApplyPersonalizationContext = ''
+    const feedbackApplyCopilotMemory = {}
     const result = await refineScriptWithAI({
       accountId: account.id,
       referenceId: req.body?.referenceId,
@@ -2180,8 +2185,8 @@ app.post(
       currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
       characterSystemPrompt: character.systemPrompt,
-      personalizationContext: personalization.context,
-      copilotMemory,
+      personalizationContext: feedbackApplyPersonalizationContext,
+      copilotMemory: feedbackApplyCopilotMemory,
     })
     const qaStartedAt = Date.now()
     const qaResult = await validateRefinedScriptQuality({
@@ -2194,8 +2199,8 @@ app.post(
       editTarget: result.editTarget || editTarget,
       feedback,
       characterSystemPrompt: character.systemPrompt,
-      personalizationContext: personalization.context,
-      copilotMemory,
+      personalizationContext: feedbackApplyPersonalizationContext,
+      copilotMemory: feedbackApplyCopilotMemory,
     })
     let finalSections = result.sections
     let finalMessage = result.message
@@ -2222,8 +2227,8 @@ app.post(
         feedback,
         qaIssues: qaResult.issues,
         characterSystemPrompt: character.systemPrompt,
-        personalizationContext: personalization.context,
-        copilotMemory,
+        personalizationContext: feedbackApplyPersonalizationContext,
+        copilotMemory: feedbackApplyCopilotMemory,
       })
 
       if (repairResult.success) {
@@ -2246,7 +2251,7 @@ app.post(
           editTarget: result.editTarget || editTarget,
           feedback,
           request: requestText,
-          copilotMemory,
+          copilotMemory: feedbackApplyCopilotMemory,
         })
 
         if (fallbackResult.success) {

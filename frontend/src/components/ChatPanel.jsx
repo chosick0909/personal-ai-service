@@ -1,6 +1,38 @@
 import { useEffect, useRef } from 'react'
 import { useAppState } from '../store/AppState'
 
+const FEEDBACK_VERDICT_UI = {
+  ready: {
+    label: '바로 사용 가능',
+    buttonLabel: '선택 수정 적용',
+    tone: 'border-[#365244] bg-[#102019] text-[#86EFAC]',
+  },
+  minor_edit: {
+    label: '조금 더 다듬기',
+    buttonLabel: '가볍게 다듬기',
+    tone: 'border-[#4B5563] bg-[#1B202A] text-[#E5E7EB]',
+  },
+  needs_edit: {
+    label: '수정 후 사용 권장',
+    buttonLabel: '수정해서 사용하기',
+    tone: 'btn-solid-contrast',
+  },
+  rewrite_recommended: {
+    label: '새 방향 권장',
+    buttonLabel: '새 방향으로 다시 잡기',
+    tone: 'border-[#51443A] bg-[#211A16] text-[#FED7AA]',
+  },
+}
+
+function getFeedbackVerdictUi(feedback) {
+  const status = feedback?.verdict?.status
+  return FEEDBACK_VERDICT_UI[status] || {
+    label: feedback?.verdict?.label || '',
+    buttonLabel: '이 수정안 반영하기',
+    tone: 'btn-solid-contrast',
+  }
+}
+
 function MessageBubble({
   message,
   onApply,
@@ -11,6 +43,9 @@ function MessageBubble({
   const isUser = message.role === 'user'
   const feedback = message.feedback
   const feedbackProposedSections = feedback?.suggestedSections
+  const feedbackVerdict = feedback?.verdict
+  const feedbackVerdictUi = getFeedbackVerdictUi(feedback)
+  const isFeedbackReady = feedbackVerdict?.status === 'ready'
   const proposedSections = message.proposedSections
   const changedSections = Array.isArray(message.changedSections) ? message.changedSections : []
   const editTarget = typeof message.editTarget === 'string' ? message.editTarget : 'all'
@@ -21,7 +56,7 @@ function MessageBubble({
     ? '피드백 반영 완료'
     : isApplyingFeedback
       ? '반영 중...'
-      : '이 수정안 반영하기'
+      : feedbackVerdictUi.buttonLabel
   const sectionLabels = [
     ['hook', 'HOOK'],
     ['body', 'BODY'],
@@ -52,7 +87,11 @@ function MessageBubble({
         }`}
       >
         {feedback ? (
-          <div className="rounded-[18px] border border-[#2F3543] bg-[#161B24] p-3">
+          <div
+            className={`rounded-[18px] border border-[#2F3543] bg-[#161B24] p-3 ${
+              isFeedbackReady ? 'ready-verdict-card' : ''
+            }`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
@@ -60,12 +99,22 @@ function MessageBubble({
                 </div>
                 <div className="mt-1 text-2xl font-bold text-[#F3F4F6]">{feedback.score}점</div>
               </div>
+              {feedbackVerdictUi.label ? (
+                <div className="shrink-0 max-w-[132px] rounded-full border border-[#3A414F] bg-[#10151D] px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-[#D1D5DB]">
+                  {feedbackVerdictUi.label}
+                </div>
+              ) : null}
             </div>
-            <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">{feedback.detail || message.content}</p>
+            <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">
+              {feedbackVerdict?.reason || feedback.detail || message.content}
+            </p>
+            {feedback.detail && feedbackVerdict?.reason ? (
+              <p className="mt-2 text-xs leading-5 text-[#8E97A6]">{feedback.detail}</p>
+            ) : null}
             {feedbackProposedSections ? (
               <div className="mt-3 min-w-0 space-y-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8E97A6]">
-                  피드백 반영 미리보기
+                  {isFeedbackReady ? '선택적으로 다듬을 수 있는 부분' : '피드백 반영 미리보기'}
                 </div>
                 <div className="min-w-0 max-w-full space-y-2 overflow-hidden rounded-[18px] border border-[#2F3543] bg-[#10151D] p-3">
                   {sectionLabels.map(([key, label]) => (
@@ -83,7 +132,7 @@ function MessageBubble({
                   type="button"
                   onClick={() => onApplyFeedback(feedback)}
                   disabled={isApplyDisabled}
-                  className="btn-solid-contrast rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className={`inline-flex min-h-10 max-w-full items-center justify-center rounded-full px-4 py-2 text-center text-xs font-semibold leading-tight transition whitespace-normal break-keep disabled:cursor-not-allowed disabled:opacity-70 ${feedbackVerdictUi.tone}`}
                 >
                   {applyButtonLabel}
                 </button>

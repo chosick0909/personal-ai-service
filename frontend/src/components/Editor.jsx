@@ -19,6 +19,10 @@ function formatSectionMeta(text = '') {
   return `${characters.toLocaleString()} 글자 · 약 ${seconds}초`
 }
 
+function getFeedbackVerdictLabel(feedback) {
+  return feedback?.verdict?.label || ''
+}
+
 function SectionEditor({ label, value, onChange, tone, placeholder }) {
   return (
     <label className={`grid gap-3 rounded-[18px] border border-[#2F3543] bg-[#111722] px-4 py-4 ${tone}`}>
@@ -103,6 +107,8 @@ export default function Editor({ embedded = false }) {
         : normalizedDurationTarget >= totalSpeechSeconds
           ? '현재 대본보다 짧은 시간만 입력할 수 있어요.'
           : '압축 결과는 코파일럿 제안으로 먼저 보여드려요.'
+  const feedbackVerdictLabel = getFeedbackVerdictLabel(feedback)
+  const isCurrentFeedbackStale = Boolean(feedback?.applied || feedback?.staleAfterApply)
 
   useEffect(() => {
     return () => {
@@ -260,7 +266,17 @@ export default function Editor({ embedded = false }) {
                   </span>
                   {feedback ? (
                     <>
-                      {' '}· 최근 피드백 <span className="font-semibold text-[#D1D5DB]">{feedback.score}점</span>
+                      {' '}·{' '}
+                      {isCurrentFeedbackStale ? (
+                        <span className="font-semibold text-[#AEB6C5]">피드백 반영됨 · 재평가 필요</span>
+                      ) : (
+                        <>
+                          최근 피드백 <span className="font-semibold text-[#D1D5DB]">{feedback.score}점</span>
+                          {feedbackVerdictLabel ? (
+                            <span className="font-semibold text-[#AEB6C5]"> · {feedbackVerdictLabel}</span>
+                          ) : null}
+                        </>
+                      )}
                     </>
                   ) : null}
                 </div>

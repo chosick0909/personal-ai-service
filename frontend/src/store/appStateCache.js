@@ -11,13 +11,9 @@ const REFERENCE_DETAIL_CACHE_TTL_MS = 1000 * 60 * 60 * 24
 const SCRIPT_VERSIONS_CACHE_KEY = 'personal-ai-service:script-versions-cache:v1'
 const SCRIPT_VERSIONS_CACHE_TTL_MS = 1000 * 60 * 60 * 12
 
-export function normalizeHistoryCacheItem(item = {}) {
-  if (!item?.id) {
-    return null
-  }
-
-  const normalizedChatMessages = Array.isArray(item.chatMessages)
-    ? item.chatMessages
+function normalizeChatMessages(messages) {
+  return Array.isArray(messages)
+    ? messages
         .map((message) => {
           if (!message || typeof message !== 'object') {
             return null
@@ -39,11 +35,65 @@ export function normalizeHistoryCacheItem(item = {}) {
               message.flowValidation && typeof message.flowValidation === 'object'
                 ? message.flowValidation
                 : undefined,
+            intent: typeof message.intent === 'string' ? message.intent : undefined,
+            editPlan: message.editPlan && typeof message.editPlan === 'object' ? message.editPlan : undefined,
+            qualityGate:
+              message.qualityGate && typeof message.qualityGate === 'object' ? message.qualityGate : undefined,
+            sessionId: typeof message.sessionId === 'string' ? message.sessionId : undefined,
           }
         })
         .filter(Boolean)
         .slice(-60)
     : []
+}
+
+function normalizeVariantSession(session = {}) {
+  if (!session || typeof session !== 'object') {
+    return null
+  }
+
+  return {
+    selectedScriptId: typeof session.selectedScriptId === 'string' ? session.selectedScriptId : null,
+    activeScriptId: typeof session.activeScriptId === 'string' ? session.activeScriptId : null,
+    editorContent: typeof session.editorContent === 'string' ? session.editorContent : '',
+    versions: Array.isArray(session.versions) ? session.versions : [],
+    feedback: session.feedback && typeof session.feedback === 'object' ? session.feedback : null,
+    pendingSuggestion:
+      session.pendingSuggestion && typeof session.pendingSuggestion === 'object' ? session.pendingSuggestion : null,
+    draftMessage: typeof session.draftMessage === 'string' ? session.draftMessage : '',
+    editTarget: COPILOT_EDIT_TARGETS.has(session.editTarget) ? session.editTarget : 'all',
+    copilotMemory:
+      session.copilotMemory && typeof session.copilotMemory === 'object'
+        ? normalizeCopilotMemory(session.copilotMemory)
+        : null,
+    chatMessages: normalizeChatMessages(session.chatMessages),
+  }
+}
+
+function normalizeVariantSessions(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return Object.entries(value).reduce((acc, [scriptId, session]) => {
+    const normalizedScriptId = String(scriptId || '').trim()
+    const normalizedSession = normalizeVariantSession(session)
+    if (normalizedScriptId && normalizedSession) {
+      acc[normalizedScriptId] = {
+        ...normalizedSession,
+        selectedScriptId: normalizedSession.selectedScriptId || normalizedScriptId,
+      }
+    }
+    return acc
+  }, {})
+}
+
+export function normalizeHistoryCacheItem(item = {}) {
+  if (!item?.id) {
+    return null
+  }
+
+  const normalizedChatMessages = normalizeChatMessages(item.chatMessages)
 
   return {
     id: String(item.id),
@@ -76,6 +126,7 @@ export function normalizeHistoryCacheItem(item = {}) {
       item.copilotMemory && typeof item.copilotMemory === 'object'
         ? normalizeCopilotMemory(item.copilotMemory)
         : null,
+    variantSessions: normalizeVariantSessions(item.variantSessions),
     generatedScripts: Array.isArray(item.generatedScripts) ? item.generatedScripts : [],
     chatMessages: normalizedChatMessages,
     lastStep:
@@ -110,6 +161,10 @@ export function mergeHistoryItem(serverItem, localItem) {
     editTarget: normalizedLocal.editTarget || normalizedServer.editTarget,
     copilotUsage: normalizedLocal.copilotUsage || normalizedServer.copilotUsage,
     copilotMemory: normalizedLocal.copilotMemory || normalizedServer.copilotMemory,
+    variantSessions: {
+      ...(normalizedServer.variantSessions || {}),
+      ...(normalizedLocal.variantSessions || {}),
+    },
     generatedScripts:
       normalizedLocal.generatedScripts?.length ? normalizedLocal.generatedScripts : normalizedServer.generatedScripts,
     chatMessages:
