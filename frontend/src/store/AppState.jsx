@@ -2823,6 +2823,34 @@ export function AppStateProvider({ children }) {
 
       nextSections = createEditorSections(applyResult.sections)
       feedbackApplyMessage = applyResult.message || ''
+      const changedSections = Array.isArray(applyResult.changedSections)
+        ? applyResult.changedSections
+        : []
+      const hasChangedSections =
+        changedSections.length > 0 ||
+        nextSections.hook !== beforeSections.hook ||
+        nextSections.body !== beforeSections.body ||
+        nextSections.cta !== beforeSections.cta
+      if (!hasChangedSections) {
+        setChatMessages((current) => {
+          const next = [
+            ...current,
+            {
+              id: `feedback-apply-nochange-${Date.now()}`,
+              role: 'assistant',
+              content:
+                feedbackApplyMessage ||
+                '피드백을 반영하려 했지만 에디터에 적용할 수 있는 변경점이 없었습니다. 피드백을 다시 생성하거나 수정 범위를 좁혀 요청해 주세요.',
+            },
+          ]
+          syncHistory(activeReferenceIdRef.current, {
+            chatMessages: next,
+          })
+          return next
+        })
+        setIsApplyingFeedback(false)
+        return
+      }
     } catch (error) {
       if (isCurrentAccountRequest(requestAccountId)) {
         setChatMessages((current) => {

@@ -2279,8 +2279,44 @@ app.post(
         }
       }
     }
-    const finalDiff = createSectionDiff(req.body?.sections, finalSections)
-    const finalChangedSections = ['hook', 'body', 'cta'].filter((key) => finalDiff[key])
+    let finalDiff = createSectionDiff(req.body?.sections, finalSections)
+    let finalChangedSections = ['hook', 'body', 'cta'].filter((key) => finalDiff[key])
+    if (!finalChangedSections.length) {
+      const suggestedFallback = buildPartialSafeFeedbackApplyFallback({
+        originalSections: req.body?.sections,
+        candidateSources: [{ source: 'suggestedSections', sections: feedback?.suggestedSections }],
+        editTarget: result.editTarget || editTarget,
+        feedback,
+        request: requestText,
+        copilotMemory: feedbackApplyCopilotMemory,
+      })
+
+      if (suggestedFallback.success) {
+        finalSections = suggestedFallback.sections
+        finalMessage = '피드백 미리보기에서 달라진 부분을 에디터에 반영했어요. 반영 후 재평가하면 이전 문제가 해결됐는지 다시 확인할 수 있습니다.'
+        qualityGate = {
+          ...qualityGate,
+          fallbackUsed: true,
+          fallbackType: 'partial_safe_apply',
+          partialAppliedSections: suggestedFallback.changedSections,
+          fallbackIssueTypes: suggestedFallback.issueTypes,
+          appliedFromSuggestedSections: true,
+        }
+        finalDiff = createSectionDiff(req.body?.sections, finalSections)
+        finalChangedSections = ['hook', 'body', 'cta'].filter((key) => finalDiff[key])
+      } else {
+        qualityGate = {
+          ...qualityGate,
+          fallbackUsed: true,
+          fallbackType: 'original',
+          partialAppliedSections: [],
+          fallbackIssueTypes: suggestedFallback.issueTypes,
+          noChangeAfterApply: true,
+        }
+        finalMessage =
+          '피드백을 반영하려 했지만 에디터에 안전하게 적용할 수 있는 변경점이 없었습니다. 피드백을 다시 생성하거나 수정 범위를 좁혀 요청해 주세요.'
+      }
+    }
     const finalFlowValidation = validateScriptFlow(finalSections)
     console.info('[feedback-apply-quality-gate]', {
       account_id: account.id,

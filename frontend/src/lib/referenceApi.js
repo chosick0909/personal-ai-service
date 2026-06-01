@@ -534,6 +534,9 @@ export async function applyScriptFeedback({
     sections: appliedSections,
     message: payload.message || '',
     qualityGate: payload.qualityGate || null,
+    changedSections: Array.isArray(payload.changedSections) ? payload.changedSections : [],
+    editTarget: payload.editTarget || null,
+    flowValidation: payload.flowValidation || null,
   }
 }
 
