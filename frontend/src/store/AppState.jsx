@@ -2713,6 +2713,8 @@ export function AppStateProvider({ children }) {
     })
 
     try {
+      const previousFeedbackForRecheck =
+        feedback?.applied && feedback?.staleAfterApply ? feedback : null
       const result = await generateScriptFeedback({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
@@ -2720,12 +2722,24 @@ export function AppStateProvider({ children }) {
         currentVersionId: versions[0]?.id,
         selectedLabel: selectedScript?.label,
         sections: editorSections,
-        previousFeedback: feedback?.applied && feedback?.staleAfterApply ? feedback : null,
+        previousFeedback: previousFeedbackForRecheck,
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
       }
-      const normalizedFeedback = { ...result, id: `feedback-${Date.now()}`, applied: false }
+      const normalizedFeedback = {
+        ...result,
+        id: `feedback-${Date.now()}`,
+        applied: false,
+        staleAfterApply: false,
+        recheckedAfterApply: Boolean(previousFeedbackForRecheck),
+        previousFeedbackScore: previousFeedbackForRecheck?.score ?? null,
+        scoreDeltaFromPreviousFeedback:
+          Number.isFinite(Number(result?.score)) &&
+          Number.isFinite(Number(previousFeedbackForRecheck?.score))
+            ? Number(result.score) - Number(previousFeedbackForRecheck.score)
+            : null,
+      }
       setFeedback(normalizedFeedback)
       setCopilotUsage((current) => {
         const next = {
@@ -2880,7 +2894,7 @@ export function AppStateProvider({ children }) {
         role: 'assistant',
         content:
           feedbackApplyMessage ||
-          '피드백에서 짚은 문제를 기준으로 다시 수정하고, 반영 전/후 버전을 저장했습니다.',
+          '피드백에서 짚은 문제를 에디터에 반영했습니다. 이제 재평가하면 이전 문제가 해결됐는지 기준으로 다시 판단합니다.',
       }
 
       const appliedFeedback = {
@@ -2908,7 +2922,7 @@ export function AppStateProvider({ children }) {
           message.feedback &&
           (message.feedback === targetFeedback ||
             (targetFeedback.id && message.feedback.id === targetFeedback.id))
-            ? { ...message, feedback: { ...message.feedback, applied: true } }
+            ? { ...message, feedback: { ...message.feedback, applied: true, staleAfterApply: true } }
             : message,
         )
         const next = [...marked, appliedMessage]

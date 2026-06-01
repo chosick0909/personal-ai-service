@@ -411,6 +411,92 @@ function buildFeedbackVerdict({ score = 0, sections = {}, issues = [], recommend
   }
 }
 
+function detectFeedbackRecheckRegression({ summary = '', detail = '', issues = [], recommendations = [] } = {}) {
+  const feedbackText = [
+    summary,
+    detail,
+    ...normalizeFeedbackList(issues, 12),
+    ...normalizeFeedbackList(recommendations, 12),
+  ]
+    .join(' ')
+    .replace(/\s+/g, ' ')
+
+  return /(?:새로\s*생|오히려|퇴행|악화|사라졌|없어졌|누락|빠졌|주제\s*이탈|타겟\s*불일치|레퍼런스.{0,12}오염|사용자\s*지시문|지시문\s*누수|연결.{0,12}붕괴|흐름.{0,12}붕괴|허위|근거\s*없는|보장|과장|CTA.{0,16}(?:없|비어|빠졌)|HOOK.{0,16}(?:없|비어|빠졌)|BODY.{0,16}(?:없|비어|빠졌))/i.test(
+    feedbackText,
+  )
+}
+
+function normalizeFeedbackScore(value) {
+  const score = Number(value)
+  if (!Number.isFinite(score)) {
+    return 0
+  }
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
+function stabilizeFeedbackScoreAfterApply({
+  previousFeedback = null,
+  parsedScore = 0,
+  summary = '',
+  detail = '',
+  issues = [],
+  recommendations = [],
+} = {}) {
+  const rawScore = normalizeFeedbackScore(parsedScore)
+  const previousScore = Number(previousFeedback?.score)
+  const hasPreviousFeedback = previousFeedback && typeof previousFeedback === 'object'
+
+  if (!hasPreviousFeedback || !Number.isFinite(previousScore)) {
+    return {
+      score: rawScore,
+      recheck: null,
+    }
+  }
+
+  const normalizedPreviousScore = normalizeFeedbackScore(previousScore)
+  const scoreDrop = normalizedPreviousScore - rawScore
+  const hasRegressionReason = detectFeedbackRecheckRegression({
+    summary,
+    detail,
+    issues,
+    recommendations,
+  })
+
+  if (scoreDrop >= 4 && !hasRegressionReason) {
+    const stabilizedScore =
+      normalizedPreviousScore < 85
+        ? Math.min(100, normalizedPreviousScore + 1)
+        : normalizedPreviousScore
+
+    return {
+      score: Math.max(rawScore, stabilizedScore),
+      recheck: {
+        basedOnPreviousFeedback: true,
+        previousScore: normalizedPreviousScore,
+        rawScore,
+        stabilizedScore: Math.max(rawScore, stabilizedScore),
+        scoreAdjusted: true,
+        reason:
+          '이전 피드백 반영 후 새 치명 문제가 명확하지 않아 점수 하락을 보정했습니다.',
+      },
+    }
+  }
+
+  return {
+    score: rawScore,
+    recheck: {
+      basedOnPreviousFeedback: true,
+      previousScore: normalizedPreviousScore,
+      rawScore,
+      stabilizedScore: rawScore,
+      scoreAdjusted: false,
+      reason: hasRegressionReason
+        ? '새 퇴행 또는 치명 문제가 감지되어 모델 점수를 유지했습니다.'
+        : '이전 피드백 반영 후 재평가 기준으로 모델 점수를 유지했습니다.',
+    },
+  }
+}
+
 function cleanRequestedPhrase(value = '') {
   return String(value || '')
     .replace(/^[\s"'“”‘’.,:;·\-–—]+|[\s"'“”‘’.,:;·\-–—]+$/g, '')
@@ -3867,9 +3953,20 @@ export async function generateScriptFeedback({
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
     const structureDiagnosis = buildStructureDiagnosis(reference, selectedLabel, parsed)
-    const score = Number(parsed.score) || 0
     const issues = normalizeFeedbackList(parsed.issues)
     const recommendations = normalizeFeedbackList(parsed.recommendations)
+    const summary = parsed.summary?.trim() || '전체 구조는 괜찮지만 더 압축할 여지가 있습니다.'
+    const detail =
+      parsed.detail?.trim() || 'HOOK, BODY, CTA의 역할을 더 또렷하게 나누면 성능이 좋아질 수 있습니다.'
+    const scoreRecheck = stabilizeFeedbackScoreAfterApply({
+      previousFeedback,
+      parsedScore: parsed.score,
+      summary,
+      detail,
+      issues,
+      recommendations,
+    })
+    const score = scoreRecheck.score
     const suggestedSections = normalizeSections(parsed.suggestedSections)
     const verdict = buildFeedbackVerdict({
       score,
@@ -3880,13 +3977,16 @@ export async function generateScriptFeedback({
 
     return {
       score,
-      summary: parsed.summary?.trim() || '전체 구조는 괜찮지만 더 압축할 여지가 있습니다.',
-      detail: parsed.detail?.trim() || 'HOOK, BODY, CTA의 역할을 더 또렷하게 나누면 성능이 좋아질 수 있습니다.',
+      summary: scoreRecheck.recheck?.scoreAdjusted
+        ? `이전 피드백 반영 후 다시 보면, 새로 생긴 치명 문제는 뚜렷하지 않습니다. ${summary}`
+        : summary,
+      detail,
       issues,
       recommendations,
       suggestedSections,
       verdict,
       structureDiagnosis,
+      recheck: scoreRecheck.recheck,
     }
   } catch (error) {
     logAIError('gpt', error, {
@@ -4339,6 +4439,8 @@ export const __scriptAssistantTest = {
   extractTargetDurationSeconds,
   buildDurationCharRange,
   buildFeedbackVerdict,
+  detectFeedbackRecheckRegression,
+  stabilizeFeedbackScoreAfterApply,
   createFallbackIntent,
   messageMentionsLockedSections,
   logPromptAssembly,

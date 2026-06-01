@@ -44,6 +44,7 @@ const {
   extractTargetDurationSeconds,
   buildDurationCharRange,
   buildFeedbackVerdict,
+  stabilizeFeedbackScoreAfterApply,
 } = __scriptAssistantTest
 
 const currentDraft = {
@@ -105,6 +106,44 @@ test('feedback verdict downgrades critical issues even with high score', () => {
 
   assert.equal(verdict.status, 'needs_edit')
   assert.equal(verdict.label, '수정 후 사용 권장')
+})
+
+test('feedback recheck stabilizes arbitrary score drops after applying feedback', () => {
+  const result = stabilizeFeedbackScoreAfterApply({
+    previousFeedback: {
+      score: 84,
+      applied: true,
+      staleAfterApply: true,
+    },
+    parsedScore: 78,
+    summary: '전체 흐름은 괜찮고 CTA만 조금 더 자연스럽게 다듬으면 좋습니다.',
+    detail: '이전보다 큰 문제는 없고 문장 리듬만 조금 더 정리하면 됩니다.',
+    issues: ['CTA: 행동 이유를 조금 더 짧게 붙이면 좋습니다.'],
+    recommendations: ['CTA에 오늘 바로 써야 하는 이유를 한 문장 추가합니다.'],
+  })
+
+  assert.equal(result.score, 85)
+  assert.equal(result.recheck.scoreAdjusted, true)
+  assert.equal(result.recheck.previousScore, 84)
+  assert.equal(result.recheck.rawScore, 78)
+})
+
+test('feedback recheck keeps lower score when new regression is explicit', () => {
+  const result = stabilizeFeedbackScoreAfterApply({
+    previousFeedback: {
+      score: 84,
+      applied: true,
+      staleAfterApply: true,
+    },
+    parsedScore: 78,
+    summary: 'CTA가 새로 사라져 행동 유도가 없어졌습니다.',
+    detail: '이전 피드백 반영 과정에서 마무리 연결이 붕괴했습니다.',
+    issues: ['CTA: 행동 유도가 빠졌습니다.'],
+    recommendations: ['CTA를 다시 넣어야 합니다.'],
+  })
+
+  assert.equal(result.score, 78)
+  assert.equal(result.recheck.scoreAdjusted, false)
 })
 
 test('refine prompt orders rubric and playbook before current draft while keeping draft source of truth', () => {

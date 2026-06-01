@@ -53,7 +53,9 @@ function MessageBubble({
   const isSuggestionApplied = Boolean(message.suggestionApplied)
   const isApplyDisabled = isFeedbackApplied || isApplyingFeedback
   const applyButtonLabel = isFeedbackApplied
-    ? '피드백 반영 완료'
+    ? feedback?.staleAfterApply
+      ? '반영됨 · 재평가 필요'
+      : '피드백 반영 완료'
     : isApplyingFeedback
       ? '반영 중...'
       : feedbackVerdictUi.buttonLabel
@@ -108,6 +110,14 @@ function MessageBubble({
             <p className="mt-3 text-sm leading-6 text-[#AEB6C5]">
               {feedbackVerdict?.reason || feedback.detail || message.content}
             </p>
+            {feedback.recheckedAfterApply ? (
+              <p className="mt-2 rounded-[14px] border border-[#2F3543] bg-[#10151D] px-3 py-2 text-xs leading-5 text-[#AEB6C5]">
+                이전 피드백 반영 후 다시 본 결과입니다.
+                {Number.isFinite(Number(feedback.previousFeedbackScore))
+                  ? ` 이전 점수 ${feedback.previousFeedbackScore}점 → 현재 ${feedback.score}점 기준으로 판단했어요.`
+                  : ' 이전에 짚은 문제가 해결됐는지 먼저 보고 판단했어요.'}
+              </p>
+            ) : null}
             {feedback.detail && feedbackVerdict?.reason ? (
               <p className="mt-2 text-xs leading-5 text-[#8E97A6]">{feedback.detail}</p>
             ) : null}

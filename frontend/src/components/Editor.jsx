@@ -331,6 +331,8 @@ export default function Editor({ embedded = false }) {
                       ? '피드백 생성 중...'
                       : isFeedbackLimitReached
                         ? '피드백 한도 도달'
+                      : isCurrentFeedbackStale
+                        ? '재평가하기'
                       : `피드백 (${feedbackRemainingLabel})`}
                   </button>
                 </div>
