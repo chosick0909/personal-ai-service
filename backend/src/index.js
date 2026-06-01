@@ -101,6 +101,44 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: resolve(__dirname, '../../.env') })
 assertBackendEnv()
 
+const TOPIC_REFRAME_FALLBACK_BLOCKERS = new Set([
+  'empty_or_invalid_section',
+  'section_lock_violation',
+  'section_instruction_violation',
+  'unsupported_number',
+  'forbidden_phrase_leakage',
+  'old_subject_leakage',
+  'instruction_leakage',
+  'new_subject_missing',
+  'requested_material_missing',
+  'mixed_subject_contamination',
+  'reference_contamination',
+])
+
+function canUseTopicReframeBestEffortFallback(editPlan, check = {}) {
+  if (editPlan?.operationType !== 'topic_reframe') {
+    return false
+  }
+
+  const issueTypes = Array.isArray(check.issueTypes)
+    ? check.issueTypes
+    : Array.isArray(check.issues)
+      ? check.issues.map((issue) => issue?.type).filter(Boolean)
+      : []
+
+  return !issueTypes.some((type) => TOPIC_REFRAME_FALLBACK_BLOCKERS.has(type))
+}
+
+function buildTopicReframeFailureMessage(editPlan = {}) {
+  const subject = editPlan?.newSubject || '새 주제'
+  return `새 주제로 다시 잡는 과정에서 문맥이 크게 흔들려 바로 적용하지 않았어요. "${subject}"처럼 핵심 상품이나 넣고 싶은 상황을 조금 더 짧게 다시 요청해 주세요.`
+}
+
+function buildTopicReframeBestEffortMessage(editPlan = {}) {
+  const subject = editPlan?.newSubject || '요청하신 새 주제'
+  return `좋아요. 기존 소재에 끌려가지 않도록 "${subject}" 중심으로 다시 잡았어요. 새 주제 기준으로 자연스럽게 이어지도록 정리했습니다.`
+}
+
 const app = express()
 const port = Number(process.env.PORT || 3001)
 const host = process.env.HOST || '0.0.0.0'
@@ -1707,13 +1745,47 @@ app.post(
             repaired: true,
           }
         } else {
-          finalSections = req.body?.sections || result.sections
-          finalMessage =
-            '요청하신 내용을 반영하려 했지만, 기존 대본 흐름과 충돌하는 부분이 있어 자동 적용하지 않았어요. 새 주제로 전체를 다시 만들거나, 특정 섹션에만 추가하는 방식으로 다시 요청해 주세요.'
-          qualityGate = {
-            ...qualityGate,
-            fallbackUsed: true,
-            fallbackType: 'original',
+          const fallbackCandidate = repairResult.sections || result.sections
+          const fallbackCheck = runFeedbackFallbackRuleCheck({
+            originalSections: req.body?.sections,
+            candidateSections: fallbackCandidate,
+            editTarget: result.editTarget || editPlan.editTarget,
+            feedback: qaFeedback,
+            request: requestText,
+            qaMode: editPlan.qaMode,
+            newSubject: editPlan.newSubject,
+            requestedMaterials: editPlan.requestedMaterials,
+            oldSubjectToRemove: editPlan.oldSubjectToRemove,
+            forbiddenSurfacePhrases: editPlan.forbiddenSurfacePhrases,
+            allowComparisonWithOldSubject: editPlan.allowComparisonWithOldSubject,
+            targetSections: editPlan.targetSections,
+            targetDurationSeconds: editPlan.targetDurationSeconds,
+            targetCharRange: editPlan.targetCharRange,
+            editPlan,
+            copilotMemory,
+          })
+
+          if (canUseTopicReframeBestEffortFallback(editPlan, fallbackCheck)) {
+            finalSections = fallbackCandidate
+            finalMessage = buildTopicReframeBestEffortMessage(editPlan)
+            qualityGate = {
+              ...qualityGate,
+              fallbackUsed: true,
+              fallbackType: 'topic_reframe_best_effort',
+              issueTypes: fallbackCheck.issueTypes || qualityGate.issueTypes,
+            }
+          } else {
+            finalSections = req.body?.sections || result.sections
+            finalMessage =
+              editPlan.operationType === 'topic_reframe'
+                ? buildTopicReframeFailureMessage(editPlan)
+                : '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
+            qualityGate = {
+              ...qualityGate,
+              fallbackUsed: true,
+              fallbackType: 'original',
+              issueTypes: fallbackCheck.issueTypes || qualityGate.issueTypes,
+            }
           }
         }
       }
@@ -1744,13 +1816,25 @@ app.post(
         fallbackType: 'none',
       }
       if (ruleCheck.shouldRepair) {
-        finalSections = req.body?.sections || result.sections
-        finalMessage =
-          '요청하신 내용을 반영하려 했지만, 기존 대본 흐름과 충돌하는 부분이 있어 자동 적용하지 않았어요. 새 주제로 전체를 다시 만들거나, 특정 섹션에만 추가하는 방식으로 다시 요청해 주세요.'
-        qualityGate = {
-          ...qualityGate,
-          fallbackUsed: true,
-          fallbackType: 'original',
+        if (canUseTopicReframeBestEffortFallback(editPlan, ruleCheck)) {
+          finalSections = result.sections
+          finalMessage = buildTopicReframeBestEffortMessage(editPlan)
+          qualityGate = {
+            ...qualityGate,
+            fallbackUsed: true,
+            fallbackType: 'topic_reframe_best_effort',
+          }
+        } else {
+          finalSections = req.body?.sections || result.sections
+          finalMessage =
+            editPlan.operationType === 'topic_reframe'
+              ? buildTopicReframeFailureMessage(editPlan)
+              : '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
+          qualityGate = {
+            ...qualityGate,
+            fallbackUsed: true,
+            fallbackType: 'original',
+          }
         }
       }
     }

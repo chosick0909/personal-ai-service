@@ -360,6 +360,7 @@ export function AppStateProvider({ children }) {
   const [uploadTopic, setUploadTopic] = useState('')
   const [uploadTitle, setUploadTitle] = useState('')
   const [referenceScriptText, setReferenceScriptText] = useState('')
+  const [uploadInputModeHint, setUploadInputModeHint] = useState('')
   const [analyzeError, setAnalyzeError] = useState('')
   const [analyzeErrorType, setAnalyzeErrorType] = useState('')
   const [uploadPhase, setUploadPhase] = useState('idle')
@@ -2302,6 +2303,23 @@ export function AppStateProvider({ children }) {
     startNewProject()
   }
 
+  const goToScriptAnalysisMode = () => {
+    setActiveToolPage(null)
+    setAnalyzeError('')
+    setAnalyzeErrorType('')
+    setUploadPhase('idle')
+    setIsAnalyzing(false)
+    setViewTransition('idle')
+    setIsEditorEntering(false)
+    setIsResultEntering(false)
+    setUploadInputModeHint('script')
+    setCurrentStep('upload')
+  }
+
+  const clearUploadInputModeHint = () => {
+    setUploadInputModeHint('')
+  }
+
   const openReference = (referenceId) => {
     const requestAccountId = currentAccount?.id
     const item = referenceHistory.find((entry) => entry.id === referenceId)
@@ -3260,6 +3278,7 @@ export function AppStateProvider({ children }) {
       uploadTopic,
       uploadTitle,
       referenceScriptText,
+      uploadInputModeHint,
       uploadPhase,
       analyzeError,
       analyzeErrorType,
@@ -3292,6 +3311,7 @@ export function AppStateProvider({ children }) {
       isEditorEntering,
       isResultEntering,
       goBackToUpload,
+      goToScriptAnalysisMode,
       goBackToResults,
       clearScriptSelection,
       setActiveToolPage,
@@ -3334,6 +3354,7 @@ export function AppStateProvider({ children }) {
       setUploadTopic,
       setUploadTitle,
       setReferenceScriptText,
+      clearUploadInputModeHint,
       setIsVersionModalOpen,
       setToast,
       serializeEditorSections,
@@ -3383,6 +3404,7 @@ export function AppStateProvider({ children }) {
       uploadTitle,
       uploadTopic,
       referenceScriptText,
+      uploadInputModeHint,
       uploadPhase,
       viewTransition,
       versions,

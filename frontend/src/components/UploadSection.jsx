@@ -74,6 +74,8 @@ export default function UploadSection() {
     setUploadTitle,
     referenceScriptText,
     setReferenceScriptText,
+    uploadInputModeHint,
+    clearUploadInputModeHint,
   } = useAppState()
   const [inputMode, setInputMode] = useState('video')
   const [dragActive, setDragActive] = useState(false)
@@ -86,6 +88,15 @@ export default function UploadSection() {
   const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
   const displayedAnalyzeProgress = isAnalysisStep ? analyzeProgress : 0
   const displayedAnalyzeElapsedSec = isAnalysisStep ? analyzeElapsedSec : 0
+
+  useEffect(() => {
+    if (uploadInputModeHint !== 'script') {
+      return
+    }
+    setInputMode('script')
+    setLocalUploadError('')
+    clearUploadInputModeHint?.()
+  }, [clearUploadInputModeHint, uploadInputModeHint])
 
   useEffect(() => {
     if (!isAnalysisStep) {
@@ -447,19 +458,19 @@ export default function UploadSection() {
                   ? '대본 구조 분석과 A/B/C 초안 생성을 진행 중입니다.'
                   : '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
                 : inputMode === 'script'
-                  ? '영상 화면 정보 없이 대본의 문장 구조, 후킹 흐름, 설득 흐름만 빠르게 분석합니다.'
-                : '업로드 이후 구조 분석 → 초안 생성 → 에디터 편집 흐름으로 이동합니다. (긴 영상은 앞부분 중심으로 분석)'}
+                  ? '릴스 화면에 보이는 자막이나 실제 대본을 붙여넣으면 음성 상태와 무관하게 빠르게 분석할 수 있어요.'
+                : '현재 대본 추출은 음성 전사 기준입니다. BGM이 크거나 음성이 작으면 자막/대본을 붙여넣는 방식이 더 정확합니다.'}
             </p>
             {!isAnalyzing && currentStep !== 'analyzing' && inputMode === 'script' ? (
               <div className="mt-5 w-full max-w-[620px]">
                 <textarea
                   value={referenceScriptText}
                   onChange={(event) => setReferenceScriptText(event.target.value)}
-                  placeholder="레퍼런스 릴스의 자막/대본을 그대로 붙여넣어 주세요."
+                  placeholder="릴스 화면에 보이는 자막이나 실제 말한 내용을 그대로 붙여넣어 주세요."
                   className="min-h-[150px] w-full resize-y rounded-3xl border border-[#374151] bg-[#0F141D] px-4 py-4 text-left text-sm leading-6 text-[#F8FAFC] outline-none transition placeholder:text-[#6B7280] focus:border-[#CBD5E1] md:min-h-[190px]"
                 />
                 <p className="mt-2 text-left text-[11px] leading-4.5 text-[#8E97A6] md:text-xs md:leading-5">
-                  빠르지만 화면 전환, 제품 노출, 표정, 자막 위치 같은 시각 정보는 반영되지 않습니다.
+                  영상 음성이 작거나 BGM이 커도 더 안정적으로 분석할 수 있습니다. 단, 화면 전환이나 표정 같은 시각 정보는 반영되지 않습니다.
                 </p>
               </div>
             ) : null}

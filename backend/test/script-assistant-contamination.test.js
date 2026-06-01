@@ -826,6 +826,91 @@ test('copilot edit plan supports topic reframe with requested materials', () => 
   assert.deepEqual(plan.requestedMaterials, ['손씻기', '물 자주 마시기'])
 })
 
+test('copilot edit plan separates subject, sales context, tone, and situation hints for food group-buy reframe', () => {
+  const request =
+    '삼겹살로 주제를 바꿔볼래? 음식 공구느낌으로 남편과 아이가 배고프다고 할 때 뭐 차려주긴 귀찮으니깐 냉동실에서 바로 꺼내서 구울 수 있는 삼겹살 느낌으로'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.REFRAME_TOPIC)
+  assert.equal(plan.newSubject, '삼겹살')
+  assert.equal(plan.salesContext, '음식 공구')
+  assert.match(plan.toneHint, /공구 느낌/)
+  assert.deepEqual(plan.targetSections, ['hook', 'body', 'cta'])
+  assert.equal(plan.sectionInstructions.hook.action, 'replace')
+  assert.equal(plan.sectionInstructions.body.action, 'replace')
+  assert.equal(plan.sectionInstructions.cta.action, 'revise')
+  assert.ok(plan.requestedMaterials.some((item) => item.includes('남편') && item.includes('아이')))
+  assert.ok(plan.requestedMaterials.some((item) => item.includes('냉동실') || item.includes('구울 수')))
+  assert.ok(!plan.requestedMaterials.some((item) => /공구\s*느낌/.test(item)))
+  assert.ok(plan.mustChange.some((item) => item.includes('음식 공구')))
+  assert.ok(plan.avoid.some((item) => item.includes('그대로 복사')))
+})
+
+test('copilot parser handles common live Korean edit requests without leaking user wording', () => {
+  const tonerRequest = '물광토너 주제로 바꿔줘'
+  const tonerIntent = classifyCopilotIntentByRule(tonerRequest, 'all')
+  const tonerPlan = buildEditPlan({
+    userRequest: tonerRequest,
+    currentSections: currentDraft,
+    intentResult: tonerIntent,
+    editTarget: 'all',
+  })
+  assert.equal(tonerIntent.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(tonerPlan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(tonerPlan.newSubject, '물광토너')
+  assert.deepEqual(tonerPlan.targetSections, ['hook', 'body', 'cta'])
+
+  const bodyRequest = '훅은 냅두고 바디만 자연스럽게'
+  const bodyIntent = classifyCopilotIntentByRule(bodyRequest, 'all')
+  const bodyPlan = buildEditPlan({
+    userRequest: bodyRequest,
+    currentSections: currentDraft,
+    intentResult: bodyIntent,
+    editTarget: 'all',
+  })
+  assert.deepEqual(detectExplicitPreserveSections(bodyRequest), ['hook'])
+  assert.equal(bodyPlan.operationType, COPILOT_OPERATION_TYPES.TONE_ADJUST)
+  assert.deepEqual(bodyPlan.targetSections, ['body'])
+  assert.deepEqual(bodyPlan.preserveSections, ['hook', 'cta'])
+  assert.equal(bodyPlan.sectionInstructions.hook.action, 'keep')
+  assert.equal(bodyPlan.sectionInstructions.body.action, 'revise')
+
+  const ctaRequest = 'CTA는 구매 말고 상담 유도'
+  const ctaIntent = classifyCopilotIntentByRule(ctaRequest, 'all')
+  const ctaPlan = buildEditPlan({
+    userRequest: ctaRequest,
+    currentSections: currentDraft,
+    intentResult: ctaIntent,
+    editTarget: 'all',
+  })
+  assert.equal(ctaPlan.operationType, COPILOT_OPERATION_TYPES.INSERT_MATERIAL)
+  assert.deepEqual(ctaPlan.targetSections, ['cta'])
+  assert.deepEqual(ctaPlan.oldSubjectToRemove, ['구매'])
+  assert.deepEqual(ctaPlan.requestedMaterials, ['상담 유도'])
+  assert.ok(ctaPlan.forbiddenSurfacePhrases.includes('구매 말고'))
+  assert.ok(ctaPlan.mustAvoid.some((item) => item.includes('구매')))
+
+  const compressIntent = classifyCopilotIntentByRule('20초로 줄여줘', 'all')
+  assert.equal(compressIntent.operationType, COPILOT_OPERATION_TYPES.DURATION_COMPRESS)
+  assert.equal(compressIntent.targetDurationSeconds, 20)
+
+  const adIntent = classifyCopilotIntentByRule('광고 같지 않게 바꿔줘', 'all')
+  assert.equal(adIntent.operationType, COPILOT_OPERATION_TYPES.TONE_ADJUST)
+  assert.equal(adIntent.shouldEdit, true)
+
+  const previousIntent = classifyCopilotIntentByRule('아까 버전이 더 좋아', 'all')
+  assert.equal(previousIntent.shouldEdit, false)
+  assert.equal(previousIntent.intent, 'advise_script')
+})
+
 test('copilot edit plan keeps locked sections for insert material requests', () => {
   const request = 'BODY에 손씻기랑 물 자주 마시기 넣어줘'
   const intent = classifyCopilotIntentByRule(request, 'all')

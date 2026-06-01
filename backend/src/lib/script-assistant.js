@@ -297,7 +297,7 @@ function normalizeFeedbackList(value = [], maxItems = 8) {
 function cleanRequestedPhrase(value = '') {
   return String(value || '')
     .replace(/^[\s"'“”‘’.,:;·\-–—]+|[\s"'“”‘’.,:;·\-–—]+$/g, '')
-    .replace(/^(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리)(?:은|는|을|를|만)?\s*(?:유지|그대로|고정|잠그|살리고|남기고|두고)\s*(?:하고|한\s*채|,)?\s*/i, '')
+    .replace(/^(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리)(?:은|는|을|를|만)?\s*(?:유지|그대로|고정|잠그|살리고|남기고|두고|냅두고|냅둬|놔두고|놔둬)\s*(?:하고|한\s*채|,)?\s*/i, '')
     .replace(/^(주제|소재|내용|방향)(?:를|은|는)?\s*/i, '')
     .replace(/(?:으로|로)?\s*(?:바꿔줘|바꿔|바꾸어줘|바꾸|변경해줘|변경|수정해줘|수정|가자|다시\s*(?:만들어줘|만들|써줘|써|작성해줘|작성))\s*$/i, '')
     .replace(/\s+/g, ' ')
@@ -349,6 +349,8 @@ function parseTopicReframeInstruction(text = '') {
   }
 
   const patterns = [
+    /^(.+?)\s*(?:으로|로)\s*주제(?:를|은|는)?\s*(?:바꿔|바꾸|변경|수정)/i,
+    /^(.+?)\s*주제(?:로|으로)\s*(?:바꿔|바꾸|변경|수정)/i,
     /(?:주제(?:를|은|는)?\s*)?(.+?)\s*(?:말고|대신|빼고)\s*(.+?)\s*(?:으로|로)(?:\s|$)/i,
     /(?:주제(?:를|은|는)?\s*)?(.+?)\s*(?:는|은)?\s*빼고\s*(.+?)\s*(?:으로|로)(?:\s|$)/i,
     /(?:기존\s*)?(.+?)\s*(?:버리고|버려|제외하고)\s*(.+?)\s*(?:으로|로)(?:\s|$)/i,
@@ -359,6 +361,17 @@ function parseTopicReframeInstruction(text = '') {
   for (const pattern of patterns) {
     const match = source.match(pattern)
     if (!match) {
+      continue
+    }
+    if (match.length === 2) {
+      const newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(match[1]))
+      if (newSubject && newSubject.length <= 80) {
+        return {
+          newSubject,
+          oldSubjectToRemove: [],
+          forbiddenSurfacePhrases: [],
+        }
+      }
       continue
     }
     const oldSubjectToRemove = parseSubjectList(match[1])
@@ -375,6 +388,82 @@ function parseTopicReframeInstruction(text = '') {
   return null
 }
 
+function parseSectionSwapInstruction(text = '') {
+  const source = String(text || '').trim()
+  const match = source.match(
+    /(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리|끝\s*문장)(?:은|는|을|를|만)?\s*(.+?)\s*(?:말고|대신|빼고)\s*(.+?)(?:으로|로)?\s*(?:바꿔|바꾸|수정|정리|가자|$)/i,
+  )
+  if (!match) {
+    return null
+  }
+
+  const oldSubjectToRemove = parseSubjectList(match[1])
+  const requestedMaterials = splitRequestedMaterials(match[2])
+  if (!oldSubjectToRemove.length || !requestedMaterials.length) {
+    return null
+  }
+
+  return {
+    oldSubjectToRemove,
+    requestedMaterials,
+    forbiddenSurfacePhrases: buildForbiddenSurfacePhrases(oldSubjectToRemove),
+  }
+}
+
+function extractSalesContext(request = '') {
+  const text = String(request || '').trim()
+  if (!text) {
+    return ''
+  }
+
+  if (/공동\s*구매|공동구매|공구/i.test(text)) {
+    return '음식 공구'
+  }
+  if (/홍보\s*모집|모집|광고\s*대행|상담\s*유도|구매\s*링크|판매/i.test(text)) {
+    return cleanRequestedPhrase(text.match(/(?:홍보\s*모집|모집|광고\s*대행|상담\s*유도|구매\s*링크|판매)/i)?.[0] || '')
+  }
+
+  return ''
+}
+
+function extractToneHint(request = '') {
+  const text = String(request || '').trim()
+  const hints = []
+  if (/공동\s*구매|공동구매|공구\s*느낌|공구/i.test(text)) hints.push('공구 느낌')
+  if (/생활형|일상형|일상\s*공감|생활\s*공감/i.test(text)) hints.push('생활 공감형')
+  if (/엄마|육아맘|아이|남편|가족/i.test(text)) hints.push('가족 생활 공감형')
+  if (/담백|자연스럽|말하듯|구어체/i.test(text)) hints.push('자연스럽고 말하듯이')
+
+  return uniqueCompactList(hints, 4).join(', ')
+}
+
+function extractTopicReframeMaterials(request = '', newSubject = '') {
+  const text = String(request || '').trim()
+  if (!text || !newSubject) {
+    return []
+  }
+
+  let materialSource = text
+    .replace(newSubject, '')
+    .replace(/^.*?(?:주제(?:를|은|는)?\s*)?(?:으로|로)?\s*(?:바꿔|바꾸|변경|수정).*?(?:[?.!。]|$)/i, '')
+    .replace(/(?:공동\s*구매|공동구매|공구)\s*느낌(?:으로)?/gi, '')
+    .replace(/(?:공동\s*구매|공동구매|공구)(?:으로|로|느낌)?/gi, '')
+    .replace(/(?:느낌|톤|스타일)(?:으로|로)?/gi, '')
+    .trim()
+
+  if (!materialSource) {
+    return []
+  }
+
+  const chunks = materialSource
+    .split(/\s*(?:[?.!。\n]+|,\s*)\s*/g)
+    .map((item) => cleanRequestedPhrase(item))
+    .filter((item) => item && item.length >= 4 && item.length <= 90)
+    .filter((item) => !/(바꿔|바꾸|변경|수정|느낌|공구|공동구매|공동\s*구매)$/i.test(item))
+
+  return uniqueCompactList(chunks, 6)
+}
+
 export function parseEditInstruction(request = '', intentResult = {}) {
   const text = String(request || '').trim()
   const targetDurationSeconds =
@@ -387,6 +476,8 @@ export function parseEditInstruction(request = '', intentResult = {}) {
     oldSubjectToRemove: [],
     forbiddenSurfacePhrases: [],
     requestedMaterials: [],
+    salesContext: '',
+    toneHint: '',
     explicitKeep: detectExplicitPreserveSections(text),
     explicitRemove: [],
     allowComparisonWithOldSubject,
@@ -400,8 +491,23 @@ export function parseEditInstruction(request = '', intentResult = {}) {
   }
 
   const topicReframe = parseTopicReframeInstruction(text)
+  const sectionSwap = parseSectionSwapInstruction(text)
+  if (sectionSwap) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
+      oldSubjectToRemove: sectionSwap.oldSubjectToRemove,
+      forbiddenSurfacePhrases: sectionSwap.forbiddenSurfacePhrases,
+      requestedMaterials: sectionSwap.requestedMaterials,
+      explicitRemove: sectionSwap.oldSubjectToRemove,
+    }
+  }
+
   if (topicReframe && !allowComparisonWithOldSubject) {
-    const requestedMaterials = extractRequestedMaterials(text, topicReframe.newSubject)
+    const requestedMaterials =
+      extractRequestedMaterials(text, topicReframe.newSubject).length
+        ? extractRequestedMaterials(text, topicReframe.newSubject)
+        : extractTopicReframeMaterials(text, topicReframe.newSubject)
     return {
       ...instruction,
       operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
@@ -409,6 +515,8 @@ export function parseEditInstruction(request = '', intentResult = {}) {
       oldSubjectToRemove: topicReframe.oldSubjectToRemove,
       forbiddenSurfacePhrases: topicReframe.forbiddenSurfacePhrases,
       requestedMaterials,
+      salesContext: extractSalesContext(text),
+      toneHint: extractToneHint(text),
       explicitRemove: topicReframe.oldSubjectToRemove,
     }
   }
@@ -421,6 +529,8 @@ export function parseEditInstruction(request = '', intentResult = {}) {
       oldSubjectToRemove: topicReframe.oldSubjectToRemove,
       forbiddenSurfacePhrases: [],
       requestedMaterials: extractRequestedMaterials(text, topicReframe.newSubject),
+      salesContext: extractSalesContext(text),
+      toneHint: extractToneHint(text),
       explicitRemove: [],
     }
   }
@@ -439,6 +549,8 @@ export function parseEditInstruction(request = '', intentResult = {}) {
       operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
       newSubject: detectedNewSubject,
       requestedMaterials,
+      salesContext: extractSalesContext(text),
+      toneHint: extractToneHint(text),
     }
   }
 
@@ -471,6 +583,8 @@ function extractRequestedNewSubject(request = '') {
   const text = String(request || '').trim()
   const patterns = [
     /주제(?:를|은|는)?\s*(.+?)\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정|다시\s*(?:만들|써|작성))/i,
+    /^(.+?)\s*(?:으로|로)\s*주제(?:를|은|는)?\s*(?:바꿔|바꾸|변경|수정)/i,
+    /^(.+?)\s*주제(?:로|으로)\s*(?:바꿔|바꾸|변경|수정)/i,
     /주제(?:를|은|는)?\s*(.+?)\s*(?:으로|로)\s+.+?(?:넣어|추가|포함|반영)/i,
     /^(.+?)\s*(?:으로|로)\s+.+?(?:넣어|추가|포함|반영)/i,
     /(?:^|[\s,])(.+?)\s*(?:으로|로)\s*(?:주제\s*)?(?:바꿔|바꾸|변경|다시\s*(?:만들|써|작성))/i,
@@ -751,6 +865,12 @@ export function buildEditPlan({
         : extractRequestedMaterials(request, detectedNewSubject),
     8,
   )
+  const salesContext = cleanRequestedPhrase(
+    structuredEditInstruction.salesContext || intentResult.salesContext || extractSalesContext(request),
+  )
+  const toneHint = cleanRequestedPhrase(
+    structuredEditInstruction.toneHint || intentResult.toneHint || extractToneHint(request),
+  )
   const structuredOperationType =
     structuredEditInstruction.operationType && structuredEditInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
       ? structuredEditInstruction.operationType
@@ -794,7 +914,14 @@ export function buildEditPlan({
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
     strategy.push('새 주제 기준 재구성 + 레퍼런스 구조/리듬 유지')
     change.push(`기존 소재에 끌려가지 않고 새 주제 "${detectedNewSubject || '사용자가 명시한 새 주제'}" 중심으로 HOOK/BODY/CTA를 맞춘다`)
+    if (salesContext) {
+      change.push(`판매 맥락을 자연스럽게 반영한다: ${salesContext}`)
+    }
+    if (toneHint) {
+      preserve.push(`톤 힌트: ${toneHint}`)
+    }
     avoid.push('기존 주제의 상품/상황/고객 pain point를 어중간하게 섞기')
+    avoid.push('requestedMaterials, salesContext, toneHint를 대본 문장에 그대로 복사하기')
     if (oldSubjectToRemove.length && !allowComparisonWithOldSubject) {
       avoid.push(...oldSubjectToRemove.map((subject) => `기존 소재 "${subject}"를 비교/대비 표현으로도 남기지 않기`))
     }
@@ -896,6 +1023,8 @@ export function buildEditPlan({
     forbiddenSurfacePhrases,
     allowComparisonWithOldSubject,
     targetDurationSeconds: durationTarget,
+    salesContext,
+    toneHint,
   })
 
   return {
@@ -913,6 +1042,8 @@ export function buildEditPlan({
     oldSubjectToRemove,
     forbiddenSurfacePhrases,
     requestedMaterials,
+    salesContext,
+    toneHint,
     explicitKeep: structuredEditInstruction.explicitKeep || [],
     explicitRemove: structuredEditInstruction.explicitRemove || [],
     allowComparisonWithOldSubject,
@@ -967,6 +1098,8 @@ function formatEditPlanForPrompt(editPlan = null) {
       ? `- 기존 소재 비교 허용: ${editPlan.allowComparisonWithOldSubject ? '예' : '아니오'}`
       : '',
     editPlan.requestedMaterials?.length ? `- 요청 소재: ${editPlan.requestedMaterials.join(', ')}` : '',
+    editPlan.salesContext ? `- 판매 맥락: ${editPlan.salesContext}` : '',
+    editPlan.toneHint ? `- 톤 힌트: ${editPlan.toneHint}` : '',
     editPlan.preserveSections?.length ? `- 유지 섹션: ${editPlan.preserveSections.map((key) => SECTION_LABELS[key]).join(', ')}` : '',
     `- 전략: ${editPlan.strategy || '-'}`,
     editPlan.preserve?.length ? `- 유지: ${editPlan.preserve.join(', ')}` : '',
@@ -981,6 +1114,7 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- 우선순위: structured edit plan > editTarget/section lock > account/character tone > current script > reference structure > raw user request.',
     '- 사용자 원문은 의도 해석용 보조 정보다. 실제 대본 작성은 structured edit plan을 최우선으로 따른다.',
     '- raw user request의 표현을 대본 문장에 그대로 복사하지 않는다.',
+    '- requestedMaterials, salesContext, toneHint는 그대로 복사할 문장이 아니라 반영할 상황/판매 맥락/톤 힌트다.',
     '- 이 계획은 내부 보조 정보이며 섹션 잠금보다 우선하지 않는다.',
     '- sectionInstructions에서 action=keep인 섹션은 원문 그대로 유지한다.',
     '- mustKeep은 정말 깨지면 안 되는 핵심만 담은 목록이다. mustKeep을 핑계로 mustChange를 무시하지 않는다.',
@@ -1044,7 +1178,7 @@ function detectExplicitPreserveSections(request = '') {
   const text = String(request || '')
   const compact = text.replace(/\s+/g, '').toLowerCase()
   const preserved = new Set()
-  const preserveSignal = '(?:유지|그대로|건드리지|건들지|냅둬|놔둬|두고|살리고|남기고|고정|잠그)'
+  const preserveSignal = '(?:유지|그대로|건드리지|건들지|냅둬|냅두|놔둬|놔두|두고|살리고|남기고|고정|잠그)'
 
   if (new RegExp(`(?:hook|훅|후킹|첫문장|첫 문장|도입|오프닝)(?:은|는|을|를|만)?\\s*${preserveSignal}`, 'i').test(text)) {
     preserved.add('hook')
@@ -1056,13 +1190,13 @@ function detectExplicitPreserveSections(request = '') {
     preserved.add('cta')
   }
 
-  if (/(hook|훅|후킹|첫문장|첫 문장|도입|오프닝).*?(유지|그대로|고정|잠그)/i.test(text) || /hook(?:은|는)?유지|훅(?:은|는)?유지/.test(compact)) {
+  if (/(hook|훅|후킹|첫문장|첫 문장|도입|오프닝).*?(유지|그대로|고정|잠그|냅두|냅둬|놔두|놔둬)/i.test(text) || /hook(?:은|는)?유지|훅(?:은|는)?유지/.test(compact)) {
     preserved.add('hook')
   }
-  if (/(body|바디|본문|내용|전개).*?(유지|그대로|고정|잠그)/i.test(text) || /body(?:은|는)?유지|본문(?:은|는)?유지/.test(compact)) {
+  if (/(body|바디|본문|내용|전개).*?(유지|그대로|고정|잠그|냅두|냅둬|놔두|놔둬)/i.test(text) || /body(?:은|는)?유지|본문(?:은|는)?유지/.test(compact)) {
     preserved.add('body')
   }
-  if (/(cta|씨티에이|마무리|행동유도|행동 유도|클로징).*?(유지|그대로|고정|잠그)/i.test(text) || /cta(?:은|는)?유지|마무리(?:은|는)?유지/.test(compact)) {
+  if (/(cta|씨티에이|마무리|행동유도|행동 유도|클로징).*?(유지|그대로|고정|잠그|냅두|냅둬|놔두|놔둬)/i.test(text) || /cta(?:은|는)?유지|마무리(?:은|는)?유지/.test(compact)) {
     preserved.add('cta')
   }
 
@@ -1141,6 +1275,8 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
       targetDurationSeconds,
       newSubject: '',
       requestedMaterials: [],
+      salesContext: '',
+      toneHint: '',
     }
   }
   const parsedInstruction = parseEditInstruction(text, {
@@ -1168,6 +1304,26 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
   const wantsEdit = editPattern.test(text)
   const wantsAdvice = advicePattern.test(text)
   const wantsVagueImprove = vagueImprovePattern.test(text)
+  const hasStructuredEditInstruction =
+    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ||
+    operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL ||
+    operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+
+  if (hasStructuredEditInstruction) {
+    return {
+      intent: COPILOT_INTENTS.EDIT,
+      shouldEdit: true,
+      responseMode: wantsAdvice || wantsVagueImprove ? 'advice_then_edit' : 'edit_only',
+      editTarget: normalizeEditTarget(editTarget, text),
+      confidence: 0.86,
+      reason: '사용자 요청에서 구조화 가능한 편집 지시가 확인됨',
+      operationType,
+      newSubject,
+      requestedMaterials,
+      salesContext: parsedInstruction.salesContext || extractSalesContext(text),
+      toneHint: parsedInstruction.toneHint || extractToneHint(text),
+    }
+  }
 
   if (wantsEdit || wantsVagueImprove) {
     return {
@@ -1182,6 +1338,8 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
       operationType,
       newSubject,
       requestedMaterials,
+      salesContext: parsedInstruction.salesContext || extractSalesContext(text),
+      toneHint: parsedInstruction.toneHint || extractToneHint(text),
     }
   }
 
@@ -1207,6 +1365,8 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
       operationType,
       newSubject,
       requestedMaterials,
+      salesContext: parsedInstruction.salesContext || extractSalesContext(text),
+      toneHint: parsedInstruction.toneHint || extractToneHint(text),
     }
   }
 
@@ -1597,8 +1757,10 @@ function buildSectionInstructions({ operationType, targetSections = SECTION_KEYS
       }
     } else if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
       instructions[section] = {
-        action: 'replace',
-        reason: '사용자가 새 주제 중심 재구성을 요청함',
+        action: section === 'cta' ? 'revise' : 'replace',
+        reason: section === 'cta'
+          ? '사용자가 새 주제 중심 재구성을 요청했으므로 CTA 의도는 살리고 새 주제에 맞게 수정'
+          : '사용자가 새 주제 중심 재구성을 요청함',
       }
     } else if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) {
       instructions[section] = {
@@ -1627,6 +1789,8 @@ function buildPlanGuardrails({
   forbiddenSurfacePhrases = [],
   allowComparisonWithOldSubject = false,
   targetDurationSeconds = null,
+  salesContext = '',
+  toneHint = '',
 } = {}) {
   const mustKeep = []
   const mustChange = []
@@ -1638,6 +1802,12 @@ function buildPlanGuardrails({
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
     mustKeep.push('레퍼런스 구조/문장 리듬/CTA 방식')
     mustChange.push(newSubject ? `새 주제 "${newSubject}"를 중심에 둔다` : '사용자가 명시한 새 주제를 중심에 둔다')
+    if (salesContext) {
+      mustChange.push(`판매 맥락 "${salesContext}"를 자연스럽게 반영`)
+    }
+    if (toneHint) {
+      mustAvoid.push(`톤 힌트 "${toneHint}"를 문장에 그대로 붙여 쓰기`)
+    }
     if (oldSubjectToRemove.length && !allowComparisonWithOldSubject) {
       mustAvoid.push(...oldSubjectToRemove.map((subject) => `기존 소재 "${subject}" 노출`))
     }
@@ -3367,6 +3537,8 @@ export async function validateRefinedScriptQuality({
               mustKeep: editPlan.mustKeep || [],
               mustChange: editPlan.mustChange || [],
               mustAvoid: editPlan.mustAvoid || [],
+              salesContext: editPlan.salesContext || '',
+              toneHint: editPlan.toneHint || '',
             })}` : '',
             getStrongMemoryConstraints(copilotMemory).length
               ? `[strong session constraints]\n${JSON.stringify(getStrongMemoryConstraints(copilotMemory))}`

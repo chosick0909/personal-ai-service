@@ -7,7 +7,7 @@ import { useAppState } from '../store/AppState'
 const REFERENCE_SCRIPT_SECTION_TITLE = '레퍼런스 스크립트'
 const REFERENCE_SCRIPT_SECTION_DESCRIPTION = '업로드한 레퍼런스 영상에서 추출한 전체 스크립트입니다.'
 const MISSING_TRANSCRIPT_DRAFT_MESSAGE =
-  '전사 텍스트를 추출하지 못해서 초안을 생성할 수 없습니다. 음성이 또렷한 영상이나 자막이 있는 영상을 업로드해주세요.'
+  '음성 전사가 불안정해 초안 생성을 진행하지 못했습니다. 영상에 자막이 있다면 자막/대본을 복사해 ‘대본으로 분석’을 이용해 주세요.'
 const EDITOR_SCROLL_EVENT = 'hookai:scroll-editor'
 // Deploy touchpoint: keep the reference script heading fixed.
 
@@ -155,6 +155,7 @@ export default function ResultCards() {
     selectScript,
     clearScriptSelection,
     goBackToUpload,
+    goToScriptAnalysisMode,
     currentStep,
     openVersionHistory,
     saveVersion,
@@ -174,7 +175,10 @@ export default function ResultCards() {
   const resultStepTimerRef = useRef(null)
   const isReferenceProcessing = referenceData?.status === 'processing' || referenceData?.status === 'uploading'
   const hasTranscript = Boolean((referenceData?.transcript || '').trim())
-  const shouldBlockDraftsForMissingTranscript = !hasTranscript && generatedScripts.length === 0
+  const transcriptQualityLevel = String(referenceData?.transcript_quality?.level || '').toLowerCase()
+  const shouldBlockDraftsForMissingTranscript =
+    generatedScripts.length === 0 &&
+    (!hasTranscript || (!isReferenceProcessing && transcriptQualityLevel === 'low'))
   const isDraftGenerationPending = isReferenceProcessing && hasTranscript && generatedScripts.length === 0
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
@@ -499,7 +503,14 @@ export default function ResultCards() {
               <div ref={draftSectionRef} className="mt-8">
                 {shouldBlockDraftsForMissingTranscript ? (
                   <div className="rounded-[20px] border border-[#3A414F] bg-[#121722] px-5 py-5 text-sm leading-6 text-[#D1D5DB]">
-                    {MISSING_TRANSCRIPT_DRAFT_MESSAGE}
+                    <p>{MISSING_TRANSCRIPT_DRAFT_MESSAGE}</p>
+                    <button
+                      type="button"
+                      onClick={goToScriptAnalysisMode || goBackToUpload}
+                      className="mt-4 inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
+                    >
+                      대본으로 다시 분석하기
+                    </button>
                   </div>
                 ) : (
                   <>
