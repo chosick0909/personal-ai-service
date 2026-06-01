@@ -1266,6 +1266,27 @@ test('duration compress QA flags overly long compressed drafts', () => {
   assert.ok(result.issues.some((issue) => issue.type === 'duration_range_miss'))
 })
 
+test('duration compress QA flags sentence fragments caused by over-compression', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      hook: '해동 기다리다 “배고파!” 소리 커지죠.\n냉동삼겹살, 해동 없이 굽는 순서만 딱.',
+      body: '오해부터요.\n급할 땐 팬부터 달구고, 한 장씩 떼서 바로 올려요.\n안 떨어지면 잠깐 두고 톡톡.\n간은 겉이 잡힌 다음에.',
+      cta: '이 순서 그대로 하려면 팬+집게가 제일 편해요.\n공구는 프로필 링크에서 구매하기.',
+    },
+    editTarget: 'all',
+    request: '30초로 압축해줘',
+    qaMode: COPILOT_QA_MODES.DURATION_COMPRESS,
+    targetSections: ['hook', 'body', 'cta'],
+    targetDurationSeconds: 30,
+    targetCharRange: buildDurationCharRange(30),
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'incomplete_compressed_sentence'))
+})
+
 test('duration compress user-facing message hides internal terms', () => {
   const message = sanitizeUserFacingCopilotMessage('QA 이슈(근거 없는 수치 제거, 20초 분량 압축, CTA 초점 단일화)만 반영해 hook/body/cta 최소 수정했어요.', {
     editPlan: {

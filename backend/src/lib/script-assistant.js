@@ -841,6 +841,38 @@ function tokenizeForRequestMatch(value = '') {
   )
 }
 
+function findIncompleteCompressedSentences(sections = {}) {
+  const normalized = normalizeSections(sections)
+  const issues = []
+  const fragmentPattern =
+    /(?:부터요|다음에|톡톡|순서만\s*딱|오해부터|꺼내서|올리고|넣고|두고|하고|해서|라서|니까|하면|때)$/u
+  const weakStandalonePattern = /^(?:오해|간|순서|톡톡|잠깐|바로|그다음|다음|먼저)(?:부터요|부터|만|에)?[.!?。]?$/u
+  const completeEndingPattern =
+    /(?:다|요|죠|니다|습니다|해요|돼요|세요|게요|예요|이에요|까요|세요|보세요|주세요|됩니다|합니다)[.!?。]?$/u
+
+  for (const section of SECTION_KEYS) {
+    const text = normalized[section]
+    const chunks = text
+      .split(/[\n]+|(?<=[.!?。])\s+/g)
+      .map((item) => item.trim().replace(/[.!?。]+$/u, ''))
+      .filter(Boolean)
+
+    for (const chunk of chunks) {
+      const compact = chunk.replace(/\s+/g, '')
+      if (!compact) continue
+      const tooFragmented =
+        weakStandalonePattern.test(chunk) ||
+        fragmentPattern.test(chunk) ||
+        (compact.length <= 8 && !completeEndingPattern.test(chunk))
+      if (tooFragmented) {
+        issues.push({ section, text: chunk })
+      }
+    }
+  }
+
+  return issues.slice(0, 5)
+}
+
 export function normalizeTargetDurationSeconds(value) {
   if (value === null || value === undefined || value === '') {
     return null
@@ -1169,18 +1201,20 @@ export function buildEditPlan({
     avoid.push('소재 추가를 이유로 요청하지 않은 섹션까지 다시 쓰기')
   }
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
-    strategy.push(`${durationTarget || '목표'}초 기준 삭제 중심 압축 + HOOK/BODY/CTA 구조 유지`)
+    strategy.push(`${durationTarget || '목표'}초 기준 완결 문장 압축 + HOOK/BODY/CTA 구조 유지`)
     preserve.push('현재 주제, 상품/서비스, 타겟, 핵심 메시지, CTA 의도')
     change.push(
       `목표 분량 ${durationTarget || '-'}초${
         targetCharRange ? `, 공백 제외 약 ${targetCharRange.min}-${targetCharRange.max}자` : ''
-      }에 맞게 중복 설명과 부연 설명을 줄인다`,
+      }에 맞게 중복 설명과 부연 설명을 줄이되 각 문장은 자연스럽게 완결한다`,
     )
     avoid.push(
       '새 내용 추가',
       '없는 수치/후기/사례/효과/권위 생성',
       '핵심 메시지를 과도하게 삭제하기',
       'CTA를 없애거나 행동 유도 의도를 바꾸기',
+      '조사/접속어/서술어가 빠진 파편 문장',
+      '"오해부터요", "톡톡", "다음에"처럼 맥락 없이 끊긴 문장',
     )
   }
 
@@ -1359,8 +1393,9 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- forbiddenSurfacePhrases가 있으면 대본에 절대 사용하지 않는다.',
     '- allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남기지 않는다. 비교/대비 표현으로도 쓰지 않는다.',
     '- insert_material이면 targetSections에만 요청 소재를 넣고 preserveSections는 원문 그대로 유지한다.',
-    '- duration_compress이면 새 대본 생성이 아니라 삭제 중심 압축이다. 새 내용/수치/후기/사례/효과/권위를 만들지 않고 HOOK/BODY/CTA와 CTA 의도를 유지한다.',
+    '- duration_compress이면 새 대본 생성이 아니라 압축이다. 새 내용/수치/후기/사례/효과/권위를 만들지 않고 HOOK/BODY/CTA와 CTA 의도를 유지한다.',
     '- duration_compress에서는 목표 글자 수를 참고하되, 정확한 글자 수보다 자연스러운 문장과 핵심 메시지 보존을 우선한다.',
+    '- duration_compress에서는 문맥 연결에 필요한 최소한의 조사/서술어/이유는 남긴다. "오해부터요", "톡톡", "다음에"처럼 잘린 파편 문장으로 만들지 않는다.',
     '- 계획에 없는 새 소재나 수치를 만들지 않는다.',
   ]
     .filter(Boolean)
@@ -2056,8 +2091,12 @@ function buildPlanGuardrails({
 
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
     mustKeep.push('HOOK/BODY/CTA 구조', 'CTA 의도', '핵심 메시지')
-    mustChange.push(targetDurationSeconds ? `${targetDurationSeconds}초 기준으로 중복/부연 설명 제거` : '목표 초수 기준으로 중복/부연 설명 제거')
-    mustAvoid.push('새 내용 추가', 'CTA 삭제')
+    mustChange.push(
+      targetDurationSeconds
+        ? `${targetDurationSeconds}초 기준으로 중복/부연 설명을 줄이고 완결 문장으로 압축`
+        : '목표 초수 기준으로 중복/부연 설명을 줄이고 완결 문장으로 압축',
+    )
+    mustAvoid.push('새 내용 추가', 'CTA 삭제', '서술어가 빠진 파편 문장', '맥락 없이 끊긴 단어형 문장')
   }
 
   if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)) {
@@ -2357,6 +2396,20 @@ export function runFeedbackFallbackRuleCheck({
   }
 
   if (qaMode === COPILOT_QA_MODES.DURATION_COMPRESS) {
+    const incompleteSentences = findIncompleteCompressedSentences(candidate)
+    for (const item of incompleteSentences) {
+      issues.push(
+        createQaIssue({
+          type: 'incomplete_compressed_sentence',
+          severity: 'medium',
+          section: item.section,
+          text: item.text,
+          reason: '시간 압축 과정에서 문장이 너무 잘려 맥락이나 서술어가 부족하다.',
+          suggestion: '글자 수를 크게 늘리지 말고, 짧아도 자연스럽게 완결된 문장으로 다시 잇는다.',
+        }),
+      )
+    }
+
     const range = targetCharRange || buildDurationCharRange(targetDurationSeconds || extractTargetDurationSeconds(request))
     if (range) {
       const characterCount = countSectionSpeechCharacters(candidate)
@@ -3914,7 +3967,8 @@ export async function validateRefinedScriptQuality({
             'preserve_topic: 기존 주제/사실/섹션 흐름 보존을 강하게 검사한다.',
             'reframe_topic: 기존 주제와 달라졌다는 이유로 실패 처리하지 말고, 새 주제가 명확히 반영됐는지와 기존 주제에 어중간하게 끌려가지 않았는지를 검사한다.',
             'insert_material: 요청 소재가 targetSections에 실제로 들어갔는지, preserveSections가 불필요하게 바뀌지 않았는지 검사한다.',
-            'duration_compress: 새 대본 생성이 아니라 삭제 중심 압축인지 검사한다. 목표 글자 범위 근처인지, HOOK/BODY/CTA와 CTA 의도/핵심 메시지가 유지됐는지, 새 사실/수치/후기/효과가 생기지 않았는지 검사한다.',
+            'duration_compress: 새 대본 생성이 아니라 압축인지 검사한다. 목표 글자 범위 근처인지, HOOK/BODY/CTA와 CTA 의도/핵심 메시지가 유지됐는지, 새 사실/수치/후기/효과가 생기지 않았는지 검사한다.',
+            'duration_compress에서는 짧아도 문장이 완결되어야 한다. 조사/접속어/서술어가 빠진 파편 문장, "오해부터요", "톡톡", "다음에"처럼 맥락 없이 끊긴 문장은 incomplete_compressed_sentence다.',
             'structured edit plan에 forbiddenSurfacePhrases가 있으면 해당 표현은 대본에 절대 남으면 안 된다.',
             'structured edit plan의 sectionInstructions, mustKeep, mustChange, mustAvoid를 검사한다.',
             'sectionInstructions에서 action=keep인 섹션이 바뀌면 section_instruction_violation이다.',
@@ -4119,7 +4173,7 @@ export async function repairRefinedScriptWithQaIssues({
               ? `이번 작업은 요청 소재 누락/삽입 위치 문제를 다듬는 작업이다. 요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`
               : null,
             qaMode === COPILOT_QA_MODES.DURATION_COMPRESS
-              ? `이번 작업은 목표 ${targetDurationSeconds || '지정'}초에 맞춘 삭제 중심 압축 결과를 다듬는 작업이다. 새 내용은 만들지 말고 공백 제외 목표 범위 ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '안'}에 가깝게 줄인다.`
+              ? `이번 작업은 목표 ${targetDurationSeconds || '지정'}초에 맞춘 압축 결과를 다듬는 작업이다. 새 내용은 만들지 말고 공백 제외 목표 범위 ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '안'}에 가깝게 줄이되, 문장은 짧아도 자연스럽게 완결한다.`
               : null,
             '없는 사실, 허위 수치, 허위 후기, 허위 고객 사례, 허위 전문가 권위, 레퍼런스 소재를 만들지 않는다.',
             '한국어가 어색한 문장은 실제 사람이 말하는 자연스러운 표현으로만 고친다.',
