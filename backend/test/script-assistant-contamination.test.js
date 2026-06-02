@@ -45,6 +45,7 @@ const {
   extractTargetDurationSeconds,
   buildDurationCharRange,
   buildFeedbackVerdict,
+  feedbackToEditInstructions,
   stabilizeFeedbackScoreAfterApply,
 } = __scriptAssistantTest
 
@@ -492,6 +493,50 @@ test('copilot applies previous advice for this-way and feedback-way phrasing', a
   }
 })
 
+test('feedback is normalized into executable edit operations for reply/apply flows', () => {
+  const feedback = {
+    summary: 'CTA가 약해서 구매 이유가 바로 보이지 않습니다.',
+    detail: 'HOOK과 BODY 흐름은 괜찮지만, CTA에서 왜 댓글을 남겨야 하는지가 약합니다.',
+    issues: ['CTA: 댓글을 남겨야 하는 이유가 약함'],
+    recommendations: ['CTA에 오늘 바로 확인해야 하는 이유를 한 문장 추가하세요.'],
+    verdict: {
+      reason: 'CTA 행동 이유를 보강하면 바로 사용하기 좋아집니다.',
+      recommendedAction: 'CTA만 가볍게 다듬기',
+    },
+  }
+
+  const advice = feedbackToEditInstructions({
+    feedback,
+    sourceMessageId: 'feedback-1',
+    editTarget: 'all',
+  })
+
+  assert.equal(advice.sourceType, 'feedback')
+  assert.equal(advice.sourceMessageId, 'feedback-1')
+  assert.equal(advice.editTarget, 'cta')
+  assert.deepEqual(advice.preserveSections, ['hook', 'body'])
+  assert.ok(advice.operations.some((operation) => operation.target === 'cta'))
+  assert.ok(advice.operations.some((operation) => operation.type === 'strengthen_action_reason'))
+  assert.match(advice.instructions.join('\n'), /오늘 바로 확인|댓글/)
+
+  const plan = buildEditPlan({
+    userRequest: '이대로 수정해줘',
+    currentSections: currentDraft,
+    intentResult: {
+      intent: 'apply_previous_advice',
+      editTarget: 'cta',
+      previousAdvice: advice,
+    },
+    previousAdvice: advice,
+  })
+
+  assert.equal(plan.previousAdviceApplied, true)
+  assert.deepEqual(plan.targetSections, ['cta'])
+  assert.deepEqual(plan.preserveSections, ['hook', 'body'])
+  assert.match(plan.mustChange.join('\n'), /오늘 바로 확인|댓글|CTA/)
+  assert.match(plan.avoid.join('\n'), /허위 수치|없는 혜택/)
+})
+
 test('copilot treats honorific requests as tone adjustment, not topic reframe', () => {
   const request = '훅이 반말이라 훅을 존댓말로 바꿔줘'
   const instruction = parseEditInstruction(request)
@@ -927,8 +972,11 @@ test('copilot edit plan classifies explicit topic reframe requests', () => {
   assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
   assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
   assert.equal(plan.qaMode, COPILOT_QA_MODES.REFRAME_TOPIC)
+  assert.equal(plan.reframeScope, 'full')
   assert.equal(plan.newSubject, '여름철 감염 예방법')
   assert.deepEqual(plan.targetSections, ['hook', 'body', 'cta'])
+  assert.deepEqual(plan.preserveFromOriginal, ['레퍼런스 구조', '문장 리듬', '톤', 'CTA 스타일'])
+  assert.ok(plan.discardFromOriginal.includes('기존 상품'))
   assert.match(plan.strategy, /새 주제/)
   assert.ok(plan.avoid.some((item) => item.includes('기존 주제')))
 })
@@ -937,6 +985,7 @@ test('parse edit instruction separates old and new subjects from X 말고 Y requ
   const instruction = parseEditInstruction('주제를 만두말고 치킨너겟으로 바꿔줘')
 
   assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(instruction.reframeScope, 'full')
   assert.equal(instruction.newSubject, '치킨너겟')
   assert.deepEqual(instruction.oldSubjectToRemove, ['만두'])
   assert.equal(instruction.allowComparisonWithOldSubject, false)
@@ -967,6 +1016,7 @@ test('copilot edit plan prioritizes structured instruction over raw request word
   })
 
   assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.reframeScope, 'full')
   assert.equal(plan.newSubject, '치킨너겟')
   assert.deepEqual(plan.oldSubjectToRemove, ['만두'])
   assert.ok(plan.forbiddenSurfacePhrases.includes('만두말고'))
@@ -976,6 +1026,7 @@ test('copilot edit plan prioritizes structured instruction over raw request word
   assert.equal(plan.sectionInstructions.hook.action, 'replace')
   assert.ok(plan.mustChange.some((item) => item.includes('치킨너겟')))
   assert.ok(plan.mustAvoid.some((item) => item.includes('만두말고')))
+  assert.ok(plan.mustAvoid.some((item) => item.includes('기존 상품')))
 })
 
 test('copilot edit plan supports topic reframe with requested materials', () => {
@@ -1008,6 +1059,7 @@ test('copilot edit plan separates subject, sales context, tone, and situation hi
   assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
   assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
   assert.equal(plan.qaMode, COPILOT_QA_MODES.REFRAME_TOPIC)
+  assert.equal(plan.reframeScope, 'full')
   assert.equal(plan.newSubject, '삼겹살')
   assert.equal(plan.salesContext, '음식 공구')
   assert.match(plan.toneHint, /공구 느낌/)
@@ -1161,9 +1213,68 @@ test('explicit preserve wording locks sections even during topic reframe', () =>
 
   assert.deepEqual(detectExplicitPreserveSections(request), ['hook'])
   assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.reframeScope, 'partial')
   assert.equal(plan.newSubject, '여름철 감염 예방법')
   assert.deepEqual(plan.targetSections, ['body', 'cta'])
   assert.deepEqual(plan.preserveSections, ['hook'])
+})
+
+test('partial topic reframe only changes the requested section', () => {
+  const request = 'BODY만 삼겹살로 바꿔줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.reframeScope, 'partial')
+  assert.equal(plan.newSubject, '삼겹살')
+  assert.deepEqual(plan.targetSections, ['body'])
+  assert.deepEqual(plan.preserveSections, ['hook', 'cta'])
+  assert.equal(plan.sectionInstructions.hook.action, 'keep')
+  assert.equal(plan.sectionInstructions.body.action, 'replace')
+  assert.equal(plan.sectionInstructions.cta.action, 'keep')
+})
+
+test('current explicit locks win over referenced feedback operations', () => {
+  const plan = buildEditPlan({
+    userRequest: '피드백대로 해줘. 근데 훅은 건드리지 마.',
+    currentSections: currentDraft,
+    intentResult: {
+      intent: 'apply_previous_advice',
+      editTarget: 'all',
+      shouldModifyScript: true,
+      previousAdvice: {
+        editTarget: 'all',
+        createdAt: new Date().toISOString(),
+        operations: [
+          {
+            type: 'strengthen_hook',
+            target: 'hook',
+            problem: '첫 문장이 약함',
+            instruction: 'HOOK 첫 문장을 더 강하게 바꾼다.',
+          },
+          {
+            type: 'strengthen_action_reason',
+            target: 'cta',
+            problem: '행동 이유가 약함',
+            instruction: 'CTA에 행동 이유를 추가한다.',
+          },
+        ],
+      },
+    },
+    editTarget: 'all',
+  })
+
+  assert.deepEqual(plan.targetSections, ['cta'])
+  assert.deepEqual(plan.preserveSections, ['hook', 'body'])
+  assert.equal(plan.sectionInstructions.hook.action, 'keep')
+  assert.ok(!plan.mustChange.some((item) => item.includes('HOOK 첫 문장')))
+  assert.ok(plan.mustChange.some((item) => item.includes('CTA에 행동 이유')))
+  assert.ok(plan.avoid.some((item) => item.includes('HOOK 관련 직전 조언')))
 })
 
 test('copilot user-facing message templates hide internal terms', () => {

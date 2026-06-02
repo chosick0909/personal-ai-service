@@ -79,17 +79,40 @@ function normalizePreviousAdvice(value = null) {
   )
   const diagnosis = String(value.diagnosis || '').trim()
   const expectedOutcome = String(value.expectedOutcome || value.expected_outcome || '').trim()
+  const operations = Array.isArray(value.operations)
+    ? value.operations
+        .map((operation) => {
+          if (!operation || typeof operation !== 'object') {
+            return null
+          }
+          const target = String(operation.target || operation.section || '').trim().toLowerCase()
+          return {
+            type: String(operation.type || 'partial_rewrite').trim() || 'partial_rewrite',
+            target: SECTION_KEYS.includes(target) ? target : 'all',
+            problem: String(operation.problem || '').trim(),
+            instruction: String(operation.instruction || operation.action || '').trim(),
+            preserve: uniqueCompactList(operation.preserve || [], 5),
+            avoid: uniqueCompactList(operation.avoid || [], 5),
+            priority: String(operation.priority || value.priority || 'medium').trim() || 'medium',
+          }
+        })
+        .filter((operation) => operation && (operation.instruction || operation.problem))
+        .slice(0, 8)
+    : []
 
-  if (!diagnosis && !instructions.length && !expectedOutcome) {
+  if (!diagnosis && !instructions.length && !expectedOutcome && !operations.length) {
     return null
   }
 
   return {
+    sourceType: String(value.sourceType || value.source_type || '').trim(),
     sourceMessageId: String(value.sourceMessageId || value.source_message_id || '').trim(),
     sourceUserMessage: String(value.sourceUserMessage || value.source_user_message || '').trim(),
+    priority: String(value.priority || '').trim(),
     diagnosis,
     editTarget: normalizedTarget,
     instructions,
+    operations,
     preserveSections,
     expectedOutcome,
     createdAt: Number.isFinite(createdAtMs) ? new Date(createdAtMs).toISOString() : new Date().toISOString(),
@@ -151,6 +174,26 @@ function previousAdviceTargetSections(previousAdvice = null, fallbackTarget = 'a
     return ['body', 'cta']
   }
   return getTargetSections(previousAdviceTargetToEditTarget(normalized, fallbackTarget))
+}
+
+function previousAdviceOperationTargetSections(previousAdvice = null) {
+  const normalized = normalizePreviousAdvice(previousAdvice)
+  if (!normalized?.operations?.length) {
+    return []
+  }
+
+  const targets = new Set()
+  for (const operation of normalized.operations) {
+    if (operation.target === 'all') {
+      SECTION_KEYS.forEach((section) => targets.add(section))
+      continue
+    }
+    if (SECTION_KEYS.includes(operation.target)) {
+      targets.add(operation.target)
+    }
+  }
+
+  return [...targets]
 }
 
 const SECTION_KEYS = ['hook', 'body', 'cta']
@@ -512,6 +555,141 @@ function buildFeedbackVerdict({ score = 0, sections = {}, issues = [], recommend
   }
 }
 
+function detectFeedbackSection(text = '') {
+  const value = String(text || '').replace(/\s+/g, ' ').trim()
+  if (/(?:^|\b)(?:HOOK|훅|후킹)(?:\b|[:：])/i.test(value)) return 'hook'
+  if (/(?:^|\b)(?:BODY|바디|본문)(?:\b|[:：])/i.test(value)) return 'body'
+  if (/(?:^|\b)(?:CTA|씨티에이|마무리|콜투액션)(?:\b|[:：])/i.test(value)) return 'cta'
+  if (/첫\s*문장|도입|시작|후킹|스크롤|멈추/i.test(value)) return 'hook'
+  if (/본문|흐름|연결|근거|예시|설명|상황|공감/i.test(value)) return 'body'
+  if (/댓글|저장|구매|신청|상담|링크|행동|마무리/i.test(value)) return 'cta'
+  return 'all'
+}
+
+function inferFeedbackOperationType(text = '', section = 'all') {
+  const value = String(text || '').replace(/\s+/g, ' ')
+  if (/(?:행동\s*이유|왜\s*지금|댓글|저장|구매|신청|상담|링크|CTA|씨티에이)/i.test(value)) {
+    return 'strengthen_action_reason'
+  }
+  if (/(?:연결|이어|받아|흐름|앞\s*문장|첫\s*문장)/i.test(value)) {
+    return section === 'body' ? 'connect_hook_to_body' : 'partial_rewrite'
+  }
+  if (/(?:공감|상황|타겟|고민)/i.test(value)) {
+    return 'empathy_rewrite'
+  }
+  if (/(?:광고|판매|구매\s*압박|상업)/i.test(value)) {
+    return section === 'cta' ? 'cta_reframe' : 'partial_rewrite'
+  }
+  if (/(?:존댓말|반말|말투|어미|해요체|구어체|자연스럽)/i.test(value)) {
+    return 'tone_adjust'
+  }
+  return section === 'cta' ? 'strengthen_action_reason' : 'partial_rewrite'
+}
+
+function feedbackSectionTargetToEditTarget(sections = []) {
+  const uniqueSections = uniqueCompactList(sections.filter((section) => SECTION_KEYS.includes(section)), 3)
+  if (uniqueSections.length === 1) return uniqueSections[0]
+  if (uniqueSections.length === 2 && uniqueSections.includes('body') && uniqueSections.includes('cta')) {
+    return 'body_cta'
+  }
+  return uniqueSections.length ? 'full' : 'all'
+}
+
+export function feedbackToEditInstructions({
+  feedback = {},
+  sourceMessageId = '',
+  editTarget = 'all',
+} = {}) {
+  const issues = normalizeFeedbackList(feedback?.issues, 8)
+  const recommendations = normalizeFeedbackList(feedback?.recommendations, 8)
+  const verdict = feedback?.verdict && typeof feedback.verdict === 'object' ? feedback.verdict : {}
+  const sourceTexts = [
+    ...issues.map((text) => ({ kind: 'issue', text })),
+    ...recommendations.map((text) => ({ kind: 'recommendation', text })),
+  ]
+  const operations = []
+
+  for (const item of sourceTexts) {
+    const section = detectFeedbackSection(item.text)
+    const target = SECTION_KEYS.includes(section) ? section : normalizeEditTarget(editTarget || 'all')
+    const normalizedTarget = SECTION_KEYS.includes(target) ? target : section
+    const operationTarget = SECTION_KEYS.includes(normalizedTarget) ? normalizedTarget : 'all'
+    const type = inferFeedbackOperationType(item.text, operationTarget)
+    const isIssue = item.kind === 'issue'
+    const relatedRecommendation =
+      recommendations.find((recommendation) => {
+        const recommendationSection = detectFeedbackSection(recommendation)
+        return recommendationSection === operationTarget || recommendationSection === 'all'
+      }) || ''
+    const instruction = isIssue
+      ? relatedRecommendation ||
+        `${SECTION_LABELS[operationTarget] || '대본'}에서 피드백이 지적한 문제를 실제 문장 수정으로 해결한다.`
+      : item.text
+
+    operations.push({
+      type,
+      target: operationTarget,
+      problem: isIssue ? item.text : '',
+      instruction,
+      preserve: ['기존 주제', '사용자 사실 정보', '기존 CTA 의도'].filter((value) =>
+        operationTarget === 'cta' ? true : value !== '기존 CTA 의도',
+      ),
+      avoid: ['새 소재 생성', '허위 수치', '없는 혜택', '과장 후기'],
+      priority: isIssue ? 'high' : 'medium',
+    })
+  }
+
+  if (!operations.length && verdict.recommendedAction) {
+    operations.push({
+      type: 'partial_rewrite',
+      target: normalizeEditTarget(editTarget || 'all'),
+      problem: verdict.reason || feedback?.summary || '',
+      instruction: verdict.recommendedAction,
+      preserve: ['기존 주제', '사용자 사실 정보'],
+      avoid: ['새 소재 생성', '허위 수치', '없는 혜택'],
+      priority: 'medium',
+    })
+  }
+
+  const operationTargets = operations.map((operation) => operation.target).filter((target) => SECTION_KEYS.includes(target))
+  const feedbackEditTarget = feedbackSectionTargetToEditTarget(operationTargets)
+  const effectiveEditTarget =
+    editTarget && editTarget !== 'all' ? normalizeEditTarget(editTarget) : feedbackEditTarget
+  const targetSections =
+    effectiveEditTarget === 'body_cta'
+      ? ['body', 'cta']
+      : effectiveEditTarget === 'full'
+        ? SECTION_KEYS
+        : getTargetSections(normalizeEditTarget(effectiveEditTarget, ''))
+  const preserveSections = SECTION_KEYS.filter((section) => !targetSections.includes(section))
+  const diagnosis = [
+    verdict.reason,
+    feedback?.summary,
+    feedback?.detail,
+  ]
+    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ')
+
+  return normalizePreviousAdvice({
+    sourceType: 'feedback',
+    sourceMessageId,
+    priority: 'high',
+    diagnosis: diagnosis || '직전 피드백에서 지적한 문제를 반영',
+    editTarget: effectiveEditTarget,
+    operations,
+    instructions: uniqueCompactList(
+      operations.map((operation) => operation.instruction || operation.problem),
+      8,
+    ),
+    preserveSections,
+    expectedOutcome:
+      verdict.expectedOutcome ||
+      '피드백에서 지적한 문제가 실제 대본에서 완화되고, 바로 사용할 수 있는 방향에 가까워진 수정본',
+  })
+}
+
 function detectFeedbackRecheckRegression({ summary = '', detail = '', issues = [], recommendations = [] } = {}) {
   const feedbackText = [
     summary,
@@ -602,6 +780,7 @@ function cleanRequestedPhrase(value = '') {
   return String(value || '')
     .replace(/^[\s"'“”‘’.,:;·\-–—]+|[\s"'“”‘’.,:;·\-–—]+$/g, '')
     .replace(/^(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리)(?:은|는|을|를|만)?\s*(?:유지|그대로|고정|잠그|살리고|남기고|두고|냅두고|냅둬|놔두고|놔둬)\s*(?:하고|한\s*채|,)?\s*/i, '')
+    .replace(/^(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리)(?:은|는|을|를|만)?\s*/i, '')
     .replace(/^(주제|소재|내용|방향)(?:를|은|는)?\s*/i, '')
     .replace(/(?:으로|로)?\s*(?:바꿔줘|바꿔|바꾸어줘|바꾸|변경해줘|변경|수정해줘|수정|가자|다시\s*(?:만들어줘|만들|써줘|써|작성해줘|작성))\s*$/i, '')
     .replace(/\s+/g, ' ')
@@ -875,6 +1054,7 @@ export function parseEditInstruction(request = '', intentResult = {}) {
 
   const instruction = {
     operationType: COPILOT_OPERATION_TYPES.UNKNOWN,
+    reframeScope: '',
     newSubject: '',
     oldSubjectToRemove: [],
     forbiddenSurfacePhrases: [],
@@ -909,6 +1089,7 @@ export function parseEditInstruction(request = '', intentResult = {}) {
     return {
       ...instruction,
       operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      reframeScope: 'full',
       newSubject: semanticInstruction.newSubject,
       oldSubjectToRemove: semanticInstruction.oldSubjectToRemove,
       forbiddenSurfacePhrases: semanticInstruction.forbiddenSurfacePhrases,
@@ -962,6 +1143,7 @@ export function parseEditInstruction(request = '', intentResult = {}) {
     return {
       ...instruction,
       operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      reframeScope: 'full',
       newSubject: topicReframe.newSubject,
       oldSubjectToRemove: topicReframe.oldSubjectToRemove,
       forbiddenSurfacePhrases: topicReframe.forbiddenSurfacePhrases,
@@ -976,6 +1158,7 @@ export function parseEditInstruction(request = '', intentResult = {}) {
     return {
       ...instruction,
       operationType: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+      reframeScope: 'partial',
       newSubject: topicReframe.newSubject,
       oldSubjectToRemove: topicReframe.oldSubjectToRemove,
       forbiddenSurfacePhrases: [],
@@ -998,6 +1181,7 @@ export function parseEditInstruction(request = '', intentResult = {}) {
     return {
       ...instruction,
       operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      reframeScope: 'full',
       newSubject: detectedNewSubject,
       requestedMaterials,
       salesContext: extractSalesContext(text),
@@ -1338,16 +1522,16 @@ export function buildEditPlan({
   const explicitPreserveSections = detectExplicitPreserveSections(request)
   const explicitPreserveSet = new Set(explicitPreserveSections)
   let targetSections = isApplyingPreviousAdvice
-    ? previousAdviceTargetSections(normalizedPreviousAdvice, normalizedTarget)
+    ? previousAdviceOperationTargetSections(normalizedPreviousAdvice).length
+      ? previousAdviceOperationTargetSections(normalizedPreviousAdvice)
+      : previousAdviceTargetSections(normalizedPreviousAdvice, normalizedTarget)
     : getTargetSections(normalizedTarget)
-  if (explicitPreserveSet.size && normalizedTarget === 'all') {
-    const unlockedTargets = SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
-    if (unlockedTargets.length) {
-      targetSections = unlockedTargets
-    }
+  if (explicitPreserveSet.size) {
+    const filteredTargets = targetSections.filter((key) => !explicitPreserveSet.has(key))
+    targetSections = filteredTargets.length ? filteredTargets : SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
   }
-  const targetSet = new Set(targetSections)
-  const preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
+  let targetSet = new Set(targetSections)
+  let preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
   const memory = normalizeCopilotMemory(copilotMemory)
   const detectedNewSubject = cleanRequestedPhrase(
     structuredEditInstruction.newSubject || intentResult.newSubject || extractRequestedNewSubject(request),
@@ -1389,9 +1573,15 @@ export function buildEditPlan({
   const allowComparisonWithOldSubject = Boolean(
     structuredEditInstruction.allowComparisonWithOldSubject || semanticInstruction.allowComparisonWithOldSubject,
   )
+  const applicablePreviousOperations =
+    isApplyingPreviousAdvice && normalizedPreviousAdvice?.operations?.length
+      ? normalizedPreviousAdvice.operations.filter(
+          (operation) => !(SECTION_KEYS.includes(operation.target) && explicitPreserveSet.has(operation.target)),
+        )
+      : []
   const operationType = isDurationCompress
     ? COPILOT_OPERATION_TYPES.DURATION_COMPRESS
-    : isApplyingPreviousAdvice
+    : isApplyingPreviousAdvice && !structuredOperationType && !detectedNewSubject && !requestedMaterials.length
       ? COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
     : structuredOperationType ||
     intentResult.operationType ||
@@ -1400,6 +1590,28 @@ export function buildEditPlan({
       : requestedMaterials.length
         ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
         : COPILOT_OPERATION_TYPES.EDIT_PARTIAL)
+  if (
+    isApplyingPreviousAdvice &&
+    structuredOperationType &&
+    structuredOperationType !== COPILOT_OPERATION_TYPES.PARTIAL_REWRITE &&
+    structuredOperationType !== COPILOT_OPERATION_TYPES.UNKNOWN
+  ) {
+    targetSections = isDurationCompress
+      ? SECTION_KEYS
+      : getTargetSections(normalizeEditTarget(editTarget || intentResult.editTarget || '', request))
+    if (explicitPreserveSet.size) {
+      const filteredTargets = targetSections.filter((key) => !explicitPreserveSet.has(key))
+      targetSections = filteredTargets.length ? filteredTargets : SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
+    }
+    targetSet = new Set(targetSections)
+    preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
+  }
+  const reframeScope =
+    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+      ? targetSections.length === SECTION_KEYS.length && !explicitPreserveSet.size
+        ? 'full'
+        : 'partial'
+      : ''
   const qaMode =
     operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
       ? COPILOT_QA_MODES.DURATION_COMPRESS
@@ -1410,9 +1622,17 @@ export function buildEditPlan({
         : COPILOT_QA_MODES.PRESERVE_TOPIC
   const targetCharRange = durationTarget ? buildDurationCharRange(durationTarget) : null
   const strategy = []
+  const preserveFromOriginal =
+    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+      ? ['레퍼런스 구조', '문장 리듬', '톤', 'CTA 스타일']
+      : []
+  const discardFromOriginal =
+    operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+      ? ['기존 상품', '기존 소재', '기존 상황', '기존 구체 예시', '기존 고객 pain point']
+      : []
   const preserve = [
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
-      ? '레퍼런스 구조, 문장 리듬, 톤, CTA 스타일'
+      ? `${preserveFromOriginal.join(', ')}만 참고`
       : '현재 초안의 주제와 상품/서비스 정보',
     '사용자 입력에 있는 사실 정보',
     '선택된 A/B/C 초안의 기본 역할과 흐름',
@@ -1432,6 +1652,29 @@ export function buildEditPlan({
     if (normalizedPreviousAdvice.instructions.length) {
       change.push(...normalizedPreviousAdvice.instructions)
     }
+    if (normalizedPreviousAdvice.operations?.length) {
+      for (const operation of normalizedPreviousAdvice.operations) {
+        if (SECTION_KEYS.includes(operation.target) && explicitPreserveSet.has(operation.target)) {
+          avoid.push(`${SECTION_LABELS[operation.target]} 관련 직전 조언은 현재 사용자 잠금 지시 때문에 적용하지 않기`)
+        }
+      }
+      for (const operation of applicablePreviousOperations) {
+        const sectionLabel = SECTION_LABELS[operation.target] || '전체'
+        const operationInstruction = operation.instruction || operation.problem
+        if (operationInstruction) {
+          change.push(`${sectionLabel}: ${operationInstruction}`)
+        }
+        if (operation.problem) {
+          change.push(`${sectionLabel} 문제 해결: ${operation.problem}`)
+        }
+        if (operation.preserve?.length) {
+          preserve.push(...operation.preserve.map((item) => `${sectionLabel} 기준 유지: ${item}`))
+        }
+        if (operation.avoid?.length) {
+          avoid.push(...operation.avoid.map((item) => `${sectionLabel} 금지: ${item}`))
+        }
+      }
+    }
     if (normalizedPreviousAdvice.expectedOutcome) {
       change.push(`기대 결과: ${normalizedPreviousAdvice.expectedOutcome}`)
     }
@@ -1444,8 +1687,16 @@ export function buildEditPlan({
   }
 
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
-    strategy.push('새 주제 기준 재구성 + 레퍼런스 구조/리듬 유지')
-    change.push(`기존 소재에 끌려가지 않고 새 주제 "${detectedNewSubject || '사용자가 명시한 새 주제'}" 중심으로 HOOK/BODY/CTA를 맞춘다`)
+    strategy.push(
+      reframeScope === 'full'
+        ? '새 주제 기준 전체 재구성 + 구조/리듬/톤만 참고'
+        : `${targetSections.map((key) => SECTION_LABELS[key]).join('/')}만 새 주제 기준으로 부분 재구성 + 잠금 섹션 유지`,
+    )
+    change.push(
+      reframeScope === 'full'
+        ? `기존 내용을 보존하지 말고 새 주제 "${detectedNewSubject || '사용자가 명시한 새 주제'}" 중심으로 HOOK/BODY/CTA를 다시 맞춘다`
+        : `수정 대상 섹션만 새 주제 "${detectedNewSubject || '사용자가 명시한 새 주제'}" 중심으로 바꾸고 잠금 섹션은 원문 유지한다`,
+    )
     if (salesContext) {
       change.push(`판매 맥락을 자연스럽게 반영한다: ${salesContext}`)
     }
@@ -1453,6 +1704,7 @@ export function buildEditPlan({
       preserve.push(`톤 힌트: ${toneHint}`)
     }
     avoid.push('기존 주제의 상품/상황/고객 pain point를 어중간하게 섞기')
+    avoid.push(`기존 대본 내용 보존 대상으로 착각하기: ${discardFromOriginal.join(', ')}`)
     avoid.push('requestedMaterials, salesContext, toneHint를 대본 문장에 그대로 복사하기')
     if (oldSubjectToRemove.length && !allowComparisonWithOldSubject) {
       avoid.push(...oldSubjectToRemove.map((subject) => `기존 소재 "${subject}"를 비교/대비 표현으로도 남기지 않기`))
@@ -1554,6 +1806,7 @@ export function buildEditPlan({
   })
   const guardrails = buildPlanGuardrails({
     operationType,
+    reframeScope,
     request,
     targetSections,
     preserveSections,
@@ -1572,6 +1825,7 @@ export function buildEditPlan({
     targetSections,
     preserveSections,
     operationType,
+    reframeScope,
     qaMode,
     primaryGoal,
     revisionStyle,
@@ -1596,6 +1850,8 @@ export function buildEditPlan({
       preserveCtaStyle: true,
       preserveSectionLength: operationType !== COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
     },
+    preserveFromOriginal,
+    discardFromOriginal,
     strategy: uniqueCompactList(strategy, 5).join(' + '),
     preserve: uniqueCompactList(preserve, 10),
     change: uniqueCompactList(change, 8),
@@ -1607,6 +1863,9 @@ export function buildEditPlan({
         ...(isApplyingPreviousAdvice && normalizedPreviousAdvice
           ? [
               ...normalizedPreviousAdvice.instructions,
+              ...applicablePreviousOperations.map(
+                (operation) => operation.instruction || operation.problem,
+              ),
               normalizedPreviousAdvice.expectedOutcome,
             ]
           : []),
@@ -1635,6 +1894,7 @@ function formatEditPlanForPrompt(editPlan = null) {
     '[내부 편집 계획]',
     `- 수정 범위: ${editPlan.editTarget || 'all'}`,
     `- 작업 유형: ${editPlan.operationType || COPILOT_OPERATION_TYPES.EDIT_PARTIAL}`,
+    editPlan.reframeScope ? `- 주제 변경 범위: ${editPlan.reframeScope}` : '',
     `- QA 기준: ${editPlan.qaMode || COPILOT_QA_MODES.PRESERVE_TOPIC}`,
     editPlan.primaryGoal ? `- 핵심 목표: ${editPlan.primaryGoal}` : '',
     editPlan.revisionStyle ? `- 수정 방식: ${editPlan.revisionStyle}` : '',
@@ -1653,12 +1913,21 @@ function formatEditPlanForPrompt(editPlan = null) {
     editPlan.requestedMaterials?.length ? `- 요청 소재: ${editPlan.requestedMaterials.join(', ')}` : '',
     editPlan.salesContext ? `- 판매 맥락: ${editPlan.salesContext}` : '',
     editPlan.toneHint ? `- 톤 힌트: ${editPlan.toneHint}` : '',
+    editPlan.preserveFromOriginal?.length
+      ? `- 기존 대본에서 참고할 것: ${editPlan.preserveFromOriginal.join(', ')}`
+      : '',
+    editPlan.discardFromOriginal?.length
+      ? `- 기존 대본에서 버릴 것: ${editPlan.discardFromOriginal.join(', ')}`
+      : '',
     editPlan.previousAdviceApplied && editPlan.previousAdvice
       ? `- 직전 조언 실행: 예`
       : '',
     editPlan.previousAdvice?.diagnosis ? `- 직전 진단: ${editPlan.previousAdvice.diagnosis}` : '',
     editPlan.previousAdvice?.instructions?.length
       ? `- 직전 조언의 실행 지시: ${editPlan.previousAdvice.instructions.join(' / ')}`
+      : '',
+    editPlan.previousAdvice?.operations?.length
+      ? `- 직전 조언의 작업 목록: ${JSON.stringify(editPlan.previousAdvice.operations)}`
       : '',
     editPlan.previousAdvice?.expectedOutcome ? `- 직전 조언의 기대 결과: ${editPlan.previousAdvice.expectedOutcome}` : '',
     editPlan.previousAdvice?.preserveSections?.length
@@ -1678,6 +1947,7 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- 우선순위: structured edit plan > editTarget/section lock > account/character tone > current script > reference structure > raw user request.',
     '- previousAdviceApplied=true이면 이번 작업은 독립적인 새 수정 요청이 아니라 직전 코파일럿 조언을 실제 대본에 반영하는 작업이다.',
     '- previousAdviceApplied=true이면 "그렇게", "그 방향" 같은 사용자 표현 자체를 해석하지 말고 previousAdvice.instructions를 실행한다.',
+    '- previousAdvice.operations가 있으면 instructions보다 더 구체적인 실행 목록으로 본다. 각 operation의 target/problem/instruction/preserve/avoid를 실제 수정 기준으로 따른다.',
     '- 단, 이번 사용자 메시지에서 "HOOK은 그대로", "CTA만"처럼 명시한 조건은 previousAdvice보다 우선한다.',
     '- 사용자 원문은 의도 해석용 보조 정보다. 실제 대본 작성은 structured edit plan을 최우선으로 따른다.',
     '- raw user request의 표현을 대본 문장에 그대로 복사하지 않는다.',
@@ -1688,7 +1958,10 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- mustChange는 이번 요청의 핵심 변경점이다. 수정본에서 실제로 반영한다.',
     '- mustAvoid는 대본에 절대 나오면 안 되는 표현/위험 요소다.',
     '- 단, 사용자가 새 주제/새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지 규칙보다 우선한다.',
-    '- topic_reframe이면 기존 주제의 소재/사실은 버릴 수 있고, 레퍼런스 구조/리듬/톤/CTA 스타일을 가능한 유지한다.',
+    '- topic_reframe은 기존 내용을 보존하는 작업이 아니다. 기존 대본에서는 구조/리듬/톤/CTA 방식만 참고한다.',
+    '- topic_reframe이면 기존 상품/소재/상황/pain point/구체 예시는 새 주제와 충돌할 때 반드시 버린다.',
+    '- topic_reframe full이면 HOOK/BODY/CTA 전체를 새 주제 기준으로 다시 맞춘다.',
+    '- topic_reframe partial이면 targetSections만 새 주제 기준으로 바꾸고 preserveSections는 원문 그대로 유지한다.',
     '- forbiddenSurfacePhrases가 있으면 대본에 절대 사용하지 않는다.',
     '- allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남기지 않는다. 비교/대비 표현으로도 쓰지 않는다.',
     '- insert_material이면 targetSections에만 요청 소재를 넣고 preserveSections는 원문 그대로 유지한다.',
@@ -2349,6 +2622,7 @@ function buildSectionInstructions({ operationType, targetSections = SECTION_KEYS
 
 function buildPlanGuardrails({
   operationType,
+  reframeScope = '',
   request = '',
   targetSections = SECTION_KEYS,
   preserveSections = [],
@@ -2369,8 +2643,14 @@ function buildPlanGuardrails({
   ]
 
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
-    mustKeep.push('레퍼런스 구조/문장 리듬/CTA 방식')
+    mustKeep.push('레퍼런스 구조/문장 리듬/CTA 방식만 참고')
     mustChange.push(newSubject ? `새 주제 "${newSubject}"를 중심에 둔다` : '사용자가 명시한 새 주제를 중심에 둔다')
+    mustChange.push(
+      reframeScope === 'partial'
+        ? '수정 대상 섹션만 새 주제 기준으로 바꾸고 잠금 섹션은 유지'
+        : 'HOOK/BODY/CTA 전체를 새 주제 기준으로 재구성',
+    )
+    mustAvoid.push('기존 상품/소재/상황/pain point/구체 예시를 보존 대상으로 취급하기')
     if (salesContext) {
       mustChange.push(`판매 맥락 "${salesContext}"를 자연스럽게 반영`)
     }
@@ -4332,6 +4612,9 @@ export async function validateRefinedScriptQuality({
             '검사 기준은 qaMode에 따라 달라진다. 사용자 명시 요청을 기존 대본 보존 규칙보다 우선한다.',
             'preserve_topic: 기존 주제/사실/섹션 흐름 보존을 강하게 검사한다.',
             'reframe_topic: 기존 주제와 달라졌다는 이유로 실패 처리하지 말고, 새 주제가 명확히 반영됐는지와 기존 주제에 어중간하게 끌려가지 않았는지를 검사한다.',
+            'reframe_topic은 기존 내용을 보존하는 작업이 아니다. 기존 대본에서는 구조/리듬/톤/CTA 방식만 참고하고, 기존 상품/소재/상황/pain point/구체 예시는 새 주제와 충돌하면 버리는 것이 정상이다.',
+            'reframe_topic full에서는 HOOK/BODY/CTA가 모두 새 주제 기준으로 자연스럽게 이어지는지 검사한다.',
+            'reframe_topic partial에서는 targetSections만 새 주제 기준으로 바뀌고 preserveSections는 원문 그대로 유지됐는지 검사한다.',
             'insert_material: 요청 소재가 targetSections에 실제로 들어갔는지, preserveSections가 불필요하게 바뀌지 않았는지 검사한다.',
             'duration_compress: 새 대본 생성이 아니라 압축인지 검사한다. 목표 글자 범위 근처인지, HOOK/BODY/CTA와 CTA 의도/핵심 메시지가 유지됐는지, 새 사실/수치/후기/효과가 생기지 않았는지 검사한다.',
             'duration_compress에서는 짧아도 문장이 완결되어야 한다. 조사/접속어/서술어가 빠진 파편 문장, "오해부터요", "톡톡", "다음에"처럼 맥락 없이 끊긴 문장은 incomplete_compressed_sentence다.',
@@ -4373,10 +4656,13 @@ export async function validateRefinedScriptQuality({
             editPlan ? `[structured edit plan]\n${JSON.stringify({
               primaryGoal: editPlan.primaryGoal || '',
               revisionStyle: editPlan.revisionStyle || '',
+              reframeScope: editPlan.reframeScope || '',
               sectionInstructions: editPlan.sectionInstructions || {},
               mustKeep: editPlan.mustKeep || [],
               mustChange: editPlan.mustChange || [],
               mustAvoid: editPlan.mustAvoid || [],
+              preserveFromOriginal: editPlan.preserveFromOriginal || [],
+              discardFromOriginal: editPlan.discardFromOriginal || [],
               salesContext: editPlan.salesContext || '',
               toneHint: editPlan.toneHint || '',
             })}` : '',
@@ -4524,7 +4810,7 @@ export async function repairRefinedScriptWithQaIssues({
               : null,
             '사용자가 새 주제나 새 소재를 명시한 경우 그 요청은 기존 대본 주제 유지보다 우선한다.',
             qaMode === COPILOT_QA_MODES.REFRAME_TOPIC
-              ? `이번 작업은 새 주제 "${newSubject || '사용자가 명시한 새 주제'}"가 잘 반영되도록 다듬는 작업이다. 기존 주제의 소재/사실에 끌려가지 않는다.`
+              ? `이번 작업은 새 주제 "${newSubject || '사용자가 명시한 새 주제'}"가 잘 반영되도록 다듬는 작업이다. 기존 대본 내용 보존이 아니라 구조/리듬/톤/CTA 방식만 참고하는 작업이다. 기존 상품/소재/상황/pain point/구체 예시는 새 주제와 충돌하면 되살리지 않는다.`
               : null,
             uniqueCompactList(forbiddenSurfacePhrases, 24).length
               ? `대본에 절대 쓰면 안 되는 사용자 지시 표현: ${uniqueCompactList(forbiddenSurfacePhrases, 24).join(', ')}`
@@ -4572,10 +4858,13 @@ export async function repairRefinedScriptWithQaIssues({
             editPlan ? `[structured edit plan]\n${JSON.stringify({
               primaryGoal: editPlan.primaryGoal || '',
               revisionStyle: editPlan.revisionStyle || '',
+              reframeScope: editPlan.reframeScope || '',
               sectionInstructions: editPlan.sectionInstructions || {},
               mustKeep: editPlan.mustKeep || [],
               mustChange: editPlan.mustChange || [],
               mustAvoid: editPlan.mustAvoid || [],
+              preserveFromOriginal: editPlan.preserveFromOriginal || [],
+              discardFromOriginal: editPlan.discardFromOriginal || [],
             })}` : '',
             getStrongMemoryConstraints(copilotMemory).length
               ? `[strong session constraints]\n${JSON.stringify(getStrongMemoryConstraints(copilotMemory))}`
@@ -4706,6 +4995,7 @@ export const __scriptAssistantTest = {
   extractTargetDurationSeconds,
   buildDurationCharRange,
   buildFeedbackVerdict,
+  feedbackToEditInstructions,
   detectFeedbackRecheckRegression,
   stabilizeFeedbackScoreAfterApply,
   createFallbackIntent,

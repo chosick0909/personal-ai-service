@@ -33,6 +33,108 @@ function getFeedbackVerdictUi(feedback) {
   }
 }
 
+const SECTION_KEYS = ['hook', 'body', 'cta']
+
+function detectFeedbackAdviceSection(text = '') {
+  const value = String(text || '').replace(/\s+/g, ' ').trim()
+  if (/(?:^|\b)(?:HOOK|훅|후킹)(?:\b|[:：])/i.test(value) || /첫\s*문장|도입|후킹|스크롤|멈추/i.test(value)) {
+    return 'hook'
+  }
+  if (/(?:^|\b)(?:BODY|바디|본문)(?:\b|[:：])/i.test(value) || /본문|흐름|연결|근거|예시|상황|공감/i.test(value)) {
+    return 'body'
+  }
+  if (/(?:^|\b)(?:CTA|씨티에이|마무리|콜투액션)(?:\b|[:：])/i.test(value) || /댓글|저장|구매|신청|상담|링크|행동/i.test(value)) {
+    return 'cta'
+  }
+  return 'all'
+}
+
+function inferFeedbackAdviceOperationType(text = '', section = 'all') {
+  const value = String(text || '').replace(/\s+/g, ' ')
+  if (/행동\s*이유|댓글|저장|구매|신청|상담|링크|CTA|씨티에이/i.test(value)) {
+    return 'strengthen_action_reason'
+  }
+  if (/연결|이어|받아|흐름|첫\s*문장/i.test(value)) {
+    return section === 'body' ? 'connect_hook_to_body' : 'partial_rewrite'
+  }
+  if (/공감|상황|타겟|고민/i.test(value)) {
+    return 'empathy_rewrite'
+  }
+  if (/광고|판매|구매\s*압박|상업/i.test(value)) {
+    return section === 'cta' ? 'cta_reframe' : 'partial_rewrite'
+  }
+  if (/존댓말|반말|말투|어미|해요체|구어체|자연스럽/i.test(value)) {
+    return 'tone_adjust'
+  }
+  return section === 'cta' ? 'strengthen_action_reason' : 'partial_rewrite'
+}
+
+function buildFeedbackReplyAdvice(feedback, sourceMessageId = '') {
+  const issues = Array.isArray(feedback?.issues) ? feedback.issues.filter(Boolean) : []
+  const recommendations = Array.isArray(feedback?.recommendations) ? feedback.recommendations.filter(Boolean) : []
+  const operations = []
+
+  for (const issue of issues) {
+    const section = detectFeedbackAdviceSection(issue)
+    const matchingRecommendation =
+      recommendations.find((recommendation) => {
+        const recommendationSection = detectFeedbackAdviceSection(recommendation)
+        return recommendationSection === section || recommendationSection === 'all'
+      }) || ''
+    const target = SECTION_KEYS.includes(section) ? section : 'all'
+    operations.push({
+      type: inferFeedbackAdviceOperationType(`${issue} ${matchingRecommendation}`, target),
+      target,
+      problem: String(issue || '').trim(),
+      instruction:
+        String(matchingRecommendation || '').trim() ||
+        `${target === 'all' ? '대본' : target.toUpperCase()}에서 피드백이 지적한 문제를 실제 문장 수정으로 해결한다.`,
+      preserve: target === 'cta' ? ['기존 주제', '기존 CTA 의도'] : ['기존 주제'],
+      avoid: ['새 소재 생성', '허위 수치', '없는 혜택', '과장 후기'],
+      priority: 'high',
+    })
+  }
+
+  for (const recommendation of recommendations) {
+    if (operations.some((operation) => operation.instruction === recommendation)) {
+      continue
+    }
+    const section = detectFeedbackAdviceSection(recommendation)
+    const target = SECTION_KEYS.includes(section) ? section : 'all'
+    operations.push({
+      type: inferFeedbackAdviceOperationType(recommendation, target),
+      target,
+      problem: '',
+      instruction: String(recommendation || '').trim(),
+      preserve: target === 'cta' ? ['기존 주제', '기존 CTA 의도'] : ['기존 주제'],
+      avoid: ['새 소재 생성', '허위 수치', '없는 혜택'],
+      priority: 'medium',
+    })
+  }
+
+  const targetSections = operations.map((operation) => operation.target).filter((target) => SECTION_KEYS.includes(target))
+  const preserveSections = SECTION_KEYS.filter((section) => !targetSections.includes(section))
+
+  return {
+    sourceType: 'feedback',
+    sourceMessageId,
+    priority: 'high',
+    diagnosis: feedback?.verdict?.reason || feedback?.summary || feedback?.detail || '직전 피드백에서 짚은 문제를 반영',
+    editTarget: targetSections.length === 1 ? targetSections[0] : 'full',
+    operations,
+    instructions: operations.length
+      ? operations.map((operation) => operation.instruction || operation.problem).filter(Boolean)
+      : [
+          feedback?.verdict?.recommendedAction ||
+            '직전 피드백에서 제안한 방향과 미리보기 기준으로 수정한다.',
+        ],
+    preserveSections,
+    expectedOutcome: '직전 피드백에서 지적한 문제가 실제 대본에서 완화된 수정본',
+    createdAt: new Date().toISOString(),
+    messageTurnsSinceCreated: 0,
+  }
+}
+
 function MessageBubble({
   message,
   onApply,
@@ -285,22 +387,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
       }
     }
     if (feedback) {
-      const instructions = [
-        feedback.verdict?.recommendedAction,
-        ...(Array.isArray(feedback.recommendations) ? feedback.recommendations : []),
-      ].filter(Boolean)
-      return {
-        sourceMessageId: replyTargetMessage.id,
-        diagnosis: feedback.verdict?.reason || feedback.summary || feedback.detail || '직전 피드백에서 짚은 문제를 반영',
-        editTarget: 'full',
-        instructions: instructions.length
-          ? instructions
-          : ['직전 피드백에서 제안한 방향과 미리보기 기준으로 수정한다.'],
-        preserveSections: [],
-        expectedOutcome: '직전 피드백에서 지적한 문제가 실제 대본에서 완화된 수정본',
-        createdAt: new Date().toISOString(),
-        messageTurnsSinceCreated: 0,
-      }
+      return buildFeedbackReplyAdvice(feedback, replyTargetMessage.id)
     }
     if (replyTargetMessage.proposedSections) {
       return {

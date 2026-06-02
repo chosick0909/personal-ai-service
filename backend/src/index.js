@@ -30,6 +30,7 @@ import {
   buildEditPlan,
   buildPartialSafeFeedbackApplyFallback,
   createSectionDiff,
+  feedbackToEditInstructions,
   generateScriptFeedback,
   refineScriptWithAI,
   repairRefinedScriptWithQaIssues,
@@ -2183,6 +2184,24 @@ app.post(
     })
     const feedbackApplyPersonalizationContext = ''
     const feedbackApplyCopilotMemory = {}
+    const feedbackAdvice = feedbackToEditInstructions({
+      feedback,
+      sourceMessageId: feedback.id || feedback.feedbackId || '',
+      editTarget,
+    })
+    const feedbackEditPlan = buildEditPlan({
+      userRequest: requestText,
+      currentSections: req.body?.sections,
+      intentResult: {
+        intent: 'apply_previous_advice',
+        shouldEdit: true,
+        editTarget,
+        previousAdvice: feedbackAdvice,
+      },
+      editTarget,
+      copilotMemory: feedbackApplyCopilotMemory,
+      previousAdvice: feedbackAdvice,
+    })
     const result = await refineScriptWithAI({
       accountId: account.id,
       referenceId: req.body?.referenceId,
@@ -2195,6 +2214,7 @@ app.post(
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: feedbackApplyPersonalizationContext,
       copilotMemory: feedbackApplyCopilotMemory,
+      editPlan: feedbackEditPlan,
     })
     const qaStartedAt = Date.now()
     const qaResult = await validateRefinedScriptQuality({
@@ -2209,6 +2229,7 @@ app.post(
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: feedbackApplyPersonalizationContext,
       copilotMemory: feedbackApplyCopilotMemory,
+      editPlan: feedbackEditPlan,
     })
     let finalSections = result.sections
     let finalMessage = result.message
@@ -2279,6 +2300,7 @@ app.post(
         characterSystemPrompt: character.systemPrompt,
         personalizationContext: feedbackApplyPersonalizationContext,
         copilotMemory: feedbackApplyCopilotMemory,
+        editPlan: feedbackEditPlan,
       })
 
       if (repairResult.success) {
