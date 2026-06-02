@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppState } from '../store/AppState'
 
 const FEEDBACK_VERDICT_UI = {
@@ -38,6 +38,7 @@ function MessageBubble({
   onApply,
   onApplyFeedback,
   onApplyAdvice,
+  onReply,
   isApplyingFeedback,
   isApplyingSuggestion,
   isAdviceApplyDisabled,
@@ -54,6 +55,9 @@ function MessageBubble({
   const editTarget = typeof message.editTarget === 'string' ? message.editTarget : 'all'
   const isFeedbackApplied = Boolean(feedback?.applied)
   const isSuggestionApplied = Boolean(message.suggestionApplied)
+  const canReply =
+    !isUser &&
+    (Boolean(feedback) || Boolean(proposedSections) || Boolean(actionableAdvice) || Boolean(message.content))
   const isApplyDisabled = isFeedbackApplied || isApplyingFeedback
   const applyButtonLabel = isFeedbackApplied
     ? feedback?.staleAfterApply
@@ -151,6 +155,15 @@ function MessageBubble({
                 </button>
               </div>
             ) : null}
+            {canReply ? (
+              <button
+                type="button"
+                onClick={() => onReply(message)}
+                className="mt-3 rounded-full border border-[#2F3543] bg-[#10151D] px-3 py-1 text-[11px] font-semibold text-[#8E97A6] transition hover:border-[#3A414F] hover:text-[#D1D5DB]"
+              >
+                답장
+              </button>
+            ) : null}
           </div>
         ) : (
           <>
@@ -189,6 +202,15 @@ function MessageBubble({
                 이 방향으로 수정
               </button>
             ) : null}
+            {canReply ? (
+              <button
+                type="button"
+                onClick={() => onReply(message)}
+                className="mt-2 rounded-full border border-[#2F3543] bg-[#10151D] px-3 py-1 text-[11px] font-semibold text-[#8E97A6] transition hover:border-[#3A414F] hover:text-[#D1D5DB]"
+              >
+                답장
+              </button>
+            ) : null}
           </>
         )}
       </div>
@@ -213,6 +235,7 @@ function LoadingBubble({ label }) {
 
 export default function ChatPanel({ embedded = false, fixedHeight = null }) {
   const draftInputRef = useRef(null)
+  const [replyTargetMessage, setReplyTargetMessage] = useState(null)
   const {
     chatMessages,
     draftMessage,
@@ -255,6 +278,99 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     ['body', 'BODY'],
     ['cta', 'CTA'],
   ]
+  const replyAdvice = useMemo(() => {
+    if (!replyTargetMessage || replyTargetMessage.role === 'user') {
+      return null
+    }
+    const feedback = replyTargetMessage.feedback
+    if (replyTargetMessage.actionableAdvice) {
+      return {
+        ...replyTargetMessage.actionableAdvice,
+        sourceMessageId: replyTargetMessage.id,
+      }
+    }
+    if (feedback) {
+      const instructions = [
+        feedback.verdict?.recommendedAction,
+        ...(Array.isArray(feedback.recommendations) ? feedback.recommendations : []),
+      ].filter(Boolean)
+      return {
+        sourceMessageId: replyTargetMessage.id,
+        diagnosis: feedback.verdict?.reason || feedback.summary || feedback.detail || '직전 피드백에서 짚은 문제를 반영',
+        editTarget: 'full',
+        instructions: instructions.length
+          ? instructions
+          : ['직전 피드백에서 제안한 방향과 미리보기 기준으로 수정한다.'],
+        preserveSections: [],
+        expectedOutcome: '직전 피드백에서 지적한 문제가 실제 대본에서 완화된 수정본',
+        createdAt: new Date().toISOString(),
+        messageTurnsSinceCreated: 0,
+      }
+    }
+    if (replyTargetMessage.proposedSections) {
+      return {
+        sourceMessageId: replyTargetMessage.id,
+        diagnosis: '직전 코파일럿 수정 제안을 기준으로 반영',
+        editTarget: replyTargetMessage.editTarget || 'all',
+        instructions: ['직전 코파일럿 수정 제안의 방향을 현재 대본에 반영한다.'],
+        preserveSections: [],
+        expectedOutcome: '직전 수정 제안과 같은 방향의 대본',
+        createdAt: new Date().toISOString(),
+        messageTurnsSinceCreated: 0,
+      }
+    }
+    return null
+  }, [replyTargetMessage])
+
+  const isApplyReplyRequest = (value = '') =>
+    /(이대로|그대로|그렇게|그\s*방향|피드백대로|조언대로|방금\s*말한\s*대로).{0,12}(수정|고쳐|바꿔|반영|적용|해줘|해주세요)/i.test(
+      String(value || '').replace(/\s+/g, ' '),
+    )
+
+  const clearReplyTarget = () => {
+    setReplyTargetMessage(null)
+  }
+
+  const isReplyDirectApplyAvailable =
+    Boolean(replyTargetMessage?.feedback || replyTargetMessage?.proposedSections) &&
+    isApplyReplyRequest(draftMessage)
+  const isSubmitDisabled = isSendDisabled && !isReplyDirectApplyAvailable
+
+  const handleSendDraft = async () => {
+    const message = draftMessage.trim()
+    if (!message) {
+      return
+    }
+
+    if (replyTargetMessage && isApplyReplyRequest(message)) {
+      if (replyTargetMessage.feedback) {
+        clearReplyTarget()
+        setDraftMessage('')
+        await applyFeedback(replyTargetMessage.feedback)
+        return
+      }
+      if (replyTargetMessage.proposedSections) {
+        clearReplyTarget()
+        setDraftMessage('')
+        await applySuggestion(replyTargetMessage.proposedSections, replyTargetMessage.id)
+        return
+      }
+    }
+
+    if (isSubmitDisabled) {
+      return
+    }
+
+    const options = replyTargetMessage
+      ? {
+          previousAdvice: replyAdvice,
+          replyToMessageId: replyTargetMessage.id,
+        }
+      : {}
+    clearReplyTarget()
+    await sendChatMessage(options)
+  }
+
   useEffect(() => {
     const handleFocusCopilotDraft = () => {
       window.requestAnimationFrame(() => {
@@ -274,8 +390,8 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     }
 
     event.preventDefault()
-    if (!isSendDisabled && draftMessage.trim()) {
-      sendChatMessage()
+    if (draftMessage.trim()) {
+      void handleSendDraft()
     }
   }
 
@@ -334,6 +450,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
                       previousAdvice: advice,
                     })
                   }
+                  onReply={setReplyTargetMessage}
                   isApplyingFeedback={isApplyingFeedback}
                   isApplyingSuggestion={isApplyingSuggestion}
                   isAdviceApplyDisabled={isSendDisabled}
@@ -372,6 +489,20 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
               )
             })}
           </div>
+          {replyTargetMessage ? (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2F3543] bg-[#10151D] px-3 py-2 text-xs text-[#AEB6C5]">
+              <span className="min-w-0 truncate">
+                이 답변에 답장 중 · {replyTargetMessage.feedback ? '피드백' : replyTargetMessage.proposedSections ? '수정안' : '조언'}
+              </span>
+              <button
+                type="button"
+                onClick={clearReplyTarget}
+                className="shrink-0 rounded-full px-2 py-1 text-[#8E97A6] transition hover:bg-[#1B202A] hover:text-[#E5E7EB]"
+              >
+                취소
+              </button>
+            </div>
+          ) : null}
           <textarea
             ref={draftInputRef}
             value={draftMessage}
@@ -380,16 +511,16 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
             rows={2}
             className="max-h-[96px] min-h-[52px] w-full resize-none bg-transparent text-sm leading-6 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
             placeholder="예: HOOK을 더 공격적으로 바꿔줘 / CTA를 상담 유도형으로 바꿔줘"
-            disabled={isSendDisabled}
+            disabled={isSubmitDisabled}
           />
           <div className="mt-3 flex items-center justify-end">
             <button
               type="button"
-              onClick={sendChatMessage}
-              disabled={isSendDisabled}
+              onClick={handleSendDraft}
+              disabled={isSubmitDisabled}
               className="btn-solid-contrast rounded-full px-4 py-2.5 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isChatLimitReached ? '한도 도달' : `보내기 (${chatRemainingLabel})`}
+              {isChatLimitReached && !isReplyDirectApplyAvailable ? '한도 도달' : `보내기 (${chatRemainingLabel})`}
             </button>
           </div>
         </div>

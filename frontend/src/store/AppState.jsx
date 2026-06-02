@@ -3103,6 +3103,7 @@ export function AppStateProvider({ children }) {
         copilotMemory: nextCopilotMemory,
         targetDurationSeconds,
         previousAdvice: requestPreviousAdvice,
+        replyToMessageId: requestOptions.replyToMessageId || '',
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
         return

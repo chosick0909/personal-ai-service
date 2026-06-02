@@ -468,6 +468,50 @@ test('copilot applies previous advice only when actionable advice exists', async
   assert.equal(missingAdviceIntent.shouldModifyScript, false)
 })
 
+test('copilot applies previous advice for this-way and feedback-way phrasing', async () => {
+  const previousAdvice = {
+    diagnosis: '직전 피드백에서 CTA 연결이 약하다고 진단함',
+    editTarget: 'cta',
+    instructions: ['CTA에 행동 이유를 자연스럽게 붙인다.'],
+    preserveSections: ['hook', 'body'],
+    expectedOutcome: 'CTA가 피드백 방향대로 더 자연스럽게 이어짐',
+    createdAt: new Date().toISOString(),
+    messageTurnsSinceCreated: 0,
+  }
+
+  for (const message of ['이대로 수정해줘', '피드백대로 수정해줘']) {
+    const intent = await classifyCopilotIntent({
+      message,
+      sections: currentDraft,
+      editTarget: 'all',
+      previousAdvice,
+    })
+    assert.equal(intent.intent, 'apply_previous_advice')
+    assert.equal(intent.shouldModifyScript, true)
+    assert.equal(intent.editTarget, 'cta')
+  }
+})
+
+test('copilot treats honorific requests as tone adjustment, not topic reframe', () => {
+  const request = '훅이 반말이라 훅을 존댓말로 바꿔줘'
+  const instruction = parseEditInstruction(request)
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.TONE_ADJUST)
+  assert.equal(instruction.newSubject, '')
+  assert.match(instruction.toneHint, /존댓말/)
+
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: { intent: 'edit_request', editTarget: 'hook', operationType: COPILOT_OPERATION_TYPES.TONE_ADJUST },
+    editTarget: 'hook',
+  })
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TONE_ADJUST)
+  assert.deepEqual(plan.targetSections, ['hook'])
+  assert.deepEqual(plan.preserveSections, ['body', 'cta'])
+  assert.ok(plan.mustKeep.some((item) => /주제|상품|소재/.test(item)))
+  assert.ok(plan.mustChange.some((item) => /존댓말/.test(item)))
+})
+
 test('natural response prompt explicitly forbids section rewrites', () => {
   const prompt = buildNaturalResponseUserPrompt({
     sections: currentDraft,

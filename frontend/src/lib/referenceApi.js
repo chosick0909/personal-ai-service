@@ -552,6 +552,7 @@ export async function generateChatReply({
   copilotMemory,
   targetDurationSeconds,
   previousAdvice,
+  replyToMessageId,
 }) {
   const response = await apiFetch('/api/scripts/copilot', {
     method: 'POST',
@@ -572,6 +573,7 @@ export async function generateChatReply({
       copilotMemory,
       targetDurationSeconds,
       previousAdvice,
+      replyToMessageId,
     }),
   })
   const payload = await parseApiResponse(response)

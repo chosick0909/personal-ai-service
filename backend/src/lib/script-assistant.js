@@ -115,6 +115,9 @@ function isApplyPreviousAdviceRequest(request = '') {
     return false
   }
   return [
+    /이대로(수정|고쳐|바꿔|반영|적용|해줘|해주세요)/i,
+    /피드백대로(수정|고쳐|바꿔|반영|적용|해줘|해주세요)/i,
+    /조언대로(수정|고쳐|바꿔|반영|적용|해줘|해주세요)/i,
     /그렇게(수정|고쳐|바꿔|반영|해줘|해주세요)/i,
     /그방향(으로)?(수정|고쳐|바꿔|반영|해줘|해주세요)/i,
     /방금(말한|얘기한)(대로|방향으로)?(수정|고쳐|반영|해줘|해주세요)/i,
@@ -770,6 +773,44 @@ function parseSectionSwapInstruction(text = '') {
   }
 }
 
+const STYLE_KEYWORD_PATTERN =
+  /(존댓말|존대|반말|해요체|하십시오체|합니다체|말투|어미|문체|톤|친근하게|공손하게|부드럽게|딱딱하게|자연스럽게|말하듯|구어체|광고\s*같지\s*않게|판매\s*같지\s*않게|구매\s*압박|세일즈)/i
+
+function isStyleAdjustmentRequest(text = '') {
+  const source = String(text || '').trim()
+  if (!source) {
+    return false
+  }
+  return STYLE_KEYWORD_PATTERN.test(source) && /(수정|바꿔|바꾸|변경|고쳐|다듬|맞춰|해줘|해주세요|정리)/i.test(source)
+}
+
+function extractStyleTarget(request = '') {
+  const text = String(request || '')
+  const targets = []
+  if (/존댓말|존대|해요체|하십시오체|합니다체|공손/i.test(text)) {
+    targets.push('존댓말')
+  }
+  if (/반말/i.test(text)) {
+    targets.push('반말')
+  }
+  if (/자연스럽게|말하듯|구어체/i.test(text)) {
+    targets.push('자연스러운 구어체')
+  }
+  if (/광고\s*같지\s*않게|판매\s*같지\s*않게|구매\s*압박|세일즈/i.test(text)) {
+    targets.push('덜 광고 같은 말투')
+  }
+  if (/친근하게/i.test(text)) {
+    targets.push('친근한 말투')
+  }
+  if (/부드럽게/i.test(text)) {
+    targets.push('부드러운 말투')
+  }
+  if (/딱딱하게/i.test(text)) {
+    targets.push('정돈된 말투')
+  }
+  return uniqueCompactList(targets, 4).join(', ')
+}
+
 function extractSalesContext(request = '') {
   const text = String(request || '').trim()
   if (!text) {
@@ -849,6 +890,14 @@ export function parseEditInstruction(request = '', intentResult = {}) {
     return {
       ...instruction,
       operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+    }
+  }
+
+  if (isStyleAdjustmentRequest(text)) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.TONE_ADJUST,
+      toneHint: extractStyleTarget(text) || extractToneHint(text),
     }
   }
 
@@ -983,6 +1032,9 @@ export function parseEditInstruction(request = '', intentResult = {}) {
 
 function extractRequestedNewSubject(request = '') {
   const text = String(request || '').trim()
+  if (isStyleAdjustmentRequest(text)) {
+    return ''
+  }
   const patterns = [
     /주제(?:를|은|는)?\s*(.+?)\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정|다시\s*(?:만들|써|작성))/i,
     /^(.+?)\s*(?:으로|로)\s*주제(?:를|은|는)?\s*(?:바꿔|바꾸|변경|수정)/i,
@@ -996,7 +1048,7 @@ function extractRequestedNewSubject(request = '') {
   for (const pattern of patterns) {
     const match = text.match(pattern)
     const subject = cleanRequestedPhrase(match?.[1] || '')
-    if (subject && subject.length <= 80 && !/자연스럽게|광고\s*같지\s*않게|말\s*되게|세게|강하게|짧게|길게/i.test(subject)) {
+    if (subject && subject.length <= 80 && !STYLE_KEYWORD_PATTERN.test(subject) && !/말\s*되게|세게|강하게|짧게|길게/i.test(subject)) {
       return subject
     }
   }
@@ -1414,6 +1466,12 @@ export function buildEditPlan({
     change.push(`요청 소재를 자연스럽게 포함한다: ${requestedMaterials.join(', ') || '사용자 지정 소재'}`)
     avoid.push('소재 추가를 이유로 요청하지 않은 섹션까지 다시 쓰기')
   }
+  if (operationType === COPILOT_OPERATION_TYPES.TONE_ADJUST) {
+    strategy.push(`${targetSections.map((key) => SECTION_LABELS[key]).join('/')} 말투만 조정 + 주제/상품/소재 유지`)
+    change.push(`요청한 말투로 바꾼다: ${toneHint || '사용자가 지정한 말투'}`)
+    preserve.push('현재 주제, 상품/서비스, 소재, CTA 의도')
+    avoid.push('말투 요청을 새 주제나 새 상품으로 해석하기')
+  }
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
     strategy.push(`${durationTarget || '목표'}초 기준 완결 문장 압축 + HOOK/BODY/CTA 구조 유지`)
     preserve.push('현재 주제, 상품/서비스, 타겟, 핵심 메시지, CTA 의도')
@@ -1634,6 +1692,7 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- forbiddenSurfacePhrases가 있으면 대본에 절대 사용하지 않는다.',
     '- allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남기지 않는다. 비교/대비 표현으로도 쓰지 않는다.',
     '- insert_material이면 targetSections에만 요청 소재를 넣고 preserveSections는 원문 그대로 유지한다.',
+    '- tone_adjust이면 주제/상품/소재를 바꾸지 말고 요청한 말투/어미만 조정한다. "존댓말", "반말", "해요체" 같은 말은 상품명이나 주제가 아니다.',
     '- duration_compress이면 새 대본 생성이 아니라 압축이다. 새 내용/수치/후기/사례/효과/권위를 만들지 않고 HOOK/BODY/CTA와 CTA 의도를 유지한다.',
     '- duration_compress에서는 목표 글자 수를 참고하되, 정확한 글자 수보다 자연스러운 문장과 핵심 메시지 보존을 우선한다.',
     '- duration_compress에서는 문맥 연결에 필요한 최소한의 조사/서술어/이유는 남긴다. "오해부터요", "톡톡", "다음에"처럼 잘린 파편 문장으로 만들지 않는다.',
@@ -2330,6 +2389,12 @@ function buildPlanGuardrails({
     mustKeep.push('지정하지 않은 섹션 원문')
   }
 
+  if (operationType === COPILOT_OPERATION_TYPES.TONE_ADJUST) {
+    mustKeep.push('현재 주제/상품/타겟/소재', '수정 대상 외 섹션 원문')
+    mustChange.push(toneHint ? `말투를 "${toneHint}" 방향으로 조정` : '사용자가 요청한 말투로 조정')
+    mustAvoid.push('말투 요청을 새 주제/상품으로 해석하기')
+  }
+
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
     mustKeep.push('HOOK/BODY/CTA 구조', 'CTA 의도', '핵심 메시지')
     mustChange.push(
@@ -2817,7 +2882,7 @@ function createFallbackIntent(message = '', editTarget = '') {
   }
 
   const minimalGreetings = ['ㅎㅇ', '하이', '안녕', 'hi', 'hello']
-  const hasEditOrFeedbackSignal = /(수정|바꿔|변경|고쳐|다듬|줄여|늘려|강하게|약하게|자연스럽게|넣어|살려|hook|body|cta|훅|바디|본문|마무리|도입|문장|톤|느낌|감정선|스토리|서사|다시|피드백|점수|평가|검토)/i.test(text)
+  const hasEditOrFeedbackSignal = /(수정|바꿔|변경|고쳐|다듬|줄여|늘려|강하게|약하게|자연스럽게|존댓말|존대|반말|해요체|말투|어미|넣어|살려|hook|body|cta|훅|바디|본문|마무리|도입|문장|톤|느낌|감정선|스토리|서사|다시|피드백|점수|평가|검토)/i.test(text)
   if (minimalGreetings.includes(compact) || (compact.length <= 3 && !hasEditOrFeedbackSignal)) {
     return {
       intent: 'greeting',
@@ -2836,7 +2901,7 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|더\s*좋게|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(써|작성|수정))/i.test(text)) {
+  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|더\s*좋게|존댓말|존대|반말|해요체|하십시오체|말투|어미|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(써|작성|수정))/i.test(text)) {
     return {
       intent: 'edit_request',
       editTarget: normalizedEditTarget,
@@ -2936,6 +3001,7 @@ async function extractCopilotInstructionWithLLM({
           'insert_material: 기존 대본에 특정 소재를 추가하는 요청이다. 예: "BODY에 손씻기 넣어줘".',
           'tone_adjust: 주제는 유지하고 말투/광고감/자연스러움만 바꾸는 요청이다.',
           'partial_rewrite/edit_partial: 특정 섹션이나 일부 표현만 수정하는 요청이다.',
+          '"존댓말", "반말", "해요체", "하십시오체", "말투", "어미", "톤"은 절대 newSubject가 아니다. 이런 요청은 tone_adjust다.',
           '사용자 요청의 raw 표현은 대본 문장에 복사할 표현이 아니다. "만두말고" 같은 표현은 forbiddenSurfacePhrases에 넣는다.',
           'newSubject는 최종 중심 주제/상품만 짧게 추출한다. 예: "간편 냉동볶음밥", "삼겹살", "치킨너겟".',
           'requestedMaterials는 대본에 그대로 복사할 문장이 아니라 반영할 상황/소재 힌트다.',
@@ -3111,6 +3177,7 @@ export async function classifyCopilotIntent({
             '사용자가 "30초로 압축", "45초 안에 말하게", "N초로 줄여줘"처럼 목표 초수를 말하면 duration_compress이고 targetDurationSeconds를 추출한다.',
             '사용자가 "주제를 ~로", "~로 바꿔줘", "~소재로 다시"처럼 새 주제를 명시하면 topic_reframe이고 newSubject를 추출한다.',
             '사용자가 "BODY에 ~ 넣어줘", "~도 포함해줘"처럼 소재 추가를 요청하면 insert_material이고 requestedMaterials를 추출한다.',
+            '사용자가 "존댓말로", "반말 말고", "해요체로", "말투를"처럼 말투/어미를 요청하면 topic_reframe이 아니라 tone_adjust다. 이 단어들은 newSubject로 추출하지 않는다.',
             'topic_reframe에도 requestedMaterials가 함께 있을 수 있다. 예: "여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘".',
             'intent는 greeting, edit_request, feedback_request, advise_script, explain_script, compare_versions, brainstorm_options, question, clarification 중 하나만 사용한다.',
             'edit_request일 때만 shouldModifyScript=true다.',
