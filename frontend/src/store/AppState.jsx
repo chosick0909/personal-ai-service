@@ -258,6 +258,16 @@ function agePreviousAdvice(value = null) {
   }
 }
 
+function shouldCarryPreviousAdviceForMessage(message = '') {
+  const normalized = String(message || '').replace(/\s+/g, ' ').trim()
+  if (!normalized) {
+    return false
+  }
+  return /(이대로|그대로|그렇게|그\s*방향|방금\s*말한\s*대로|방금\s*제안|직전\s*조언|피드백대로|조언대로).{0,16}(수정|고쳐|바꿔|반영|적용|해줘|해주세요)/i.test(
+    normalized,
+  )
+}
+
 const initialState = {
   isLoggedIn: false,
   currentStep: 'upload',
@@ -3058,8 +3068,10 @@ export function AppStateProvider({ children }) {
     const targetDurationSeconds = Number.isFinite(Number(requestOptions.targetDurationSeconds))
       ? Number(requestOptions.targetDurationSeconds)
       : null
+    const explicitPreviousAdvice = normalizePreviousAdviceForState(requestOptions.previousAdvice)
     const requestPreviousAdvice =
-      normalizePreviousAdviceForState(requestOptions.previousAdvice) || agePreviousAdvice(previousAdvice)
+      explicitPreviousAdvice ||
+      (shouldCarryPreviousAdviceForMessage(normalized) ? agePreviousAdvice(previousAdvice) : null)
 
     if (!requestAccountId || !normalized) {
       return

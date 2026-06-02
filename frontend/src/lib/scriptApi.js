@@ -254,6 +254,19 @@ function triggerPdfDelivery(blob, filename) {
   return 'download'
 }
 
+async function savePdfDocument(pdf, filename) {
+  try {
+    await pdf.save(filename, { returnPromise: true })
+    return 'save'
+  } catch (error) {
+    const blob = pdf.output('blob')
+    if (!blob?.size) {
+      throw createPdfExportError('빈 PDF가 생성되어 다운로드를 중단했습니다. 새로고침 후 다시 시도해주세요.', error)
+    }
+    return triggerPdfDelivery(blob, filename)
+  }
+}
+
 export async function downloadScriptPdf({ title, sections }) {
   if (typeof document === 'undefined' || typeof window === 'undefined') {
     throw createPdfExportError('현재 환경에서는 브라우저 PDF 내보내기를 사용할 수 없습니다.')
@@ -324,19 +337,8 @@ export async function downloadScriptPdf({ title, sections }) {
       y += 20
     })
 
-    let blob
-    try {
-      blob = pdf.output('blob')
-    } catch (error) {
-      throw createPdfExportError('PDF 파일 생성에 실패했습니다. 브라우저 메모리가 부족할 수 있습니다.', error)
-    }
-
-    if (!blob?.size) {
-      throw createPdfExportError('빈 PDF가 생성되어 다운로드를 중단했습니다. 새로고침 후 다시 시도해주세요.')
-    }
-
     const filename = `${normalizedTitle.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'script'}.pdf`
-    const delivery = triggerPdfDelivery(blob, filename)
+    const delivery = await savePdfDocument(pdf, filename)
     return { delivery, filename }
   } catch (error) {
     if (error?.name === 'PdfExportError') {

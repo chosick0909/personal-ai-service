@@ -87,14 +87,27 @@ function MessageBubble({
         : '이 수정 적용'
 
   return (
-    <div className={`flex min-w-0 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div
+      className={`group/message flex min-w-0 items-start gap-2 ${
+        isUser ? 'justify-end' : 'justify-start'
+      }`}
+    >
       <div
-        className={`min-w-0 max-w-[88%] overflow-hidden rounded-[22px] px-4 py-3 text-sm leading-6 ${
+        className={`relative min-w-0 max-w-[88%] overflow-hidden rounded-[22px] px-4 py-3 text-sm leading-6 ${
           isUser
             ? 'btn-solid-contrast'
-            : 'border border-[#2F3543] bg-[#161B24] text-[#D1D5DB]'
+            : 'border border-[#2F3543] bg-[#161B24] pr-16 text-[#D1D5DB]'
         }`}
       >
+        {canReply ? (
+          <button
+            type="button"
+            onClick={() => onReply(message)}
+            className="absolute right-3 top-3 z-10 rounded-full border border-[#2F3543] bg-[#10151D]/95 px-3 py-1 text-[11px] font-semibold leading-none text-[#AEB6C5] opacity-0 shadow-[0_8px_20px_rgba(0,0,0,0.24)] backdrop-blur transition hover:border-[#3A414F] hover:text-[#F3F4F6] focus-visible:opacity-100 group-hover/message:opacity-100"
+          >
+            답장
+          </button>
+        ) : null}
         {feedback ? (
           <div
             className={`rounded-[18px] border border-[#2F3543] bg-[#161B24] p-3 ${
@@ -155,15 +168,6 @@ function MessageBubble({
                 </button>
               </div>
             ) : null}
-            {canReply ? (
-              <button
-                type="button"
-                onClick={() => onReply(message)}
-                className="mt-3 rounded-full border border-[#2F3543] bg-[#10151D] px-3 py-1 text-[11px] font-semibold text-[#8E97A6] transition hover:border-[#3A414F] hover:text-[#D1D5DB]"
-              >
-                답장
-              </button>
-            ) : null}
           </div>
         ) : (
           <>
@@ -200,15 +204,6 @@ function MessageBubble({
                 className="mt-3 rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 이 방향으로 수정
-              </button>
-            ) : null}
-            {canReply ? (
-              <button
-                type="button"
-                onClick={() => onReply(message)}
-                className="mt-2 rounded-full border border-[#2F3543] bg-[#10151D] px-3 py-1 text-[11px] font-semibold text-[#8E97A6] transition hover:border-[#3A414F] hover:text-[#D1D5DB]"
-              >
-                답장
               </button>
             ) : null}
           </>
