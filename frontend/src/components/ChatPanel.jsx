@@ -4,22 +4,22 @@ import { useAppState } from '../store/AppState'
 const FEEDBACK_VERDICT_UI = {
   ready: {
     label: '바로 사용 가능',
-    buttonLabel: '선택 수정 적용',
+    buttonLabel: '미리보기 그대로 반영',
     tone: 'border-[#365244] bg-[#102019] text-[#86EFAC]',
   },
   minor_edit: {
     label: '조금 더 다듬기',
-    buttonLabel: '가볍게 다듬기',
+    buttonLabel: '미리보기 그대로 반영',
     tone: 'border-[#4B5563] bg-[#1B202A] text-[#E5E7EB]',
   },
   needs_edit: {
     label: '수정 후 사용 권장',
-    buttonLabel: '수정해서 사용하기',
+    buttonLabel: '미리보기 그대로 반영',
     tone: 'btn-solid-contrast',
   },
   rewrite_recommended: {
     label: '새 방향 권장',
-    buttonLabel: '새 방향으로 다시 잡기',
+    buttonLabel: '미리보기 그대로 반영',
     tone: 'border-[#51443A] bg-[#211A16] text-[#FED7AA]',
   },
 }
@@ -28,7 +28,7 @@ function getFeedbackVerdictUi(feedback) {
   const status = feedback?.verdict?.status
   return FEEDBACK_VERDICT_UI[status] || {
     label: feedback?.verdict?.label || '',
-    buttonLabel: '이 수정안 반영하기',
+    buttonLabel: '미리보기 그대로 반영',
     tone: 'btn-solid-contrast',
   }
 }
@@ -37,8 +37,10 @@ function MessageBubble({
   message,
   onApply,
   onApplyFeedback,
+  onApplyAdvice,
   isApplyingFeedback,
   isApplyingSuggestion,
+  isAdviceApplyDisabled,
 }) {
   const isUser = message.role === 'user'
   const feedback = message.feedback
@@ -47,6 +49,7 @@ function MessageBubble({
   const feedbackVerdictUi = getFeedbackVerdictUi(feedback)
   const isFeedbackReady = feedbackVerdict?.status === 'ready'
   const proposedSections = message.proposedSections
+  const actionableAdvice = message.actionableAdvice
   const changedSections = Array.isArray(message.changedSections) ? message.changedSections : []
   const editTarget = typeof message.editTarget === 'string' ? message.editTarget : 'all'
   const isFeedbackApplied = Boolean(feedback?.applied)
@@ -175,6 +178,16 @@ function MessageBubble({
                   {applyLabel}
                 </button>
               </div>
+            ) : null}
+            {!proposedSections && actionableAdvice ? (
+              <button
+                type="button"
+                onClick={() => onApplyAdvice(actionableAdvice)}
+                disabled={isAdviceApplyDisabled}
+                className="mt-3 rounded-full border border-[#3A414F] bg-[#1B202A] px-3 py-1.5 text-xs font-semibold text-[#D1D5DB] transition hover:bg-[#232833] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                이 방향으로 수정
+              </button>
             ) : null}
           </>
         )}
@@ -315,8 +328,15 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
                   message={message}
                   onApply={applySuggestion}
                   onApplyFeedback={applyFeedback}
+                  onApplyAdvice={(advice) =>
+                    sendChatMessage({
+                      message: '이 방향으로 수정해줘',
+                      previousAdvice: advice,
+                    })
+                  }
                   isApplyingFeedback={isApplyingFeedback}
                   isApplyingSuggestion={isApplyingSuggestion}
+                  isAdviceApplyDisabled={isSendDisabled}
                 />
               ))}
               {loadingLabel ? <LoadingBubble label={loadingLabel} /> : null}

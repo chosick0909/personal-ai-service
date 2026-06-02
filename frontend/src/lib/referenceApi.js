@@ -551,6 +551,7 @@ export async function generateChatReply({
   editorSections,
   copilotMemory,
   targetDurationSeconds,
+  previousAdvice,
 }) {
   const response = await apiFetch('/api/scripts/copilot', {
     method: 'POST',
@@ -570,6 +571,7 @@ export async function generateChatReply({
       sections: editorSections,
       copilotMemory,
       targetDurationSeconds,
+      previousAdvice,
     }),
   })
   const payload = await parseApiResponse(response)
@@ -588,6 +590,7 @@ export async function generateChatReply({
     message: payload.message,
     proposedSections: payload.proposedSections || payload.sections,
     feedback: payload.feedback,
+    actionableAdvice: payload.actionableAdvice || null,
     structureDiagnosis: payload.structureDiagnosis || payload.feedback?.structureDiagnosis || null,
     editTarget: payload.editTarget,
     changedSections: payload.changedSections,

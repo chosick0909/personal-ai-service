@@ -55,6 +55,101 @@ function normalizeSections(sections = {}) {
   }
 }
 
+function normalizePreviousAdvice(value = null) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const createdAt = value.createdAt || value.created_at || null
+  const createdAtMs = createdAt ? Date.parse(createdAt) : Date.now()
+  const messageTurnsSinceCreated = Number(value.messageTurnsSinceCreated ?? value.message_turns_since_created ?? 0)
+  const editTarget = String(value.editTarget || value.edit_target || 'all').trim().toLowerCase()
+  const normalizedTarget = ['hook', 'body', 'cta', 'body_cta', 'full', 'all'].includes(editTarget)
+    ? editTarget
+    : 'all'
+  const instructions = uniqueCompactList(
+    Array.isArray(value.instructions) ? value.instructions.map((item) => String(item || '').trim()) : [],
+    8,
+  )
+  const preserveSections = uniqueCompactList(
+    Array.isArray(value.preserveSections || value.preserve_sections)
+      ? (value.preserveSections || value.preserve_sections).filter((key) => SECTION_KEYS.includes(key))
+      : [],
+    3,
+  )
+  const diagnosis = String(value.diagnosis || '').trim()
+  const expectedOutcome = String(value.expectedOutcome || value.expected_outcome || '').trim()
+
+  if (!diagnosis && !instructions.length && !expectedOutcome) {
+    return null
+  }
+
+  return {
+    sourceMessageId: String(value.sourceMessageId || value.source_message_id || '').trim(),
+    sourceUserMessage: String(value.sourceUserMessage || value.source_user_message || '').trim(),
+    diagnosis,
+    editTarget: normalizedTarget,
+    instructions,
+    preserveSections,
+    expectedOutcome,
+    createdAt: Number.isFinite(createdAtMs) ? new Date(createdAtMs).toISOString() : new Date().toISOString(),
+    messageTurnsSinceCreated: Number.isFinite(messageTurnsSinceCreated) ? Math.max(0, messageTurnsSinceCreated) : 0,
+  }
+}
+
+function isPreviousAdviceFresh(previousAdvice = null) {
+  const normalized = normalizePreviousAdvice(previousAdvice)
+  if (!normalized) {
+    return false
+  }
+  const createdAtMs = Date.parse(normalized.createdAt)
+  if (Number.isFinite(createdAtMs) && Date.now() - createdAtMs > PREVIOUS_ADVICE_MAX_AGE_MS) {
+    return false
+  }
+  return normalized.messageTurnsSinceCreated <= PREVIOUS_ADVICE_MAX_TURNS
+}
+
+function isApplyPreviousAdviceRequest(request = '') {
+  const compact = String(request || '').replace(/\s+/g, '')
+  if (!compact) {
+    return false
+  }
+  return [
+    /그렇게(수정|고쳐|바꿔|반영|해줘|해주세요)/i,
+    /그방향(으로)?(수정|고쳐|바꿔|반영|해줘|해주세요)/i,
+    /방금(말한|얘기한)(대로|방향으로)?(수정|고쳐|반영|해줘|해주세요)/i,
+    /위에(말한|얘기한)(대로|방향으로)?(수정|고쳐|반영|해줘|해주세요)/i,
+    /그걸로(수정|고쳐|반영|적용|해줘|해주세요)/i,
+    /ㅇㅇ그렇게/i,
+    /그대로(수정|반영|적용)해줘/i,
+  ].some((pattern) => pattern.test(compact))
+}
+
+function previousAdviceTargetToEditTarget(previousAdvice = null, fallback = 'all') {
+  const target = normalizePreviousAdvice(previousAdvice)?.editTarget || ''
+  if (target === 'body_cta') {
+    return 'all'
+  }
+  if (target === 'full') {
+    return 'all'
+  }
+  if (['hook', 'body', 'cta', 'all'].includes(target)) {
+    return target
+  }
+  return normalizeEditTarget(fallback)
+}
+
+function previousAdviceTargetSections(previousAdvice = null, fallbackTarget = 'all') {
+  const normalized = normalizePreviousAdvice(previousAdvice)
+  if (!normalized) {
+    return getTargetSections(fallbackTarget)
+  }
+  if (normalized.editTarget === 'body_cta') {
+    return ['body', 'cta']
+  }
+  return getTargetSections(previousAdviceTargetToEditTarget(normalized, fallbackTarget))
+}
+
 const SECTION_KEYS = ['hook', 'body', 'cta']
 const SECTION_LABELS = {
   hook: 'HOOK',
@@ -69,6 +164,7 @@ const COPILOT_INTENTS = {
   EXPLAIN: 'explain_script',
   COMPARE: 'compare_versions',
   BRAINSTORM: 'brainstorm_options',
+  APPLY_PREVIOUS_ADVICE: 'apply_previous_advice',
 }
 const COPILOT_OPERATION_TYPES = {
   EDIT_PARTIAL: 'edit_partial',
@@ -88,6 +184,8 @@ const COPILOT_QA_MODES = {
 const MIN_DURATION_COMPRESS_SECONDS = 10
 const DURATION_CHAR_RATE_MIN = 5
 const DURATION_CHAR_RATE_MAX = 6.5
+const PREVIOUS_ADVICE_MAX_AGE_MS = 1000 * 60 * 10
+const PREVIOUS_ADVICE_MAX_TURNS = 5
 const COPILOT_MEMORY_ARRAY_KEYS = [
   'preferredTone',
   'dislikedTone',
@@ -1163,9 +1261,13 @@ export function buildEditPlan({
   editTarget = '',
   copilotMemory = {},
   targetDurationSeconds = null,
+  previousAdvice = null,
 } = {}) {
   const request = String(userRequest || '').trim()
   const sections = normalizeSections(currentSections)
+  const normalizedPreviousAdvice = normalizePreviousAdvice(previousAdvice || intentResult.previousAdvice)
+  const isApplyingPreviousAdvice =
+    intentResult.intent === COPILOT_INTENTS.APPLY_PREVIOUS_ADVICE && isPreviousAdviceFresh(normalizedPreviousAdvice)
   const durationTarget =
     normalizeTargetDurationSeconds(targetDurationSeconds) ||
     normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) ||
@@ -1175,12 +1277,17 @@ export function buildEditPlan({
     Boolean(durationTarget) ||
     intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
     structuredEditInstruction.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+  const previousAdviceTarget = isApplyingPreviousAdvice
+    ? previousAdviceTargetToEditTarget(normalizedPreviousAdvice, intentResult.editTarget || editTarget || 'all')
+    : ''
   const normalizedTarget = isDurationCompress
     ? 'all'
-    : normalizeEditTarget(intentResult.editTarget || editTarget, request)
+    : normalizeEditTarget(intentResult.editTarget || previousAdviceTarget || editTarget, request)
   const explicitPreserveSections = detectExplicitPreserveSections(request)
   const explicitPreserveSet = new Set(explicitPreserveSections)
-  let targetSections = getTargetSections(normalizedTarget)
+  let targetSections = isApplyingPreviousAdvice
+    ? previousAdviceTargetSections(normalizedPreviousAdvice, normalizedTarget)
+    : getTargetSections(normalizedTarget)
   if (explicitPreserveSet.size && normalizedTarget === 'all') {
     const unlockedTargets = SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
     if (unlockedTargets.length) {
@@ -1232,6 +1339,8 @@ export function buildEditPlan({
   )
   const operationType = isDurationCompress
     ? COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+    : isApplyingPreviousAdvice
+      ? COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
     : structuredOperationType ||
     intentResult.operationType ||
     (detectedNewSubject
@@ -1262,6 +1371,25 @@ export function buildEditPlan({
     '없는 수치, 후기, 고객 사례, 전문가 권위 생성',
     '요청받지 않은 섹션 변경',
   ]
+
+  if (isApplyingPreviousAdvice && normalizedPreviousAdvice) {
+    strategy.push('직전 조언 실행 + 현재 사용자 명시 조건 우선')
+    if (normalizedPreviousAdvice.diagnosis) {
+      change.push(`직전 진단 해결: ${normalizedPreviousAdvice.diagnosis}`)
+    }
+    if (normalizedPreviousAdvice.instructions.length) {
+      change.push(...normalizedPreviousAdvice.instructions)
+    }
+    if (normalizedPreviousAdvice.expectedOutcome) {
+      change.push(`기대 결과: ${normalizedPreviousAdvice.expectedOutcome}`)
+    }
+    if (normalizedPreviousAdvice.preserveSections.length) {
+      preserve.push(
+        ...normalizedPreviousAdvice.preserveSections.map((key) => `${SECTION_LABELS[key]} 원문 유지`),
+      )
+    }
+    avoid.push('직전 조언의 문장을 대본에 그대로 복사하기')
+  }
 
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
     strategy.push('새 주제 기준 재구성 + 레퍼런스 구조/리듬 유지')
@@ -1401,6 +1529,8 @@ export function buildEditPlan({
     explicitKeep: structuredEditInstruction.explicitKeep || [],
     explicitRemove: structuredEditInstruction.explicitRemove || [],
     allowComparisonWithOldSubject,
+    previousAdvice: normalizedPreviousAdvice,
+    previousAdviceApplied: isApplyingPreviousAdvice,
     structuredEditInstruction,
     carryOverStrategy: {
       preserveReferenceStructure: true,
@@ -1413,7 +1543,18 @@ export function buildEditPlan({
     change: uniqueCompactList(change, 8),
     avoid: uniqueCompactList(avoid, 12),
     mustKeep: guardrails.mustKeep,
-    mustChange: guardrails.mustChange,
+    mustChange: uniqueCompactList(
+      [
+        ...(guardrails.mustChange || []),
+        ...(isApplyingPreviousAdvice && normalizedPreviousAdvice
+          ? [
+              ...normalizedPreviousAdvice.instructions,
+              normalizedPreviousAdvice.expectedOutcome,
+            ]
+          : []),
+      ],
+      10,
+    ),
     mustAvoid: guardrails.mustAvoid,
     reason: `사용자 요청 "${request.slice(0, 80)}"을 ${targetSections.map((key) => SECTION_LABELS[key]).join('/')} 범위에서 반영하기 위한 내부 편집 계획`,
     currentSectionLengths: {
@@ -1454,6 +1595,17 @@ function formatEditPlanForPrompt(editPlan = null) {
     editPlan.requestedMaterials?.length ? `- 요청 소재: ${editPlan.requestedMaterials.join(', ')}` : '',
     editPlan.salesContext ? `- 판매 맥락: ${editPlan.salesContext}` : '',
     editPlan.toneHint ? `- 톤 힌트: ${editPlan.toneHint}` : '',
+    editPlan.previousAdviceApplied && editPlan.previousAdvice
+      ? `- 직전 조언 실행: 예`
+      : '',
+    editPlan.previousAdvice?.diagnosis ? `- 직전 진단: ${editPlan.previousAdvice.diagnosis}` : '',
+    editPlan.previousAdvice?.instructions?.length
+      ? `- 직전 조언의 실행 지시: ${editPlan.previousAdvice.instructions.join(' / ')}`
+      : '',
+    editPlan.previousAdvice?.expectedOutcome ? `- 직전 조언의 기대 결과: ${editPlan.previousAdvice.expectedOutcome}` : '',
+    editPlan.previousAdvice?.preserveSections?.length
+      ? `- 직전 조언 기준 유지 섹션: ${editPlan.previousAdvice.preserveSections.map((key) => SECTION_LABELS[key]).join(', ')}`
+      : '',
     editPlan.preserveSections?.length ? `- 유지 섹션: ${editPlan.preserveSections.map((key) => SECTION_LABELS[key]).join(', ')}` : '',
     `- 전략: ${editPlan.strategy || '-'}`,
     editPlan.preserve?.length ? `- 유지: ${editPlan.preserve.join(', ')}` : '',
@@ -1466,6 +1618,9 @@ function formatEditPlanForPrompt(editPlan = null) {
     '',
     '편집 계획 적용 규칙:',
     '- 우선순위: structured edit plan > editTarget/section lock > account/character tone > current script > reference structure > raw user request.',
+    '- previousAdviceApplied=true이면 이번 작업은 독립적인 새 수정 요청이 아니라 직전 코파일럿 조언을 실제 대본에 반영하는 작업이다.',
+    '- previousAdviceApplied=true이면 "그렇게", "그 방향" 같은 사용자 표현 자체를 해석하지 말고 previousAdvice.instructions를 실행한다.',
+    '- 단, 이번 사용자 메시지에서 "HOOK은 그대로", "CTA만"처럼 명시한 조건은 previousAdvice보다 우선한다.',
     '- 사용자 원문은 의도 해석용 보조 정보다. 실제 대본 작성은 structured edit plan을 최우선으로 따른다.',
     '- raw user request의 표현을 대본 문장에 그대로 복사하지 않는다.',
     '- requestedMaterials, salesContext, toneHint는 그대로 복사할 문장이 아니라 반영할 상황/판매 맥락/톤 힌트다.',
@@ -2827,7 +2982,33 @@ export async function classifyCopilotIntent({
   characterSystemPrompt = '',
   personalizationContext = '',
   targetDurationSeconds = null,
+  previousAdvice = null,
 }) {
+  const normalizedPreviousAdvice = normalizePreviousAdvice(previousAdvice)
+  if (isApplyPreviousAdviceRequest(message)) {
+    if (isPreviousAdviceFresh(normalizedPreviousAdvice)) {
+      return {
+        intent: COPILOT_INTENTS.APPLY_PREVIOUS_ADVICE,
+        editTarget: previousAdviceTargetToEditTarget(normalizedPreviousAdvice, editTarget || 'all'),
+        shouldModifyScript: true,
+        operationType: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+        previousAdvice: normalizedPreviousAdvice,
+        newSubject: '',
+        requestedMaterials: [],
+        reply: '',
+        reason: '사용자가 직전 코파일럿 조언을 실제 수정으로 반영해달라고 요청함',
+      }
+    }
+
+    return {
+      intent: 'clarification',
+      editTarget: null,
+      shouldModifyScript: false,
+      reply: '방금 적용할 수정 방향을 찾지 못했어요. 어떤 방향으로 고칠지만 한 번 더 말해주시면 바로 수정해드릴게요.',
+      reason: '직전 조언 실행 요청이지만 사용할 수 있는 previousAdvice가 없음',
+    }
+  }
+
   const durationIntent = classifyCopilotIntentByRule(message, editTarget, { targetDurationSeconds })
   if (durationIntent.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
     return {
@@ -3514,7 +3695,11 @@ function buildNaturalResponseUserPrompt({
     '- 내부 용어와 평가 기준표 이름을 사용자에게 노출하지 않는다.\n' +
     '- 현재 초안과 레퍼런스 구조를 기준으로 판단하되, 레퍼런스 원문 소재를 가져오지 않는다.\n' +
     '- 사용자가 명시적으로 고쳐달라고 하지 않았으므로 섹션 변경을 제안만 하고 실행하지 않는다.\n\n' +
-    '다음 JSON 형식으로만 답하세요: {"message":""}'
+    '수정 가능한 조언이면 actionableAdvice를 함께 작성한다. 단순 인사/일반 질문이면 actionableAdvice는 null이다.\n' +
+    'actionableAdvice.instructions는 나중에 "그렇게 수정해줘"를 실행할 수 있을 정도로 구체적인 지시 배열이어야 한다.\n' +
+    'actionableAdvice에는 사용자에게 보여줄 내부 용어를 넣지 않는다.\n\n' +
+    '기본 JSON 형식은 {"message":""}이며, 실행 가능한 조언이 있을 때만 actionableAdvice를 추가한다.\n' +
+    '다음 JSON 형식으로만 답하세요: {"message":"","actionableAdvice":{"diagnosis":"","editTarget":"hook|body|cta|body_cta|full","instructions":[""],"preserveSections":["hook"],"expectedOutcome":""}}'
   )
 }
 
@@ -3603,8 +3788,17 @@ async function generateCopilotNaturalResponse({
       copilotIntent: intentResult.intent,
     })
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const message = String(parsed?.message || '').trim()
-    return message || buildFallbackNaturalResponse(normalizedSections, intentResult.intent)
+    const message = String(parsed?.message || '').trim() || buildFallbackNaturalResponse(normalizedSections, intentResult.intent)
+    const actionableAdvice = normalizePreviousAdvice({
+      ...(parsed?.actionableAdvice && typeof parsed.actionableAdvice === 'object' ? parsed.actionableAdvice : {}),
+      sourceUserMessage: request,
+      createdAt: new Date().toISOString(),
+      messageTurnsSinceCreated: 0,
+    })
+    return {
+      message,
+      actionableAdvice,
+    }
   } catch (error) {
     logAIError('gpt', error, {
       referenceId,
@@ -3612,7 +3806,10 @@ async function generateCopilotNaturalResponse({
       stage: 'script-natural-response',
       model,
     })
-    return buildFallbackNaturalResponse(normalizedSections, intentResult.intent)
+    return {
+      message: buildFallbackNaturalResponse(normalizedSections, intentResult.intent),
+      actionableAdvice: null,
+    }
   }
 }
 
@@ -3661,7 +3858,7 @@ export async function refineScriptWithAI({
     })
 
     const copilotModel = models.copilotModel || models.chatModel
-    const message = await generateCopilotNaturalResponse({
+    const naturalResponse = await generateCopilotNaturalResponse({
       openai,
       model: copilotModel,
       accountId,
@@ -3676,9 +3873,11 @@ export async function refineScriptWithAI({
       copilotMemory,
       intentResult,
     })
+    const message = naturalResponse.message
 
     return {
       message,
+      actionableAdvice: naturalResponse.actionableAdvice,
       sections: normalizedSections,
       editTarget: 'none',
       changedSections: [],
@@ -4428,6 +4627,7 @@ export const __scriptAssistantTest = {
   shouldUseHookTemplatesForRefine,
   shouldUseNarrativePatternsForRefine,
   classifyCopilotIntentByRule,
+  classifyCopilotIntent,
   parseEditInstruction,
   detectExplicitPreserveSections,
   extractRequestedNewSubject,

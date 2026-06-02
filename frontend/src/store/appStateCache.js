@@ -36,6 +36,10 @@ function normalizeChatMessages(messages) {
                 ? message.flowValidation
                 : undefined,
             intent: typeof message.intent === 'string' ? message.intent : undefined,
+            actionableAdvice:
+              message.actionableAdvice && typeof message.actionableAdvice === 'object'
+                ? message.actionableAdvice
+                : undefined,
             editPlan: message.editPlan && typeof message.editPlan === 'object' ? message.editPlan : undefined,
             qualityGate:
               message.qualityGate && typeof message.qualityGate === 'object' ? message.qualityGate : undefined,
@@ -60,6 +64,8 @@ function normalizeVariantSession(session = {}) {
     feedback: session.feedback && typeof session.feedback === 'object' ? session.feedback : null,
     pendingSuggestion:
       session.pendingSuggestion && typeof session.pendingSuggestion === 'object' ? session.pendingSuggestion : null,
+    previousAdvice:
+      session.previousAdvice && typeof session.previousAdvice === 'object' ? session.previousAdvice : null,
     draftMessage: typeof session.draftMessage === 'string' ? session.draftMessage : '',
     editTarget: COPILOT_EDIT_TARGETS.has(session.editTarget) ? session.editTarget : 'all',
     copilotMemory:
@@ -113,6 +119,8 @@ export function normalizeHistoryCacheItem(item = {}) {
     feedback: item.feedback && typeof item.feedback === 'object' ? item.feedback : null,
     pendingSuggestion:
       item.pendingSuggestion && typeof item.pendingSuggestion === 'object' ? item.pendingSuggestion : null,
+    previousAdvice:
+      item.previousAdvice && typeof item.previousAdvice === 'object' ? item.previousAdvice : null,
     draftMessage: typeof item.draftMessage === 'string' ? item.draftMessage : '',
     editTarget: COPILOT_EDIT_TARGETS.has(item.editTarget) ? item.editTarget : 'all',
     copilotUsage:
@@ -157,6 +165,7 @@ export function mergeHistoryItem(serverItem, localItem) {
     versions: normalizedLocal.versions?.length ? normalizedLocal.versions : normalizedServer.versions,
     feedback: normalizedLocal.feedback || normalizedServer.feedback,
     pendingSuggestion: normalizedLocal.pendingSuggestion || normalizedServer.pendingSuggestion,
+    previousAdvice: normalizedLocal.previousAdvice || normalizedServer.previousAdvice,
     draftMessage: normalizedLocal.draftMessage || normalizedServer.draftMessage,
     editTarget: normalizedLocal.editTarget || normalizedServer.editTarget,
     copilotUsage: normalizedLocal.copilotUsage || normalizedServer.copilotUsage,

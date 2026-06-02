@@ -1358,6 +1358,7 @@ app.post(
       sections: req.body?.sections,
       editTarget: req.body?.editTarget || req.body?.edit_target || '',
       targetDurationSeconds,
+      previousAdvice: req.body?.previousAdvice || req.body?.previous_advice || null,
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: intentPersonalization.context,
     })
@@ -1544,6 +1545,7 @@ app.post(
           responseMode: result.responseMode,
         },
         message: result.message,
+        actionableAdvice: result.actionableAdvice || null,
         sections: result.sections,
         changedSections: [],
         flowValidation: result.flowValidation,
@@ -1556,7 +1558,10 @@ app.post(
       return
     }
 
-    if (!intent.shouldModifyScript || intent.intent !== 'edit_request') {
+    if (
+      !intent.shouldModifyScript ||
+      (intent.intent !== 'edit_request' && intent.intent !== 'apply_previous_advice')
+    ) {
       const personalization = await buildPersonalizationContext({
         accountId: account.id,
         characterId: character.characterId,
@@ -1625,6 +1630,7 @@ app.post(
       referenceId: req.body?.referenceId,
     })
     const copilotMemory = req.body?.copilotMemory || req.body?.copilot_memory || {}
+    const previousAdvice = req.body?.previousAdvice || req.body?.previous_advice || intent.previousAdvice || null
     const editPlan = buildEditPlan({
       userRequest: requestText,
       currentSections: req.body?.sections,
@@ -1632,6 +1638,7 @@ app.post(
       editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
       copilotMemory,
       targetDurationSeconds,
+      previousAdvice,
     })
     const result = await refineScriptWithAI({
       accountId: account.id,
@@ -1655,6 +1662,7 @@ app.post(
       recommendations: [
         ...(editPlan.change || []),
         ...(editPlan.avoid || []).map((item) => `피해야 할 요소: ${item}`),
+        ...(editPlan.previousAdvice?.instructions || []).map((item) => `직전 조언 반영: ${item}`),
       ],
     }
     const useHeavyQualityGate = shouldUseHeavyQualityGateForCopilot({
@@ -2213,8 +2221,50 @@ app.post(
     }
     let repairAttempted = false
     let repairSuccess = false
+    const previewCheck = runFeedbackFallbackRuleCheck({
+      originalSections: req.body?.sections,
+      candidateSections: feedback?.suggestedSections,
+      editTarget: result.editTarget || editTarget,
+      feedback,
+      request: requestText,
+      copilotMemory: feedbackApplyCopilotMemory,
+    })
+    const previewDiff = createSectionDiff(req.body?.sections, feedback?.suggestedSections)
+    const previewChangedSections = ['hook', 'body', 'cta'].filter((key) => previewDiff[key])
+    const previewApplyResult =
+      !previewCheck.shouldRepair && previewChangedSections.length
+        ? {
+            success: true,
+            sections: feedback.suggestedSections,
+            changedSections: previewChangedSections,
+            issueTypes: previewCheck.issueTypes || [],
+            exactPreview: true,
+          }
+        : buildPartialSafeFeedbackApplyFallback({
+            originalSections: req.body?.sections,
+            candidateSources: [{ source: 'suggestedSections', sections: feedback?.suggestedSections }],
+            editTarget: result.editTarget || editTarget,
+            feedback,
+            request: requestText,
+            copilotMemory: feedbackApplyCopilotMemory,
+          })
 
-    if (qaResult.shouldRepair) {
+    if (previewApplyResult.success) {
+      finalSections = previewApplyResult.sections
+      finalMessage = '피드백 미리보기를 에디터에 그대로 반영했어요. 반영 후 재평가하면 이전 문제가 해결됐는지 다시 확인할 수 있습니다.'
+      qualityGate = {
+        ...qualityGate,
+        passed: true,
+        fallbackUsed: true,
+        fallbackType: previewApplyResult.exactPreview ? 'suggestedSections' : 'partial_safe_apply',
+        partialAppliedSections: previewApplyResult.changedSections,
+        fallbackIssueTypes: previewApplyResult.issueTypes,
+        appliedFromSuggestedSections: true,
+        exactPreviewApplied: Boolean(previewApplyResult.exactPreview),
+      }
+    }
+
+    if (!previewApplyResult.success && qaResult.shouldRepair) {
       repairAttempted = true
       const repairResult = await repairRefinedScriptWithQaIssues({
         accountId: account.id,

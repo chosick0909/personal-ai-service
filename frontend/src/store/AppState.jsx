@@ -216,6 +216,48 @@ function deserializeEditorContent(content = '') {
   })
 }
 
+function normalizePreviousAdviceForState(value = null) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const instructions = Array.isArray(value.instructions)
+    ? value.instructions.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+    : []
+  const diagnosis = String(value.diagnosis || '').trim()
+  const expectedOutcome = String(value.expectedOutcome || '').trim()
+  if (!diagnosis && !expectedOutcome && instructions.length === 0) {
+    return null
+  }
+  const preserveSections = Array.isArray(value.preserveSections)
+    ? value.preserveSections.filter((key) => ['hook', 'body', 'cta'].includes(key)).slice(0, 3)
+    : []
+  const createdAt = value.createdAt || new Date().toISOString()
+  return {
+    sourceMessageId: String(value.sourceMessageId || '').trim(),
+    sourceUserMessage: String(value.sourceUserMessage || '').trim(),
+    diagnosis,
+    editTarget: String(value.editTarget || 'all').trim() || 'all',
+    instructions,
+    preserveSections,
+    expectedOutcome,
+    createdAt,
+    messageTurnsSinceCreated: Number.isFinite(Number(value.messageTurnsSinceCreated))
+      ? Math.max(0, Number(value.messageTurnsSinceCreated))
+      : 0,
+  }
+}
+
+function agePreviousAdvice(value = null) {
+  const normalized = normalizePreviousAdviceForState(value)
+  if (!normalized) {
+    return null
+  }
+  return {
+    ...normalized,
+    messageTurnsSinceCreated: normalized.messageTurnsSinceCreated + 1,
+  }
+}
+
 const initialState = {
   isLoggedIn: false,
   currentStep: 'upload',
@@ -232,6 +274,7 @@ const initialState = {
   draftMessage: '',
   editTarget: 'all',
   pendingSuggestion: null,
+  previousAdvice: null,
   accounts: [],
   currentAccount: null,
   projects: [],
@@ -344,6 +387,7 @@ export function AppStateProvider({ children }) {
   const [draftMessage, setDraftMessage] = useState('')
   const [editTarget, setEditTarget] = useState('all')
   const [pendingSuggestion, setPendingSuggestion] = useState(null)
+  const [previousAdvice, setPreviousAdvice] = useState(initialState.previousAdvice)
   const [accounts, setAccounts] = useState(initialState.accounts)
   const [currentAccount, setCurrentAccount] = useState(initialState.currentAccount)
   const [accountSetupMap, setAccountSetupMap] = useState({})
@@ -575,6 +619,7 @@ export function AppStateProvider({ children }) {
         'versions',
         'feedback',
         'pendingSuggestion',
+        'previousAdvice',
         'draftMessage',
         'editTarget',
         'copilotMemory',
@@ -611,6 +656,9 @@ export function AppStateProvider({ children }) {
           pendingSuggestion: hasOwn('pendingSuggestion')
             ? patch.pendingSuggestion
             : previousSession.pendingSuggestion || item.pendingSuggestion || null,
+          previousAdvice: hasOwn('previousAdvice')
+            ? patch.previousAdvice
+            : previousSession.previousAdvice || item.previousAdvice || null,
           draftMessage: hasOwn('draftMessage')
             ? patch.draftMessage
             : previousSession.draftMessage || item.draftMessage || '',
@@ -659,6 +707,7 @@ export function AppStateProvider({ children }) {
     setIsVersionModalOpen(false)
     setDraftMessage('')
     setPendingSuggestion(null)
+    setPreviousAdvice(null)
     setActiveScriptId(null)
     setUploadTopic('')
     setUploadTitle('')
@@ -1293,6 +1342,7 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections())
     setDraftMessage('')
     setPendingSuggestion(null)
+    setPreviousAdvice(null)
     setAnalyzeError('')
     setUploadPhase('idle')
     setIsAnalyzing(false)
@@ -1801,6 +1851,7 @@ export function AppStateProvider({ children }) {
     setFeedback(null)
     setEditorSections(createEditorSections())
     setPendingSuggestion(null)
+    setPreviousAdvice(null)
     setAnalyzeError('')
     setAnalyzeErrorType('')
     setUploadPhase('creating-session')
@@ -2066,6 +2117,7 @@ export function AppStateProvider({ children }) {
     setFeedback(null)
     setEditorSections(createEditorSections())
     setPendingSuggestion(null)
+    setPreviousAdvice(null)
     setAnalyzeError('')
     setAnalyzeErrorType('')
     setUploadPhase('analyzing')
@@ -2184,6 +2236,7 @@ export function AppStateProvider({ children }) {
         versions,
         feedback,
         pendingSuggestion,
+        previousAdvice,
         draftMessage,
         editTarget,
         copilotUsage,
@@ -2210,6 +2263,10 @@ export function AppStateProvider({ children }) {
       const restoredFeedback = targetVariantSession?.feedback || activeHistoryItem?.feedback || null
       const restoredPendingSuggestion =
         targetVariantSession?.pendingSuggestion || activeHistoryItem?.pendingSuggestion || null
+      const restoredPreviousAdvice = normalizePreviousAdviceForState(
+        targetVariantSession?.previousAdvice ||
+          (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem?.previousAdvice : null),
+      )
       const restoredDraftMessage =
         typeof targetVariantSession?.draftMessage === 'string'
           ? targetVariantSession.draftMessage
@@ -2246,6 +2303,7 @@ export function AppStateProvider({ children }) {
       setVersions(restoredVersions)
       setFeedback(restoredFeedback)
       setPendingSuggestion(restoredPendingSuggestion)
+      setPreviousAdvice(restoredPreviousAdvice)
       setDraftMessage(restoredDraftMessage)
       setEditTarget(restoredEditTarget)
       setChatMessages(restoredChatMessages)
@@ -2262,6 +2320,7 @@ export function AppStateProvider({ children }) {
         versions: restoredVersions,
         feedback: restoredFeedback,
         pendingSuggestion: restoredPendingSuggestion,
+        previousAdvice: restoredPreviousAdvice,
         draftMessage: restoredDraftMessage,
         editTarget: restoredEditTarget,
         copilotUsage: restoredUsage,
@@ -2283,6 +2342,7 @@ export function AppStateProvider({ children }) {
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
     setPendingSuggestion(null)
+    setPreviousAdvice(null)
     setDraftMessage('')
     setEditTarget('all')
     setChatMessages(initialState.chatMessages)
@@ -2317,6 +2377,7 @@ export function AppStateProvider({ children }) {
         versions: initialVersions,
         feedback: null,
         pendingSuggestion: null,
+        previousAdvice: null,
         draftMessage: '',
         editTarget: 'all',
         copilotUsage,
@@ -2363,6 +2424,7 @@ export function AppStateProvider({ children }) {
       versions,
       feedback,
       pendingSuggestion,
+      previousAdvice,
       draftMessage,
       editTarget,
       copilotUsage,
@@ -2502,6 +2564,7 @@ export function AppStateProvider({ children }) {
       setEditorSections(restoredEditorSections)
       setFeedback(baseItem.feedback || null)
       setPendingSuggestion(baseItem.pendingSuggestion || null)
+      setPreviousAdvice(normalizePreviousAdviceForState(baseItem.previousAdvice || null))
       setDraftMessage(baseItem.draftMessage || '')
       setEditTarget(COPILOT_EDIT_TARGETS.has(baseItem.editTarget) ? baseItem.editTarget : 'all')
       setChatMessages(
@@ -2995,6 +3058,8 @@ export function AppStateProvider({ children }) {
     const targetDurationSeconds = Number.isFinite(Number(requestOptions.targetDurationSeconds))
       ? Number(requestOptions.targetDurationSeconds)
       : null
+    const requestPreviousAdvice =
+      normalizePreviousAdviceForState(requestOptions.previousAdvice) || agePreviousAdvice(previousAdvice)
 
     if (!requestAccountId || !normalized) {
       return
@@ -3006,6 +3071,7 @@ export function AppStateProvider({ children }) {
       content: normalized,
     }
     const nextCopilotMemory = updateCopilotMemoryFromUserMessage(copilotMemory, normalized)
+    setPreviousAdvice(requestPreviousAdvice)
 
     if (!explicitMessage) {
       setDraftMessage('')
@@ -3019,6 +3085,7 @@ export function AppStateProvider({ children }) {
         draftMessage: explicitMessage ? draftMessage : '',
         editTarget,
         copilotMemory: nextCopilotMemory,
+        previousAdvice: requestPreviousAdvice,
       })
       return next
     })
@@ -3035,6 +3102,7 @@ export function AppStateProvider({ children }) {
         message: normalized,
         copilotMemory: nextCopilotMemory,
         targetDurationSeconds,
+        previousAdvice: requestPreviousAdvice,
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -3075,18 +3143,32 @@ export function AppStateProvider({ children }) {
       }
 
       if (response.type === 'reply') {
+        const assistantId = `assistant-${Date.now()}`
+        const nextPreviousAdvice = normalizePreviousAdviceForState(
+          response.actionableAdvice
+            ? {
+                ...response.actionableAdvice,
+                sourceMessageId: assistantId,
+                createdAt: new Date().toISOString(),
+                messageTurnsSinceCreated: 0,
+              }
+            : requestPreviousAdvice,
+        )
+        setPreviousAdvice(nextPreviousAdvice)
         setChatMessages((current) => {
           const next = [
             ...current,
             {
-              id: `assistant-${Date.now()}`,
+              id: assistantId,
               role: 'assistant',
               content: response.message,
               intent: response.intent,
+              actionableAdvice: nextPreviousAdvice,
             },
           ]
           syncHistory(activeReferenceIdRef.current, {
             chatMessages: next,
+            previousAdvice: nextPreviousAdvice,
           })
           return next
         })
@@ -3118,12 +3200,14 @@ export function AppStateProvider({ children }) {
         return next
       })
       setPendingSuggestion(response.proposedSections)
+      setPreviousAdvice(null)
       void refreshEntitlement({ referenceId: referenceData?.id, silent: true })
       setChatMessages((current) => {
         const next = [...current, assistantMessage]
         syncHistory(activeReferenceIdRef.current, {
           chatMessages: next,
           pendingSuggestion: response.proposedSections,
+          previousAdvice: null,
         })
         return next
       })
@@ -3194,11 +3278,13 @@ export function AppStateProvider({ children }) {
     if (!activeScriptId) {
       setEditorSections(nextSections)
       setPendingSuggestion(null)
+      setPreviousAdvice(null)
       setCurrentStep('editor')
       setViewTransition('to-editor')
       syncHistory(activeReferenceIdRef.current, {
         editorContent: serializedContent,
         pendingSuggestion: null,
+        previousAdvice: null,
         lastStep: 'editor',
       })
       showToast('AI 수정안을 에디터에 반영했습니다')
@@ -3235,6 +3321,7 @@ export function AppStateProvider({ children }) {
 
       setEditorSections(nextSections)
       setPendingSuggestion(null)
+      setPreviousAdvice(null)
       setCurrentStep('editor')
       setViewTransition('to-editor')
 
@@ -3246,6 +3333,7 @@ export function AppStateProvider({ children }) {
           editorContent: serializedContent,
           versions: next,
           pendingSuggestion: null,
+          previousAdvice: null,
           lastStep: 'editor',
         })
         return next
@@ -3260,6 +3348,7 @@ export function AppStateProvider({ children }) {
         syncHistory(activeReferenceIdRef.current, {
           chatMessages: next,
           pendingSuggestion: null,
+          previousAdvice: null,
         })
         return next
       })
@@ -3433,6 +3522,7 @@ export function AppStateProvider({ children }) {
       analyzeError,
       analyzeErrorType,
       pendingSuggestion,
+      previousAdvice,
       activeScriptId,
       toast,
       copilotUsage,
@@ -3544,6 +3634,7 @@ export function AppStateProvider({ children }) {
       isResultEntering,
       isVersionModalOpen,
       pendingSuggestion,
+      previousAdvice,
       activeScriptId,
       toast,
       copilotUsage,

@@ -30,6 +30,7 @@ const {
   messageMentionsLockedSections,
   logPromptAssembly,
   classifyCopilotIntentByRule,
+  classifyCopilotIntent,
   parseEditInstruction,
   buildEditPlan,
   shouldUseHeavyQualityGateForCopilot,
@@ -420,6 +421,51 @@ test('copilot intent classifier still sends explicit edits through refine flow',
   assert.equal(classifyCopilotIntentByRule('살려줘', 'all').responseMode, 'advice_then_edit')
   assert.equal(classifyCopilotIntentByRule('더 좋게 바꿔줘', 'all').responseMode, 'advice_then_edit')
   assert.equal(classifyCopilotIntentByRule('훅만 고쳐줘', 'all').responseMode, 'edit_only')
+})
+
+test('copilot applies previous advice only when actionable advice exists', async () => {
+  const previousAdvice = {
+    diagnosis: '현재 초안은 팁처럼 보이고 판매 상품 추천 이유가 약함',
+    editTarget: 'body_cta',
+    instructions: [
+      'BODY를 상품 추천 중심으로 바꾼다.',
+      'CTA에 링크를 눌러야 하는 이유를 붙인다.',
+    ],
+    preserveSections: ['hook'],
+    expectedOutcome: '팁이 아니라 특정 상품을 추천하는 홍보 대본으로 보이게 만든다.',
+    createdAt: new Date().toISOString(),
+    messageTurnsSinceCreated: 0,
+  }
+
+  const intent = await classifyCopilotIntent({
+    message: '그렇게 수정해줘',
+    sections: currentDraft,
+    editTarget: 'all',
+    previousAdvice,
+  })
+  assert.equal(intent.intent, 'apply_previous_advice')
+  assert.equal(intent.shouldModifyScript, true)
+  assert.equal(intent.editTarget, 'all')
+
+  const editPlan = buildEditPlan({
+    userRequest: '그렇게 수정해줘',
+    currentSections: currentDraft,
+    intentResult: intent,
+    previousAdvice,
+  })
+  assert.equal(editPlan.previousAdviceApplied, true)
+  assert.deepEqual(editPlan.targetSections, ['body', 'cta'])
+  assert.match(editPlan.change.join('\n'), /상품 추천 중심/)
+  assert.match(editPlan.mustChange.join('\n'), /상품 추천|CTA|링크|홍보/)
+
+  const missingAdviceIntent = await classifyCopilotIntent({
+    message: '그렇게 수정해줘',
+    sections: currentDraft,
+    editTarget: 'all',
+    previousAdvice: null,
+  })
+  assert.equal(missingAdviceIntent.intent, 'clarification')
+  assert.equal(missingAdviceIntent.shouldModifyScript, false)
 })
 
 test('natural response prompt explicitly forbids section rewrites', () => {
