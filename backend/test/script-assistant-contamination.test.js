@@ -1184,6 +1184,85 @@ test('copilot parser handles common live Korean edit requests without leaking us
   assert.equal(previousIntent.intent, 'advise_script')
 })
 
+test('copilot treats pain-to-relief framing requests as rewrite direction, not topic reframe', () => {
+  const request = '기존의 불편함에서 해소되는 느낌으로 다시짜줄래?'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const instruction = parseEditInstruction(request, intent)
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(intent.intent, 'edit_script')
+  assert.notEqual(intent.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(instruction.newSubject, '')
+  assert.deepEqual(instruction.oldSubjectToRemove, [])
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(plan.newSubject, '')
+  assert.ok(plan.mustKeep.some((item) => /현재 주제|상품|서비스/.test(item)))
+  assert.ok(plan.change.some((item) => /불편함이 해소되는 흐름|문제 상황과 해결 결과/.test(item)))
+  assert.ok(plan.avoid.some((item) => /새 상품|새 주제/.test(item)))
+})
+
+test('semantic parser output is validated when framing wording is misclassified as a new subject', () => {
+  const request = '기존의 불편함에서 해소되는 느낌으로 다시짜줄래?'
+  const semanticIntent = {
+    intent: 'edit_request',
+    shouldModifyScript: true,
+    editTarget: 'all',
+    operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+    newSubject: '해소되는 느낌',
+    requestedMaterials: ['기존의 불편함에서 해소되는 느낌'],
+    structuredEditInstruction: {
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '해소되는 느낌',
+      requestedMaterials: ['기존의 불편함에서 해소되는 느낌'],
+      oldSubjectToRemove: ['기존의 불편함'],
+      forbiddenSurfacePhrases: [],
+      confidence: 0.8,
+    },
+  }
+  const instruction = parseEditInstruction(request, semanticIntent)
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: semanticIntent,
+    editTarget: 'all',
+  })
+
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(instruction.newSubject, '')
+  assert.deepEqual(instruction.oldSubjectToRemove, [])
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(plan.newSubject, '')
+})
+
+test('framing rewrite keeps explicit product/topic preservation constraints', () => {
+  const request = '공감되는 관점으로 바꿔줘. 근데 상품은 그대로 둬'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const instruction = parseEditInstruction(request, intent)
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(instruction.newSubject, '')
+  assert.deepEqual(instruction.oldSubjectToRemove, [])
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(plan.newSubject, '')
+  assert.ok(plan.mustKeep.some((item) => /현재 주제|상품|타겟|소재/.test(item)))
+  assert.ok(plan.mustChange.some((item) => /공감|전개|문제 상황|해결/.test(item)))
+  assert.ok(plan.mustAvoid.some((item) => /새 주제|상품/.test(item)))
+})
+
 test('copilot edit plan keeps locked sections for insert material requests', () => {
   const request = 'BODY에 손씻기랑 물 자주 마시기 넣어줘'
   const intent = classifyCopilotIntentByRule(request, 'all')

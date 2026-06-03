@@ -218,6 +218,7 @@ const COPILOT_OPERATION_TYPES = {
   INSERT_MATERIAL: 'insert_material',
   DURATION_COMPRESS: 'duration_compress',
   TONE_ADJUST: 'tone_adjust',
+  FRAMING_REWRITE: 'framing_rewrite',
   PARTIAL_REWRITE: 'partial_rewrite',
   UNKNOWN: 'unknown',
 }
@@ -815,7 +816,14 @@ function normalizeOperationType(value = '') {
 
 function normalizeSemanticEditInstruction(raw = {}, request = '') {
   const source = raw && typeof raw === 'object' ? raw : {}
-  const operationType = normalizeOperationType(source.operationType)
+  let operationType = normalizeOperationType(source.operationType)
+  let newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(source.newSubject || ''))
+  if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME && isInvalidNewSubjectCandidate(newSubject)) {
+    operationType = STYLE_KEYWORD_PATTERN.test(newSubject)
+      ? COPILOT_OPERATION_TYPES.TONE_ADJUST
+      : COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+    newSubject = ''
+  }
   const oldSubjectToRemove = parseSubjectList(
     Array.isArray(source.oldSubjectToRemove) ? source.oldSubjectToRemove.join(',') : source.oldSubjectToRemove,
   )
@@ -826,7 +834,6 @@ function normalizeSemanticEditInstruction(raw = {}, request = '') {
     ].map((item) => cleanRequestedPhrase(item)),
     24,
   )
-  const newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(source.newSubject || ''))
   const requestedMaterials = uniqueCompactList(
     Array.isArray(source.requestedMaterials)
       ? source.requestedMaterials.map((item) => cleanRequestedPhrase(item)).filter(Boolean)
@@ -865,6 +872,42 @@ function normalizeSemanticEditInstruction(raw = {}, request = '') {
   }
 }
 
+const FRAMING_REWRITE_PATTERN =
+  /(불편|불편함|고민|문제|답답|귀찮|부담|걱정|불안).{0,24}(해소|해결|덜어|사라지|편해|안심|시원|가벼워|좋아지|풀리|벗어나)|(?:해소|해결|안심|편해|공감|설득|혜택|장점|만족|전환|흐름|관점|프레이밍|감정선).{0,12}(느낌|흐름|관점|방향|톤|전개)|(?:느낌|흐름|관점|방향|톤|전개)(?:으로|로)\s*(?:다시\s*)?(?:짜|써|작성|정리|다듬|바꿔|수정)/i
+
+function isFramingRewriteRequest(text = '') {
+  const source = String(text || '').trim()
+  if (!source) {
+    return false
+  }
+  if (!/(다시\s*)?(짜|써|작성|정리|다듬|바꿔|수정|리라이트|rewrite|revise|edit)/i.test(source)) {
+    return false
+  }
+  return FRAMING_REWRITE_PATTERN.test(source)
+}
+
+function extractFramingRewriteHint(text = '') {
+  const source = String(text || '').trim()
+  if (!source) {
+    return ''
+  }
+  if (/(불편|불편함|고민|문제|답답|귀찮|부담|걱정|불안).{0,24}(해소|해결|덜어|사라지|편해|안심|시원|가벼워|좋아지|풀리|벗어나)/i.test(source)) {
+    return '기존 불편함이 해소되는 흐름'
+  }
+  if (/(공감|설득|혜택|장점|만족|전환|감정선).{0,12}(느낌|흐름|관점|방향|톤|전개)/i.test(source)) {
+    return cleanRequestedPhrase(source.match(/(?:공감|설득|혜택|장점|만족|전환|감정선).{0,18}(?:느낌|흐름|관점|방향|톤|전개)/i)?.[0] || '')
+  }
+  return '전개 관점 조정'
+}
+
+function isInvalidNewSubjectCandidate(value = '') {
+  const subject = cleanRequestedPhrase(value)
+  if (!subject) {
+    return false
+  }
+  return STYLE_KEYWORD_PATTERN.test(subject) || FRAMING_REWRITE_PATTERN.test(subject)
+}
+
 function buildForbiddenSurfacePhrases(oldSubjects = []) {
   const phrases = []
   for (const subject of uniqueCompactList(oldSubjects, 8)) {
@@ -889,6 +932,9 @@ function parseTopicReframeInstruction(text = '') {
   if (!source) {
     return null
   }
+  if (isFramingRewriteRequest(source)) {
+    return null
+  }
 
   const patterns = [
     /^(.+?)\s*(?:으로|로)\s*주제(?:를|은|는)?\s*(?:바꿔|바꾸|변경|수정)/i,
@@ -907,7 +953,7 @@ function parseTopicReframeInstruction(text = '') {
     }
     if (match.length === 2) {
       const newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(match[1]))
-      if (newSubject && newSubject.length <= 80) {
+      if (newSubject && newSubject.length <= 80 && !isInvalidNewSubjectCandidate(newSubject)) {
         return {
           newSubject,
           oldSubjectToRemove: [],
@@ -918,7 +964,7 @@ function parseTopicReframeInstruction(text = '') {
     }
     const oldSubjectToRemove = parseSubjectList(match[1])
     const newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(match[2]))
-    if (oldSubjectToRemove.length && newSubject && newSubject.length <= 80) {
+    if (oldSubjectToRemove.length && newSubject && newSubject.length <= 80 && !isInvalidNewSubjectCandidate(newSubject)) {
       return {
         newSubject,
         oldSubjectToRemove,
@@ -1082,6 +1128,36 @@ export function parseEditInstruction(request = '', intentResult = {}) {
   }
 
   if (
+    isFramingRewriteRequest(text) &&
+    !(
+      hasSemanticInstructionSource &&
+      semanticInstruction.operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME &&
+      semanticInstruction.newSubject
+    )
+  ) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
+      toneHint: extractFramingRewriteHint(text),
+    }
+  }
+
+  if (
+    hasSemanticInstructionSource &&
+    semanticInstruction.operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+  ) {
+    return {
+      ...instruction,
+      operationType: COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
+      requestedMaterials: semanticInstruction.requestedMaterials,
+      salesContext: semanticInstruction.salesContext,
+      toneHint: semanticInstruction.toneHint || extractFramingRewriteHint(text),
+      explicitKeep: uniqueCompactList([...instruction.explicitKeep, ...semanticInstruction.explicitKeep], 8),
+      explicitRemove: uniqueCompactList(semanticInstruction.explicitRemove, 8),
+    }
+  }
+
+  if (
     hasSemanticInstructionSource &&
     semanticInstruction.operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME &&
     semanticInstruction.newSubject
@@ -1216,7 +1292,7 @@ export function parseEditInstruction(request = '', intentResult = {}) {
 
 function extractRequestedNewSubject(request = '') {
   const text = String(request || '').trim()
-  if (isStyleAdjustmentRequest(text)) {
+  if (isStyleAdjustmentRequest(text) || isFramingRewriteRequest(text)) {
     return ''
   }
   const patterns = [
@@ -1533,9 +1609,11 @@ export function buildEditPlan({
   let targetSet = new Set(targetSections)
   let preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
   const memory = normalizeCopilotMemory(copilotMemory)
-  const detectedNewSubject = cleanRequestedPhrase(
-    structuredEditInstruction.newSubject || intentResult.newSubject || extractRequestedNewSubject(request),
+  const semanticInstruction = normalizeSemanticEditInstruction(intentResult.structuredEditInstruction || intentResult, request)
+  const rawNewSubjectCandidate = cleanRequestedPhrase(
+    structuredEditInstruction.newSubject || semanticInstruction.newSubject || intentResult.newSubject || extractRequestedNewSubject(request),
   )
+  const detectedNewSubject = isInvalidNewSubjectCandidate(rawNewSubjectCandidate) ? '' : rawNewSubjectCandidate
   const requestedMaterials = uniqueCompactList(
     Array.isArray(intentResult.requestedMaterials) && intentResult.requestedMaterials.length
       ? intentResult.requestedMaterials.map((item) => cleanRequestedPhrase(item))
@@ -1554,7 +1632,6 @@ export function buildEditPlan({
     structuredEditInstruction.operationType && structuredEditInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
       ? structuredEditInstruction.operationType
       : ''
-  const semanticInstruction = normalizeSemanticEditInstruction(intentResult.structuredEditInstruction || intentResult, request)
   const oldSubjectToRemove = uniqueCompactList(
     [
       ...(structuredEditInstruction.oldSubjectToRemove || []),
@@ -1751,6 +1828,11 @@ export function buildEditPlan({
     strategy.push('판매 압박 제거 + 상황/정보 중심 전환')
     change.push('구매를 밀기보다 저장/확인/이해할 이유를 먼저 준다')
     avoid.push('과한 구매 압박과 흔한 광고성 표현')
+  }
+  if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE || isFramingRewriteRequest(request)) {
+    strategy.push('문제 제기에서 해소감으로 이어지는 전개 정리')
+    change.push(`${toneHint || extractFramingRewriteHint(request)}이 느껴지도록 문제 상황과 해결 결과를 자연스럽게 연결한다`)
+    avoid.push('전개 방향 요청을 새 상품/새 주제로 해석하기')
   }
   if (/짧게|압축|간결|줄여|너무\s*길/i.test(request)) {
     strategy.push('핵심만 남기고 문장 압축')
@@ -1966,6 +2048,7 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남기지 않는다. 비교/대비 표현으로도 쓰지 않는다.',
     '- insert_material이면 targetSections에만 요청 소재를 넣고 preserveSections는 원문 그대로 유지한다.',
     '- tone_adjust이면 주제/상품/소재를 바꾸지 말고 요청한 말투/어미만 조정한다. "존댓말", "반말", "해요체" 같은 말은 상품명이나 주제가 아니다.',
+    '- framing_rewrite이면 주제/상품/소재를 바꾸지 말고 문제 제기, 공감, 해소감, 해결 흐름 같은 전개 방식만 조정한다. "해소되는 느낌", "공감되는 관점" 같은 말은 상품명이나 주제가 아니다.',
     '- duration_compress이면 새 대본 생성이 아니라 압축이다. 새 내용/수치/후기/사례/효과/권위를 만들지 않고 HOOK/BODY/CTA와 CTA 의도를 유지한다.',
     '- duration_compress에서는 목표 글자 수를 참고하되, 정확한 글자 수보다 자연스러운 문장과 핵심 메시지 보존을 우선한다.',
     '- duration_compress에서는 문맥 연결에 필요한 최소한의 조사/서술어/이유는 남긴다. "오해부터요", "톡톡", "다음에"처럼 잘린 파편 문장으로 만들지 않는다.',
@@ -2137,7 +2220,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
           ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
           : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
   const editPattern =
-    /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|넣어|넣어줘|빼줘|삭제|교체|리라이트|rewrite|edit|revise|fix|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게)/i
+    /(고쳐|수정|바꿔|바꾸|다듬|고도화|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|세련되게|정리해|압축|추가해|넣어|넣어줘|빼줘|삭제|교체|짜줘|짜줄래|다시\s*짜|리라이트|rewrite|edit|revise|fix|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게)/i
   const advicePattern =
     /(어때|어떤가|괜찮|약한가|약해|별로|문제|피드백|조언|평가|점수|올려도|업로드해도|이대로|봐줘|검토|진단|판단|반응\s*올|반응\s*나|안\s*끌리|왜\s*안|광고\s*같|판매\s*같|상업적|부담스러|아까\s*버전|이전\s*버전|이\s*느낌\s*좋|좋아\?|나아\?|괜찮아\?)/i
   const vagueImprovePattern =
@@ -2488,6 +2571,10 @@ function buildCopilotIntentTemplateMessage({
     return `좋아요. 현재 대본의 핵심과 CTA는 유지하면서${seconds ? ` ${seconds}초 안에 말할 수 있게` : ''} 압축했어요. 중복 설명과 부연만 덜어내서 더 짧게 읽히도록 정리했습니다.`
   }
 
+  if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE) {
+    return `좋아요. 기존 주제는 유지하면서 ${targetLabel} 흐름을 문제 제기에서 해소감으로 이어지게 다시 잡았어요.`
+  }
+
   if (responseMode === 'advice_then_edit') {
     return `좋아요. 기존 주제와 흐름은 유지하면서 ${targetLabel}에서 가장 어색한 부분을 먼저 다듬었어요. 읽히는 흐름이 더 자연스럽게 이어지도록 정리했습니다.`
   }
@@ -2556,6 +2643,9 @@ function resolvePrimaryGoal({ operationType, request = '', newSubject = '', requ
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
     return targetDurationSeconds ? `${targetDurationSeconds}초 기준 삭제 중심 압축` : '목표 시간 기준 삭제 중심 압축'
   }
+  if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE) {
+    return '문제 상황에서 해소감으로 이어지는 전개 정리'
+  }
   if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)) {
     return '광고감/판매 압박 제거'
   }
@@ -2569,6 +2659,7 @@ function resolveRevisionStyle({ operationType, request = '' } = {}) {
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) return 'delete_only'
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) return 'reframe_subject'
   if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) return 'insert_material'
+  if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE) return 'reframe_flow'
   if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|자연스럽게|말\s*되게|말되게|구어체|부자연|어색|번역체/i.test(request)) {
     return 'rewrite_light'
   }
@@ -2608,6 +2699,11 @@ function buildSectionInstructions({ operationType, targetSections = SECTION_KEYS
       instructions[section] = {
         action: 'insert',
         reason: '사용자가 이 섹션에 소재 추가를 요청함',
+      }
+    } else if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE) {
+      instructions[section] = {
+        action: 'revise',
+        reason: '사용자가 주제 변경이 아니라 문제 제기에서 해소감으로 이어지는 전개 조정을 요청함',
       }
     } else {
       instructions[section] = {
@@ -2673,6 +2769,12 @@ function buildPlanGuardrails({
     mustKeep.push('현재 주제/상품/타겟/소재', '수정 대상 외 섹션 원문')
     mustChange.push(toneHint ? `말투를 "${toneHint}" 방향으로 조정` : '사용자가 요청한 말투로 조정')
     mustAvoid.push('말투 요청을 새 주제/상품으로 해석하기')
+  }
+
+  if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE) {
+    mustKeep.push('현재 주제/상품/타겟/소재')
+    mustChange.push(toneHint ? `"${toneHint}"이 느껴지는 전개로 조정` : '문제 상황에서 해결/해소 결과로 이어지는 전개로 조정')
+    mustAvoid.push('전개/감정 효과 요청을 새 주제/상품으로 해석하기')
   }
 
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
@@ -3181,11 +3283,24 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|더\s*좋게|존댓말|존대|반말|해요체|하십시오체|말투|어미|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(써|작성|수정))/i.test(text)) {
+  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|짜줘|짜줄래|더\s*좋게|존댓말|존대|반말|해요체|하십시오체|말투|어미|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(짜|써|작성|수정))/i.test(text)) {
+    const parsedInstruction = parseEditInstruction(text)
+    const operationType =
+      parsedInstruction.operationType && parsedInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
+        ? parsedInstruction.operationType
+        : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
     return {
       intent: 'edit_request',
       editTarget: normalizedEditTarget,
       shouldModifyScript: true,
+      operationType,
+      newSubject: operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ? parsedInstruction.newSubject : '',
+      requestedMaterials: parsedInstruction.requestedMaterials || [],
+      oldSubjectToRemove: parsedInstruction.oldSubjectToRemove || [],
+      forbiddenSurfacePhrases: parsedInstruction.forbiddenSurfacePhrases || [],
+      salesContext: parsedInstruction.salesContext || '',
+      toneHint: parsedInstruction.toneHint || '',
+      structuredEditInstruction: parsedInstruction,
       reply: '',
     }
   }
@@ -3276,12 +3391,14 @@ async function extractCopilotInstructionWithLLM({
           '당신은 HookAI 코파일럿 사용자 요청을 구조화된 편집 명령으로 정규화하는 파서다.',
           '대본을 작성하지 않는다. 사용자 문장을 대본에 넣을 문장으로 보지 말고, 편집 의도/새 주제/삭제할 기존 소재/삽입할 상황 힌트로 분리한다.',
           '출력은 JSON만 반환한다.',
-          'operationType은 topic_reframe, insert_material, duration_compress, tone_adjust, partial_rewrite, edit_partial, unknown 중 하나다.',
+          'operationType은 topic_reframe, insert_material, duration_compress, tone_adjust, framing_rewrite, partial_rewrite, edit_partial, unknown 중 하나다.',
           'topic_reframe: 사용자가 새 주제/상품/소재로 바꾸려는 요청이다. 예: "삼겹살로 주제 바꿔줘", "물광토너 주제로", "만두말고 치킨너겟으로".',
           'insert_material: 기존 대본에 특정 소재를 추가하는 요청이다. 예: "BODY에 손씻기 넣어줘".',
           'tone_adjust: 주제는 유지하고 말투/광고감/자연스러움만 바꾸는 요청이다.',
+          'framing_rewrite: 주제/상품은 유지하고 불편함→해소감, 문제→해결, 공감 관점 같은 전개 방식만 바꾸는 요청이다.',
           'partial_rewrite/edit_partial: 특정 섹션이나 일부 표현만 수정하는 요청이다.',
           '"존댓말", "반말", "해요체", "하십시오체", "말투", "어미", "톤"은 절대 newSubject가 아니다. 이런 요청은 tone_adjust다.',
+          '"불편함에서 해소되는 느낌", "문제가 해결되는 흐름", "공감되는 관점"처럼 전개/감정 효과를 말하는 표현은 절대 newSubject가 아니다. 이런 요청은 framing_rewrite다.',
           '사용자 요청의 raw 표현은 대본 문장에 복사할 표현이 아니다. "만두말고" 같은 표현은 forbiddenSurfacePhrases에 넣는다.',
           'newSubject는 최종 중심 주제/상품만 짧게 추출한다. 예: "간편 냉동볶음밥", "삼겹살", "치킨너겟".',
           'requestedMaterials는 대본에 그대로 복사할 문장이 아니라 반영할 상황/소재 힌트다.',
@@ -3302,7 +3419,7 @@ async function extractCopilotInstructionWithLLM({
           `CTA: ${normalizedSections.cta.slice(0, 140) || '-'}`,
           '',
           'JSON 형식:',
-          '{"operationType":"topic_reframe|insert_material|duration_compress|tone_adjust|partial_rewrite|edit_partial|unknown","newSubject":"","oldSubjectToRemove":[],"forbiddenSurfacePhrases":[],"requestedMaterials":[],"salesContext":"","toneHint":"","explicitKeep":[],"explicitRemove":[],"allowComparisonWithOldSubject":false,"targetDurationSeconds":null,"confidence":0,"reason":""}',
+          '{"operationType":"topic_reframe|insert_material|duration_compress|tone_adjust|framing_rewrite|partial_rewrite|edit_partial|unknown","newSubject":"","oldSubjectToRemove":[],"forbiddenSurfacePhrases":[],"requestedMaterials":[],"salesContext":"","toneHint":"","explicitKeep":[],"explicitRemove":[],"allowComparisonWithOldSubject":false,"targetDurationSeconds":null,"confidence":0,"reason":""}',
         ].join('\n'),
       },
     ],
@@ -3453,11 +3570,12 @@ export async function classifyCopilotIntent({
             '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
             '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
-            '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입, duration_compress=목표 초수에 맞춘 삭제 중심 압축.',
+            '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입, duration_compress=목표 초수에 맞춘 삭제 중심 압축, framing_rewrite=주제 유지 후 전개/감정 흐름 조정.',
             '사용자가 "30초로 압축", "45초 안에 말하게", "N초로 줄여줘"처럼 목표 초수를 말하면 duration_compress이고 targetDurationSeconds를 추출한다.',
             '사용자가 "주제를 ~로", "~로 바꿔줘", "~소재로 다시"처럼 새 주제를 명시하면 topic_reframe이고 newSubject를 추출한다.',
             '사용자가 "BODY에 ~ 넣어줘", "~도 포함해줘"처럼 소재 추가를 요청하면 insert_material이고 requestedMaterials를 추출한다.',
             '사용자가 "존댓말로", "반말 말고", "해요체로", "말투를"처럼 말투/어미를 요청하면 topic_reframe이 아니라 tone_adjust다. 이 단어들은 newSubject로 추출하지 않는다.',
+            '사용자가 "불편함에서 해소되는 느낌", "문제가 해결되는 흐름", "공감되는 관점"처럼 전개/감정 효과를 요청하면 topic_reframe이 아니라 framing_rewrite다. "해소되는 느낌"은 newSubject가 아니다.',
             'topic_reframe에도 requestedMaterials가 함께 있을 수 있다. 예: "여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘".',
             'intent는 greeting, edit_request, feedback_request, advise_script, explain_script, compare_versions, brainstorm_options, question, clarification 중 하나만 사용한다.',
             'edit_request일 때만 shouldModifyScript=true다.',
@@ -3487,7 +3605,7 @@ export async function classifyCopilotIntent({
             `CTA: ${normalizedSections.cta.slice(0, 160) || '-'}`,
             '',
             'JSON 형식:',
-            '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|duration_compress|null","targetDurationSeconds":null,"newSubject":"","requestedMaterials":[],"shouldModifyScript":false,"reply":"","reason":""}',
+            '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|duration_compress|framing_rewrite|null","targetDurationSeconds":null,"newSubject":"","requestedMaterials":[],"shouldModifyScript":false,"reply":"","reason":""}',
           ].join('\n'),
         },
       ],
@@ -3524,6 +3642,9 @@ export async function classifyCopilotIntent({
       COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
       COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
       COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+      COPILOT_OPERATION_TYPES.TONE_ADJUST,
+      COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
+      COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
     ].includes(parsed.operationType)
       ? parsed.operationType
       : fallbackNewSubject
