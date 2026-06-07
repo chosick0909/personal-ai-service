@@ -392,6 +392,7 @@ export function AppStateProvider({ children }) {
   const [versions, setVersions] = useState(initialState.versions)
   const [referenceHistory, setReferenceHistory] = useState([])
   const [feedback, setFeedback] = useState(initialState.feedback)
+  const [appliedFeedbackContext, setAppliedFeedbackContext] = useState(null)
   const [editorSections, setEditorSections] = useState(initialState.editorSections)
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false)
   const [draftMessage, setDraftMessage] = useState('')
@@ -628,6 +629,7 @@ export function AppStateProvider({ children }) {
         'editorContent',
         'versions',
         'feedback',
+        'appliedFeedbackContext',
         'pendingSuggestion',
         'previousAdvice',
         'draftMessage',
@@ -663,6 +665,9 @@ export function AppStateProvider({ children }) {
             : previousSession.editorContent || item.editorContent || '',
           versions: hasOwn('versions') ? patch.versions : previousSession.versions || item.versions || [],
           feedback: hasOwn('feedback') ? patch.feedback : previousSession.feedback || item.feedback || null,
+          appliedFeedbackContext: hasOwn('appliedFeedbackContext')
+            ? patch.appliedFeedbackContext
+            : previousSession.appliedFeedbackContext || item.appliedFeedbackContext || null,
           pendingSuggestion: hasOwn('pendingSuggestion')
             ? patch.pendingSuggestion
             : previousSession.pendingSuggestion || item.pendingSuggestion || null,
@@ -713,6 +718,7 @@ export function AppStateProvider({ children }) {
     setVersions([])
     setReferenceHistory([])
     setFeedback(null)
+    setAppliedFeedbackContext(null)
     setEditorSections(createEditorSections())
     setIsVersionModalOpen(false)
     setDraftMessage('')
@@ -1349,6 +1355,7 @@ export function AppStateProvider({ children }) {
     setActiveScriptId(null)
     setVersions([])
     setFeedback(null)
+    setAppliedFeedbackContext(null)
     setEditorSections(createEditorSections())
     setDraftMessage('')
     setPendingSuggestion(null)
@@ -1859,6 +1866,7 @@ export function AppStateProvider({ children }) {
     setActiveScriptId(null)
     setVersions([])
     setFeedback(null)
+    setAppliedFeedbackContext(null)
     setEditorSections(createEditorSections())
     setPendingSuggestion(null)
     setPreviousAdvice(null)
@@ -2125,6 +2133,7 @@ export function AppStateProvider({ children }) {
     setActiveScriptId(null)
     setVersions([])
     setFeedback(null)
+    setAppliedFeedbackContext(null)
     setEditorSections(createEditorSections())
     setPendingSuggestion(null)
     setPreviousAdvice(null)
@@ -2245,6 +2254,7 @@ export function AppStateProvider({ children }) {
         editorContent: serializeEditorSections(editorSections),
         versions,
         feedback,
+        appliedFeedbackContext,
         pendingSuggestion,
         previousAdvice,
         draftMessage,
@@ -2271,6 +2281,10 @@ export function AppStateProvider({ children }) {
           ? activeHistoryItem.versions
         : versions
       const restoredFeedback = targetVariantSession?.feedback || activeHistoryItem?.feedback || null
+      const restoredAppliedFeedbackContext =
+        targetVariantSession?.appliedFeedbackContext ||
+        (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem?.appliedFeedbackContext : null) ||
+        null
       const restoredPendingSuggestion =
         targetVariantSession?.pendingSuggestion || activeHistoryItem?.pendingSuggestion || null
       const restoredPreviousAdvice = normalizePreviousAdviceForState(
@@ -2312,6 +2326,7 @@ export function AppStateProvider({ children }) {
       setEditorSections(restoredEditorSections)
       setVersions(restoredVersions)
       setFeedback(restoredFeedback)
+      setAppliedFeedbackContext(restoredAppliedFeedbackContext)
       setPendingSuggestion(restoredPendingSuggestion)
       setPreviousAdvice(restoredPreviousAdvice)
       setDraftMessage(restoredDraftMessage)
@@ -2329,6 +2344,7 @@ export function AppStateProvider({ children }) {
         editorContent: serializeEditorSections(restoredEditorSections),
         versions: restoredVersions,
         feedback: restoredFeedback,
+        appliedFeedbackContext: restoredAppliedFeedbackContext,
         pendingSuggestion: restoredPendingSuggestion,
         previousAdvice: restoredPreviousAdvice,
         draftMessage: restoredDraftMessage,
@@ -2351,6 +2367,7 @@ export function AppStateProvider({ children }) {
     setSelectedScriptId(nextScript.id)
     setEditorSections(createEditorSections(nextScript.sections))
     setFeedback(null)
+    setAppliedFeedbackContext(null)
     setPendingSuggestion(null)
     setPreviousAdvice(null)
     setDraftMessage('')
@@ -2386,6 +2403,7 @@ export function AppStateProvider({ children }) {
         editorContent: serializeEditorSections(nextScript.sections),
         versions: initialVersions,
         feedback: null,
+        appliedFeedbackContext: null,
         pendingSuggestion: null,
         previousAdvice: null,
         draftMessage: '',
@@ -2433,6 +2451,7 @@ export function AppStateProvider({ children }) {
       editorContent: serializeEditorSections(editorSections),
       versions,
       feedback,
+      appliedFeedbackContext,
       pendingSuggestion,
       previousAdvice,
       draftMessage,
@@ -2506,6 +2525,21 @@ export function AppStateProvider({ children }) {
     setActiveToolPage(null)
 
     const applyOpenedState = ({ detail, baseItem }) => {
+      const originalBaseItem = baseItem
+      const selectedVariantSession =
+        originalBaseItem?.selectedScriptId && originalBaseItem?.variantSessions?.[originalBaseItem.selectedScriptId]
+          ? originalBaseItem.variantSessions[originalBaseItem.selectedScriptId]
+          : null
+      if (selectedVariantSession) {
+        baseItem = {
+          ...originalBaseItem,
+          ...selectedVariantSession,
+          selectedScriptId: originalBaseItem.selectedScriptId,
+          generatedScripts: originalBaseItem.generatedScripts,
+          copilotUsage: originalBaseItem.copilotUsage || selectedVariantSession.copilotUsage || null,
+          variantSessions: originalBaseItem.variantSessions,
+        }
+      }
       const isProcessingReference = isProcessingLikeReferenceStatus(detail.reference?.status)
       const isFailedReference = detail.reference?.status === 'failed'
       const restoredSelectedScriptId = baseItem.selectedScriptId || null
@@ -2573,6 +2607,7 @@ export function AppStateProvider({ children }) {
 
       setEditorSections(restoredEditorSections)
       setFeedback(baseItem.feedback || null)
+      setAppliedFeedbackContext(baseItem.appliedFeedbackContext || null)
       setPendingSuggestion(baseItem.pendingSuggestion || null)
       setPreviousAdvice(normalizePreviousAdviceForState(baseItem.previousAdvice || null))
       setDraftMessage(baseItem.draftMessage || '')
@@ -2615,6 +2650,8 @@ export function AppStateProvider({ children }) {
                   ? baseItem.versions
                   : entry.versions,
                 feedback: baseItem.feedback || entry.feedback || null,
+                appliedFeedbackContext:
+                  baseItem.appliedFeedbackContext || entry.appliedFeedbackContext || null,
                 pendingSuggestion: baseItem.pendingSuggestion || entry.pendingSuggestion || null,
                 draftMessage:
                   typeof baseItem.draftMessage === 'string' ? baseItem.draftMessage : entry.draftMessage,
@@ -2788,6 +2825,12 @@ export function AppStateProvider({ children }) {
     try {
       const previousFeedbackForRecheck =
         feedback?.applied && feedback?.staleAfterApply ? feedback : null
+      const previousFeedbackWithContext = previousFeedbackForRecheck
+        ? {
+            ...previousFeedbackForRecheck,
+            appliedFeedbackContext: appliedFeedbackContext || null,
+          }
+        : null
       const result = await generateScriptFeedback({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
@@ -2795,7 +2838,7 @@ export function AppStateProvider({ children }) {
         currentVersionId: versions[0]?.id,
         selectedLabel: selectedScript?.label,
         sections: editorSections,
-        previousFeedback: previousFeedbackForRecheck,
+        previousFeedback: previousFeedbackWithContext,
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
         return
@@ -2814,6 +2857,7 @@ export function AppStateProvider({ children }) {
             : null,
       }
       setFeedback(normalizedFeedback)
+      setAppliedFeedbackContext(null)
       setCopilotUsage((current) => {
         const next = {
           ...current,
@@ -2837,6 +2881,7 @@ export function AppStateProvider({ children }) {
         ]
         syncHistory(activeReferenceIdRef.current, {
           feedback: normalizedFeedback,
+          appliedFeedbackContext: null,
           chatMessages: next,
         })
         return next
@@ -2880,6 +2925,7 @@ export function AppStateProvider({ children }) {
     const beforeSections = createEditorSections(editorSections)
     let nextSections = null
     let feedbackApplyMessage = ''
+    let feedbackChangedSections = []
 
     try {
       const applyResult = await applyScriptFeedback({
@@ -2899,6 +2945,7 @@ export function AppStateProvider({ children }) {
       const changedSections = Array.isArray(applyResult.changedSections)
         ? applyResult.changedSections
         : []
+      feedbackChangedSections = changedSections
       const hasChangedSections =
         changedSections.length > 0 ||
         nextSections.hook !== beforeSections.hook ||
@@ -3003,8 +3050,24 @@ export function AppStateProvider({ children }) {
         applied: true,
         staleAfterApply: true,
       }
+      const nextAppliedFeedbackContext = {
+        sourceFeedbackId: targetFeedback.id || null,
+        sourceScore: targetFeedback.score ?? null,
+        sourceSummary: targetFeedback.summary || '',
+        sourceDetail: targetFeedback.detail || '',
+        sourceIssues: Array.isArray(targetFeedback.issues) ? targetFeedback.issues : [],
+        sourceRecommendations: Array.isArray(targetFeedback.recommendations)
+          ? targetFeedback.recommendations
+          : [],
+        sourceVerdict: targetFeedback.verdict || null,
+        changedSections: feedbackChangedSections,
+        appliedAt: new Date().toISOString(),
+        beforeSections,
+        afterSections: nextSections,
+      }
 
       setFeedback(appliedFeedback)
+      setAppliedFeedbackContext(nextAppliedFeedbackContext)
 
       setVersions((current) => {
         const next = [nextVersion, beforeVersion, ...current]
@@ -3014,6 +3077,7 @@ export function AppStateProvider({ children }) {
           editorContent: serializedContent,
           versions: next,
           feedback: appliedFeedback,
+          appliedFeedbackContext: nextAppliedFeedbackContext,
         })
         return next
       })
@@ -3030,6 +3094,7 @@ export function AppStateProvider({ children }) {
         syncHistory(activeReferenceIdRef.current, {
           chatMessages: next,
           feedback: appliedFeedback,
+          appliedFeedbackContext: nextAppliedFeedbackContext,
         })
         return next
       })
@@ -3115,6 +3180,7 @@ export function AppStateProvider({ children }) {
         copilotMemory: nextCopilotMemory,
         targetDurationSeconds,
         previousAdvice: requestPreviousAdvice,
+        replyContext: requestOptions.replyContext || null,
         replyToMessageId: requestOptions.replyToMessageId || '',
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
@@ -3124,6 +3190,7 @@ export function AppStateProvider({ children }) {
       if (response.type === 'feedback') {
         const normalizedFeedback = { ...response.feedback, id: `feedback-${Date.now()}`, applied: false }
         setFeedback(normalizedFeedback)
+        setAppliedFeedbackContext(null)
         setCopilotUsage((current) => {
           const next = {
             ...current,
@@ -3148,6 +3215,7 @@ export function AppStateProvider({ children }) {
           ]
           syncHistory(activeReferenceIdRef.current, {
             feedback: normalizedFeedback,
+            appliedFeedbackContext: null,
             chatMessages: next,
           })
           return next
@@ -3633,6 +3701,7 @@ export function AppStateProvider({ children }) {
       isAuthReady,
       editorSections,
       feedback,
+      appliedFeedbackContext,
       generatedScripts,
       isAnalyzing,
       isChatLoading,

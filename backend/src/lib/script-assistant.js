@@ -220,6 +220,7 @@ const COPILOT_OPERATION_TYPES = {
   TONE_ADJUST: 'tone_adjust',
   FRAMING_REWRITE: 'framing_rewrite',
   PARTIAL_REWRITE: 'partial_rewrite',
+  CTA_REFRAME: 'cta_reframe',
   UNKNOWN: 'unknown',
 }
 const COPILOT_QA_MODES = {
@@ -691,6 +692,145 @@ export function feedbackToEditInstructions({
   })
 }
 
+function suggestionToEditInstructions({
+  replyContext = {},
+  userMessage = '',
+  editTarget = 'all',
+} = {}) {
+  const explicitSections = inferRequestedSections(userMessage)
+  const target =
+    explicitSections.length === 1
+      ? explicitSections[0]
+      : normalizeEditTarget(replyContext.editTarget || editTarget || 'all', userMessage)
+  const targetSections = getTargetSections(target)
+  const preserveSections = SECTION_KEYS.filter((section) => !targetSections.includes(section))
+
+  return normalizePreviousAdvice({
+    sourceType: 'suggestion',
+    sourceMessageId: replyContext.sourceMessageId || '',
+    priority: 'high',
+    diagnosis: '답장 대상 수정안을 기준으로 후속 요청을 반영',
+    editTarget: target,
+    operations: targetSections.map((section) => ({
+      type: 'partial_rewrite',
+      target: section,
+      problem: '',
+      instruction: `${SECTION_LABELS[section]}는 답장 대상 수정안의 방향을 기준으로 현재 사용자 후속 요청을 반영한다.`,
+      preserve: ['기존 주제', '사용자 사실 정보'],
+      avoid: ['새 소재 생성', '허위 수치', '없는 혜택', '사용자 지시문 복사'],
+      priority: 'high',
+    })),
+    instructions: [
+      '답장 대상 수정안을 기준으로 이어서 다듬는다.',
+      '현재 사용자 메시지의 명시 지시는 답장 대상보다 우선한다.',
+    ],
+    preserveSections,
+    expectedOutcome: '답장 대상 수정안의 방향을 유지하면서 현재 후속 요청이 반영된 수정본',
+  })
+}
+
+function adviceToEditInstructions({
+  replyContext = {},
+  fallbackAdvice = null,
+  editTarget = 'all',
+  userMessage = '',
+} = {}) {
+  const actionableAdvice = normalizePreviousAdvice(replyContext.actionableAdvice || fallbackAdvice)
+  if (actionableAdvice) {
+    return normalizePreviousAdvice({
+      ...actionableAdvice,
+      sourceType: actionableAdvice.sourceType || replyContext.sourceType || 'advice',
+      sourceMessageId: actionableAdvice.sourceMessageId || replyContext.sourceMessageId || '',
+    })
+  }
+
+  const messageText = String(replyContext.messageText || '').replace(/\s+/g, ' ').trim()
+  if (!messageText) {
+    return null
+  }
+
+  const section = detectFeedbackSection(messageText)
+  const explicitSections = inferRequestedSections(userMessage)
+  const target =
+    explicitSections.length === 1
+      ? explicitSections[0]
+      : SECTION_KEYS.includes(section)
+        ? section
+        : normalizeEditTarget(editTarget || 'all', '')
+  const targetSections = getTargetSections(target)
+  const preserveSections = SECTION_KEYS.filter((key) => !targetSections.includes(key))
+  const operationTarget = targetSections.length === 1 ? targetSections[0] : 'all'
+
+  return normalizePreviousAdvice({
+    sourceType: replyContext.sourceType || 'advice',
+    sourceMessageId: replyContext.sourceMessageId || '',
+    priority: 'medium',
+    diagnosis: messageText.slice(0, 240),
+    editTarget: target,
+    operations: [
+      {
+        type: inferFeedbackOperationType(messageText, operationTarget),
+        target: operationTarget,
+        problem: messageText,
+        instruction: '답장 대상 조언의 방향을 실행 가능한 문장 수정으로 반영한다.',
+        preserve: ['기존 주제', '사용자 사실 정보'],
+        avoid: ['새 소재 생성', '허위 수치', '없는 혜택', '사용자 지시문 복사'],
+        priority: 'medium',
+      },
+    ],
+    instructions: ['답장 대상 조언의 핵심 방향을 실제 대본 수정에 반영한다.'],
+    preserveSections,
+    expectedOutcome: '답장 대상 조언이 실제 문장 수정으로 반영된 대본',
+  })
+}
+
+export function replyContextToEditInstructions({
+  replyContext = null,
+  userMessage = '',
+  fallbackAdvice = null,
+  editTarget = 'all',
+} = {}) {
+  if (!replyContext || typeof replyContext !== 'object') {
+    return normalizePreviousAdvice(fallbackAdvice)
+  }
+
+  const sourceType = String(replyContext.sourceType || replyContext.source_type || '').trim()
+  const sourceMessageId = String(replyContext.sourceMessageId || replyContext.source_message_id || '').trim()
+  const normalizedContext = {
+    ...replyContext,
+    sourceType,
+    sourceMessageId,
+    messageText: String(replyContext.messageText || replyContext.message_text || '').trim(),
+  }
+
+  if (sourceType === 'feedback' && normalizedContext.feedback) {
+    return feedbackToEditInstructions({
+      feedback: normalizedContext.feedback,
+      sourceMessageId,
+      editTarget: normalizedContext.editTarget || editTarget,
+    })
+  }
+
+  if (sourceType === 'suggestion' && normalizedContext.proposedSections) {
+    return suggestionToEditInstructions({
+      replyContext: normalizedContext,
+      userMessage,
+      editTarget,
+    })
+  }
+
+  if (sourceType === 'advice' || normalizedContext.actionableAdvice || normalizedContext.messageText) {
+    return adviceToEditInstructions({
+      replyContext: normalizedContext,
+      fallbackAdvice,
+      editTarget,
+      userMessage,
+    })
+  }
+
+  return normalizePreviousAdvice(fallbackAdvice)
+}
+
 function detectFeedbackRecheckRegression({ summary = '', detail = '', issues = [], recommendations = [] } = {}) {
   const feedbackText = [
     summary,
@@ -873,7 +1013,13 @@ function normalizeSemanticEditInstruction(raw = {}, request = '') {
 }
 
 const FRAMING_REWRITE_PATTERN =
-  /(불편|불편함|고민|문제|답답|귀찮|부담|걱정|불안).{0,24}(해소|해결|덜어|사라지|편해|안심|시원|가벼워|좋아지|풀리|벗어나)|(?:해소|해결|안심|편해|공감|설득|혜택|장점|만족|전환|흐름|관점|프레이밍|감정선).{0,12}(느낌|흐름|관점|방향|톤|전개)|(?:느낌|흐름|관점|방향|톤|전개)(?:으로|로)\s*(?:다시\s*)?(?:짜|써|작성|정리|다듬|바꿔|수정)/i
+  /(불편|불편함|고민|문제|답답|귀찮|부담|걱정|불안).{0,24}(해소|해결|덜어|사라지|편해|안심|시원|가벼워|좋아지|풀리|벗어나)|(?:해소|해결|안심|편해|공감|설득|혜택|장점|만족|전환|흐름|관점|프레이밍|감정선|후기|경험담|체감|멘트|키포인트).{0,16}(느낌|흐름|관점|방향|톤|전개|처럼|같이|식으로)|(?:느낌|흐름|관점|방향|톤|전개|후기처럼|경험담처럼|멘트)(?:으로|로)?\s*(?:다시\s*)?(?:짜|써|작성|정리|다듬|바꿔|수정)/i
+
+const NON_SUBJECT_CANDIDATE_PATTERN =
+  /(존댓말|존대|반말|해요체|하십시오체|합니다체|말투|어미|문체|톤|친근|공손|부드럽|딱딱|자연스럽|말하듯|구어체|광고|판매|세일즈|구매\s*압박|후기\s*처럼|후기처럼|강한\s*후기|경험담\s*처럼|해소(?:되는)?\s*느낌|공감(?:되는)?\s*관점|요런\s*멘트|이런\s*멘트|멘트|질문\s*(?:방법|키포인트|포인트)|키포인트|느낌|흐름|전개|관점|프레이밍|방향|강하게|세게|약하게|짧게|길게|말\s*되게|해결감|해소감|체감)/i
+
+const EXPLICIT_TOPIC_REFRAME_MARKER_PATTERN =
+  /(주제|소재|상품|제품|아이템|카테고리|말고|대신|빼고|버리고|제외하고|에서\s*.+?(?:으로|로))/i
 
 function isFramingRewriteRequest(text = '') {
   const source = String(text || '').trim()
@@ -905,7 +1051,59 @@ function isInvalidNewSubjectCandidate(value = '') {
   if (!subject) {
     return false
   }
-  return STYLE_KEYWORD_PATTERN.test(subject) || FRAMING_REWRITE_PATTERN.test(subject)
+  return (
+    STYLE_KEYWORD_PATTERN.test(subject) ||
+    FRAMING_REWRITE_PATTERN.test(subject) ||
+    NON_SUBJECT_CANDIDATE_PATTERN.test(subject)
+  )
+}
+
+function classifyCandidateMeaning(value = '') {
+  const candidate = cleanRequestedPhrase(value)
+  if (!candidate) {
+    return 'unknown'
+  }
+  if (STYLE_KEYWORD_PATTERN.test(candidate)) {
+    return 'tone'
+  }
+  if (FRAMING_REWRITE_PATTERN.test(candidate) || NON_SUBJECT_CANDIDATE_PATTERN.test(candidate)) {
+    return 'framing'
+  }
+  if (/^(?:HOOK|훅|BODY|바디|본문|CTA|씨티에이|마무리)$/i.test(candidate)) {
+    return 'section_name'
+  }
+  if (/(어떻게|왜|질문\s*(?:방법|키포인트|포인트)|알려|궁금)/i.test(candidate)) {
+    return 'question'
+  }
+  return 'product_or_subject'
+}
+
+function parseRegexSignals(userMessage = '') {
+  const text = String(userMessage || '').trim()
+  const compact = text.replace(/\s+/g, '')
+  const mentionedSections = inferRequestedSections(text)
+  const explicitLocks = detectExplicitPreserveSections(text)
+  const targetDurationSeconds = extractTargetDurationSeconds(text)
+
+  return {
+    hasEditVerb:
+      /(고쳐|수정|바꿔|바꾸|변경|다듬|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|정리|압축|추가|넣어|빼줘|삭제|교체|짜줘|짜줄래|다시\s*짜|리라이트|rewrite|edit|revise|fix)/i.test(
+        text,
+      ),
+    maybeTopicChange:
+      EXPLICIT_TOPIC_REFRAME_MARKER_PATTERN.test(text) &&
+      /(바꿔|바꾸|변경|전환|다시\s*(?:짜|써|작성|만들)|가자|주제|소재|상품|제품|아이템)/i.test(text),
+    mentionedSections,
+    explicitLocks,
+    hasDurationCompress: Boolean(targetDurationSeconds),
+    targetDurationSeconds,
+    hasReplyLikeExpression: isApplyPreviousAdviceRequest(text),
+    hasQuestionIntent:
+      /(어떻게|왜|뭐가|질문|방법|알려|궁금|어때|괜찮|피드백|조언|평가|점수|광고\s*같|판매\s*같|별로|문제|약한가|약해|반응\s*올|안\s*끌리)/i.test(
+        text,
+      ),
+    compactLength: compact.length,
+  }
 }
 
 function buildForbiddenSurfacePhrases(oldSubjects = []) {
@@ -1090,7 +1288,7 @@ function extractTopicReframeMaterials(request = '', newSubject = '') {
   return uniqueCompactList(chunks, 6)
 }
 
-export function parseEditInstruction(request = '', intentResult = {}) {
+function parseLegacyEditInstruction(request = '', intentResult = {}) {
   const text = String(request || '').trim()
   const targetDurationSeconds =
     normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) || extractTargetDurationSeconds(text)
@@ -1290,6 +1488,426 @@ export function parseEditInstruction(request = '', intentResult = {}) {
   return instruction
 }
 
+function normalizeSemanticOperation(operation = {}) {
+  if (!operation || typeof operation !== 'object') {
+    return null
+  }
+  const type = normalizeOperationType(operation.type || operation.operationType || COPILOT_OPERATION_TYPES.UNKNOWN)
+  const rawTarget = String(operation.target || operation.section || 'all').trim().toLowerCase()
+  const target = SECTION_KEYS.includes(rawTarget) ? rawTarget : 'all'
+  const confidence = Math.max(0, Math.min(1, Number(operation.confidence || 0)))
+
+  return {
+    type,
+    target,
+    goal: cleanRequestedPhrase(operation.goal || operation.instruction || operation.problem || ''),
+    styleTarget: cleanRequestedPhrase(operation.styleTarget || ''),
+    evidence: cleanRequestedPhrase(operation.evidence || ''),
+    confidence,
+  }
+}
+
+function normalizeSemanticLock(lock = {}) {
+  if (!lock || typeof lock !== 'object') {
+    return null
+  }
+  const rawTarget = String(lock.target || lock.section || '').trim().toLowerCase()
+  const target = SECTION_KEYS.includes(rawTarget) ? rawTarget : 'all'
+  const lockType = ['keep_exact', 'preserve_meaning', 'do_not_touch'].includes(lock.lockType)
+    ? lock.lockType
+    : 'do_not_touch'
+
+  return {
+    target,
+    lockType,
+    evidence: cleanRequestedPhrase(lock.evidence || ''),
+  }
+}
+
+const SECTION_MENTION_PATTERN =
+  /(HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|내용|CTA|씨티에이|마무리|끝\s*문장|콜투액션)/gi
+
+function sectionFromSurfaceLabel(label = '') {
+  const value = String(label || '').replace(/\s+/g, '').toLowerCase()
+  if (/^(hook|훅|후크|후킹|첫문장)$/.test(value)) return 'hook'
+  if (/^(body|바디|본문|내용)$/.test(value)) return 'body'
+  if (/^(cta|씨티에이|마무리|끝문장|콜투액션)$/.test(value)) return 'cta'
+  return ''
+}
+
+function inferSectionOperationType(section = 'all', clause = '') {
+  const text = String(clause || '')
+  if (/존댓말|존대|반말|해요체|하십시오체|합니다체|말투|어미|문체|톤|친근|공손|부드럽|딱딱|자연스럽|말하듯|구어체/i.test(text)) {
+    return COPILOT_OPERATION_TYPES.TONE_ADJUST
+  }
+  if (section === 'cta' && /구매\s*말고|구매\s*압박|상담|저장|댓글|신청|링크|행동\s*이유|유도/i.test(text)) {
+    return COPILOT_OPERATION_TYPES.CTA_REFRAME
+  }
+  if (/공감|해소|해결|불편|고민|관점|흐름|전개|감정선|후기|경험담|만족|혜택/i.test(text)) {
+    return COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+  }
+  if (/넣어|추가|포함|삽입/i.test(text)) {
+    return COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+  }
+  return COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
+}
+
+function extractSectionScopedOperations(text = '') {
+  const source = String(text || '').trim()
+  if (!source) {
+    return []
+  }
+
+  const matches = []
+  for (const match of source.matchAll(SECTION_MENTION_PATTERN)) {
+    const section = sectionFromSurfaceLabel(match[0])
+    if (section) {
+      matches.push({
+        section,
+        index: match.index ?? 0,
+        label: match[0],
+      })
+    }
+  }
+
+  if (!matches.length) {
+    return []
+  }
+
+  const operations = matches
+    .map((match, index) => {
+      const next = matches[index + 1]
+      const clause = source
+        .slice(match.index, next ? next.index : source.length)
+        .replace(SECTION_MENTION_PATTERN, (value) => (sectionFromSurfaceLabel(value) === match.section ? '' : value))
+        .replace(/^(?:은|는|을|를|만|도|에|으로|로|:|：|\s)+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const goal = cleanRequestedPhrase(clause) || `${SECTION_LABELS[match.section]} 수정`
+      const type = inferSectionOperationType(match.section, clause)
+      return {
+        type,
+        target: match.section,
+        goal,
+        styleTarget: type === COPILOT_OPERATION_TYPES.TONE_ADJUST ? extractStyleTarget(clause) || goal : '',
+        evidence: cleanRequestedPhrase(source.slice(match.index, next ? next.index : source.length)),
+        confidence: 0.84,
+      }
+    })
+    .filter((operation) => operation.goal)
+
+  const seen = new Set()
+  const output = []
+  for (const operation of operations) {
+    const key = `${operation.target}:${operation.type}:${operation.goal}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    output.push(operation)
+    if (output.length >= 8) {
+      break
+    }
+  }
+  return output
+}
+
+function operationTypeFromLegacyInstruction(legacyInstruction = {}) {
+  const operationType = normalizeOperationType(legacyInstruction.operationType)
+  if (operationType && operationType !== COPILOT_OPERATION_TYPES.UNKNOWN) {
+    return operationType
+  }
+  if (legacyInstruction.newSubject) {
+    return COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+  }
+  if (legacyInstruction.requestedMaterials?.length) {
+    return COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+  }
+  return COPILOT_OPERATION_TYPES.UNKNOWN
+}
+
+function buildSemanticInstructionFromLegacy({
+  request = '',
+  intentResult = {},
+  regexSignals = null,
+  legacyInstruction = null,
+} = {}) {
+  const text = String(request || '').trim()
+  const signals = regexSignals || parseRegexSignals(text)
+  const legacy = legacyInstruction || parseLegacyEditInstruction(text, intentResult)
+  const legacyOperationType = operationTypeFromLegacyInstruction(legacy)
+  const isAmbiguousToneComplaint =
+    legacyOperationType === COPILOT_OPERATION_TYPES.TONE_ADJUST && !signals.hasEditVerb && signals.hasQuestionIntent
+  const operationType = isAmbiguousToneComplaint ? COPILOT_OPERATION_TYPES.UNKNOWN : legacyOperationType
+  const newSubject = cleanRequestedPhrase(legacy.newSubject || '')
+  const topicRequested = operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME && Boolean(newSubject)
+  const operationTarget = normalizeEditTarget(intentResult.editTarget || '', text)
+  const targetSections = signals.mentionedSections.length
+    ? signals.mentionedSections
+    : operationTarget && operationTarget !== 'all'
+      ? getTargetSections(operationTarget)
+      : ['all']
+  const locks = signals.explicitLocks.map((target) =>
+    normalizeSemanticLock({
+      target,
+      lockType: 'do_not_touch',
+      evidence: text,
+    }),
+  )
+  const sectionScopedOperations = extractSectionScopedOperations(text)
+
+  const operation = normalizeSemanticOperation({
+    type: operationType,
+    target: targetSections.length === 1 && SECTION_KEYS.includes(targetSections[0]) ? targetSections[0] : 'all',
+    goal:
+      operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+        ? `새 주제 "${newSubject}" 중심으로 재구성`
+        : operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+          ? `요청 소재 반영: ${(legacy.requestedMaterials || []).join(', ')}`
+          : operationType === COPILOT_OPERATION_TYPES.TONE_ADJUST
+            ? legacy.toneHint || extractStyleTarget(text) || '말투 조정'
+            : operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+              ? legacy.toneHint || extractFramingRewriteHint(text)
+              : operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+                ? `${signals.targetDurationSeconds || ''}초 기준 압축`
+                : '요청 표현 수정',
+    styleTarget: legacy.toneHint || '',
+    evidence: text,
+    confidence: intentResult.confidence || legacy.confidence || 0.75,
+  })
+
+  const semanticInstruction = {
+    intent: isAmbiguousToneComplaint
+      ? 'ask_advice'
+      : signals.hasReplyLikeExpression
+      ? 'apply_feedback'
+      : signals.hasEditVerb || operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
+        ? 'edit_script'
+        : signals.hasQuestionIntent
+          ? 'ask_advice'
+          : 'unknown',
+    confidence: Math.max(0, Math.min(1, Number(intentResult.confidence || legacy.confidence || 0.72))),
+    topicChange: {
+      requested: topicRequested,
+      oldSubject: legacy.oldSubjectToRemove?.[0] || null,
+      oldSubjects: legacy.oldSubjectToRemove || [],
+      newSubject: topicRequested ? newSubject : null,
+      confidence: topicRequested ? Math.max(0.6, Number(intentResult.confidence || legacy.confidence || 0.78)) : 0,
+      evidence: topicRequested ? text : null,
+    },
+    operations: operation ? [operation] : [],
+    locks: locks.filter(Boolean),
+    replyReference: {
+      hasReplyTarget: Boolean(intentResult.replyToMessageId || intentResult.previousAdvice),
+      sourceType: intentResult.previousAdvice ? 'advice' : '',
+      sourceMessageId: String(intentResult.replyToMessageId || ''),
+      inheritedOperations: normalizePreviousAdvice(intentResult.previousAdvice)?.operations || [],
+    },
+    userFacingNeed: signals.hasQuestionIntent && !signals.hasEditVerb ? 'answer_question' : 'modify_script',
+    clarificationQuestion: null,
+    legacyInstruction: legacy,
+    regexSignals: signals,
+  }
+  const normalizedSectionOperations = sectionScopedOperations
+    .map(normalizeSemanticOperation)
+    .filter(Boolean)
+    .filter((sectionOperation) => sectionOperation.type !== COPILOT_OPERATION_TYPES.UNKNOWN)
+
+  if (!topicRequested && normalizedSectionOperations.length) {
+    semanticInstruction.operations = normalizedSectionOperations
+  }
+
+  return semanticInstruction
+}
+
+function downgradeInvalidTopicInstruction(instruction = {}, candidate = '') {
+  const meaning = classifyCandidateMeaning(candidate)
+  const nextType =
+    meaning === 'tone'
+      ? COPILOT_OPERATION_TYPES.TONE_ADJUST
+      : meaning === 'question'
+        ? COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
+        : COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+  const nextGoal =
+    nextType === COPILOT_OPERATION_TYPES.TONE_ADJUST
+      ? cleanRequestedPhrase(candidate) || '말투 조정'
+      : cleanRequestedPhrase(candidate) || '전개 방식 조정'
+
+  return {
+    ...instruction,
+    topicChange: {
+      ...(instruction.topicChange || {}),
+      requested: false,
+      newSubject: null,
+      confidence: 0,
+      evidence: null,
+    },
+    operations: (instruction.operations?.length ? instruction.operations : [{}]).map((operation, index) =>
+      index === 0
+        ? {
+            ...operation,
+            type: nextType,
+            goal: operation.goal || nextGoal,
+            styleTarget: nextType === COPILOT_OPERATION_TYPES.TONE_ADJUST ? nextGoal : operation.styleTarget || '',
+          }
+        : operation,
+    ),
+  }
+}
+
+function validateSemanticEditInstruction(instruction = {}) {
+  const normalized = instruction && typeof instruction === 'object' ? instruction : {}
+  let next = {
+    intent: ['edit_script', 'apply_feedback', 'ask_advice', 'unknown'].includes(normalized.intent)
+      ? normalized.intent
+      : 'unknown',
+    confidence: Math.max(0, Math.min(1, Number(normalized.confidence || 0))),
+    topicChange: {
+      requested: Boolean(normalized.topicChange?.requested),
+      oldSubject: cleanRequestedPhrase(normalized.topicChange?.oldSubject || '') || null,
+      oldSubjects: uniqueCompactList(normalized.topicChange?.oldSubjects || [], 8),
+      newSubject: cleanRequestedPhrase(normalized.topicChange?.newSubject || '') || null,
+      confidence: Math.max(0, Math.min(1, Number(normalized.topicChange?.confidence || 0))),
+      evidence: cleanRequestedPhrase(normalized.topicChange?.evidence || '') || null,
+    },
+    operations: Array.isArray(normalized.operations)
+      ? normalized.operations.map(normalizeSemanticOperation).filter(Boolean).slice(0, 8)
+      : [],
+    locks: Array.isArray(normalized.locks)
+      ? normalized.locks.map(normalizeSemanticLock).filter(Boolean).slice(0, 5)
+      : [],
+    replyReference: normalized.replyReference || { hasReplyTarget: false },
+    userFacingNeed: ['modify_script', 'answer_question', 'clarify'].includes(normalized.userFacingNeed)
+      ? normalized.userFacingNeed
+      : 'modify_script',
+    clarificationQuestion: normalized.clarificationQuestion || null,
+    legacyInstruction: normalized.legacyInstruction || {},
+    regexSignals: normalized.regexSignals || {},
+  }
+
+  const candidate = next.topicChange.newSubject || ''
+  if (next.topicChange.requested && (!candidate || isInvalidNewSubjectCandidate(candidate))) {
+    next = downgradeInvalidTopicInstruction(next, candidate)
+  }
+
+  const hasTopicOperation = next.operations.some((operation) => operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  if (hasTopicOperation && (!next.topicChange.requested || !next.topicChange.newSubject)) {
+    next = downgradeInvalidTopicInstruction(next, candidate)
+  }
+
+  if (next.operations.length) {
+    next.operations = next.operations.map((operation) => {
+      if (operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME && isInvalidNewSubjectCandidate(next.topicChange.newSubject || '')) {
+        return {
+          ...operation,
+          type: COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
+          goal: operation.goal || '전개 방식 조정',
+        }
+      }
+      return operation
+    })
+  }
+
+  if (!next.operations.length && next.userFacingNeed === 'modify_script') {
+    next.operations = [
+      {
+        type: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+        target: 'all',
+        goal: '요청 표현 수정',
+        styleTarget: '',
+        evidence: '',
+        confidence: 0.5,
+      },
+    ]
+  }
+
+  return next
+}
+
+function resolveSemanticInstructionConflicts(instruction = {}) {
+  const normalized = validateSemanticEditInstruction(instruction)
+  const lockedTargets = new Set(
+    normalized.locks
+      .filter((lock) => lock.lockType === 'do_not_touch' || lock.lockType === 'keep_exact')
+      .map((lock) => lock.target),
+  )
+
+  if (!lockedTargets.size) {
+    return normalized
+  }
+
+  const operations = normalized.operations.filter((operation) => {
+    if (operation.target === 'all') {
+      return !lockedTargets.has('all')
+    }
+    return !lockedTargets.has(operation.target) && !lockedTargets.has('all')
+  })
+
+  return {
+    ...normalized,
+    operations: operations.length ? operations : normalized.operations,
+  }
+}
+
+function parseSemanticEditInstruction({ userMessage = '', intentResult = {} } = {}) {
+  const regexSignals = parseRegexSignals(userMessage)
+  const legacyInstruction = parseLegacyEditInstruction(userMessage, intentResult)
+  return resolveSemanticInstructionConflicts(
+    buildSemanticInstructionFromLegacy({
+      request: userMessage,
+      intentResult,
+      regexSignals,
+      legacyInstruction,
+    }),
+  )
+}
+
+function semanticInstructionToLegacyInstruction(semanticInstruction = {}) {
+  const instruction = validateSemanticEditInstruction(semanticInstruction)
+  const primaryOperation = instruction.operations[0] || {}
+  const operationType = normalizeOperationType(primaryOperation.type || COPILOT_OPERATION_TYPES.UNKNOWN)
+  const legacy = instruction.legacyInstruction || {}
+  const explicitKeep = uniqueCompactList(
+    [
+      ...(legacy.explicitKeep || []),
+      ...instruction.locks
+        .filter((lock) => SECTION_KEYS.includes(lock.target))
+        .map((lock) => lock.target),
+    ],
+    8,
+  )
+
+  return {
+    operationType,
+    reframeScope: operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ? legacy.reframeScope || 'full' : '',
+    newSubject:
+      operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+        ? instruction.topicChange.newSubject || ''
+        : '',
+    oldSubjectToRemove:
+      operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+        ? uniqueCompactList(instruction.topicChange.oldSubjects || legacy.oldSubjectToRemove || [], 8)
+        : legacy.oldSubjectToRemove || [],
+    forbiddenSurfacePhrases: legacy.forbiddenSurfacePhrases || [],
+    requestedMaterials: legacy.requestedMaterials || [],
+    salesContext: legacy.salesContext || '',
+    toneHint: legacy.toneHint || primaryOperation.styleTarget || '',
+    explicitKeep,
+    explicitRemove: legacy.explicitRemove || [],
+    allowComparisonWithOldSubject: Boolean(legacy.allowComparisonWithOldSubject),
+    semanticInstruction: instruction,
+  }
+}
+
+export function parseEditInstruction(request = '', intentResult = {}) {
+  return semanticInstructionToLegacyInstruction(
+    parseSemanticEditInstruction({
+      userMessage: request,
+      intentResult,
+    }),
+  )
+}
+
 function extractRequestedNewSubject(request = '') {
   const text = String(request || '').trim()
   if (isStyleAdjustmentRequest(text) || isFramingRewriteRequest(text)) {
@@ -1308,7 +1926,12 @@ function extractRequestedNewSubject(request = '') {
   for (const pattern of patterns) {
     const match = text.match(pattern)
     const subject = cleanRequestedPhrase(match?.[1] || '')
-    if (subject && subject.length <= 80 && !STYLE_KEYWORD_PATTERN.test(subject) && !/말\s*되게|세게|강하게|짧게|길게/i.test(subject)) {
+    if (
+      subject &&
+      subject.length <= 80 &&
+      !isInvalidNewSubjectCandidate(subject) &&
+      classifyCandidateMeaning(subject) === 'product_or_subject'
+    ) {
       return subject
     }
   }
@@ -1566,6 +2189,137 @@ function formatCopilotMemoryForPrompt(memory = {}) {
   ].join('\n')
 }
 
+function operationTargetSections(operation = {}) {
+  const target = String(operation?.target || '').trim().toLowerCase()
+  if (SECTION_KEYS.includes(target)) {
+    return [target]
+  }
+  if (target === 'all') {
+    return SECTION_KEYS
+  }
+  return []
+}
+
+function semanticOperationTargetSections(operations = []) {
+  const sections = []
+  for (const operation of Array.isArray(operations) ? operations : []) {
+    sections.push(...operationTargetSections(operation))
+  }
+  return uniqueCompactList(sections.filter((section) => SECTION_KEYS.includes(section)), 3)
+}
+
+function normalizeResolvedEditOperation(operation = {}, { source = 'semantic', fallbackType = COPILOT_OPERATION_TYPES.PARTIAL_REWRITE } = {}) {
+  if (!operation || typeof operation !== 'object') {
+    return null
+  }
+  const type = normalizeOperationType(operation.type || operation.operationType || fallbackType)
+  const target = String(operation.target || operation.section || 'all').trim().toLowerCase()
+  const normalizedTarget = SECTION_KEYS.includes(target) ? target : 'all'
+  const instruction = cleanRequestedPhrase(operation.instruction || operation.goal || operation.problem || operation.action || '')
+  const goal = cleanRequestedPhrase(operation.goal || operation.instruction || operation.problem || '')
+
+  if (type === COPILOT_OPERATION_TYPES.UNKNOWN && !instruction && !goal) {
+    return null
+  }
+
+  return {
+    type: type === COPILOT_OPERATION_TYPES.UNKNOWN ? fallbackType : type,
+    target: normalizedTarget,
+    goal: goal || instruction || '요청 범위 안에서 표현 개선',
+    instruction: instruction || goal || '요청 범위 안에서 표현과 흐름을 개선한다.',
+    styleTarget: cleanRequestedPhrase(operation.styleTarget || ''),
+    problem: cleanRequestedPhrase(operation.problem || ''),
+    preserve: uniqueCompactList(operation.preserve || [], 5),
+    avoid: uniqueCompactList(operation.avoid || [], 6),
+    priority: String(operation.priority || '').trim() || (source === 'previousAdvice' ? 'high' : 'medium'),
+    source,
+    evidence: cleanRequestedPhrase(operation.evidence || ''),
+  }
+}
+
+function buildResolvedEditOperations({
+  semanticOperations = [],
+  previousOperations = [],
+  operationType = COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+  targetSections = SECTION_KEYS,
+  request = '',
+  toneHint = '',
+  requestedMaterials = [],
+  newSubject = '',
+} = {}) {
+  const output = []
+  const targetSet = new Set(targetSections.filter((section) => SECTION_KEYS.includes(section)))
+  const addOperation = (operation, source) => {
+    const normalized = normalizeResolvedEditOperation(operation, { source, fallbackType: operationType })
+    if (!normalized) {
+      return
+    }
+    const operationTargets = normalized.target === 'all'
+      ? targetSet.size
+        ? [...targetSet]
+        : SECTION_KEYS
+      : [normalized.target]
+    for (const target of operationTargets) {
+      if (!SECTION_KEYS.includes(target) || (targetSet.size && !targetSet.has(target))) {
+        continue
+      }
+      output.push({
+        ...normalized,
+        target,
+      })
+    }
+  }
+
+  for (const operation of previousOperations) {
+    addOperation(operation, 'previousAdvice')
+  }
+  for (const operation of semanticOperations) {
+    addOperation(operation, 'semantic')
+  }
+
+  if (!output.length) {
+    for (const section of targetSet.size ? [...targetSet] : SECTION_KEYS) {
+      output.push({
+        type: operationType || COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+        target: section,
+        goal:
+          operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+            ? `새 주제 "${newSubject || '사용자 지정 주제'}" 기준으로 ${SECTION_LABELS[section]} 재구성`
+            : operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL
+              ? `요청 소재 반영: ${requestedMaterials.join(', ') || '사용자 지정 소재'}`
+              : operationType === COPILOT_OPERATION_TYPES.TONE_ADJUST
+                ? `말투 조정: ${toneHint || '사용자 지정 말투'}`
+                : operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+                  ? `${SECTION_LABELS[section]} 압축`
+                  : `${SECTION_LABELS[section]} 표현 개선`,
+        instruction:
+          operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+            ? `${SECTION_LABELS[section]}는 목표 초수에 맞춰 삭제 중심으로 압축하되 완결 문장으로 유지한다.`
+            : `${SECTION_LABELS[section]}는 현재 사용자 요청 "${request.slice(0, 80)}"의 핵심 변경점을 반영한다.`,
+        styleTarget: toneHint,
+        problem: '',
+        preserve: [],
+        avoid: [],
+        priority: 'medium',
+        source: 'fallback',
+        evidence: request,
+      })
+    }
+  }
+
+  const seen = new Set()
+  return output
+    .filter((operation) => {
+      const key = `${operation.source}:${operation.target}:${operation.type}:${operation.instruction}`
+      if (seen.has(key)) {
+        return false
+      }
+      seen.add(key)
+      return true
+    })
+    .slice(0, 10)
+}
+
 export function buildEditPlan({
   userRequest = '',
   currentSections,
@@ -1574,6 +2328,7 @@ export function buildEditPlan({
   copilotMemory = {},
   targetDurationSeconds = null,
   previousAdvice = null,
+  semanticInstruction = null,
 } = {}) {
   const request = String(userRequest || '').trim()
   const sections = normalizeSections(currentSections)
@@ -1584,7 +2339,20 @@ export function buildEditPlan({
     normalizeTargetDurationSeconds(targetDurationSeconds) ||
     normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) ||
     extractTargetDurationSeconds(request)
-  const structuredEditInstruction = parseEditInstruction(request, intentResult)
+  const validatedSemanticInstruction = resolveSemanticInstructionConflicts(
+    semanticInstruction ||
+      intentResult.semanticInstruction ||
+      parseSemanticEditInstruction({
+        userMessage: request,
+        intentResult,
+      }),
+  )
+  const primarySemanticOperation = validatedSemanticInstruction.operations?.[0] || {}
+  const semanticTarget = SECTION_KEYS.includes(primarySemanticOperation.target)
+    ? primarySemanticOperation.target
+    : ''
+  const semanticTargetSections = semanticOperationTargetSections(validatedSemanticInstruction.operations || [])
+  const structuredEditInstruction = semanticInstructionToLegacyInstruction(validatedSemanticInstruction)
   const isDurationCompress =
     Boolean(durationTarget) ||
     intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
@@ -1594,14 +2362,22 @@ export function buildEditPlan({
     : ''
   const normalizedTarget = isDurationCompress
     ? 'all'
-    : normalizeEditTarget(intentResult.editTarget || previousAdviceTarget || editTarget, request)
-  const explicitPreserveSections = detectExplicitPreserveSections(request)
+    : normalizeEditTarget(previousAdviceTarget || semanticTarget || intentResult.editTarget || editTarget, request)
+  const semanticPreserveSections = validatedSemanticInstruction.locks
+    .filter((lock) => SECTION_KEYS.includes(lock.target))
+    .map((lock) => lock.target)
+  const explicitPreserveSections = uniqueCompactList(
+    [...detectExplicitPreserveSections(request), ...semanticPreserveSections],
+    3,
+  )
   const explicitPreserveSet = new Set(explicitPreserveSections)
   let targetSections = isApplyingPreviousAdvice
     ? previousAdviceOperationTargetSections(normalizedPreviousAdvice).length
       ? previousAdviceOperationTargetSections(normalizedPreviousAdvice)
       : previousAdviceTargetSections(normalizedPreviousAdvice, normalizedTarget)
-    : getTargetSections(normalizedTarget)
+    : semanticTargetSections.length
+      ? semanticTargetSections
+      : getTargetSections(normalizedTarget)
   if (explicitPreserveSet.size) {
     const filteredTargets = targetSections.filter((key) => !explicitPreserveSet.has(key))
     targetSections = filteredTargets.length ? filteredTargets : SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
@@ -1609,25 +2385,16 @@ export function buildEditPlan({
   let targetSet = new Set(targetSections)
   let preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
   const memory = normalizeCopilotMemory(copilotMemory)
-  const semanticInstruction = normalizeSemanticEditInstruction(intentResult.structuredEditInstruction || intentResult, request)
-  const rawNewSubjectCandidate = cleanRequestedPhrase(
-    structuredEditInstruction.newSubject || semanticInstruction.newSubject || intentResult.newSubject || extractRequestedNewSubject(request),
-  )
+  const rawNewSubjectCandidate = cleanRequestedPhrase(structuredEditInstruction.newSubject)
   const detectedNewSubject = isInvalidNewSubjectCandidate(rawNewSubjectCandidate) ? '' : rawNewSubjectCandidate
   const requestedMaterials = uniqueCompactList(
-    Array.isArray(intentResult.requestedMaterials) && intentResult.requestedMaterials.length
-      ? intentResult.requestedMaterials.map((item) => cleanRequestedPhrase(item))
-      : structuredEditInstruction.requestedMaterials?.length
-        ? structuredEditInstruction.requestedMaterials
-        : extractRequestedMaterials(request, detectedNewSubject),
+    structuredEditInstruction.requestedMaterials?.length
+      ? structuredEditInstruction.requestedMaterials
+      : [],
     8,
   )
-  const salesContext = cleanRequestedPhrase(
-    structuredEditInstruction.salesContext || intentResult.salesContext || extractSalesContext(request),
-  )
-  const toneHint = cleanRequestedPhrase(
-    structuredEditInstruction.toneHint || intentResult.toneHint || extractToneHint(request),
-  )
+  const salesContext = cleanRequestedPhrase(structuredEditInstruction.salesContext || '')
+  const toneHint = cleanRequestedPhrase(structuredEditInstruction.toneHint || primarySemanticOperation.styleTarget || '')
   const structuredOperationType =
     structuredEditInstruction.operationType && structuredEditInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
       ? structuredEditInstruction.operationType
@@ -1635,20 +2402,20 @@ export function buildEditPlan({
   const oldSubjectToRemove = uniqueCompactList(
     [
       ...(structuredEditInstruction.oldSubjectToRemove || []),
-      ...(semanticInstruction.oldSubjectToRemove || []),
+      ...(validatedSemanticInstruction.topicChange?.oldSubjects || []),
+      validatedSemanticInstruction.topicChange?.oldSubject || '',
     ],
     8,
   )
   const forbiddenSurfacePhrases = uniqueCompactList(
     [
       ...(structuredEditInstruction.forbiddenSurfacePhrases || []),
-      ...(semanticInstruction.forbiddenSurfacePhrases || []),
       ...buildForbiddenSurfacePhrases(oldSubjectToRemove),
     ],
     24,
   )
   const allowComparisonWithOldSubject = Boolean(
-    structuredEditInstruction.allowComparisonWithOldSubject || semanticInstruction.allowComparisonWithOldSubject,
+    structuredEditInstruction.allowComparisonWithOldSubject,
   )
   const applicablePreviousOperations =
     isApplyingPreviousAdvice && normalizedPreviousAdvice?.operations?.length
@@ -1661,10 +2428,7 @@ export function buildEditPlan({
     : isApplyingPreviousAdvice && !structuredOperationType && !detectedNewSubject && !requestedMaterials.length
       ? COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
     : structuredOperationType ||
-    intentResult.operationType ||
-    (detectedNewSubject
-      ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
-      : requestedMaterials.length
+      (requestedMaterials.length
         ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
         : COPILOT_OPERATION_TYPES.EDIT_PARTIAL)
   if (
@@ -1683,6 +2447,16 @@ export function buildEditPlan({
     targetSet = new Set(targetSections)
     preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
   }
+  const resolvedOperations = buildResolvedEditOperations({
+    semanticOperations: validatedSemanticInstruction.operations || [],
+    previousOperations: applicablePreviousOperations,
+    operationType,
+    targetSections,
+    request,
+    toneHint,
+    requestedMaterials,
+    newSubject: detectedNewSubject,
+  })
   const reframeScope =
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
       ? targetSections.length === SECTION_KEYS.length && !explicitPreserveSet.size
@@ -1761,6 +2535,25 @@ export function buildEditPlan({
       )
     }
     avoid.push('직전 조언의 문장을 대본에 그대로 복사하기')
+  }
+
+  if (resolvedOperations.length) {
+    for (const operation of resolvedOperations) {
+      const sectionLabel = SECTION_LABELS[operation.target] || '전체'
+      change.push(`${sectionLabel} 작업: ${operation.instruction || operation.goal}`)
+      if (operation.goal && operation.goal !== operation.instruction) {
+        change.push(`${sectionLabel} 목표: ${operation.goal}`)
+      }
+      if (operation.styleTarget) {
+        preserve.push(`${sectionLabel} 스타일 지시: ${operation.styleTarget}`)
+      }
+      if (operation.preserve?.length) {
+        preserve.push(...operation.preserve.map((item) => `${sectionLabel} 기준 유지: ${item}`))
+      }
+      if (operation.avoid?.length) {
+        avoid.push(...operation.avoid.map((item) => `${sectionLabel} 금지: ${item}`))
+      }
+    }
   }
 
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
@@ -1926,6 +2719,10 @@ export function buildEditPlan({
     previousAdvice: normalizedPreviousAdvice,
     previousAdviceApplied: isApplyingPreviousAdvice,
     structuredEditInstruction,
+    semanticInstruction: validatedSemanticInstruction,
+    semanticOperations: validatedSemanticInstruction.operations || [],
+    operations: resolvedOperations,
+    resolvedOperations,
     carryOverStrategy: {
       preserveReferenceStructure: true,
       preserveTone: true,
@@ -1942,6 +2739,7 @@ export function buildEditPlan({
     mustChange: uniqueCompactList(
       [
         ...(guardrails.mustChange || []),
+        ...resolvedOperations.map((operation) => `${SECTION_LABELS[operation.target]}: ${operation.instruction || operation.goal}`),
         ...(isApplyingPreviousAdvice && normalizedPreviousAdvice
           ? [
               ...normalizedPreviousAdvice.instructions,
@@ -1968,6 +2766,169 @@ export function buildEditPlan({
   }
 }
 
+export function buildEditPlanFromInstruction(args = {}) {
+  const semanticInstruction =
+    args.semanticInstruction ||
+    args.validatedInstruction ||
+    args.instruction ||
+    null
+
+  if (semanticInstruction) {
+    return buildEditPlan({
+      ...args,
+      semanticInstruction,
+    })
+  }
+
+  return buildEditPlan(args)
+}
+
+const QA_FAILURE_RECOVERY_TRIGGER_ISSUES = new Set([
+  'instruction_leakage',
+  'forbidden_phrase_leakage',
+  'mixed_subject_contamination',
+  'reference_contamination',
+  'edit_plan_not_followed',
+  'operation_not_applied',
+])
+
+export function buildQaFailureRecoveryEditPlan({
+  userRequest = '',
+  currentSections = {},
+  intentResult = {},
+  editTarget = '',
+  copilotMemory = {},
+  targetDurationSeconds = null,
+  previousAdvice = null,
+  editPlan = null,
+  qaResult = null,
+  ruleCheck = null,
+} = {}) {
+  if (!editPlan || editPlan.operationType !== COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
+    return null
+  }
+
+  const issueTypes = uniqueCompactList(
+    [
+      ...(Array.isArray(qaResult?.issueTypes) ? qaResult.issueTypes : []),
+      ...(Array.isArray(qaResult?.issues) ? qaResult.issues.map((issue) => issue?.type).filter(Boolean) : []),
+      ...(Array.isArray(ruleCheck?.issueTypes) ? ruleCheck.issueTypes : []),
+      ...(Array.isArray(ruleCheck?.issues) ? ruleCheck.issues.map((issue) => issue?.type).filter(Boolean) : []),
+    ],
+    16,
+  )
+  const candidate = cleanRequestedPhrase(
+    editPlan.newSubject ||
+      editPlan.structuredEditInstruction?.newSubject ||
+      editPlan.semanticInstruction?.topicChange?.newSubject ||
+      '',
+  )
+  const candidateMeaning = classifyCandidateMeaning(candidate)
+  const topicConfidence = Number(
+    editPlan.semanticInstruction?.topicChange?.confidence ||
+      editPlan.structuredEditInstruction?.confidence ||
+      0,
+  )
+  const hasRecoveryIssue = issueTypes.some((type) => QA_FAILURE_RECOVERY_TRIGGER_ISSUES.has(type))
+  const looksLikeInstruction =
+    !candidate ||
+    isInvalidNewSubjectCandidate(candidate) ||
+    ['framing', 'tone', 'question', 'section_name'].includes(candidateMeaning)
+  const lowConfidenceInstruction = topicConfidence > 0 && topicConfidence < 0.62 && hasRecoveryIssue
+
+  if (!looksLikeInstruction && !lowConfidenceInstruction) {
+    return null
+  }
+
+  const fallbackType =
+    candidateMeaning === 'tone'
+      ? COPILOT_OPERATION_TYPES.TONE_ADJUST
+      : COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+  const targetSections = Array.isArray(editPlan.targetSections) && editPlan.targetSections.length
+    ? editPlan.targetSections.filter((section) => SECTION_KEYS.includes(section))
+    : SECTION_KEYS
+  const operationTarget = targetSections.length === 1 ? targetSections[0] : 'all'
+  const hint =
+    candidate ||
+    editPlan.toneHint ||
+    extractFramingRewriteHint(userRequest) ||
+    '사용자 요청의 흐름과 표현 방향'
+  const locks = uniqueCompactList(editPlan.preserveSections || [], 3)
+    .filter((section) => SECTION_KEYS.includes(section))
+    .map((target) => ({
+      target,
+      lockType: 'do_not_touch',
+      evidence: '기존 editPlan preserveSections',
+    }))
+  const semanticInstruction = {
+    intent: 'edit_script',
+    confidence: 0.76,
+    topicChange: {
+      requested: false,
+      oldSubject: null,
+      oldSubjects: [],
+      newSubject: null,
+      confidence: 0,
+      evidence: null,
+    },
+    operations: [
+      {
+        type: fallbackType,
+        target: operationTarget,
+        goal:
+          fallbackType === COPILOT_OPERATION_TYPES.TONE_ADJUST
+            ? `${hint} 말투로 조정`
+            : `주제/상품은 유지하고 ${hint} 방향으로 전개를 다시 정리`,
+        styleTarget: fallbackType === COPILOT_OPERATION_TYPES.TONE_ADJUST ? hint : '',
+        evidence: userRequest,
+        confidence: 0.76,
+      },
+    ],
+    locks,
+    replyReference: editPlan.semanticInstruction?.replyReference || { hasReplyTarget: false },
+    userFacingNeed: 'modify_script',
+    clarificationQuestion: null,
+    legacyInstruction: {
+      operationType: fallbackType,
+      newSubject: '',
+      requestedMaterials: [],
+      toneHint: hint,
+      explicitKeep: editPlan.preserveSections || [],
+    },
+    regexSignals: editPlan.semanticInstruction?.regexSignals || parseRegexSignals(userRequest),
+  }
+
+  const recoveryPlan = buildEditPlanFromInstruction({
+    userRequest,
+    currentSections,
+    intentResult: {
+      ...intentResult,
+      operationType: fallbackType,
+      newSubject: '',
+      requestedMaterials: [],
+      semanticInstruction,
+    },
+    editTarget: editTarget || editPlan.editTarget || '',
+    copilotMemory,
+    targetDurationSeconds,
+    previousAdvice,
+    semanticInstruction,
+  })
+
+  return {
+    ...recoveryPlan,
+    recovery: {
+      downgradedFrom: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      downgradedTo: fallbackType,
+      reason: looksLikeInstruction
+        ? 'newSubject 후보가 상품/소재가 아니라 전개/톤 지시로 판단됨'
+        : '저신뢰 주제 변경이 QA 실패와 함께 감지됨',
+      originalNewSubject: candidate,
+      issueTypes,
+    },
+  }
+}
+
 function formatEditPlanForPrompt(editPlan = null) {
   if (!editPlan || typeof editPlan !== 'object') {
     return ''
@@ -1981,6 +2942,7 @@ function formatEditPlanForPrompt(editPlan = null) {
     editPlan.primaryGoal ? `- 핵심 목표: ${editPlan.primaryGoal}` : '',
     editPlan.revisionStyle ? `- 수정 방식: ${editPlan.revisionStyle}` : '',
     editPlan.sectionInstructions ? `- 섹션별 지시: ${JSON.stringify(editPlan.sectionInstructions)}` : '',
+    editPlan.operations?.length ? `- 섹션별 작업 목록: ${JSON.stringify(editPlan.operations)}` : '',
     editPlan.targetDurationSeconds
       ? `- 목표 압축 시간: ${editPlan.targetDurationSeconds}초${
           editPlan.targetCharRange ? ` (공백 제외 약 ${editPlan.targetCharRange.min}-${editPlan.targetCharRange.max}자)` : ''
@@ -2030,6 +2992,8 @@ function formatEditPlanForPrompt(editPlan = null) {
     '- previousAdviceApplied=true이면 이번 작업은 독립적인 새 수정 요청이 아니라 직전 코파일럿 조언을 실제 대본에 반영하는 작업이다.',
     '- previousAdviceApplied=true이면 "그렇게", "그 방향" 같은 사용자 표현 자체를 해석하지 말고 previousAdvice.instructions를 실행한다.',
     '- previousAdvice.operations가 있으면 instructions보다 더 구체적인 실행 목록으로 본다. 각 operation의 target/problem/instruction/preserve/avoid를 실제 수정 기준으로 따른다.',
+    '- operations[]가 있으면 operationType보다 더 구체적인 실행 목록으로 본다. 각 operation.target 섹션에만 해당 operation.instruction/goal/styleTarget을 반영한다.',
+    '- operations[] 안에 여러 섹션 작업이 있으면 각각 따로 처리한다. 한 섹션의 말투/전개/CTA 지시를 다른 섹션으로 퍼뜨리지 않는다.',
     '- 단, 이번 사용자 메시지에서 "HOOK은 그대로", "CTA만"처럼 명시한 조건은 previousAdvice보다 우선한다.',
     '- 사용자 원문은 의도 해석용 보조 정보다. 실제 대본 작성은 structured edit plan을 최우선으로 따른다.',
     '- raw user request의 표현을 대본 문장에 그대로 복사하지 않는다.',
@@ -2207,7 +3171,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
   const parsedInstruction = parseEditInstruction(text, {
     targetDurationSeconds,
   })
-  const newSubject = parsedInstruction.newSubject || extractRequestedNewSubject(text)
+  const newSubject = parsedInstruction.newSubject || ''
   const requestedMaterials = parsedInstruction.requestedMaterials?.length
     ? parsedInstruction.requestedMaterials
     : extractRequestedMaterials(text, newSubject)
@@ -2232,7 +3196,10 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
   const hasStructuredEditInstruction =
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ||
     operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL ||
-    operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+    operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
+    operationType === COPILOT_OPERATION_TYPES.TONE_ADJUST ||
+    operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE ||
+    operationType === COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
 
   if (hasStructuredEditInstruction) {
     return {
@@ -4097,6 +5064,13 @@ function buildFeedbackUserPrompt({
   const normalizedSections = normalizeSections(sections)
   const previousScore = Number(previousFeedback?.score)
   const hasPreviousFeedback = previousFeedback && typeof previousFeedback === 'object'
+  const appliedContext =
+    hasPreviousFeedback && previousFeedback.appliedFeedbackContext && typeof previousFeedback.appliedFeedbackContext === 'object'
+      ? previousFeedback.appliedFeedbackContext
+      : null
+  const appliedChangedSections = Array.isArray(appliedContext?.changedSections)
+    ? appliedContext.changedSections.filter(Boolean).join(', ')
+    : ''
   const previousFeedbackContext = hasPreviousFeedback
     ? [
         '[이전 피드백 반영 후 재평가 컨텍스트]',
@@ -4104,9 +5078,25 @@ function buildFeedbackUserPrompt({
         `이전 피드백 요약: ${compactReferenceSignal(previousFeedback.summary || '', 600) || '-'}`,
         `이전 피드백 문제: ${compactReferenceSignal(normalizeFeedbackList(previousFeedback.issues, 6).join(' / '), 900) || '-'}`,
         `이전 피드백 수정 방향: ${compactReferenceSignal(normalizeFeedbackList(previousFeedback.recommendations, 6).join(' / '), 900) || '-'}`,
+        appliedContext
+          ? `실제 적용된 섹션: ${appliedChangedSections || '-'}`
+          : '',
+        appliedContext?.sourceVerdict?.label
+          ? `이전 출고 판단: ${compactReferenceSignal(appliedContext.sourceVerdict.label, 120)}`
+          : '',
+        appliedContext?.sourceVerdict?.recommendedAction
+          ? `이전 권장 액션: ${compactReferenceSignal(appliedContext.sourceVerdict.recommendedAction, 180)}`
+          : '',
+        appliedContext?.sourceIssues
+          ? `적용 대상 핵심 문제: ${compactReferenceSignal(normalizeFeedbackList(appliedContext.sourceIssues, 6).join(' / '), 900) || '-'}`
+          : '',
+        appliedContext?.sourceRecommendations
+          ? `적용 대상 수정 방향: ${compactReferenceSignal(normalizeFeedbackList(appliedContext.sourceRecommendations, 6).join(' / '), 900) || '-'}`
+          : '',
         '재평가 규칙:',
         '- 현재 초안은 위 피드백을 반영한 뒤의 대본일 수 있다.',
         '- 먼저 이전 피드백에서 지적한 문제가 해결됐는지 판단한다.',
+        '- 실제 적용된 섹션이 있다면 그 섹션의 이전 문제가 해결됐는지 먼저 본다.',
         '- 이전 문제가 해결됐고 새 치명 문제가 없다면 점수를 이전보다 낮게 주지 않는다.',
         '- 이전보다 낮은 점수를 줄 때는 새로 생긴 명확한 퇴행/치명 문제를 summary/detail/issues에 구체적으로 설명한다.',
         '- 단순히 더 높은 기준을 갑자기 적용해 점수를 낮추지 않는다.',
@@ -4745,6 +5735,8 @@ export async function validateRefinedScriptQuality({
             'mustChange의 핵심 변경점이 반영되지 않으면 must_change_missing 또는 edit_plan_not_followed다.',
             'mustKeep의 핵심 정보가 사라지면 must_keep_lost다.',
             'mustAvoid가 대본에 남으면 edit_plan_not_followed다.',
+            'operations[]가 있으면 각 operation.target 섹션에서 operation.instruction/goal/styleTarget이 실제로 반영됐는지 검사한다.',
+            '여러 operation 중 하나라도 빠지면 edit_plan_not_followed 또는 operation_not_applied다.',
             '세션 메모리의 confidence 높은 constraint를 검사한다. 단, 현재 사용자 요청이 해당 섹션 수정을 명시한 경우 현재 요청을 우선한다.',
             '강한 세션 제약을 어기면 memory_constraint_violated다.',
             'allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남으면 안 된다. 비교/대비 표현으로도 쓰지 않는다.',
@@ -4779,6 +5771,7 @@ export async function validateRefinedScriptQuality({
               revisionStyle: editPlan.revisionStyle || '',
               reframeScope: editPlan.reframeScope || '',
               sectionInstructions: editPlan.sectionInstructions || {},
+              operations: editPlan.operations || editPlan.resolvedOperations || [],
               mustKeep: editPlan.mustKeep || [],
               mustChange: editPlan.mustChange || [],
               mustAvoid: editPlan.mustAvoid || [],
@@ -4917,6 +5910,9 @@ export async function repairRefinedScriptWithQaIssues({
             editPlan?.sectionInstructions
               ? 'structured edit plan의 sectionInstructions를 따른다. action=keep인 섹션은 원문 그대로 유지한다.'
               : null,
+            editPlan?.operations?.length
+              ? `섹션별 작업 목록: ${JSON.stringify(editPlan.operations)}. 각 operation.target 섹션에서 operation.instruction/goal/styleTarget을 반영한다.`
+              : null,
             editPlan?.mustKeep?.length
               ? `반드시 유지할 것: ${uniqueCompactList(editPlan.mustKeep, 6).join(', ')}`
               : null,
@@ -4981,6 +5977,7 @@ export async function repairRefinedScriptWithQaIssues({
               revisionStyle: editPlan.revisionStyle || '',
               reframeScope: editPlan.reframeScope || '',
               sectionInstructions: editPlan.sectionInstructions || {},
+              operations: editPlan.operations || editPlan.resolvedOperations || [],
               mustKeep: editPlan.mustKeep || [],
               mustChange: editPlan.mustChange || [],
               mustAvoid: editPlan.mustAvoid || [],
@@ -5095,6 +6092,8 @@ export const __scriptAssistantTest = {
   buildCopilotResponseModeRule,
   buildCopilotEditPlaybook,
   buildEditPlan,
+  buildEditPlanFromInstruction,
+  buildQaFailureRecoveryEditPlan,
   shouldUseHeavyQualityGateForCopilot,
   normalizeCopilotMemory,
   formatCopilotMemoryForPrompt,
@@ -5106,6 +6105,11 @@ export const __scriptAssistantTest = {
   classifyCopilotIntentByRule,
   classifyCopilotIntent,
   parseEditInstruction,
+  parseRegexSignals,
+  parseSemanticEditInstruction,
+  validateSemanticEditInstruction,
+  resolveSemanticInstructionConflicts,
+  classifyCandidateMeaning,
   detectExplicitPreserveSections,
   extractRequestedNewSubject,
   extractRequestedMaterials,
@@ -5117,6 +6121,7 @@ export const __scriptAssistantTest = {
   buildDurationCharRange,
   buildFeedbackVerdict,
   feedbackToEditInstructions,
+  replyContextToEditInstructions,
   detectFeedbackRecheckRegression,
   stabilizeFeedbackScoreAfterApply,
   createFallbackIntent,

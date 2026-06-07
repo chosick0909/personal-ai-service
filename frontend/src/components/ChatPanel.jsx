@@ -135,6 +135,24 @@ function buildFeedbackReplyAdvice(feedback, sourceMessageId = '') {
   }
 }
 
+function buildReplyContext(message, advice = null) {
+  if (!message || message.role === 'user') {
+    return null
+  }
+
+  const sourceType = message.feedback ? 'feedback' : message.proposedSections ? 'suggestion' : 'advice'
+
+  return {
+    sourceType,
+    sourceMessageId: message.id || advice?.sourceMessageId || '',
+    messageText: message.content || '',
+    editTarget: message.editTarget || advice?.editTarget || 'all',
+    feedback: message.feedback || null,
+    proposedSections: message.proposedSections || null,
+    actionableAdvice: advice || message.actionableAdvice || null,
+  }
+}
+
 function MessageBubble({
   message,
   onApply,
@@ -446,6 +464,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     const options = replyTargetMessage
       ? {
           previousAdvice: replyAdvice,
+          replyContext: buildReplyContext(replyTargetMessage, replyAdvice),
           replyToMessageId: replyTargetMessage.id,
         }
       : {}

@@ -32,7 +32,13 @@ const {
   classifyCopilotIntentByRule,
   classifyCopilotIntent,
   parseEditInstruction,
+  parseRegexSignals,
+  parseSemanticEditInstruction,
+  validateSemanticEditInstruction,
+  classifyCandidateMeaning,
   buildEditPlan,
+  buildEditPlanFromInstruction,
+  buildQaFailureRecoveryEditPlan,
   shouldUseHeavyQualityGateForCopilot,
   buildNaturalResponseUserPrompt,
   createFallbackIntent,
@@ -46,6 +52,7 @@ const {
   buildDurationCharRange,
   buildFeedbackVerdict,
   feedbackToEditInstructions,
+  replyContextToEditInstructions,
   stabilizeFeedbackScoreAfterApply,
 } = __scriptAssistantTest
 
@@ -535,6 +542,68 @@ test('feedback is normalized into executable edit operations for reply/apply flo
   assert.deepEqual(plan.preserveSections, ['hook', 'body'])
   assert.match(plan.mustChange.join('\n'), /오늘 바로 확인|댓글|CTA/)
   assert.match(plan.avoid.join('\n'), /허위 수치|없는 혜택/)
+})
+
+test('reply context converts feedback cards into executable edit advice', () => {
+  const advice = replyContextToEditInstructions({
+    replyContext: {
+      sourceType: 'feedback',
+      sourceMessageId: 'feedback-card-1',
+      editTarget: 'all',
+      feedback: {
+        summary: 'CTA가 약합니다.',
+        detail: 'CTA에서 왜 댓글을 남겨야 하는지 이유가 부족합니다.',
+        issues: ['CTA 행동 이유가 약함'],
+        recommendations: ['CTA에 오늘 바로 확인해야 하는 이유를 한 문장 추가'],
+      },
+    },
+    userMessage: '이 피드백에서 CTA만 반영해줘',
+    editTarget: 'all',
+  })
+
+  assert.equal(advice.sourceType, 'feedback')
+  assert.equal(advice.sourceMessageId, 'feedback-card-1')
+  assert.equal(advice.editTarget, 'cta')
+  assert.deepEqual(advice.preserveSections, ['hook', 'body'])
+  assert.ok(advice.operations.some((operation) => operation.target === 'cta'))
+  assert.match(advice.instructions.join('\n'), /오늘 바로 확인|CTA/)
+})
+
+test('reply context uses suggestion sections as the base for follow-up edits', () => {
+  const suggestedDraft = {
+    hook: '블로그 첫 글, 뭐부터 써야 할지 막막하죠?',
+    body: '방향 없이 쓰면 글은 쌓이는데 시간만 빠져요.',
+    cta: '댓글에 루틴 남기면 템플릿을 보내드릴게요.',
+  }
+  const advice = replyContextToEditInstructions({
+    replyContext: {
+      sourceType: 'suggestion',
+      sourceMessageId: 'suggestion-card-1',
+      editTarget: 'all',
+      proposedSections: suggestedDraft,
+      messageText: 'BODY를 조금 더 자연스럽게 다듬은 수정안',
+    },
+    userMessage: '여기서 BODY만 더 자연스럽게',
+    editTarget: 'all',
+  })
+
+  const plan = buildEditPlan({
+    userRequest: '여기서 BODY만 더 자연스럽게',
+    currentSections: suggestedDraft,
+    intentResult: {
+      intent: 'apply_previous_advice',
+      editTarget: 'all',
+      previousAdvice: advice,
+    },
+    previousAdvice: advice,
+  })
+
+  assert.equal(advice.sourceType, 'suggestion')
+  assert.equal(advice.sourceMessageId, 'suggestion-card-1')
+  assert.equal(plan.previousAdviceApplied, true)
+  assert.deepEqual(plan.targetSections, ['body'])
+  assert.deepEqual(plan.preserveSections, ['hook', 'cta'])
+  assert.match(plan.mustChange.join('\n'), /답장 대상 수정안|후속 요청|BODY/)
 })
 
 test('copilot treats honorific requests as tone adjustment, not topic reframe', () => {
@@ -1164,7 +1233,7 @@ test('copilot parser handles common live Korean edit requests without leaking us
     intentResult: ctaIntent,
     editTarget: 'all',
   })
-  assert.equal(ctaPlan.operationType, COPILOT_OPERATION_TYPES.INSERT_MATERIAL)
+  assert.equal(ctaPlan.operationType, COPILOT_OPERATION_TYPES.CTA_REFRAME)
   assert.deepEqual(ctaPlan.targetSections, ['cta'])
   assert.deepEqual(ctaPlan.oldSubjectToRemove, ['구매'])
   assert.deepEqual(ctaPlan.requestedMaterials, ['상담 유도'])
@@ -1261,6 +1330,307 @@ test('framing rewrite keeps explicit product/topic preservation constraints', ()
   assert.ok(plan.mustKeep.some((item) => /현재 주제|상품|타겟|소재/.test(item)))
   assert.ok(plan.mustChange.some((item) => /공감|전개|문제 상황|해결/.test(item)))
   assert.ok(plan.mustAvoid.some((item) => /새 주제|상품/.test(item)))
+})
+
+test('semantic instruction normalizes framing requests without assigning a new subject', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '기존 불편함에서 해소되는 느낌으로 다시 짜줘',
+    intentResult: classifyCopilotIntentByRule('기존 불편함에서 해소되는 느낌으로 다시 짜줘', 'all'),
+  })
+
+  assert.equal(semantic.intent, 'edit_script')
+  assert.equal(semantic.topicChange.requested, false)
+  assert.equal(semantic.topicChange.newSubject, null)
+  assert.equal(semantic.operations[0].type, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+})
+
+test('semantic instruction downgrades invalid LLM newSubject candidates', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '후기처럼 더 강하게 다시 짜줘',
+    intentResult: {
+      intent: 'edit_request',
+      shouldModifyScript: true,
+      editTarget: 'all',
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '강한 후기',
+      structuredEditInstruction: {
+        operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+        newSubject: '강한 후기',
+        requestedMaterials: [],
+        oldSubjectToRemove: [],
+        forbiddenSurfacePhrases: [],
+        confidence: 0.9,
+      },
+    },
+  })
+  const instruction = parseEditInstruction('후기처럼 더 강하게 다시 짜줘', {
+    structuredEditInstruction: {
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '강한 후기',
+      requestedMaterials: [],
+      oldSubjectToRemove: [],
+      forbiddenSurfacePhrases: [],
+      confidence: 0.9,
+    },
+  })
+  const plan = buildEditPlan({
+    userRequest: '후기처럼 더 강하게 다시 짜줘',
+    currentSections: currentDraft,
+    intentResult: {
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '강한 후기',
+      structuredEditInstruction: {
+        operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+        newSubject: '강한 후기',
+        requestedMaterials: [],
+        oldSubjectToRemove: [],
+        forbiddenSurfacePhrases: [],
+        confidence: 0.9,
+      },
+    },
+    editTarget: 'all',
+  })
+
+  assert.equal(classifyCandidateMeaning('강한 후기'), 'framing')
+  assert.equal(semantic.topicChange.requested, false)
+  assert.equal(semantic.topicChange.newSubject, null)
+  assert.notEqual(semantic.operations[0].type, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(instruction.newSubject, '')
+  assert.notEqual(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '')
+})
+
+test('semantic instruction keeps explicit product topic reframe intact', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '주제를 만두말고 치킨너겟으로 바꿔줘',
+    intentResult: classifyCopilotIntentByRule('주제를 만두말고 치킨너겟으로 바꿔줘', 'all'),
+  })
+
+  assert.equal(semantic.topicChange.requested, true)
+  assert.equal(semantic.topicChange.oldSubject, '만두')
+  assert.equal(semantic.topicChange.newSubject, '치킨너겟')
+  assert.equal(semantic.operations[0].type, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+})
+
+test('QA failure recovery downgrades invalid topic reframe into framing rewrite', () => {
+  const badTopicPlan = {
+    operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+    editTarget: 'all',
+    targetSections: ['hook', 'body', 'cta'],
+    preserveSections: [],
+    newSubject: '강한 후기',
+    semanticInstruction: {
+      topicChange: {
+        requested: true,
+        newSubject: '강한 후기',
+        confidence: 0.9,
+      },
+    },
+  }
+
+  const recoveryPlan = buildQaFailureRecoveryEditPlan({
+    userRequest: '후기처럼 더 강하게 다시 짜줘',
+    currentSections: currentDraft,
+    intentResult: {
+      intent: 'edit_request',
+      shouldModifyScript: true,
+      editTarget: 'all',
+    },
+    editPlan: badTopicPlan,
+    qaResult: {
+      issueTypes: ['mixed_subject_contamination'],
+      issues: [{ type: 'mixed_subject_contamination' }],
+    },
+  })
+
+  assert.ok(recoveryPlan)
+  assert.equal(recoveryPlan.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(recoveryPlan.newSubject, '')
+  assert.equal(recoveryPlan.qaMode, COPILOT_QA_MODES.PRESERVE_TOPIC)
+  assert.equal(recoveryPlan.recovery.downgradedFrom, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(recoveryPlan.recovery.downgradedTo, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+})
+
+test('QA failure recovery keeps valid product topic reframe untouched', () => {
+  const validTopicPlan = buildEditPlan({
+    userRequest: '주제를 만두말고 치킨너겟으로 바꿔줘',
+    currentSections: currentDraft,
+    intentResult: classifyCopilotIntentByRule('주제를 만두말고 치킨너겟으로 바꿔줘', 'all'),
+    editTarget: 'all',
+  })
+
+  const recoveryPlan = buildQaFailureRecoveryEditPlan({
+    userRequest: '주제를 만두말고 치킨너겟으로 바꿔줘',
+    currentSections: currentDraft,
+    intentResult: classifyCopilotIntentByRule('주제를 만두말고 치킨너겟으로 바꿔줘', 'all'),
+    editPlan: validTopicPlan,
+    qaResult: {
+      issueTypes: ['new_subject_missing'],
+      issues: [{ type: 'new_subject_missing' }],
+    },
+  })
+
+  assert.equal(recoveryPlan, null)
+})
+
+test('regex signals do not make final subject decisions', () => {
+  const signals = parseRegexSignals('훅을 존댓말로 바꿔줘')
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '훅을 존댓말로 바꿔줘',
+    intentResult: classifyCopilotIntentByRule('훅을 존댓말로 바꿔줘', 'all'),
+  })
+  const plan = buildEditPlanFromInstruction({
+    userRequest: '훅을 존댓말로 바꿔줘',
+    currentSections: currentDraft,
+    intentResult: classifyCopilotIntentByRule('훅을 존댓말로 바꿔줘', 'all'),
+    editTarget: 'all',
+  })
+
+  assert.equal(signals.hasEditVerb, true)
+  assert.deepEqual(signals.mentionedSections, ['hook'])
+  assert.equal(semantic.operations[0].type, COPILOT_OPERATION_TYPES.TONE_ADJUST)
+  assert.equal(semantic.topicChange.newSubject, null)
+  assert.deepEqual(plan.targetSections, ['hook'])
+  assert.equal(plan.sectionInstructions.body.action, 'keep')
+  assert.equal(plan.sectionInstructions.cta.action, 'keep')
+})
+
+test('build edit plan follows validated semantic instruction over misleading raw topic wording', () => {
+  const semanticInstruction = {
+    intent: 'edit_script',
+    confidence: 0.9,
+    topicChange: {
+      requested: false,
+      oldSubject: null,
+      oldSubjects: [],
+      newSubject: null,
+      confidence: 0,
+      evidence: null,
+    },
+    operations: [
+      {
+        type: COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
+        target: 'all',
+        goal: '강한 후기처럼 체감 흐름을 보강',
+        evidence: '강한 후기처럼',
+        confidence: 0.88,
+      },
+    ],
+    locks: [],
+    userFacingNeed: 'modify_script',
+  }
+
+  const plan = buildEditPlanFromInstruction({
+    userRequest: '주제를 강한 후기처럼 다시 짜줘',
+    currentSections: currentDraft,
+    intentResult: {
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '강한 후기',
+      editTarget: 'all',
+    },
+    semanticInstruction,
+  })
+
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.FRAMING_REWRITE)
+  assert.equal(plan.newSubject, '')
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.PRESERVE_TOPIC)
+  assert.ok(plan.mustKeep.some((item) => /현재 주제|상품|타겟|소재/.test(item)))
+  assert.ok(plan.mustAvoid.some((item) => /새 주제|상품/.test(item)))
+})
+
+test('build edit plan takes target sections and locks from semantic instruction', () => {
+  const semanticInstruction = {
+    intent: 'edit_script',
+    confidence: 0.9,
+    topicChange: {
+      requested: false,
+      oldSubject: null,
+      oldSubjects: [],
+      newSubject: null,
+      confidence: 0,
+      evidence: null,
+    },
+    operations: [
+      {
+        type: COPILOT_OPERATION_TYPES.TONE_ADJUST,
+        target: 'body',
+        goal: 'BODY만 자연스럽게 정리',
+        styleTarget: '자연스러운 구어체',
+        evidence: '바디만 자연스럽게',
+        confidence: 0.9,
+      },
+    ],
+    locks: [
+      { target: 'hook', lockType: 'do_not_touch', evidence: '훅 유지' },
+      { target: 'cta', lockType: 'do_not_touch', evidence: 'CTA 유지' },
+    ],
+    userFacingNeed: 'modify_script',
+  }
+
+  const plan = buildEditPlanFromInstruction({
+    userRequest: '전체적으로 자연스럽게 바꿔줘',
+    currentSections: currentDraft,
+    intentResult: {
+      operationType: COPILOT_OPERATION_TYPES.TONE_ADJUST,
+      editTarget: 'all',
+    },
+    semanticInstruction,
+  })
+
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TONE_ADJUST)
+  assert.deepEqual(plan.targetSections, ['body'])
+  assert.deepEqual(plan.preserveSections, ['hook', 'cta'])
+  assert.equal(plan.sectionInstructions.hook.action, 'keep')
+  assert.equal(plan.sectionInstructions.body.action, 'revise')
+  assert.equal(plan.sectionInstructions.cta.action, 'keep')
+})
+
+test('multi-section user requests become executable operations per section', () => {
+  const request = '훅은 존댓말로 바꾸고, BODY는 엄마들이 더 공감되게, CTA는 구매 말고 상담 유도 느낌으로 해줘'
+  const semantic = parseSemanticEditInstruction({
+    userMessage: request,
+    intentResult: classifyCopilotIntentByRule(request, 'all'),
+  })
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: classifyCopilotIntentByRule(request, 'all'),
+    semanticInstruction: semantic,
+  })
+
+  assert.deepEqual(plan.targetSections, ['hook', 'body', 'cta'])
+  assert.ok(plan.operations.some((operation) => operation.target === 'hook' && operation.type === COPILOT_OPERATION_TYPES.TONE_ADJUST))
+  assert.ok(plan.operations.some((operation) => operation.target === 'body' && operation.type === COPILOT_OPERATION_TYPES.FRAMING_REWRITE))
+  assert.ok(plan.operations.some((operation) => operation.target === 'cta' && operation.type === COPILOT_OPERATION_TYPES.CTA_REFRAME))
+  assert.match(plan.mustChange.join('\n'), /HOOK.*존댓말|BODY.*공감|CTA.*상담/)
+})
+
+test('multi-section operations respect explicit locked sections', () => {
+  const request = '훅은 그대로 두고, BODY는 엄마들이 더 공감되게, CTA는 구매 말고 상담 유도 느낌으로 해줘'
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: classifyCopilotIntentByRule(request, 'all'),
+  })
+
+  assert.deepEqual(plan.targetSections, ['body', 'cta'])
+  assert.deepEqual(plan.preserveSections, ['hook'])
+  assert.equal(plan.sectionInstructions.hook.action, 'keep')
+  assert.ok(!plan.operations.some((operation) => operation.target === 'hook'))
+  assert.ok(plan.operations.some((operation) => operation.target === 'body'))
+  assert.ok(plan.operations.some((operation) => operation.target === 'cta'))
+})
+
+test('question-like mentor requests stay out of script editing flow', () => {
+  const intent = classifyCopilotIntentByRule('요런 멘트가 자주 나오는데 질문하는 방법 알려줘', 'all')
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '요런 멘트가 자주 나오는데 질문하는 방법 알려줘',
+    intentResult: intent,
+  })
+
+  assert.equal(intent.shouldEdit, false)
+  assert.equal(semantic.userFacingNeed, 'answer_question')
+  assert.equal(semantic.operations[0]?.type || COPILOT_OPERATION_TYPES.UNKNOWN, COPILOT_OPERATION_TYPES.UNKNOWN)
 })
 
 test('copilot edit plan keeps locked sections for insert material requests', () => {

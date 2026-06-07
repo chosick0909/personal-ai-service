@@ -62,6 +62,10 @@ function normalizeVariantSession(session = {}) {
     editorContent: typeof session.editorContent === 'string' ? session.editorContent : '',
     versions: Array.isArray(session.versions) ? session.versions : [],
     feedback: session.feedback && typeof session.feedback === 'object' ? session.feedback : null,
+    appliedFeedbackContext:
+      session.appliedFeedbackContext && typeof session.appliedFeedbackContext === 'object'
+        ? session.appliedFeedbackContext
+        : null,
     pendingSuggestion:
       session.pendingSuggestion && typeof session.pendingSuggestion === 'object' ? session.pendingSuggestion : null,
     previousAdvice:
@@ -117,6 +121,10 @@ export function normalizeHistoryCacheItem(item = {}) {
     editorContent: typeof item.editorContent === 'string' ? item.editorContent : '',
     versions: Array.isArray(item.versions) ? item.versions : [],
     feedback: item.feedback && typeof item.feedback === 'object' ? item.feedback : null,
+    appliedFeedbackContext:
+      item.appliedFeedbackContext && typeof item.appliedFeedbackContext === 'object'
+        ? item.appliedFeedbackContext
+        : null,
     pendingSuggestion:
       item.pendingSuggestion && typeof item.pendingSuggestion === 'object' ? item.pendingSuggestion : null,
     previousAdvice:
@@ -164,6 +172,8 @@ export function mergeHistoryItem(serverItem, localItem) {
     transcript: normalizedLocal.transcript || normalizedServer.transcript || '',
     versions: normalizedLocal.versions?.length ? normalizedLocal.versions : normalizedServer.versions,
     feedback: normalizedLocal.feedback || normalizedServer.feedback,
+    appliedFeedbackContext:
+      normalizedLocal.appliedFeedbackContext || normalizedServer.appliedFeedbackContext,
     pendingSuggestion: normalizedLocal.pendingSuggestion || normalizedServer.pendingSuggestion,
     previousAdvice: normalizedLocal.previousAdvice || normalizedServer.previousAdvice,
     draftMessage: normalizedLocal.draftMessage || normalizedServer.draftMessage,

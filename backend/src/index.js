@@ -28,12 +28,14 @@ import { ingestPdfDocument } from './lib/pdf-ingest.js'
 import {
   classifyCopilotIntent,
   buildEditPlan,
+  buildQaFailureRecoveryEditPlan,
   buildPartialSafeFeedbackApplyFallback,
   createSectionDiff,
   feedbackToEditInstructions,
   generateScriptFeedback,
   refineScriptWithAI,
   repairRefinedScriptWithQaIssues,
+  replyContextToEditInstructions,
   runFeedbackFallbackRuleCheck,
   sanitizeUserFacingCopilotMessage,
   shouldUseHeavyQualityGateForCopilot,
@@ -138,6 +140,135 @@ function buildTopicReframeFailureMessage(editPlan = {}) {
 function buildTopicReframeBestEffortMessage(editPlan = {}) {
   const subject = editPlan?.newSubject || '요청하신 새 주제'
   return `좋아요. 기존 소재에 끌려가지 않도록 "${subject}" 중심으로 다시 잡았어요. 새 주제 기준으로 자연스럽게 이어지도록 정리했습니다.`
+}
+
+async function retryCopilotWithRecoveredEditPlan({
+  account,
+  req,
+  character,
+  personalization,
+  requestText,
+  refineBaseSections,
+  intent,
+  intentForEditPlan,
+  editPlan,
+  qaResult = null,
+  ruleCheck = null,
+  qaFeedback,
+  copilotMemory,
+  targetDurationSeconds,
+  previousAdvice,
+} = {}) {
+  const recoveryPlan = buildQaFailureRecoveryEditPlan({
+    userRequest: requestText,
+    currentSections: refineBaseSections,
+    intentResult: intentForEditPlan || intent || {},
+    editTarget: intent?.editTarget || req.body?.editTarget || req.body?.edit_target || '',
+    copilotMemory,
+    targetDurationSeconds,
+    previousAdvice,
+    editPlan,
+    qaResult,
+    ruleCheck,
+  })
+
+  if (!recoveryPlan) {
+    return null
+  }
+
+  const retryResult = await refineScriptWithAI({
+    accountId: account.id,
+    referenceId: req.body?.referenceId,
+    selectedLabel: req.body?.selectedLabel,
+    request: requestText,
+    sections: refineBaseSections,
+    editTarget: intent?.editTarget || req.body?.editTarget || req.body?.edit_target || '',
+    currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+    currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+    characterSystemPrompt: character.systemPrompt,
+    personalizationContext: personalization.context,
+    copilotMemory,
+    editPlan: recoveryPlan,
+  })
+  const retryCheck = runFeedbackFallbackRuleCheck({
+    originalSections: refineBaseSections,
+    candidateSections: retryResult.sections,
+    editTarget: retryResult.editTarget || recoveryPlan.editTarget,
+    feedback: qaFeedback,
+    request: requestText,
+    qaMode: recoveryPlan.qaMode,
+    newSubject: recoveryPlan.newSubject,
+    requestedMaterials: recoveryPlan.requestedMaterials,
+    oldSubjectToRemove: recoveryPlan.oldSubjectToRemove,
+    forbiddenSurfacePhrases: recoveryPlan.forbiddenSurfacePhrases,
+    allowComparisonWithOldSubject: recoveryPlan.allowComparisonWithOldSubject,
+    targetSections: recoveryPlan.targetSections,
+    targetDurationSeconds: recoveryPlan.targetDurationSeconds,
+    targetCharRange: recoveryPlan.targetCharRange,
+    editPlan: recoveryPlan,
+    copilotMemory,
+  })
+
+  if (!retryCheck.shouldRepair) {
+    return {
+      success: true,
+      result: retryResult,
+      editPlan: recoveryPlan,
+      sections: retryResult.sections,
+      message:
+        retryResult.message ||
+        '좋아요. 요청 의도를 다시 잡아서 기존 주제 안에서 자연스럽게 다듬었어요.',
+      issueTypes: retryCheck.issueTypes || [],
+      retryCheck,
+      partial: false,
+    }
+  }
+
+  const partialResult = buildPartialSafeFeedbackApplyFallback({
+    originalSections: refineBaseSections,
+    candidateSources: [
+      {
+        source: 'reclassified_retry',
+        sections: retryResult.sections,
+      },
+    ],
+    editTarget: retryResult.editTarget || recoveryPlan.editTarget,
+    feedback: qaFeedback,
+    request: requestText,
+    qaMode: recoveryPlan.qaMode,
+    newSubject: recoveryPlan.newSubject,
+    requestedMaterials: recoveryPlan.requestedMaterials,
+    oldSubjectToRemove: recoveryPlan.oldSubjectToRemove,
+    forbiddenSurfacePhrases: recoveryPlan.forbiddenSurfacePhrases,
+    allowComparisonWithOldSubject: recoveryPlan.allowComparisonWithOldSubject,
+    editPlan: recoveryPlan,
+    copilotMemory,
+    targetSections: recoveryPlan.targetSections,
+    targetDurationSeconds: recoveryPlan.targetDurationSeconds,
+    targetCharRange: recoveryPlan.targetCharRange,
+  })
+
+  if (!partialResult.success) {
+    return {
+      success: false,
+      editPlan: recoveryPlan,
+      issueTypes: partialResult.issueTypes || retryCheck.issueTypes || [],
+      retryCheck,
+      partialResult,
+    }
+  }
+
+  return {
+    success: true,
+    result: retryResult,
+    editPlan: recoveryPlan,
+    sections: partialResult.sections,
+    message: '요청 의도를 다시 잡아, 안전하게 반영 가능한 부분부터 다듬었어요.',
+    issueTypes: partialResult.issueTypes || retryCheck.issueTypes || [],
+    retryCheck,
+    partial: true,
+    partialAppliedSections: partialResult.changedSections,
+  }
 }
 
 const app = express()
@@ -1340,6 +1471,21 @@ app.post(
         })
       }
     }
+    const replyContext = req.body?.replyContext || req.body?.reply_context || null
+    const rawPreviousAdvice = req.body?.previousAdvice || req.body?.previous_advice || null
+    const replyAdvice = replyContextToEditInstructions({
+      replyContext,
+      userMessage: requestText,
+      fallbackAdvice: rawPreviousAdvice,
+      editTarget: req.body?.editTarget || req.body?.edit_target || '',
+    })
+    const requestPreviousAdvice = replyAdvice || rawPreviousAdvice
+    const replyContextSourceType = String(replyContext?.sourceType || replyContext?.source_type || '').trim()
+    const replyContextProposedSections =
+      replyContextSourceType === 'suggestion' && replyContext?.proposedSections
+        ? replyContext.proposedSections
+        : null
+    const refineBaseSections = replyContextProposedSections || req.body?.sections
     const sessionId =
       req.body?.sessionId ||
       req.body?.session_id ||
@@ -1356,10 +1502,10 @@ app.post(
     })
     const intent = await classifyCopilotIntent({
       message: requestText,
-      sections: req.body?.sections,
+      sections: refineBaseSections,
       editTarget: req.body?.editTarget || req.body?.edit_target || '',
       targetDurationSeconds,
-      previousAdvice: req.body?.previousAdvice || req.body?.previous_advice || null,
+      previousAdvice: requestPreviousAdvice,
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: intentPersonalization.context,
     })
@@ -1631,11 +1777,25 @@ app.post(
       referenceId: req.body?.referenceId,
     })
     const copilotMemory = req.body?.copilotMemory || req.body?.copilot_memory || {}
-    const previousAdvice = req.body?.previousAdvice || req.body?.previous_advice || intent.previousAdvice || null
+    const previousAdvice = requestPreviousAdvice || intent.previousAdvice || null
+    const intentForEditPlan =
+      replyAdvice && intent.shouldModifyScript
+        ? {
+            ...intent,
+            intent: 'apply_previous_advice',
+            previousAdvice: replyAdvice,
+            replyContext: replyContext
+              ? {
+                  sourceType: replyContextSourceType,
+                  sourceMessageId: replyContext?.sourceMessageId || replyContext?.source_message_id || '',
+                }
+              : null,
+          }
+        : intent
     const editPlan = buildEditPlan({
       userRequest: requestText,
-      currentSections: req.body?.sections,
-      intentResult: intent,
+      currentSections: refineBaseSections,
+      intentResult: intentForEditPlan,
       editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
       copilotMemory,
       targetDurationSeconds,
@@ -1646,7 +1806,7 @@ app.post(
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
       request: requestText,
-      sections: req.body?.sections,
+      sections: refineBaseSections,
       editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
       currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
@@ -1685,13 +1845,15 @@ app.post(
     }
     let repairAttempted = false
     let repairSuccess = false
+    let recoveryAttempted = false
+    let recoverySuccess = false
 
     if (useHeavyQualityGate) {
       const qaResult = await validateRefinedScriptQuality({
         accountId: account.id,
         referenceId: req.body?.referenceId,
         selectedLabel: req.body?.selectedLabel,
-        originalSections: req.body?.sections,
+        originalSections: refineBaseSections,
         proposedSections: result.sections,
         request: requestText,
         editTarget: result.editTarget || editPlan.editTarget,
@@ -1725,7 +1887,7 @@ app.post(
           accountId: account.id,
           referenceId: req.body?.referenceId,
           selectedLabel: req.body?.selectedLabel,
-          originalSections: req.body?.sections,
+          originalSections: refineBaseSections,
           proposedSections: result.sections,
           request: requestText,
           editTarget: result.editTarget || editPlan.editTarget,
@@ -1756,53 +1918,85 @@ app.post(
             repaired: true,
           }
         } else {
-          const fallbackCandidate = repairResult.sections || result.sections
-          const fallbackCheck = runFeedbackFallbackRuleCheck({
-            originalSections: req.body?.sections,
-            candidateSections: fallbackCandidate,
-            editTarget: result.editTarget || editPlan.editTarget,
-            feedback: qaFeedback,
-            request: requestText,
-            qaMode: editPlan.qaMode,
-            newSubject: editPlan.newSubject,
-            requestedMaterials: editPlan.requestedMaterials,
-            oldSubjectToRemove: editPlan.oldSubjectToRemove,
-            forbiddenSurfacePhrases: editPlan.forbiddenSurfacePhrases,
-            allowComparisonWithOldSubject: editPlan.allowComparisonWithOldSubject,
-            targetSections: editPlan.targetSections,
-            targetDurationSeconds: editPlan.targetDurationSeconds,
-            targetCharRange: editPlan.targetCharRange,
+          const recoveryResult = await retryCopilotWithRecoveredEditPlan({
+            account,
+            req,
+            character,
+            personalization,
+            requestText,
+            refineBaseSections,
+            intent,
+            intentForEditPlan,
             editPlan,
+            qaResult,
+            qaFeedback,
             copilotMemory,
+            targetDurationSeconds,
+            previousAdvice,
           })
+          recoveryAttempted = Boolean(recoveryResult)
 
-          if (canUseTopicReframeBestEffortFallback(editPlan, fallbackCheck)) {
-            finalSections = fallbackCandidate
-            finalMessage = buildTopicReframeBestEffortMessage(editPlan)
+          if (recoveryResult?.success) {
+            recoverySuccess = true
+            finalSections = recoveryResult.sections
+            finalMessage = recoveryResult.message || finalMessage
             qualityGate = {
               ...qualityGate,
               fallbackUsed: true,
-              fallbackType: 'topic_reframe_best_effort',
-              issueTypes: fallbackCheck.issueTypes || qualityGate.issueTypes,
+              fallbackType: recoveryResult.partial ? 'reclassified_retry_partial' : 'reclassified_retry',
+              issueTypes: recoveryResult.issueTypes || qualityGate.issueTypes,
+              recovery: recoveryResult.editPlan?.recovery || null,
+              partialAppliedSections: recoveryResult.partialAppliedSections || [],
             }
           } else {
-            finalSections = req.body?.sections || result.sections
-            finalMessage =
-              editPlan.operationType === 'topic_reframe'
-                ? buildTopicReframeFailureMessage(editPlan)
-                : '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
-            qualityGate = {
-              ...qualityGate,
-              fallbackUsed: true,
-              fallbackType: 'original',
-              issueTypes: fallbackCheck.issueTypes || qualityGate.issueTypes,
+            const fallbackCandidate = repairResult.sections || result.sections
+            const fallbackCheck = runFeedbackFallbackRuleCheck({
+              originalSections: refineBaseSections,
+              candidateSections: fallbackCandidate,
+              editTarget: result.editTarget || editPlan.editTarget,
+              feedback: qaFeedback,
+              request: requestText,
+              qaMode: editPlan.qaMode,
+              newSubject: editPlan.newSubject,
+              requestedMaterials: editPlan.requestedMaterials,
+              oldSubjectToRemove: editPlan.oldSubjectToRemove,
+              forbiddenSurfacePhrases: editPlan.forbiddenSurfacePhrases,
+              allowComparisonWithOldSubject: editPlan.allowComparisonWithOldSubject,
+              targetSections: editPlan.targetSections,
+              targetDurationSeconds: editPlan.targetDurationSeconds,
+              targetCharRange: editPlan.targetCharRange,
+              editPlan,
+              copilotMemory,
+            })
+
+            if (canUseTopicReframeBestEffortFallback(editPlan, fallbackCheck)) {
+              finalSections = fallbackCandidate
+              finalMessage = buildTopicReframeBestEffortMessage(editPlan)
+              qualityGate = {
+                ...qualityGate,
+                fallbackUsed: true,
+                fallbackType: 'topic_reframe_best_effort',
+                issueTypes: fallbackCheck.issueTypes || qualityGate.issueTypes,
+              }
+            } else {
+              finalSections = req.body?.sections || result.sections
+              finalMessage =
+                editPlan.operationType === 'topic_reframe'
+                  ? buildTopicReframeFailureMessage(editPlan)
+                  : '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
+              qualityGate = {
+                ...qualityGate,
+                fallbackUsed: true,
+                fallbackType: 'original',
+                issueTypes: fallbackCheck.issueTypes || qualityGate.issueTypes,
+              }
             }
           }
         }
       }
     } else {
       const ruleCheck = runFeedbackFallbackRuleCheck({
-        originalSections: req.body?.sections,
+        originalSections: refineBaseSections,
         candidateSections: result.sections,
         editTarget: result.editTarget || editPlan.editTarget,
         feedback: qaFeedback,
@@ -1827,7 +2021,37 @@ app.post(
         fallbackType: 'none',
       }
       if (ruleCheck.shouldRepair) {
-        if (canUseTopicReframeBestEffortFallback(editPlan, ruleCheck)) {
+        const recoveryResult = await retryCopilotWithRecoveredEditPlan({
+          account,
+          req,
+          character,
+          personalization,
+          requestText,
+          refineBaseSections,
+          intent,
+          intentForEditPlan,
+          editPlan,
+          ruleCheck,
+          qaFeedback,
+          copilotMemory,
+          targetDurationSeconds,
+          previousAdvice,
+        })
+        recoveryAttempted = Boolean(recoveryResult)
+
+        if (recoveryResult?.success) {
+          recoverySuccess = true
+          finalSections = recoveryResult.sections
+          finalMessage = recoveryResult.message || finalMessage
+          qualityGate = {
+            ...qualityGate,
+            fallbackUsed: true,
+            fallbackType: recoveryResult.partial ? 'reclassified_retry_partial' : 'reclassified_retry',
+            issueTypes: recoveryResult.issueTypes || qualityGate.issueTypes,
+            recovery: recoveryResult.editPlan?.recovery || null,
+            partialAppliedSections: recoveryResult.partialAppliedSections || [],
+          }
+        } else if (canUseTopicReframeBestEffortFallback(editPlan, ruleCheck)) {
           finalSections = result.sections
           finalMessage = buildTopicReframeBestEffortMessage(editPlan)
           qualityGate = {
@@ -1872,6 +2096,8 @@ app.post(
       qa_failed_issue_types: qualityGate.issueTypes || [],
       repair_attempted: repairAttempted,
       repair_success: repairSuccess,
+      recovery_attempted: recoveryAttempted,
+      recovery_success: recoverySuccess,
       session_memory_used: Boolean(Object.values(copilotMemory || {}).some((value) => Array.isArray(value) ? value.length : value)),
       latency_ms: Date.now() - qualityStartedAt,
     })
