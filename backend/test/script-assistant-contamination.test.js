@@ -1062,6 +1062,32 @@ test('parse edit instruction separates old and new subjects from X 말고 Y requ
   assert.ok(instruction.forbiddenSurfacePhrases.includes('만두 대신'))
 })
 
+test('topic reframe keeps full subject after 주제를 X로 변경 pattern', () => {
+  const request = '주제를 옷입을 때 활용하기 좋은 색조합 팁으로 변경해줘'
+  const instruction = parseEditInstruction(request)
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const semantic = parseSemanticEditInstruction({
+    userMessage: request,
+    intentResult: intent,
+  })
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(instruction.newSubject, '옷입을 때 활용하기 좋은 색조합 팁')
+  assert.deepEqual(instruction.oldSubjectToRemove, [])
+  assert.equal(semantic.topicChange.requested, true)
+  assert.equal(semantic.topicChange.newSubject, '옷입을 때 활용하기 좋은 색조합 팁')
+  assert.deepEqual(semantic.topicChange.oldSubjects || [], [])
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '옷입을 때 활용하기 좋은 색조합 팁')
+  assert.deepEqual(plan.oldSubjectToRemove, [])
+})
+
 test('parse edit instruction handles multiple old subjects and comparison exceptions', () => {
   const reframe = parseEditInstruction('만두랑 떡볶이는 빼고 치킨너겟으로 가자')
   assert.equal(reframe.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
@@ -1398,6 +1424,76 @@ test('semantic instruction downgrades invalid LLM newSubject candidates', () => 
   assert.equal(instruction.newSubject, '')
   assert.notEqual(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
   assert.equal(plan.newSubject, '')
+})
+
+test('copilot treats format placeholder requests as format apply, not topic reframe', () => {
+  const request = '훅을 딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const semantic = parseSemanticEditInstruction({
+    userMessage: request,
+    intentResult: intent,
+  })
+  const instruction = parseEditInstruction(request, intent)
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(classifyCandidateMeaning('딱 n초만에 정리해드릴게요 이런 식'), 'format')
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.equal(semantic.topicChange.requested, false)
+  assert.equal(semantic.topicChange.newSubject, null)
+  assert.equal(semantic.operations[0].type, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.equal(instruction.newSubject, '')
+  assert.deepEqual(instruction.requestedMaterials, [])
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.deepEqual(plan.targetSections, ['hook'])
+  assert.deepEqual(plan.preserveSections, ['body', 'cta'])
+  assert.ok(plan.mustAvoid.some((item) => /n초|placeholder|숫자를 넣어줘|이런 식/.test(item)))
+})
+
+test('format placeholder requests infer hook target even without explicit section label', () => {
+  const request = '딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.deepEqual(plan.targetSections, ['hook'])
+  assert.deepEqual(plan.preserveSections, ['body', 'cta'])
+})
+
+test('semantic validator downgrades LLM topic mistakes with format candidates', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '훅을 딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘',
+    intentResult: {
+      intent: 'edit_request',
+      shouldModifyScript: true,
+      editTarget: 'hook',
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '딱 n초만에 정리해드릴게요 이런 식',
+      structuredEditInstruction: {
+        operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+        newSubject: '딱 n초만에 정리해드릴게요 이런 식',
+        requestedMaterials: ['숫자를'],
+        oldSubjectToRemove: [],
+        forbiddenSurfacePhrases: [],
+        confidence: 0.88,
+      },
+    },
+  })
+
+  assert.equal(semantic.topicChange.requested, false)
+  assert.equal(semantic.topicChange.newSubject, null)
+  assert.equal(semantic.operations[0].type, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
 })
 
 test('semantic instruction keeps explicit product topic reframe intact', () => {
@@ -1817,6 +1913,34 @@ test('topic reframe QA blocks old subject and forbidden instruction leakage', ()
   assert.equal(result.shouldRepair, true)
   assert.ok(result.issues.some((issue) => issue.type === 'forbidden_phrase_leakage'))
   assert.ok(result.issues.some((issue) => issue.type === 'old_subject_leakage'))
+})
+
+test('format apply QA blocks placeholder and raw instruction leakage', () => {
+  const request = '훅을 딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      hook: '딱 n초만에 정리해드릴게요. 이런 식으로 숫자를 넣어줘.',
+      body: currentDraft.body,
+      cta: currentDraft.cta,
+    },
+    editTarget: 'hook',
+    request,
+    editPlan: plan,
+    targetSections: ['hook'],
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.shouldRepair, true)
+  assert.ok(result.issues.some((issue) => issue.type === 'format_placeholder_leakage'))
+  assert.ok(result.issues.some((issue) => issue.type === 'instruction_leakage'))
 })
 
 test('topic reframe QA allows old subject only for explicit comparison requests', () => {
