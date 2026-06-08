@@ -2420,8 +2420,88 @@ test('semantic trace records validated instruction as final decision source', ()
 
   assert.equal(plan.semanticTrace.finalDecisionSource, 'validated_semantic_instruction')
   assert.equal(plan.semanticTrace.rawRequestPolicy, 'raw_request_is_context_only_after_semantic_validation')
+  assert.equal(plan.semanticTrace.semantic.parserSource, 'strict_schema')
   assert.equal(plan.newSubject, '')
   assert.ok(plan.semanticTrace.semantic.operations.some((operation) => operation.type === COPILOT_OPERATION_TYPES.FRAMING_REWRITE))
+})
+
+test('strict schema parser rejects meta wording as new subject before edit plan', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '후기처럼 더 강하게 다시 짜줘',
+    intentResult: {
+      intent: 'edit_request',
+      operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      newSubject: '강한 후기',
+      confidence: 0.92,
+      structuredEditInstruction: {
+        operationType: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+        newSubject: '강한 후기',
+      },
+    },
+  })
+  const plan = buildEditPlan({
+    userRequest: '후기처럼 더 강하게 다시 짜줘',
+    currentSections: currentDraft,
+    intentResult: {
+      semanticInstruction: semantic,
+    },
+  })
+
+  assert.equal(semantic.parserSource, 'strict_schema')
+  assert.equal(semantic.validation.strictSchemaApplied, true)
+  assert.equal(semantic.topicChange.requested, false)
+  assert.equal(semantic.topicChange.newSubject, null)
+  assert.notEqual(semantic.operations[0].type, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '')
+  assert.notEqual(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+})
+
+test('strict schema parser preserves reply context while current locks override referenced operations', () => {
+  const advice = replyContextToEditInstructions({
+    replyContext: {
+      sourceType: 'feedback',
+      sourceMessageId: 'feedback-message-2',
+      sourceDraftId: 'draft-c',
+      feedback: {
+        issues: ['HOOK이 약합니다.', 'CTA 행동 이유가 약합니다.'],
+        recommendations: ['HOOK을 더 강하게 바꿉니다.', 'CTA에 저장 이유를 추가합니다.'],
+      },
+    },
+    userMessage: '피드백대로 해줘. 근데 훅은 건드리지 마',
+    editTarget: 'all',
+  })
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '피드백대로 해줘. 근데 훅은 건드리지 마',
+    intentResult: {
+      intent: 'apply_previous_advice',
+      previousAdvice: advice,
+      replyContext: {
+        sourceType: 'feedback',
+        sourceMessageId: 'feedback-message-2',
+        sourceDraftId: 'draft-c',
+      },
+    },
+  })
+  const plan = buildEditPlan({
+    userRequest: '피드백대로 해줘. 근데 훅은 건드리지 마',
+    currentSections: currentDraft,
+    intentResult: {
+      intent: 'apply_previous_advice',
+      previousAdvice: advice,
+      replyContext: {
+        sourceType: 'feedback',
+        sourceMessageId: 'feedback-message-2',
+        sourceDraftId: 'draft-c',
+      },
+      semanticInstruction: semantic,
+    },
+  })
+
+  assert.equal(semantic.replyReference.sourceDraftId, 'draft-c')
+  assert.equal(semantic.validation.strictSchemaApplied, true)
+  assert.ok(plan.preserveSections.includes('hook'))
+  assert.ok(!plan.operations.some((operation) => operation.target === 'hook'))
+  assert.ok(plan.semanticTrace.semantic.replyReference.hasReplyTarget)
 })
 
 test('fallback rule check blocks meta instruction phrases from script text', () => {

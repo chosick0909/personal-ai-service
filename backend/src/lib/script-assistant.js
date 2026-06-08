@@ -6,6 +6,13 @@ import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
 import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 import { formatHookTemplatesForPrompt, retrieveHookTemplates } from './hook-templates.js'
 import { formatNarrativePatternsForPrompt, retrieveNarrativePatterns } from './narrative-patterns.js'
+import { createRegexSignalsParser } from './copilot/regex-signals.js'
+import { createSemanticValidator } from './copilot/semantic-validator.js'
+import { createStrictSemanticParser } from './copilot/strict-semantic-parser.js'
+import { createReplyContextHelpers } from './copilot/reply-context.js'
+import { createSemanticInstructionParser } from './copilot/semantic-instruction.js'
+import { createEditPlanResolver } from './copilot/edit-plan-resolver.js'
+import { createQaRecoveryPlanner } from './copilot/recovery.js'
 
 function requireClients() {
   if (!hasSupabaseAdminConfig()) {
@@ -338,6 +345,116 @@ const COPILOT_EDIT_PLAYBOOK = {
   },
 }
 
+let copilotRegexSignalsParser = null
+let copilotSemanticValidator = null
+let copilotStrictSemanticParser = null
+let copilotReplyContextHelpers = null
+let copilotSemanticInstructionParser = null
+let copilotEditPlanResolver = null
+let copilotQaRecoveryPlanner = null
+
+function getCopilotRegexSignalsParser() {
+  if (!copilotRegexSignalsParser) {
+    copilotRegexSignalsParser = createRegexSignalsParser({
+      inferRequestedSections,
+      detectExplicitPreserveSections,
+      extractTargetDurationSeconds,
+      isFormatApplyRequest,
+      isApplyPreviousAdviceRequest,
+    })
+  }
+  return copilotRegexSignalsParser
+}
+
+function getCopilotSemanticValidator() {
+  if (!copilotSemanticValidator) {
+    copilotSemanticValidator = createSemanticValidator({
+      SECTION_KEYS,
+      COPILOT_OPERATION_TYPES,
+      STYLE_KEYWORD_PATTERN,
+      FRAMING_REWRITE_PATTERN,
+      NON_SUBJECT_CANDIDATE_PATTERN,
+      FORMAT_CANDIDATE_PATTERN,
+      cleanRequestedPhrase,
+      uniqueCompactList,
+      normalizeSemanticOperation,
+      normalizeSemanticLock,
+    })
+  }
+  return copilotSemanticValidator
+}
+
+function getCopilotStrictSemanticParser() {
+  if (!copilotStrictSemanticParser) {
+    copilotStrictSemanticParser = createStrictSemanticParser({
+      SECTION_KEYS,
+      COPILOT_OPERATION_TYPES,
+      cleanRequestedPhrase,
+      uniqueCompactList,
+      normalizeSemanticOperation,
+      normalizeSemanticLock,
+      classifyCandidateMeaning,
+    })
+  }
+  return copilotStrictSemanticParser
+}
+
+function getCopilotReplyContextHelpers() {
+  if (!copilotReplyContextHelpers) {
+    copilotReplyContextHelpers = createReplyContextHelpers({
+      SECTION_KEYS,
+      SECTION_LABELS,
+      normalizePreviousAdvice,
+      normalizeFeedbackList,
+      uniqueCompactList,
+      normalizeEditTarget,
+      getTargetSections,
+      inferRequestedSections,
+    })
+  }
+  return copilotReplyContextHelpers
+}
+
+function getCopilotSemanticInstructionParser() {
+  if (!copilotSemanticInstructionParser) {
+    copilotSemanticInstructionParser = createSemanticInstructionParser({
+      parseRegexSignals,
+      replyContextToEditInstructions,
+      parseLegacyEditInstruction,
+      buildSemanticInstructionFromLegacy,
+      resolveSemanticInstructionConflicts,
+      strictSemanticParser: getCopilotStrictSemanticParser(),
+    })
+  }
+  return copilotSemanticInstructionParser
+}
+
+function getCopilotEditPlanResolver() {
+  if (!copilotEditPlanResolver) {
+    copilotEditPlanResolver = createEditPlanResolver({
+      buildEditPlan,
+    })
+  }
+  return copilotEditPlanResolver
+}
+
+function getCopilotQaRecoveryPlanner() {
+  if (!copilotQaRecoveryPlanner) {
+    copilotQaRecoveryPlanner = createQaRecoveryPlanner({
+      SECTION_KEYS,
+      COPILOT_OPERATION_TYPES,
+      cleanRequestedPhrase,
+      uniqueCompactList,
+      classifyCandidateMeaning,
+      isInvalidNewSubjectCandidate,
+      extractFramingRewriteHint,
+      buildEditPlanFromInstruction,
+      parseRegexSignals,
+    })
+  }
+  return copilotQaRecoveryPlanner
+}
+
 function buildCopilotEvaluationRubric() {
   return [
     '코파일럿 평가 기준표(100점 기준):',
@@ -607,94 +724,10 @@ export function feedbackToEditInstructions({
   sourceMessageId = '',
   editTarget = 'all',
 } = {}) {
-  const issues = normalizeFeedbackList(feedback?.issues, 8)
-  const recommendations = normalizeFeedbackList(feedback?.recommendations, 8)
-  const verdict = feedback?.verdict && typeof feedback.verdict === 'object' ? feedback.verdict : {}
-  const sourceTexts = [
-    ...issues.map((text) => ({ kind: 'issue', text })),
-    ...recommendations.map((text) => ({ kind: 'recommendation', text })),
-  ]
-  const operations = []
-
-  for (const item of sourceTexts) {
-    const section = detectFeedbackSection(item.text)
-    const target = SECTION_KEYS.includes(section) ? section : normalizeEditTarget(editTarget || 'all')
-    const normalizedTarget = SECTION_KEYS.includes(target) ? target : section
-    const operationTarget = SECTION_KEYS.includes(normalizedTarget) ? normalizedTarget : 'all'
-    const type = inferFeedbackOperationType(item.text, operationTarget)
-    const isIssue = item.kind === 'issue'
-    const relatedRecommendation =
-      recommendations.find((recommendation) => {
-        const recommendationSection = detectFeedbackSection(recommendation)
-        return recommendationSection === operationTarget || recommendationSection === 'all'
-      }) || ''
-    const instruction = isIssue
-      ? relatedRecommendation ||
-        `${SECTION_LABELS[operationTarget] || '대본'}에서 피드백이 지적한 문제를 실제 문장 수정으로 해결한다.`
-      : item.text
-
-    operations.push({
-      type,
-      target: operationTarget,
-      problem: isIssue ? item.text : '',
-      instruction,
-      preserve: ['기존 주제', '사용자 사실 정보', '기존 CTA 의도'].filter((value) =>
-        operationTarget === 'cta' ? true : value !== '기존 CTA 의도',
-      ),
-      avoid: ['새 소재 생성', '허위 수치', '없는 혜택', '과장 후기'],
-      priority: isIssue ? 'high' : 'medium',
-    })
-  }
-
-  if (!operations.length && verdict.recommendedAction) {
-    operations.push({
-      type: 'partial_rewrite',
-      target: normalizeEditTarget(editTarget || 'all'),
-      problem: verdict.reason || feedback?.summary || '',
-      instruction: verdict.recommendedAction,
-      preserve: ['기존 주제', '사용자 사실 정보'],
-      avoid: ['새 소재 생성', '허위 수치', '없는 혜택'],
-      priority: 'medium',
-    })
-  }
-
-  const operationTargets = operations.map((operation) => operation.target).filter((target) => SECTION_KEYS.includes(target))
-  const feedbackEditTarget = feedbackSectionTargetToEditTarget(operationTargets)
-  const effectiveEditTarget =
-    editTarget && editTarget !== 'all' ? normalizeEditTarget(editTarget) : feedbackEditTarget
-  const targetSections =
-    effectiveEditTarget === 'body_cta'
-      ? ['body', 'cta']
-      : effectiveEditTarget === 'full'
-        ? SECTION_KEYS
-        : getTargetSections(normalizeEditTarget(effectiveEditTarget, ''))
-  const preserveSections = SECTION_KEYS.filter((section) => !targetSections.includes(section))
-  const diagnosis = [
-    verdict.reason,
-    feedback?.summary,
-    feedback?.detail,
-  ]
-    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .slice(0, 2)
-    .join(' ')
-
-  return normalizePreviousAdvice({
-    sourceType: 'feedback',
+  return getCopilotReplyContextHelpers().feedbackToEditInstructions({
+    feedback,
     sourceMessageId,
-    sourceDraftId: feedback?.sourceDraftId || feedback?.source_draft_id || '',
-    priority: 'high',
-    diagnosis: diagnosis || '직전 피드백에서 지적한 문제를 반영',
-    editTarget: effectiveEditTarget,
-    operations,
-    instructions: uniqueCompactList(
-      operations.map((operation) => operation.instruction || operation.problem),
-      8,
-    ),
-    preserveSections,
-    expectedOutcome:
-      verdict.expectedOutcome ||
-      '피드백에서 지적한 문제가 실제 대본에서 완화되고, 바로 사용할 수 있는 방향에 가까워진 수정본',
+    editTarget,
   })
 }
 
@@ -799,50 +832,12 @@ export function replyContextToEditInstructions({
   fallbackAdvice = null,
   editTarget = 'all',
 } = {}) {
-  if (!replyContext || typeof replyContext !== 'object') {
-    return normalizePreviousAdvice(fallbackAdvice)
-  }
-
-  const sourceType = String(replyContext.sourceType || replyContext.source_type || '').trim()
-  const sourceMessageId = String(replyContext.sourceMessageId || replyContext.source_message_id || '').trim()
-  const sourceDraftId = String(replyContext.sourceDraftId || replyContext.source_draft_id || '').trim()
-  const normalizedContext = {
-    ...replyContext,
-    sourceType,
-    sourceMessageId,
-    sourceDraftId,
-    messageText: String(replyContext.messageText || replyContext.message_text || '').trim(),
-  }
-
-  if (sourceType === 'feedback' && normalizedContext.feedback) {
-    return feedbackToEditInstructions({
-      feedback: {
-        ...normalizedContext.feedback,
-        sourceDraftId,
-      },
-      sourceMessageId,
-      editTarget: normalizedContext.editTarget || editTarget,
-    })
-  }
-
-  if (sourceType === 'suggestion' && normalizedContext.proposedSections) {
-    return suggestionToEditInstructions({
-      replyContext: normalizedContext,
-      userMessage,
-      editTarget,
-    })
-  }
-
-  if (sourceType === 'advice' || normalizedContext.actionableAdvice || normalizedContext.messageText) {
-    return adviceToEditInstructions({
-      replyContext: normalizedContext,
-      fallbackAdvice,
-      editTarget,
-      userMessage,
-    })
-  }
-
-  return normalizePreviousAdvice(fallbackAdvice)
+  return getCopilotReplyContextHelpers().replyContextToEditInstructions({
+    replyContext,
+    userMessage,
+    fallbackAdvice,
+    editTarget,
+  })
 }
 
 function detectFeedbackRecheckRegression({ summary = '', detail = '', issues = [], recommendations = [] } = {}) {
@@ -1086,67 +1081,15 @@ function extractFramingRewriteHint(text = '') {
 }
 
 function isInvalidNewSubjectCandidate(value = '') {
-  const subject = cleanRequestedPhrase(value)
-  if (!subject) {
-    return false
-  }
-  return (
-    STYLE_KEYWORD_PATTERN.test(subject) ||
-    FRAMING_REWRITE_PATTERN.test(subject) ||
-    NON_SUBJECT_CANDIDATE_PATTERN.test(subject)
-  )
+  return getCopilotSemanticValidator().isInvalidNewSubjectCandidate(value)
 }
 
 function classifyCandidateMeaning(value = '') {
-  const candidate = cleanRequestedPhrase(value)
-  if (!candidate) {
-    return 'unknown'
-  }
-  if (STYLE_KEYWORD_PATTERN.test(candidate)) {
-    return 'tone'
-  }
-  if (FORMAT_CANDIDATE_PATTERN.test(candidate)) {
-    return 'format'
-  }
-  if (FRAMING_REWRITE_PATTERN.test(candidate) || NON_SUBJECT_CANDIDATE_PATTERN.test(candidate)) {
-    return 'framing'
-  }
-  if (/^(?:HOOK|훅|BODY|바디|본문|CTA|씨티에이|마무리)$/i.test(candidate)) {
-    return 'section_name'
-  }
-  if (/(어떻게|왜|질문\s*(?:방법|키포인트|포인트)|알려|궁금)/i.test(candidate)) {
-    return 'question'
-  }
-  return 'product_or_subject'
+  return getCopilotSemanticValidator().classifyCandidateMeaning(value)
 }
 
 function parseRegexSignals(userMessage = '') {
-  const text = String(userMessage || '').trim()
-  const compact = text.replace(/\s+/g, '')
-  const mentionedSections = inferRequestedSections(text)
-  const explicitLocks = detectExplicitPreserveSections(text)
-  const targetDurationSeconds = extractTargetDurationSeconds(text)
-
-  return {
-    hasEditVerb:
-      /(고쳐|수정|바꿔|바꾸|변경|다듬|개선|보완|줄여|늘려|짧게|길게|강하게|세게|약하게|자연스럽게|정리|압축|추가|넣어|빼줘|삭제|교체|짜줘|짜줄래|다시\s*짜|리라이트|rewrite|edit|revise|fix)/i.test(
-        text,
-      ),
-    maybeTopicChange:
-      EXPLICIT_TOPIC_REFRAME_MARKER_PATTERN.test(text) &&
-      /(바꿔|바꾸|변경|전환|다시\s*(?:짜|써|작성|만들)|가자|주제|소재|상품|제품|아이템)/i.test(text),
-    mentionedSections,
-    explicitLocks,
-      hasDurationCompress: Boolean(targetDurationSeconds),
-      targetDurationSeconds,
-      hasFormatApply: isFormatApplyRequest(text),
-      hasReplyLikeExpression: isApplyPreviousAdviceRequest(text),
-    hasQuestionIntent:
-      /(어떻게|왜|뭐가|질문|방법|알려|궁금|어때|괜찮|피드백|조언|평가|점수|광고\s*같|판매\s*같|별로|문제|약한가|약해|반응\s*올|안\s*끌리)/i.test(
-        text,
-      ),
-    compactLength: compact.length,
-  }
+  return getCopilotRegexSignalsParser()(userMessage)
 }
 
 function buildForbiddenSurfacePhrases(oldSubjects = []) {
@@ -1953,125 +1896,11 @@ function downgradeInvalidTopicInstruction(instruction = {}, candidate = '') {
 }
 
 function validateSemanticEditInstruction(instruction = {}) {
-  const normalized = instruction && typeof instruction === 'object' ? instruction : {}
-  let next = {
-    intent: ['edit_script', 'apply_feedback', 'ask_advice', 'unknown'].includes(normalized.intent)
-      ? normalized.intent
-      : 'unknown',
-    confidence: Math.max(0, Math.min(1, Number(normalized.confidence || 0))),
-    topicChange: {
-      requested: Boolean(normalized.topicChange?.requested),
-      oldSubject: cleanRequestedPhrase(normalized.topicChange?.oldSubject || '') || null,
-      oldSubjects: uniqueCompactList(normalized.topicChange?.oldSubjects || [], 8),
-      newSubject: cleanRequestedPhrase(normalized.topicChange?.newSubject || '') || null,
-      confidence: Math.max(0, Math.min(1, Number(normalized.topicChange?.confidence || 0))),
-      evidence: cleanRequestedPhrase(normalized.topicChange?.evidence || '') || null,
-    },
-    operations: Array.isArray(normalized.operations)
-      ? normalized.operations.map(normalizeSemanticOperation).filter(Boolean).slice(0, 8)
-      : [],
-    locks: Array.isArray(normalized.locks)
-      ? normalized.locks.map(normalizeSemanticLock).filter(Boolean).slice(0, 5)
-      : [],
-    replyReference: normalized.replyReference || { hasReplyTarget: false },
-    userFacingNeed: ['modify_script', 'answer_question', 'clarify'].includes(normalized.userFacingNeed)
-      ? normalized.userFacingNeed
-      : 'modify_script',
-    clarificationQuestion: normalized.clarificationQuestion || null,
-    legacyInstruction: normalized.legacyInstruction || {},
-    regexSignals: normalized.regexSignals || {},
-    allOperationsBlockedByLocks: Boolean(normalized.allOperationsBlockedByLocks),
-  }
-
-  if (next.intent === 'ask_advice' || next.userFacingNeed === 'answer_question') {
-    return {
-      ...next,
-      intent: 'ask_advice',
-      topicChange: {
-        requested: false,
-        oldSubject: null,
-        oldSubjects: [],
-        newSubject: null,
-        confidence: 0,
-        evidence: null,
-      },
-      operations: [],
-      allOperationsBlockedByLocks: false,
-    }
-  }
-
-  const candidate = next.topicChange.newSubject || ''
-  if (next.topicChange.requested && (!candidate || isInvalidNewSubjectCandidate(candidate))) {
-    next = downgradeInvalidTopicInstruction(next, candidate)
-  }
-
-  const hasTopicOperation = next.operations.some((operation) => operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
-  if (hasTopicOperation && (!next.topicChange.requested || !next.topicChange.newSubject)) {
-    next = downgradeInvalidTopicInstruction(next, candidate)
-  }
-
-  if (next.operations.length) {
-    next.operations = next.operations.map((operation) => {
-      if (operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME && isInvalidNewSubjectCandidate(next.topicChange.newSubject || '')) {
-        const meaning = classifyCandidateMeaning(next.topicChange.newSubject || operation.goal || '')
-        if (meaning === 'format') {
-          return {
-            ...operation,
-            type: COPILOT_OPERATION_TYPES.FORMAT_APPLY,
-            goal: operation.goal || '예시 포맷 적용',
-            styleTarget: operation.styleTarget || operation.goal || '',
-          }
-        }
-        return {
-          ...operation,
-          type: COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
-          goal: operation.goal || '전개 방식 조정',
-        }
-      }
-      return operation
-    })
-  }
-
-  if (!next.operations.length && next.userFacingNeed === 'modify_script' && !next.allOperationsBlockedByLocks) {
-    next.operations = [
-      {
-        type: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
-        target: 'all',
-        goal: '요청 표현 수정',
-        styleTarget: '',
-        evidence: '',
-        confidence: 0.5,
-      },
-    ]
-  }
-
-  return next
+  return getCopilotSemanticValidator().validateSemanticEditInstruction(instruction)
 }
 
 function resolveSemanticInstructionConflicts(instruction = {}) {
-  const normalized = validateSemanticEditInstruction(instruction)
-  const lockedTargets = new Set(
-    normalized.locks
-      .filter((lock) => lock.lockType === 'do_not_touch' || lock.lockType === 'keep_exact')
-      .map((lock) => lock.target),
-  )
-
-  if (!lockedTargets.size) {
-    return normalized
-  }
-
-  const operations = normalized.operations.filter((operation) => {
-    if (operation.target === 'all') {
-      return !lockedTargets.has('all')
-    }
-    return !lockedTargets.has(operation.target) && !lockedTargets.has('all')
-  })
-
-  return {
-    ...normalized,
-    operations,
-    allOperationsBlockedByLocks: !operations.length && normalized.operations.length > 0,
-  }
+  return getCopilotSemanticValidator().resolveSemanticInstructionConflicts(instruction)
 }
 
 function parseSemanticEditInstruction({
@@ -2081,34 +1910,13 @@ function parseSemanticEditInstruction({
   replyContext = null,
   editTarget = '',
 } = {}) {
-  const regexSignals = parseRegexSignals(userMessage)
-  const resolvedReplyContext = replyContext || intentResult.replyContext || null
-  const resolvedPreviousAdvice = replyContextToEditInstructions({
-    replyContext: resolvedReplyContext,
+  return getCopilotSemanticInstructionParser()({
     userMessage,
-    fallbackAdvice: previousAdvice || intentResult.previousAdvice || null,
-    editTarget: editTarget || intentResult.editTarget || '',
+    intentResult,
+    previousAdvice,
+    replyContext,
+    editTarget,
   })
-  const mergedIntentResult = {
-    ...intentResult,
-    previousAdvice: resolvedPreviousAdvice || previousAdvice || intentResult.previousAdvice || null,
-    replyContext: resolvedReplyContext,
-    replyToMessageId:
-      intentResult.replyToMessageId ||
-      resolvedReplyContext?.sourceMessageId ||
-      resolvedReplyContext?.source_message_id ||
-      resolvedPreviousAdvice?.sourceMessageId ||
-      '',
-  }
-  const legacyInstruction = parseLegacyEditInstruction(userMessage, mergedIntentResult)
-  return resolveSemanticInstructionConflicts(
-    buildSemanticInstructionFromLegacy({
-      request: userMessage,
-      intentResult: mergedIntentResult,
-      regexSignals,
-      legacyInstruction,
-    }),
-  )
 }
 
 function semanticInstructionToLegacyInstruction(semanticInstruction = {}) {
@@ -2613,6 +2421,10 @@ function buildSemanticDebugTrace({
       intent: semanticInstruction.intent || 'unknown',
       userFacingNeed: semanticInstruction.userFacingNeed || '',
       confidence: Number(semanticInstruction.confidence || 0),
+      parserSource:
+        semanticInstruction.parserSource ||
+        semanticInstruction.validation?.parserSource ||
+        'legacy_fallback',
       topicChange: semanticInstruction.topicChange || {},
       operations: (semanticInstruction.operations || []).map((operation) => ({
         type: operation.type || COPILOT_OPERATION_TYPES.UNKNOWN,
@@ -2633,6 +2445,7 @@ function buildSemanticDebugTrace({
           (operation) => operation?.type || '',
         ),
       },
+      validation: semanticInstruction.validation || {},
       allOperationsBlockedByLocks: Boolean(allOperationsBlockedByLocks),
     },
     finalPlan: {
@@ -3135,30 +2948,8 @@ export function buildEditPlan({
 }
 
 export function buildEditPlanFromInstruction(args = {}) {
-  const semanticInstruction =
-    args.semanticInstruction ||
-    args.validatedInstruction ||
-    args.instruction ||
-    null
-
-  if (semanticInstruction) {
-    return buildEditPlan({
-      ...args,
-      semanticInstruction,
-    })
-  }
-
-  return buildEditPlan(args)
+  return getCopilotEditPlanResolver()(args)
 }
-
-const QA_FAILURE_RECOVERY_TRIGGER_ISSUES = new Set([
-  'instruction_leakage',
-  'forbidden_phrase_leakage',
-  'mixed_subject_contamination',
-  'reference_contamination',
-  'edit_plan_not_followed',
-  'operation_not_applied',
-])
 
 export function buildQaFailureRecoveryEditPlan({
   userRequest = '',
@@ -3172,137 +2963,18 @@ export function buildQaFailureRecoveryEditPlan({
   qaResult = null,
   ruleCheck = null,
 } = {}) {
-  if (!editPlan || editPlan.operationType !== COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
-    return null
-  }
-
-  const issueTypes = uniqueCompactList(
-    [
-      ...(Array.isArray(qaResult?.issueTypes) ? qaResult.issueTypes : []),
-      ...(Array.isArray(qaResult?.issues) ? qaResult.issues.map((issue) => issue?.type).filter(Boolean) : []),
-      ...(Array.isArray(ruleCheck?.issueTypes) ? ruleCheck.issueTypes : []),
-      ...(Array.isArray(ruleCheck?.issues) ? ruleCheck.issues.map((issue) => issue?.type).filter(Boolean) : []),
-    ],
-    16,
-  )
-  const candidate = cleanRequestedPhrase(
-    editPlan.newSubject ||
-      editPlan.structuredEditInstruction?.newSubject ||
-      editPlan.semanticInstruction?.topicChange?.newSubject ||
-      '',
-  )
-  const candidateMeaning = classifyCandidateMeaning(candidate)
-  const topicConfidence = Number(
-    editPlan.semanticInstruction?.topicChange?.confidence ||
-      editPlan.structuredEditInstruction?.confidence ||
-      0,
-  )
-  const hasRecoveryIssue = issueTypes.some((type) => QA_FAILURE_RECOVERY_TRIGGER_ISSUES.has(type))
-  const looksLikeInstruction =
-    !candidate ||
-    isInvalidNewSubjectCandidate(candidate) ||
-    ['framing', 'tone', 'format', 'question', 'section_name'].includes(candidateMeaning)
-  const lowConfidenceInstruction = topicConfidence > 0 && topicConfidence < 0.62 && hasRecoveryIssue
-
-  if (!looksLikeInstruction && !lowConfidenceInstruction) {
-    return null
-  }
-
-  const fallbackType =
-    candidateMeaning === 'tone'
-      ? COPILOT_OPERATION_TYPES.TONE_ADJUST
-      : candidateMeaning === 'format'
-        ? COPILOT_OPERATION_TYPES.FORMAT_APPLY
-      : COPILOT_OPERATION_TYPES.FRAMING_REWRITE
-  const targetSections = Array.isArray(editPlan.targetSections) && editPlan.targetSections.length
-    ? editPlan.targetSections.filter((section) => SECTION_KEYS.includes(section))
-    : SECTION_KEYS
-  const operationTarget = targetSections.length === 1 ? targetSections[0] : 'all'
-  const hint =
-    candidate ||
-    editPlan.toneHint ||
-    extractFramingRewriteHint(userRequest) ||
-    '사용자 요청의 흐름과 표현 방향'
-  const locks = uniqueCompactList(editPlan.preserveSections || [], 3)
-    .filter((section) => SECTION_KEYS.includes(section))
-    .map((target) => ({
-      target,
-      lockType: 'do_not_touch',
-      evidence: '기존 editPlan preserveSections',
-    }))
-  const semanticInstruction = {
-    intent: 'edit_script',
-    confidence: 0.76,
-    topicChange: {
-      requested: false,
-      oldSubject: null,
-      oldSubjects: [],
-      newSubject: null,
-      confidence: 0,
-      evidence: null,
-    },
-    operations: [
-      {
-        type: fallbackType,
-        target: operationTarget,
-        goal:
-          fallbackType === COPILOT_OPERATION_TYPES.TONE_ADJUST
-            ? `${hint} 말투로 조정`
-            : fallbackType === COPILOT_OPERATION_TYPES.FORMAT_APPLY
-              ? `${hint} 포맷을 현재 대본에 자연스럽게 적용`
-            : `주제/상품은 유지하고 ${hint} 방향으로 전개를 다시 정리`,
-        styleTarget:
-          fallbackType === COPILOT_OPERATION_TYPES.TONE_ADJUST ||
-          fallbackType === COPILOT_OPERATION_TYPES.FORMAT_APPLY
-            ? hint
-            : '',
-        evidence: userRequest,
-        confidence: 0.76,
-      },
-    ],
-    locks,
-    replyReference: editPlan.semanticInstruction?.replyReference || { hasReplyTarget: false },
-    userFacingNeed: 'modify_script',
-    clarificationQuestion: null,
-    legacyInstruction: {
-      operationType: fallbackType,
-      newSubject: '',
-      requestedMaterials: [],
-      toneHint: hint,
-      explicitKeep: editPlan.preserveSections || [],
-    },
-    regexSignals: editPlan.semanticInstruction?.regexSignals || parseRegexSignals(userRequest),
-  }
-
-  const recoveryPlan = buildEditPlanFromInstruction({
+  return getCopilotQaRecoveryPlanner()({
     userRequest,
     currentSections,
-    intentResult: {
-      ...intentResult,
-      operationType: fallbackType,
-      newSubject: '',
-      requestedMaterials: [],
-      semanticInstruction,
-    },
-    editTarget: editTarget || editPlan.editTarget || '',
+    intentResult,
+    editTarget,
     copilotMemory,
     targetDurationSeconds,
     previousAdvice,
-    semanticInstruction,
+    editPlan,
+    qaResult,
+    ruleCheck,
   })
-
-  return {
-    ...recoveryPlan,
-    recovery: {
-      downgradedFrom: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
-      downgradedTo: fallbackType,
-      reason: looksLikeInstruction
-        ? 'newSubject 후보가 상품/소재가 아니라 전개/톤 지시로 판단됨'
-        : '저신뢰 주제 변경이 QA 실패와 함께 감지됨',
-      originalNewSubject: candidate,
-      issueTypes,
-    },
-  }
 }
 
 function formatEditPlanForPrompt(editPlan = null) {
@@ -3573,6 +3245,19 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
   const wantsEdit = editPattern.test(text)
   const wantsAdvice = advicePattern.test(text)
   const wantsVagueImprove = vagueImprovePattern.test(text)
+  const onlyAdviceSignal =
+    wantsAdvice && !wantsEdit && !wantsVagueImprove && !newSubject && !requestedMaterials.length
+  if (onlyAdviceSignal) {
+    return {
+      intent: COPILOT_INTENTS.ADVISE,
+      shouldEdit: false,
+      responseMode: 'advice_only',
+      editTarget: 'none',
+      confidence: 0.86,
+      reason: '사용자가 수정 명령보다 대본 품질 판단이나 조언을 요청함',
+    }
+  }
+
   const hasStructuredEditInstruction =
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ||
       operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL ||
@@ -5050,8 +4735,14 @@ export async function classifyCopilotIntent({
       : intent === 'edit_request'
         ? normalizeEditTarget(editTarget, normalizedMessage)
         : null
-    const fallbackNewSubject = extractRequestedNewSubject(normalizedMessage)
-    const fallbackMaterials = extractRequestedMaterials(normalizedMessage, fallbackNewSubject)
+    const normalizedParsedInstruction = normalizeSemanticEditInstruction(parsed, normalizedMessage)
+    const fallbackNewSubject =
+      normalizedParsedInstruction.operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+        ? normalizedParsedInstruction.newSubject
+        : ''
+    const fallbackMaterials = normalizedParsedInstruction.requestedMaterials.length
+      ? normalizedParsedInstruction.requestedMaterials
+      : extractRequestedMaterials(normalizedMessage, fallbackNewSubject)
     const parsedTargetDurationSeconds =
       normalizeTargetDurationSeconds(parsed.targetDurationSeconds) || extractTargetDurationSeconds(normalizedMessage)
     let parsedOperationType = [
@@ -5063,8 +4754,8 @@ export async function classifyCopilotIntent({
         COPILOT_OPERATION_TYPES.TONE_ADJUST,
       COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
       COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
-    ].includes(parsed.operationType)
-      ? parsed.operationType
+    ].includes(normalizedParsedInstruction.operationType || parsed.operationType)
+      ? normalizedParsedInstruction.operationType || parsed.operationType
       : fallbackNewSubject
         ? COPILOT_OPERATION_TYPES.TOPIC_REFRAME
         : fallbackMaterials.length
@@ -5082,12 +4773,10 @@ export async function classifyCopilotIntent({
       targetDurationSeconds: intent === 'edit_request'
         ? parsedTargetDurationSeconds
         : null,
-      newSubject: intent === 'edit_request' ? cleanRequestedPhrase(parsed.newSubject || fallbackNewSubject) : '',
+      newSubject: intent === 'edit_request' ? cleanRequestedPhrase(normalizedParsedInstruction.newSubject || fallbackNewSubject) : '',
       requestedMaterials: intent === 'edit_request'
         ? uniqueCompactList(
-            Array.isArray(parsed.requestedMaterials)
-              ? parsed.requestedMaterials.map((item) => cleanRequestedPhrase(item))
-              : fallbackMaterials,
+            normalizedParsedInstruction.requestedMaterials.length ? normalizedParsedInstruction.requestedMaterials : fallbackMaterials,
             8,
           )
         : [],

@@ -188,6 +188,117 @@ function buildVariantScopedSession(prefix, accountId, referenceId, variantContex
   return `${prefix}:${accountId}:${referenceId || 'general'}:${variant}`
 }
 
+function buildCopilotSemanticTracePayload({
+  traceId = '',
+  stage = 'copilot_refine',
+  accountId = '',
+  characterId = '',
+  referenceId = '',
+  scriptId = '',
+  scriptVersionId = '',
+  sessionId = '',
+  selectedLabel = '',
+  selectedVariantContext = {},
+  requestText = '',
+  intent = {},
+  editPlan = {},
+  qualityGate = {},
+  qaResult = null,
+  ruleCheck = null,
+  repairAttempted = false,
+  repairSuccess = false,
+  recoveryAttempted = false,
+  recoverySuccess = false,
+  useHeavyQualityGate = false,
+  finalChangedSections = [],
+  finalEditTarget = '',
+  latencyMs = null,
+} = {}) {
+  const semanticTrace = editPlan?.semanticTrace || {}
+  const qaIssueTypes = [
+    ...(Array.isArray(qualityGate?.issueTypes) ? qualityGate.issueTypes : []),
+    ...(Array.isArray(qaResult?.issueTypes) ? qaResult.issueTypes : []),
+    ...(Array.isArray(ruleCheck?.issueTypes) ? ruleCheck.issueTypes : []),
+  ].filter(Boolean)
+  const uniqueQaIssueTypes = [...new Set(qaIssueTypes)].slice(0, 20)
+
+  return {
+    schemaVersion: 'copilot-semantic-trace-v2',
+    traceId,
+    stage,
+    identity: {
+      accountId,
+      characterId,
+      referenceId: referenceId || '',
+      scriptId: scriptId || '',
+      scriptVersionId: scriptVersionId || '',
+      sessionId: sessionId || '',
+      selectedLabel: selectedLabel || '',
+      selectedVariant: {
+        selectedVariantId: selectedVariantContext?.selectedVariantId || '',
+        selectedVariantKey: selectedVariantContext?.selectedVariantKey || '',
+        selectedVariantIndex:
+          selectedVariantContext?.selectedVariantIndex === null ||
+          selectedVariantContext?.selectedVariantIndex === undefined
+            ? null
+            : selectedVariantContext.selectedVariantIndex,
+        selectedScriptId: selectedVariantContext?.selectedScriptId || '',
+      },
+    },
+    request: {
+      preview: String(requestText || '').slice(0, 500),
+      length: String(requestText || '').length,
+    },
+    intent: {
+      intent: intent?.intent || '',
+      shouldEdit: Boolean(intent?.shouldEdit || intent?.shouldModifyScript),
+      editTarget: intent?.editTarget || '',
+      operationType: intent?.operationType || '',
+      responseMode: intent?.responseMode || '',
+      confidence: Number(intent?.confidence || 0),
+      reason: intent?.reason || '',
+    },
+    regexSignals: semanticTrace.regexSignals || {},
+    semanticInstruction: semanticTrace.semantic || {},
+    finalEditPlan: {
+      operationType: editPlan?.operationType || '',
+      semanticOperationType: semanticTrace.finalPlan?.semanticOperationType || editPlan?.operationType || '',
+      editTarget: finalEditTarget || editPlan?.editTarget || '',
+      targetSections: editPlan?.targetSections || [],
+      preserveSections: editPlan?.preserveSections || [],
+      qaMode: editPlan?.qaMode || '',
+      strategy: editPlan?.strategy || '',
+      newSubject: editPlan?.newSubject || '',
+      requestedMaterials: editPlan?.requestedMaterials || [],
+      salesContext: editPlan?.salesContext || '',
+      toneHint: editPlan?.toneHint || '',
+      allOperationsBlockedByLocks: Boolean(semanticTrace.semantic?.allOperationsBlockedByLocks),
+    },
+    qaRecovery: {
+      useHeavyQualityGate: Boolean(useHeavyQualityGate),
+      passed: Boolean(qualityGate?.passed),
+      repaired: Boolean(qualityGate?.repaired),
+      issueTypes: uniqueQaIssueTypes,
+      fallbackUsed: Boolean(qualityGate?.fallbackUsed),
+      fallbackType: qualityGate?.fallbackType || 'none',
+      partialAppliedSections: qualityGate?.partialAppliedSections || [],
+      repairAttempted: Boolean(repairAttempted),
+      repairSuccess: Boolean(repairSuccess),
+      recoveryAttempted: Boolean(recoveryAttempted),
+      recoverySuccess: Boolean(recoverySuccess),
+      recovery: qualityGate?.recovery || editPlan?.recovery || null,
+      finalChangedSections,
+      latencyMs,
+    },
+  }
+}
+
+function logCopilotSemanticTrace(payload = {}) {
+  const trace = buildCopilotSemanticTracePayload(payload)
+  console.info('[copilot-semantic-trace]', trace)
+  return trace
+}
+
 async function retryCopilotWithRecoveredEditPlan({
   account,
   req,
@@ -2143,6 +2254,30 @@ app.post(
       responseMode: result.responseMode,
       changedSections: finalChangedSections,
     })
+    const semanticTracePayload = logCopilotSemanticTrace({
+      traceId: randomUUID(),
+      stage: 'copilot_refine',
+      accountId: account.id,
+      characterId: character.characterId,
+      referenceId: req.body?.referenceId || '',
+      scriptId: req.body?.scriptId || '',
+      scriptVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+      sessionId: personalization.sessionId,
+      selectedLabel: req.body?.selectedLabel || '',
+      selectedVariantContext,
+      requestText,
+      intent,
+      editPlan,
+      qualityGate,
+      repairAttempted,
+      repairSuccess,
+      recoveryAttempted,
+      recoverySuccess,
+      useHeavyQualityGate,
+      finalChangedSections,
+      finalEditTarget: result.editTarget || editPlan.editTarget || '',
+      latencyMs: Date.now() - qualityStartedAt,
+    })
     console.info('[copilot-quality-gate]', {
       account_id: account.id,
       character_id: character.characterId,
@@ -2178,7 +2313,7 @@ app.post(
         changedSections: finalChangedSections || [],
         referenceId: req.body?.referenceId || '',
         editPlan,
-        semanticTrace: editPlan.semanticTrace || null,
+        semanticTrace: semanticTracePayload,
         qualityGate,
       },
     })
@@ -2210,7 +2345,7 @@ app.post(
         useHeavyQualityGate,
         repairAttempted,
         repairSuccess,
-        semanticTrace: editPlan.semanticTrace || null,
+        semanticTrace: semanticTracePayload,
       },
     })
 
@@ -2688,6 +2823,39 @@ app.post(
       }
     }
     const finalFlowValidation = validateScriptFlow(finalSections)
+    const semanticTracePayload = logCopilotSemanticTrace({
+      traceId: randomUUID(),
+      stage: 'feedback_apply',
+      accountId: account.id,
+      characterId: character.characterId,
+      referenceId: req.body?.referenceId || '',
+      scriptId: req.body?.scriptId || '',
+      scriptVersionId: req.body?.scriptVersionId || '',
+      sessionId: personalization.sessionId,
+      selectedLabel: req.body?.selectedLabel || '',
+      selectedVariantContext,
+      requestText,
+      intent: {
+        intent: 'feedback_apply',
+        shouldEdit: true,
+        editTarget,
+        operationType: feedbackEditPlan.operationType || 'feedback_apply',
+        responseMode: 'edit_only',
+        confidence: 1,
+        reason: '사용자가 피드백 적용을 요청함',
+      },
+      editPlan: feedbackEditPlan,
+      qualityGate,
+      qaResult,
+      repairAttempted,
+      repairSuccess,
+      recoveryAttempted: Boolean(qualityGate.fallbackUsed),
+      recoverySuccess: Boolean(qualityGate.fallbackUsed && qualityGate.fallbackType !== 'original'),
+      useHeavyQualityGate: true,
+      finalChangedSections,
+      finalEditTarget: result.editTarget || editTarget || '',
+      latencyMs: Date.now() - qaStartedAt,
+    })
     console.info('[feedback-apply-quality-gate]', {
       account_id: account.id,
       character_id: character.characterId,
@@ -2717,6 +2885,7 @@ app.post(
         changedSections: finalChangedSections,
         referenceId: req.body?.referenceId || '',
         feedbackSummary: String(feedback?.summary || '').slice(0, 300),
+        semanticTrace: semanticTracePayload,
         qualityGate,
       },
     })
@@ -2741,6 +2910,7 @@ app.post(
         repairAttempted,
         repairSuccess,
         partialAppliedSections: qualityGate.partialAppliedSections || [],
+        semanticTrace: semanticTracePayload,
       },
     })
 
