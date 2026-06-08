@@ -35,6 +35,7 @@ function splitVariationSections(variation = '') {
 
 function createScriptFromVariation(variation, index) {
   const fallbackLabel = `${String.fromCharCode(65 + index)}안`
+  const variantKey = String.fromCharCode(65 + index)
   const isStructuredVariation =
     variation && typeof variation === 'object' && !Array.isArray(variation)
   const sections = isStructuredVariation
@@ -59,6 +60,9 @@ function createScriptFromVariation(variation, index) {
 
   return {
     id: `script-${index + 1}`,
+    variantId: isStructuredVariation ? variation.variantId || variation.variantKey || variantKey : variantKey,
+    variantKey: isStructuredVariation ? variation.variantKey || variation.variantId || variantKey : variantKey,
+    variantIndex: index,
     label,
     angle,
     tone: '',
@@ -459,6 +463,11 @@ export async function generateScriptFeedback({
   scriptId,
   currentVersionId,
   selectedLabel,
+  selectedVariantId,
+  selectedVariantKey,
+  selectedVariantIndex,
+  selectedAngle,
+  sessionId,
   sections,
   previousFeedback,
 }) {
@@ -475,6 +484,12 @@ export async function generateScriptFeedback({
       currentVersionId,
       scriptVersionId: currentVersionId,
       selectedLabel,
+      selectedVariantId,
+      selectedVariantKey,
+      selectedVariantIndex,
+      selectedAngle,
+      selectedScriptId: scriptId,
+      sessionId,
       sections,
       previousFeedback,
     }),
@@ -494,6 +509,11 @@ export async function applyScriptFeedback({
   scriptId,
   currentVersionId,
   selectedLabel,
+  selectedVariantId,
+  selectedVariantKey,
+  selectedVariantIndex,
+  selectedAngle,
+  sessionId,
   sections,
   feedback,
   editTarget,
@@ -512,6 +532,12 @@ export async function applyScriptFeedback({
       currentVersionId,
       scriptVersionId: currentVersionId,
       selectedLabel,
+      selectedVariantId,
+      selectedVariantKey,
+      selectedVariantIndex,
+      selectedAngle,
+      selectedScriptId: scriptId,
+      sessionId,
       sections,
       feedback,
       editTarget,
@@ -547,6 +573,11 @@ export async function generateChatReply({
   currentVersionId,
   editTarget,
   selectedLabel,
+  selectedVariantId,
+  selectedVariantKey,
+  selectedVariantIndex,
+  selectedAngle,
+  sessionId,
   message,
   editorSections,
   copilotMemory,
@@ -569,6 +600,12 @@ export async function generateChatReply({
       scriptVersionId: currentVersionId,
       editTarget,
       selectedLabel,
+      selectedVariantId,
+      selectedVariantKey,
+      selectedVariantIndex,
+      selectedAngle,
+      selectedScriptId: scriptId,
+      sessionId,
       message,
       sections: editorSections,
       copilotMemory,

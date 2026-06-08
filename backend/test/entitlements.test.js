@@ -13,11 +13,11 @@ test('instacampus student coupons create unlimited usage limits', () => {
   }
 })
 
-test('regular student coupons keep student usage limits', () => {
+test('regular student coupons resolve to unlimited usage limits', () => {
   assert.deepEqual(getCouponPlanLimits('student', 'SOME_OTHER_STUDENT_COUPON'), {
-    monthlyReferenceLimit: 30,
-    perReferenceCopilotLimit: 5,
-    perReferenceFeedbackLimit: 2,
+    monthlyReferenceLimit: null,
+    perReferenceCopilotLimit: null,
+    perReferenceFeedbackLimit: null,
   })
 })
 
@@ -38,8 +38,20 @@ test('explicit null entitlement limit values stay unlimited', () => {
 
 test('missing entitlement limit rows fall back to plan defaults', () => {
   assert.deepEqual(resolveEntitlementLimits('student', null), {
-    monthlyReferenceLimit: 30,
-    perReferenceCopilotLimit: 5,
-    perReferenceFeedbackLimit: 2,
+    monthlyReferenceLimit: null,
+    perReferenceCopilotLimit: null,
+    perReferenceFeedbackLimit: null,
+  })
+})
+
+test('stored finite entitlement limit rows are ignored while limits are forced unlimited', () => {
+  assert.deepEqual(resolveEntitlementLimits('student', {
+    monthly_reference_limit: 30,
+    per_reference_copilot_limit: 5,
+    per_reference_feedback_limit: 2,
+  }), {
+    monthlyReferenceLimit: null,
+    perReferenceCopilotLimit: null,
+    perReferenceFeedbackLimit: null,
   })
 })

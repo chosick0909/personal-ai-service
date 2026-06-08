@@ -107,6 +107,7 @@ function normalizePreviousAdvice(value = null) {
   return {
     sourceType: String(value.sourceType || value.source_type || '').trim(),
     sourceMessageId: String(value.sourceMessageId || value.source_message_id || '').trim(),
+    sourceDraftId: String(value.sourceDraftId || value.source_draft_id || '').trim(),
     sourceUserMessage: String(value.sourceUserMessage || value.source_user_message || '').trim(),
     priority: String(value.priority || '').trim(),
     diagnosis,
@@ -217,6 +218,9 @@ const COPILOT_OPERATION_TYPES = {
   TOPIC_REFRAME: 'topic_reframe',
   INSERT_MATERIAL: 'insert_material',
   DURATION_COMPRESS: 'duration_compress',
+  // Public semantic name for filling an example pattern/placeholder into the current script.
+  FORMAT_FILL: 'format_fill',
+  // Backward-compatible operation name kept for existing prompts/routes.
   FORMAT_APPLY: 'format_apply',
   TONE_ADJUST: 'tone_adjust',
   FRAMING_REWRITE: 'framing_rewrite',
@@ -678,6 +682,7 @@ export function feedbackToEditInstructions({
   return normalizePreviousAdvice({
     sourceType: 'feedback',
     sourceMessageId,
+    sourceDraftId: feedback?.sourceDraftId || feedback?.source_draft_id || '',
     priority: 'high',
     diagnosis: diagnosis || '직전 피드백에서 지적한 문제를 반영',
     editTarget: effectiveEditTarget,
@@ -709,6 +714,7 @@ function suggestionToEditInstructions({
   return normalizePreviousAdvice({
     sourceType: 'suggestion',
     sourceMessageId: replyContext.sourceMessageId || '',
+    sourceDraftId: replyContext.sourceDraftId || '',
     priority: 'high',
     diagnosis: '답장 대상 수정안을 기준으로 후속 요청을 반영',
     editTarget: target,
@@ -742,6 +748,7 @@ function adviceToEditInstructions({
       ...actionableAdvice,
       sourceType: actionableAdvice.sourceType || replyContext.sourceType || 'advice',
       sourceMessageId: actionableAdvice.sourceMessageId || replyContext.sourceMessageId || '',
+      sourceDraftId: actionableAdvice.sourceDraftId || replyContext.sourceDraftId || '',
     })
   }
 
@@ -765,6 +772,7 @@ function adviceToEditInstructions({
   return normalizePreviousAdvice({
     sourceType: replyContext.sourceType || 'advice',
     sourceMessageId: replyContext.sourceMessageId || '',
+    sourceDraftId: replyContext.sourceDraftId || '',
     priority: 'medium',
     diagnosis: messageText.slice(0, 240),
     editTarget: target,
@@ -797,16 +805,21 @@ export function replyContextToEditInstructions({
 
   const sourceType = String(replyContext.sourceType || replyContext.source_type || '').trim()
   const sourceMessageId = String(replyContext.sourceMessageId || replyContext.source_message_id || '').trim()
+  const sourceDraftId = String(replyContext.sourceDraftId || replyContext.source_draft_id || '').trim()
   const normalizedContext = {
     ...replyContext,
     sourceType,
     sourceMessageId,
+    sourceDraftId,
     messageText: String(replyContext.messageText || replyContext.message_text || '').trim(),
   }
 
   if (sourceType === 'feedback' && normalizedContext.feedback) {
     return feedbackToEditInstructions({
-      feedback: normalizedContext.feedback,
+      feedback: {
+        ...normalizedContext.feedback,
+        sourceDraftId,
+      },
       sourceMessageId,
       editTarget: normalizedContext.editTarget || editTarget,
     })
@@ -950,6 +963,9 @@ function parseSubjectList(value = '') {
 
 function normalizeOperationType(value = '') {
   const normalized = String(value || '').trim()
+  if (normalized === 'format_fill') {
+    return COPILOT_OPERATION_TYPES.FORMAT_APPLY
+  }
   return Object.values(COPILOT_OPERATION_TYPES).includes(normalized)
     ? normalized
     : COPILOT_OPERATION_TYPES.UNKNOWN
@@ -1028,6 +1044,21 @@ const FORMAT_CANDIDATE_PATTERN =
 
 const EXPLICIT_TOPIC_REFRAME_MARKER_PATTERN =
   /(주제|소재|상품|제품|아이템|카테고리|말고|대신|빼고|버리고|제외하고|에서\s*.+?(?:으로|로))/i
+
+const META_INSTRUCTION_LEAKAGE_PHRASES = [
+  '후기처럼',
+  '강한 후기',
+  '해소되는 느낌',
+  '공감되는 관점',
+  '요런 멘트',
+  '이런 멘트',
+  '질문 키포인트',
+  '질문하는 방법',
+  '이런 식으로',
+  '저런 식으로',
+  '요런 식으로',
+  '숫자를 넣어줘',
+]
 
 function isFramingRewriteRequest(text = '') {
   const source = String(text || '').trim()
@@ -1785,6 +1816,26 @@ function buildSemanticInstructionFromLegacy({
       evidence: text,
     }),
   )
+  const normalizedPreviousAdvice = normalizePreviousAdvice(intentResult.previousAdvice)
+  const replyContext = intentResult.replyContext && typeof intentResult.replyContext === 'object'
+    ? intentResult.replyContext
+    : null
+  const replyContextSourceType = String(replyContext?.sourceType || replyContext?.source_type || '').trim()
+  const replyContextMessageId = String(
+    replyContext?.sourceMessageId ||
+      replyContext?.source_message_id ||
+      intentResult.replyToMessageId ||
+      normalizedPreviousAdvice?.sourceMessageId ||
+      '',
+  ).trim()
+  const replyContextDraftId = String(
+    replyContext?.sourceDraftId ||
+      replyContext?.source_draft_id ||
+      normalizedPreviousAdvice?.sourceDraftId ||
+      intentResult.currentDraftId ||
+      intentResult.scriptId ||
+      '',
+  ).trim()
     const sectionScopedOperations = extractSectionScopedOperations(text)
     const formatApplyOperation = buildFormatApplyOperation({
       request: text,
@@ -1835,10 +1886,11 @@ function buildSemanticInstructionFromLegacy({
     operations: operation ? [operation] : [],
     locks: locks.filter(Boolean),
     replyReference: {
-      hasReplyTarget: Boolean(intentResult.replyToMessageId || intentResult.previousAdvice),
-      sourceType: intentResult.previousAdvice ? 'advice' : '',
-      sourceMessageId: String(intentResult.replyToMessageId || ''),
-      inheritedOperations: normalizePreviousAdvice(intentResult.previousAdvice)?.operations || [],
+      hasReplyTarget: Boolean(replyContextMessageId || normalizedPreviousAdvice),
+      sourceType: replyContextSourceType || normalizedPreviousAdvice?.sourceType || (normalizedPreviousAdvice ? 'advice' : ''),
+      sourceMessageId: replyContextMessageId,
+      sourceDraftId: replyContextDraftId,
+      inheritedOperations: normalizedPreviousAdvice?.operations || [],
     },
     userFacingNeed: signals.hasQuestionIntent && !signals.hasEditVerb ? 'answer_question' : 'modify_script',
     clarificationQuestion: null,
@@ -1928,6 +1980,24 @@ function validateSemanticEditInstruction(instruction = {}) {
     clarificationQuestion: normalized.clarificationQuestion || null,
     legacyInstruction: normalized.legacyInstruction || {},
     regexSignals: normalized.regexSignals || {},
+    allOperationsBlockedByLocks: Boolean(normalized.allOperationsBlockedByLocks),
+  }
+
+  if (next.intent === 'ask_advice' || next.userFacingNeed === 'answer_question') {
+    return {
+      ...next,
+      intent: 'ask_advice',
+      topicChange: {
+        requested: false,
+        oldSubject: null,
+        oldSubjects: [],
+        newSubject: null,
+        confidence: 0,
+        evidence: null,
+      },
+      operations: [],
+      allOperationsBlockedByLocks: false,
+    }
   }
 
   const candidate = next.topicChange.newSubject || ''
@@ -1962,7 +2032,7 @@ function validateSemanticEditInstruction(instruction = {}) {
     })
   }
 
-  if (!next.operations.length && next.userFacingNeed === 'modify_script') {
+  if (!next.operations.length && next.userFacingNeed === 'modify_script' && !next.allOperationsBlockedByLocks) {
     next.operations = [
       {
         type: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
@@ -1999,17 +2069,42 @@ function resolveSemanticInstructionConflicts(instruction = {}) {
 
   return {
     ...normalized,
-    operations: operations.length ? operations : normalized.operations,
+    operations,
+    allOperationsBlockedByLocks: !operations.length && normalized.operations.length > 0,
   }
 }
 
-function parseSemanticEditInstruction({ userMessage = '', intentResult = {} } = {}) {
+function parseSemanticEditInstruction({
+  userMessage = '',
+  intentResult = {},
+  previousAdvice = null,
+  replyContext = null,
+  editTarget = '',
+} = {}) {
   const regexSignals = parseRegexSignals(userMessage)
-  const legacyInstruction = parseLegacyEditInstruction(userMessage, intentResult)
+  const resolvedReplyContext = replyContext || intentResult.replyContext || null
+  const resolvedPreviousAdvice = replyContextToEditInstructions({
+    replyContext: resolvedReplyContext,
+    userMessage,
+    fallbackAdvice: previousAdvice || intentResult.previousAdvice || null,
+    editTarget: editTarget || intentResult.editTarget || '',
+  })
+  const mergedIntentResult = {
+    ...intentResult,
+    previousAdvice: resolvedPreviousAdvice || previousAdvice || intentResult.previousAdvice || null,
+    replyContext: resolvedReplyContext,
+    replyToMessageId:
+      intentResult.replyToMessageId ||
+      resolvedReplyContext?.sourceMessageId ||
+      resolvedReplyContext?.source_message_id ||
+      resolvedPreviousAdvice?.sourceMessageId ||
+      '',
+  }
+  const legacyInstruction = parseLegacyEditInstruction(userMessage, mergedIntentResult)
   return resolveSemanticInstructionConflicts(
     buildSemanticInstructionFromLegacy({
       request: userMessage,
-      intentResult,
+      intentResult: mergedIntentResult,
       regexSignals,
       legacyInstruction,
     }),
@@ -2403,6 +2498,7 @@ function buildResolvedEditOperations({
   toneHint = '',
   requestedMaterials = [],
   newSubject = '',
+  suppressFallbackOperations = false,
 } = {}) {
   const output = []
   const targetSet = new Set(targetSections.filter((section) => SECTION_KEYS.includes(section)))
@@ -2434,7 +2530,7 @@ function buildResolvedEditOperations({
     addOperation(operation, 'semantic')
   }
 
-  if (!output.length) {
+  if (!output.length && !suppressFallbackOperations) {
     for (const section of targetSet.size ? [...targetSet] : SECTION_KEYS) {
       output.push({
         type: operationType || COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
@@ -2481,6 +2577,78 @@ function buildResolvedEditOperations({
     .slice(0, 10)
 }
 
+function buildSemanticDebugTrace({
+  request = '',
+  regexSignals = {},
+  semanticInstruction = {},
+  normalizedPreviousAdvice = null,
+  operationType = '',
+  targetSections = [],
+  preserveSections = [],
+  qaMode = '',
+  newSubject = '',
+  requestedMaterials = [],
+  salesContext = '',
+  toneHint = '',
+  allOperationsBlockedByLocks = false,
+} = {}) {
+  const replyReference = semanticInstruction?.replyReference || {}
+  return {
+    schemaVersion: 'semantic-trace-v1',
+    finalDecisionSource: 'validated_semantic_instruction',
+    rawRequestPolicy: 'raw_request_is_context_only_after_semantic_validation',
+    rawRequestPreview: String(request || '').slice(0, 120),
+    regexSignals: {
+      hasEditVerb: Boolean(regexSignals.hasEditVerb),
+      maybeTopicChange: Boolean(regexSignals.maybeTopicChange),
+      mentionedSections: Array.isArray(regexSignals.mentionedSections) ? regexSignals.mentionedSections : [],
+      explicitLocks: Array.isArray(regexSignals.explicitLocks) ? regexSignals.explicitLocks : [],
+      hasDurationCompress: Boolean(regexSignals.hasDurationCompress),
+      targetDurationSeconds: regexSignals.targetDurationSeconds || null,
+      hasFormatApply: Boolean(regexSignals.hasFormatApply),
+      hasReplyLikeExpression: Boolean(regexSignals.hasReplyLikeExpression),
+      hasQuestionIntent: Boolean(regexSignals.hasQuestionIntent),
+    },
+    semantic: {
+      intent: semanticInstruction.intent || 'unknown',
+      userFacingNeed: semanticInstruction.userFacingNeed || '',
+      confidence: Number(semanticInstruction.confidence || 0),
+      topicChange: semanticInstruction.topicChange || {},
+      operations: (semanticInstruction.operations || []).map((operation) => ({
+        type: operation.type || COPILOT_OPERATION_TYPES.UNKNOWN,
+        semanticType: operation.type === COPILOT_OPERATION_TYPES.FORMAT_APPLY ? 'format_fill' : operation.type || '',
+        target: operation.target || 'all',
+        goal: operation.goal || '',
+        styleTarget: operation.styleTarget || '',
+        evidence: operation.evidence || '',
+        confidence: Number(operation.confidence || 0),
+      })),
+      locks: semanticInstruction.locks || [],
+      replyReference: {
+        hasReplyTarget: Boolean(replyReference.hasReplyTarget),
+        sourceType: replyReference.sourceType || normalizedPreviousAdvice?.sourceType || '',
+        sourceMessageId: replyReference.sourceMessageId || normalizedPreviousAdvice?.sourceMessageId || '',
+        sourceDraftId: replyReference.sourceDraftId || normalizedPreviousAdvice?.sourceDraftId || '',
+        inheritedOperationTypes: (replyReference.inheritedOperations || normalizedPreviousAdvice?.operations || []).map(
+          (operation) => operation?.type || '',
+        ),
+      },
+      allOperationsBlockedByLocks: Boolean(allOperationsBlockedByLocks),
+    },
+    finalPlan: {
+      operationType,
+      semanticOperationType: operationType === COPILOT_OPERATION_TYPES.FORMAT_APPLY ? 'format_fill' : operationType,
+      targetSections,
+      preserveSections,
+      qaMode,
+      newSubject,
+      requestedMaterials,
+      salesContext,
+      toneHint,
+    },
+  }
+}
+
 export function buildEditPlan({
   userRequest = '',
   currentSections,
@@ -2493,7 +2661,15 @@ export function buildEditPlan({
 } = {}) {
   const request = String(userRequest || '').trim()
   const sections = normalizeSections(currentSections)
-  const normalizedPreviousAdvice = normalizePreviousAdvice(previousAdvice || intentResult.previousAdvice)
+  const normalizedReplyAdvice = replyContextToEditInstructions({
+    replyContext: intentResult.replyContext || null,
+    userMessage: request,
+    fallbackAdvice: previousAdvice || intentResult.previousAdvice || null,
+    editTarget: intentResult.editTarget || editTarget || '',
+  })
+  const normalizedPreviousAdvice = normalizePreviousAdvice(
+    normalizedReplyAdvice || previousAdvice || intentResult.previousAdvice,
+  )
   const isApplyingPreviousAdvice =
     intentResult.intent === COPILOT_INTENTS.APPLY_PREVIOUS_ADVICE && isPreviousAdviceFresh(normalizedPreviousAdvice)
   const durationTarget =
@@ -2505,7 +2681,13 @@ export function buildEditPlan({
       intentResult.semanticInstruction ||
       parseSemanticEditInstruction({
         userMessage: request,
-        intentResult,
+        intentResult: {
+          ...intentResult,
+          previousAdvice: normalizedPreviousAdvice,
+        },
+        previousAdvice: normalizedPreviousAdvice,
+        replyContext: intentResult.replyContext || null,
+        editTarget: intentResult.editTarget || editTarget || '',
       }),
   )
   const primarySemanticOperation = validatedSemanticInstruction.operations?.[0] || {}
@@ -2617,6 +2799,7 @@ export function buildEditPlan({
     toneHint,
     requestedMaterials,
     newSubject: detectedNewSubject,
+    suppressFallbackOperations: Boolean(validatedSemanticInstruction.allOperationsBlockedByLocks),
   })
   const reframeScope =
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
@@ -2863,6 +3046,21 @@ export function buildEditPlan({
     salesContext,
     toneHint,
   })
+  const semanticTrace = buildSemanticDebugTrace({
+    request,
+    regexSignals: validatedSemanticInstruction.regexSignals || {},
+    semanticInstruction: validatedSemanticInstruction,
+    normalizedPreviousAdvice,
+    operationType,
+    targetSections,
+    preserveSections,
+    qaMode,
+    newSubject: detectedNewSubject,
+    requestedMaterials,
+    salesContext,
+    toneHint,
+    allOperationsBlockedByLocks: validatedSemanticInstruction.allOperationsBlockedByLocks,
+  })
 
   return {
     editTarget: normalizedTarget,
@@ -2889,6 +3087,7 @@ export function buildEditPlan({
     previousAdviceApplied: isApplyingPreviousAdvice,
     structuredEditInstruction,
     semanticInstruction: validatedSemanticInstruction,
+    semanticTrace,
     semanticOperations: validatedSemanticInstruction.operations || [],
     operations: resolvedOperations,
     resolvedOperations,
@@ -4161,6 +4360,20 @@ export function runFeedbackFallbackRuleCheck({
   }
 
   const candidateText = Object.values(candidate).join('\n')
+  for (const phrase of META_INSTRUCTION_LEAKAGE_PHRASES) {
+    if (textIncludesLoosePhrase(candidateText, phrase)) {
+      issues.push(
+        createQaIssue({
+          type: 'meta_instruction_leakage',
+          severity: 'high',
+          section: 'all',
+          text: phrase,
+          reason: '편집 방향이나 질문 방식 같은 메타 표현이 대본 표면 문장에 섞였다.',
+          suggestion: '메타 표현은 삭제하고 실제 대본 문장으로만 다시 쓴다.',
+        }),
+      )
+    }
+  }
   const forbiddenPhrases = uniqueCompactList(forbiddenSurfacePhrases, 24)
   for (const phrase of forbiddenPhrases) {
     if (textIncludesLoosePhrase(candidateText, phrase)) {
@@ -4934,15 +5147,90 @@ function compactReferenceSignal(value = '', maxLength = 500) {
   return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
 }
 
-function findSelectedVariation(reference = {}, selectedLabel = '') {
+function normalizeVariationSelection(input = '') {
+  if (input && typeof input === 'object') {
+    const rawIndex = input.selectedVariantIndex ?? input.variantIndex ?? null
+    return {
+      selectedLabel: String(input.selectedLabel || input.label || '').trim(),
+      selectedVariantId: String(input.selectedVariantId || input.variantId || '').trim(),
+      selectedVariantKey: String(input.selectedVariantKey || input.variantKey || '').trim().toUpperCase(),
+      selectedVariantIndex:
+        rawIndex !== null && rawIndex !== undefined && Number.isInteger(Number(rawIndex))
+          ? Number(rawIndex)
+          : null,
+      selectedAngle: String(input.selectedAngle || input.angle || '').trim(),
+    }
+  }
+
+  return {
+    selectedLabel: String(input || '').trim(),
+    selectedVariantId: '',
+    selectedVariantKey: '',
+    selectedVariantIndex: null,
+    selectedAngle: '',
+  }
+}
+
+function variationKeyFromLabel(label = '', index = null) {
+  const text = String(label || '').trim().toUpperCase()
+  if (/(^|[^A-Z])A([^A-Z]|$)|A안/.test(text)) return 'A'
+  if (/(^|[^A-Z])B([^A-Z]|$)|B안/.test(text)) return 'B'
+  if (/(^|[^A-Z])C([^A-Z]|$)|C안/.test(text)) return 'C'
+  return Number.isInteger(index) && index >= 0 && index < 26 ? String.fromCharCode(65 + index) : ''
+}
+
+function hasVariationSelection(selection = {}) {
+  return Boolean(
+    selection.selectedLabel ||
+      selection.selectedVariantId ||
+      selection.selectedVariantKey ||
+      selection.selectedAngle ||
+      (selection.selectedVariantIndex !== null && selection.selectedVariantIndex !== undefined),
+  )
+}
+
+function findSelectedVariation(reference = {}, selectedSelection = '') {
   const variations = Array.isArray(reference.variations) ? reference.variations : []
   if (!variations.length) return null
-  const normalizedLabel = String(selectedLabel || '').trim()
-  return (
-    variations.find((variation) => String(variation?.label || '').trim() === normalizedLabel) ||
-    variations[0] ||
-    null
-  )
+  const selection = normalizeVariationSelection(selectedSelection)
+  const selectedLabel = selection.selectedLabel
+  const selectedVariantId = selection.selectedVariantId
+  const selectedVariantKey = selection.selectedVariantKey
+  const selectedVariantIndex = selection.selectedVariantIndex
+  const selectedAngle = selection.selectedAngle
+
+  if (selectedVariantIndex !== null && selectedVariantIndex !== undefined && variations[selectedVariantIndex]) {
+    return variations[selectedVariantIndex]
+  }
+
+  if (selectedVariantKey) {
+    const keyMatch = variations.find((variation, index) => {
+      const variationKey = String(variation?.variantKey || variation?.variantId || '').trim().toUpperCase()
+      return variationKey === selectedVariantKey || variationKeyFromLabel(variation?.label, index) === selectedVariantKey
+    })
+    if (keyMatch) return keyMatch
+  }
+
+  if (selectedVariantId) {
+    const idMatch = variations.find((variation, index) => {
+      const variationId = String(variation?.variantId || variation?.variantKey || '').trim().toUpperCase()
+      const derivedKey = variationKeyFromLabel(variation?.label, index)
+      return variationId === selectedVariantId.toUpperCase() || derivedKey === selectedVariantId.toUpperCase()
+    })
+    if (idMatch) return idMatch
+  }
+
+  if (selectedLabel) {
+    const labelMatch = variations.find((variation) => String(variation?.label || '').trim() === selectedLabel)
+    if (labelMatch) return labelMatch
+  }
+
+  if (selectedAngle) {
+    const angleMatch = variations.find((variation) => String(variation?.angle || '').trim() === selectedAngle)
+    if (angleMatch) return angleMatch
+  }
+
+  return null
 }
 
 function formatVariationBlueprintContext(variation = null) {
@@ -5080,9 +5368,24 @@ function shouldUseHookTemplatesForRefine(request = '', targetSections = SECTION_
   return /(hook|훅|후킹|첫문장|첫 문장|도입|오프닝|강하게|초반|이탈|조회수|시선|임팩트|궁금|긴장|반전)/i.test(text)
 }
 
-function buildCopilotHookTemplateQuery({ sections = {}, request = '', reference = {}, selectedLabel = '' } = {}) {
+function buildCopilotHookTemplateQuery({
+  sections = {},
+  request = '',
+  reference = {},
+  selectedLabel = '',
+  selectedVariantId = '',
+  selectedVariantKey = '',
+  selectedVariantIndex = null,
+  selectedAngle = '',
+} = {}) {
   const normalized = normalizeSections(sections)
-  const selectedVariation = findSelectedVariation(reference, selectedLabel)
+  const selectedVariation = findSelectedVariation(reference, {
+    selectedLabel,
+    selectedVariantId,
+    selectedVariantKey,
+    selectedVariantIndex,
+    selectedAngle,
+  })
   const blueprint = selectedVariation?.structureBlueprint || {}
 
   return {
@@ -5513,6 +5816,10 @@ export async function refineScriptWithAI({
   accountId,
   referenceId,
   selectedLabel,
+  selectedVariantId = '',
+  selectedVariantKey = '',
+  selectedVariantIndex = null,
+  selectedAngle = '',
   request,
   sections,
   editTarget = '',
@@ -5535,7 +5842,14 @@ export async function refineScriptWithAI({
 
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
-  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
+  const selectedVariation = {
+    selectedLabel,
+    selectedVariantId,
+    selectedVariantKey,
+    selectedVariantIndex,
+    selectedAngle,
+  }
+  const referenceContext = buildReferenceStructureContext(reference, selectedVariation)
   const guides = buildReferenceGuides(reference)
   const intentResult = classifyCopilotIntentByRule(normalizedRequest, editTarget)
   const copilotMemoryContext = formatCopilotMemoryForPrompt(copilotMemory)
@@ -5599,6 +5913,10 @@ export async function refineScriptWithAI({
         request: normalizedRequest,
         reference,
         selectedLabel,
+        selectedVariantId,
+        selectedVariantKey,
+        selectedVariantIndex,
+        selectedAngle,
       }),
       topK: 3,
     })
@@ -5767,6 +6085,10 @@ export async function generateScriptFeedback({
   accountId,
   referenceId,
   selectedLabel,
+  selectedVariantId = '',
+  selectedVariantKey = '',
+  selectedVariantIndex = null,
+  selectedAngle = '',
   sections,
   currentDraftId = '',
   currentVersionId = '',
@@ -5777,7 +6099,13 @@ export async function generateScriptFeedback({
   const normalizedSections = normalizeSections(sections)
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
-  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
+  const referenceContext = buildReferenceStructureContext(reference, {
+    selectedLabel,
+    selectedVariantId,
+    selectedVariantKey,
+    selectedVariantIndex,
+    selectedAngle,
+  })
   const guides = buildReferenceGuides(reference)
   logPromptAssembly({
     stage: 'script-feedback',
@@ -5847,7 +6175,13 @@ export async function generateScriptFeedback({
     })
 
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const structureDiagnosis = buildStructureDiagnosis(reference, selectedLabel, parsed)
+    const structureDiagnosis = buildStructureDiagnosis(reference, {
+      selectedLabel,
+      selectedVariantId,
+      selectedVariantKey,
+      selectedVariantIndex,
+      selectedAngle,
+    }, parsed)
     const issues = normalizeFeedbackList(parsed.issues)
     const recommendations = normalizeFeedbackList(parsed.recommendations)
     const summary = parsed.summary?.trim() || '전체 구조는 괜찮지만 더 압축할 여지가 있습니다.'
@@ -5902,6 +6236,10 @@ export async function validateRefinedScriptQuality({
   accountId,
   referenceId,
   selectedLabel,
+  selectedVariantId = '',
+  selectedVariantKey = '',
+  selectedVariantIndex = null,
+  selectedAngle = '',
   originalSections,
   proposedSections,
   request = '',
@@ -5945,7 +6283,13 @@ export async function validateRefinedScriptQuality({
 
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
-  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
+  const referenceContext = buildReferenceStructureContext(reference, {
+    selectedLabel,
+    selectedVariantId,
+    selectedVariantKey,
+    selectedVariantIndex,
+    selectedAngle,
+  })
   const copilotModel = models.copilotModel || models.chatModel
 
   try {
@@ -6080,6 +6424,10 @@ export async function repairRefinedScriptWithQaIssues({
   accountId,
   referenceId,
   selectedLabel,
+  selectedVariantId = '',
+  selectedVariantKey = '',
+  selectedVariantIndex = null,
+  selectedAngle = '',
   originalSections,
   proposedSections,
   request = '',
@@ -6130,7 +6478,13 @@ export async function repairRefinedScriptWithQaIssues({
 
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
-  const referenceContext = buildReferenceStructureContext(reference, selectedLabel)
+  const referenceContext = buildReferenceStructureContext(reference, {
+    selectedLabel,
+    selectedVariantId,
+    selectedVariantKey,
+    selectedVariantIndex,
+    selectedAngle,
+  })
   const copilotModel = models.copilotModel || models.chatModel
   const repairTargets = [...issueSections]
 

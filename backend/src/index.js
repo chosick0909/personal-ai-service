@@ -142,6 +142,52 @@ function buildTopicReframeBestEffortMessage(editPlan = {}) {
   return `좋아요. 기존 소재에 끌려가지 않도록 "${subject}" 중심으로 다시 잡았어요. 새 주제 기준으로 자연스럽게 이어지도록 정리했습니다.`
 }
 
+function readSelectedVariantContext(body = {}) {
+  const selectedVariantId = String(
+    body?.selectedVariantId ||
+      body?.selected_variant_id ||
+      body?.selectedVariantKey ||
+      body?.selected_variant_key ||
+      '',
+  )
+    .trim()
+    .slice(0, 80)
+  const selectedVariantKey = String(body?.selectedVariantKey || body?.selected_variant_key || selectedVariantId || '')
+    .trim()
+    .slice(0, 20)
+  const rawIndex = body?.selectedVariantIndex ?? body?.selected_variant_index
+  const selectedVariantIndex =
+    rawIndex !== undefined && rawIndex !== null && Number.isInteger(Number(rawIndex))
+      ? Number(rawIndex)
+      : null
+  const selectedAngle = String(body?.selectedAngle || body?.selected_angle || '')
+    .trim()
+    .slice(0, 500)
+  const selectedScriptId = String(body?.selectedScriptId || body?.selected_script_id || '')
+    .trim()
+    .slice(0, 80)
+
+  return {
+    selectedVariantId,
+    selectedVariantKey,
+    selectedVariantIndex,
+    selectedAngle,
+    selectedScriptId,
+  }
+}
+
+function buildVariantScopedSession(prefix, accountId, referenceId, variantContext = {}) {
+  const variant =
+    variantContext.selectedScriptId ||
+    variantContext.selectedVariantId ||
+    variantContext.selectedVariantKey ||
+    (variantContext.selectedVariantIndex !== null && variantContext.selectedVariantIndex !== undefined
+      ? `index-${variantContext.selectedVariantIndex}`
+      : '') ||
+    'general'
+  return `${prefix}:${accountId}:${referenceId || 'general'}:${variant}`
+}
+
 async function retryCopilotWithRecoveredEditPlan({
   account,
   req,
@@ -176,10 +222,12 @@ async function retryCopilotWithRecoveredEditPlan({
     return null
   }
 
+  const selectedVariantContext = readSelectedVariantContext(req.body)
   const retryResult = await refineScriptWithAI({
     accountId: account.id,
     referenceId: req.body?.referenceId,
     selectedLabel: req.body?.selectedLabel,
+    ...selectedVariantContext,
     request: requestText,
     sections: refineBaseSections,
     editTarget: intent?.editTarget || req.body?.editTarget || req.body?.edit_target || '',
@@ -1364,10 +1412,12 @@ app.post(
   '/api/scripts',
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
+    const selectedVariantContext = readSelectedVariantContext(req.body)
     const result = await createScriptFromSelection({
       accountId: account.id,
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
+      ...selectedVariantContext,
       title: req.body?.title,
       sections: req.body?.sections,
       score: req.body?.score ?? null,
@@ -1449,6 +1499,7 @@ app.post(
     const routeStartedAt = Date.now()
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
+    const selectedVariantContext = readSelectedVariantContext(req.body)
     const requestText = readString(req.body?.message || req.body?.request, {
       field: 'message',
       required: true,
@@ -1490,8 +1541,13 @@ app.post(
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
-      `copilot:${account.id}:${req.body?.referenceId || 'general'}`
-    const copilotFallbackSession = `copilot:${account.id}:${req.body?.referenceId || 'general'}`
+      buildVariantScopedSession('copilot', account.id, req.body?.referenceId, selectedVariantContext)
+    const copilotFallbackSession = buildVariantScopedSession(
+      'copilot',
+      account.id,
+      req.body?.referenceId,
+      selectedVariantContext,
+    )
     const intentPersonalization = await buildPersonalizationContext({
       accountId: account.id,
       characterId: character.characterId,
@@ -1528,6 +1584,7 @@ app.post(
         accountId: account.id,
         referenceId: req.body?.referenceId,
         selectedLabel: req.body?.selectedLabel,
+        ...selectedVariantContext,
         sections: req.body?.sections,
         currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
         currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
@@ -1630,6 +1687,7 @@ app.post(
         accountId: account.id,
         referenceId: req.body?.referenceId,
         selectedLabel: req.body?.selectedLabel,
+        ...selectedVariantContext,
         request: requestText,
       sections: req.body?.sections,
       editTarget: 'none',
@@ -1805,6 +1863,7 @@ app.post(
       accountId: account.id,
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
+      ...selectedVariantContext,
       request: requestText,
       sections: refineBaseSections,
       editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
@@ -1853,6 +1912,7 @@ app.post(
         accountId: account.id,
         referenceId: req.body?.referenceId,
         selectedLabel: req.body?.selectedLabel,
+        ...selectedVariantContext,
         originalSections: refineBaseSections,
         proposedSections: result.sections,
         request: requestText,
@@ -1887,6 +1947,7 @@ app.post(
           accountId: account.id,
           referenceId: req.body?.referenceId,
           selectedLabel: req.body?.selectedLabel,
+          ...selectedVariantContext,
           originalSections: refineBaseSections,
           proposedSections: result.sections,
           request: requestText,
@@ -2092,6 +2153,7 @@ app.post(
       edit_plan_strategy: editPlan.strategy,
       operation_type: editPlan.operationType,
       qa_mode: editPlan.qaMode,
+      semantic_trace: editPlan.semanticTrace || null,
       qa_passed: qualityGate.passed,
       qa_failed_issue_types: qualityGate.issueTypes || [],
       repair_attempted: repairAttempted,
@@ -2116,6 +2178,7 @@ app.post(
         changedSections: finalChangedSections || [],
         referenceId: req.body?.referenceId || '',
         editPlan,
+        semanticTrace: editPlan.semanticTrace || null,
         qualityGate,
       },
     })
@@ -2147,6 +2210,7 @@ app.post(
         useHeavyQualityGate,
         repairAttempted,
         repairSuccess,
+        semanticTrace: editPlan.semanticTrace || null,
       },
     })
 
@@ -2185,6 +2249,7 @@ app.post(
   refineRateLimiter,
   asyncHandler(async (req, res) => {
     const account = await resolveRequestAccount(req)
+    const selectedVariantContext = readSelectedVariantContext(req.body)
     const usageStatus = await assertUsageAllowed({
       userId: req.auth?.userId,
       eventType: 'copilot_message',
@@ -2195,7 +2260,7 @@ app.post(
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
-      `refine:${account.id}:${req.body?.referenceId || 'general'}`
+      buildVariantScopedSession('refine', account.id, req.body?.referenceId, selectedVariantContext)
     const requestText = readString(req.body?.request, {
       field: 'request',
       required: true,
@@ -2213,6 +2278,7 @@ app.post(
       accountId: account.id,
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
+      ...selectedVariantContext,
       request: requestText,
       sections: req.body?.sections,
       editTarget: req.body?.editTarget || req.body?.edit_target || '',
@@ -2274,6 +2340,7 @@ app.post(
   asyncHandler(async (req, res) => {
     const routeStartedAt = Date.now()
     const account = await resolveRequestAccount(req)
+    const selectedVariantContext = readSelectedVariantContext(req.body)
     const usageStatus = await assertUsageAllowed({
       userId: req.auth?.userId,
       eventType: 'feedback_request',
@@ -2284,7 +2351,7 @@ app.post(
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
-      `feedback:${account.id}:${req.body?.referenceId || 'general'}`
+      buildVariantScopedSession('feedback', account.id, req.body?.referenceId, selectedVariantContext)
     const feedbackRequestText = readString(req.body?.request || '피드백 받기', {
       field: 'request',
       required: false,
@@ -2303,6 +2370,7 @@ app.post(
       accountId: account.id,
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
+      ...selectedVariantContext,
       sections: req.body?.sections,
       currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
       currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
@@ -2392,6 +2460,7 @@ app.post(
     const routeStartedAt = Date.now()
     const account = await resolveRequestAccount(req)
     const character = await getAccountCharacterContext(account.id, { characterId: readRequestCharacterId(req) })
+    const selectedVariantContext = readSelectedVariantContext(req.body)
     const feedback = req.body?.feedback && typeof req.body.feedback === 'object' ? req.body.feedback : {}
     const editTarget = req.body?.editTarget || req.body?.edit_target || 'all'
     const requestText = buildFeedbackApplyRequest(feedback, editTarget)
@@ -2399,7 +2468,7 @@ app.post(
       req.body?.sessionId ||
       req.body?.session_id ||
       req.headers['x-session-id'] ||
-      `feedback-apply:${account.id}:${req.body?.referenceId || 'general'}`
+      buildVariantScopedSession('feedback-apply', account.id, req.body?.referenceId, selectedVariantContext)
     const personalization = await buildPersonalizationContext({
       accountId: account.id,
       characterId: character.characterId,
@@ -2432,6 +2501,7 @@ app.post(
       accountId: account.id,
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
+      ...selectedVariantContext,
       request: requestText,
       sections: req.body?.sections,
       editTarget,
@@ -2447,6 +2517,7 @@ app.post(
       accountId: account.id,
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
+      ...selectedVariantContext,
       originalSections: req.body?.sections,
       proposedSections: result.sections,
       request: requestText,
@@ -2517,6 +2588,7 @@ app.post(
         accountId: account.id,
         referenceId: req.body?.referenceId,
         selectedLabel: req.body?.selectedLabel,
+        ...selectedVariantContext,
         originalSections: req.body?.sections,
         proposedSections: result.sections,
         request: requestText,

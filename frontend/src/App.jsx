@@ -2318,9 +2318,9 @@ function PurchaseScreen() {
       buttonLabel: '준비 중',
       disabled: true,
       benefits: [
-        '월 5회 레퍼런스 정밀 분석',
-        'AI 점수 피드백 5회 (분석당 1회)',
-        'AI 코파일럿 대화 15회 (분석당 3회)',
+        '레퍼런스 정밀 분석 무제한',
+        'AI 점수 피드백 무제한',
+        'AI 코파일럿 대화 무제한',
       ],
     },
     {
@@ -2334,9 +2334,9 @@ function PurchaseScreen() {
       disabled: false,
       featured: true,
       benefits: [
-        '월 30회 레퍼런스 정밀 분석',
-        'AI 점수 피드백 60회 (분석당 2회)',
-        'AI 코파일럿 대화 150회 (분석당 5회)',
+        '레퍼런스 정밀 분석 무제한',
+        'AI 점수 피드백 무제한',
+        'AI 코파일럿 대화 무제한',
       ],
     },
     {
@@ -2349,7 +2349,7 @@ function PurchaseScreen() {
       buttonLabel: '준비 중',
       disabled: true,
       benefits: [
-        '월 200회 레퍼런스 정밀 분석',
+        '레퍼런스 정밀 분석 무제한',
         'AI 점수 피드백 및 코파일럿 대화 무제한',
         '최우선 서버 할당 및 전용 로직 적용',
       ],

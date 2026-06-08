@@ -159,6 +159,46 @@ function hasNonEmptyText(value) {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function getVariantIndexFromScriptId(value = '') {
+  const match = String(value || '').match(/script-(\d+)/i)
+  if (!match) return null
+  const index = Number(match[1]) - 1
+  return Number.isInteger(index) && index >= 0 ? index : null
+}
+
+function getVariantKeyFromIndex(index) {
+  return Number.isInteger(index) && index >= 0 && index < 26
+    ? String.fromCharCode(65 + index)
+    : ''
+}
+
+function buildSelectedVariantContext(script = null, fallbackScriptId = '') {
+  const fallbackIndex = getVariantIndexFromScriptId(fallbackScriptId || script?.id || '')
+  const rawIndex = Number(script?.variantIndex)
+  const variantIndex = Number.isInteger(rawIndex) && rawIndex >= 0 ? rawIndex : fallbackIndex
+  const variantKey =
+    String(script?.variantKey || script?.variantId || '').trim() ||
+    getVariantKeyFromIndex(variantIndex)
+  const selectedScriptId = fallbackScriptId || script?.id || ''
+
+  return {
+    selectedScriptId,
+    selectedVariantId: variantKey || selectedScriptId,
+    selectedVariantKey: variantKey,
+    selectedVariantIndex: Number.isInteger(variantIndex) ? variantIndex : null,
+    selectedAngle: typeof script?.angle === 'string' ? script.angle : '',
+  }
+}
+
+function buildCopilotSessionId(accountId = '', referenceId = '', variantContext = {}) {
+  const variantId =
+    variantContext.selectedScriptId ||
+    variantContext.selectedVariantId ||
+    variantContext.selectedVariantKey ||
+    'general'
+  return `copilot:${accountId || 'account'}:${referenceId || 'general'}:${variantId}`
+}
+
 function hasConfiguredProducts(products) {
   if (!Array.isArray(products)) {
     return false
@@ -654,36 +694,48 @@ export function AppStateProvider({ children }) {
         }
 
         const previousSession = item.variantSessions?.[sessionScriptId] || {}
+        const canUseTopLevelFallback =
+          !item.selectedScriptId || item.selectedScriptId === sessionScriptId
         const nextSession = {
           ...previousSession,
           selectedScriptId: sessionScriptId,
           activeScriptId: hasOwn('activeScriptId')
             ? patch.activeScriptId
-            : previousSession.activeScriptId || item.activeScriptId || null,
+            : previousSession.activeScriptId || (canUseTopLevelFallback ? item.activeScriptId : null) || null,
           editorContent: hasOwn('editorContent')
             ? patch.editorContent
-            : previousSession.editorContent || item.editorContent || '',
-          versions: hasOwn('versions') ? patch.versions : previousSession.versions || item.versions || [],
-          feedback: hasOwn('feedback') ? patch.feedback : previousSession.feedback || item.feedback || null,
+            : previousSession.editorContent || (canUseTopLevelFallback ? item.editorContent : '') || '',
+          versions: hasOwn('versions')
+            ? patch.versions
+            : previousSession.versions || (canUseTopLevelFallback ? item.versions : []) || [],
+          feedback: hasOwn('feedback')
+            ? patch.feedback
+            : previousSession.feedback || (canUseTopLevelFallback ? item.feedback : null) || null,
           appliedFeedbackContext: hasOwn('appliedFeedbackContext')
             ? patch.appliedFeedbackContext
-            : previousSession.appliedFeedbackContext || item.appliedFeedbackContext || null,
+            : previousSession.appliedFeedbackContext ||
+              (canUseTopLevelFallback ? item.appliedFeedbackContext : null) ||
+              null,
           pendingSuggestion: hasOwn('pendingSuggestion')
             ? patch.pendingSuggestion
-            : previousSession.pendingSuggestion || item.pendingSuggestion || null,
+            : previousSession.pendingSuggestion || (canUseTopLevelFallback ? item.pendingSuggestion : null) || null,
           previousAdvice: hasOwn('previousAdvice')
             ? patch.previousAdvice
-            : previousSession.previousAdvice || item.previousAdvice || null,
+            : previousSession.previousAdvice || (canUseTopLevelFallback ? item.previousAdvice : null) || null,
           draftMessage: hasOwn('draftMessage')
             ? patch.draftMessage
-            : previousSession.draftMessage || item.draftMessage || '',
-          editTarget: hasOwn('editTarget') ? patch.editTarget : previousSession.editTarget || item.editTarget || 'all',
+            : previousSession.draftMessage || (canUseTopLevelFallback ? item.draftMessage : '') || '',
+          editTarget: hasOwn('editTarget')
+            ? patch.editTarget
+            : previousSession.editTarget || (canUseTopLevelFallback ? item.editTarget : 'all') || 'all',
           copilotMemory: hasOwn('copilotMemory')
             ? patch.copilotMemory
-            : previousSession.copilotMemory || item.copilotMemory || createInitialCopilotMemory(),
+            : previousSession.copilotMemory ||
+              (canUseTopLevelFallback ? item.copilotMemory : null) ||
+              createInitialCopilotMemory(),
           chatMessages: hasOwn('chatMessages')
             ? patch.chatMessages
-            : previousSession.chatMessages || item.chatMessages || [],
+            : previousSession.chatMessages || (canUseTopLevelFallback ? item.chatMessages : []) || [],
         }
 
         return {
@@ -2239,9 +2291,11 @@ export function AppStateProvider({ children }) {
     const currentVariantScriptId = selectedScriptId || selectedScript?.id || null
     const variantSessions = activeHistoryItem?.variantSessions || {}
     const targetVariantSession = variantSessions[scriptId] || null
+    const useTopLevelSelectedSession =
+      !targetVariantSession && activeHistoryItem?.selectedScriptId === scriptId
     const restoredActiveScriptId =
       targetVariantSession?.activeScriptId ||
-      (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem.activeScriptId : null)
+      (useTopLevelSelectedSession ? activeHistoryItem.activeScriptId : null)
 
     if (!requestAccountId || !nextScript || isEditorPreparing) {
       return
@@ -2267,45 +2321,52 @@ export function AppStateProvider({ children }) {
 
     if (
       (targetVariantSession ||
+        useTopLevelSelectedSession ||
         selectedScript?.id === scriptId ||
-        selectedScriptId === scriptId ||
-        activeHistoryItem?.selectedScriptId === scriptId) &&
+        selectedScriptId === scriptId) &&
       restoredActiveScriptId
     ) {
-      const restoredEditorSections = targetVariantSession?.editorContent || activeHistoryItem?.editorContent
-        ? deserializeEditorContent(targetVariantSession?.editorContent || activeHistoryItem.editorContent)
-        : editorSections
+      const restoredEditorContent = targetVariantSession?.editorContent ||
+        (useTopLevelSelectedSession ? activeHistoryItem?.editorContent : '') ||
+        ''
+      const restoredEditorSections = restoredEditorContent
+        ? deserializeEditorContent(restoredEditorContent)
+        : createEditorSections(nextScript.sections)
       const restoredVersions = Array.isArray(targetVariantSession?.versions) && targetVariantSession.versions.length
         ? targetVariantSession.versions
-        : Array.isArray(activeHistoryItem?.versions) && activeHistoryItem.versions.length
+        : useTopLevelSelectedSession && Array.isArray(activeHistoryItem?.versions) && activeHistoryItem.versions.length
           ? activeHistoryItem.versions
-        : versions
-      const restoredFeedback = targetVariantSession?.feedback || activeHistoryItem?.feedback || null
+          : []
+      const restoredFeedback =
+        targetVariantSession?.feedback || (useTopLevelSelectedSession ? activeHistoryItem?.feedback : null) || null
       const restoredAppliedFeedbackContext =
         targetVariantSession?.appliedFeedbackContext ||
-        (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem?.appliedFeedbackContext : null) ||
+        (useTopLevelSelectedSession ? activeHistoryItem?.appliedFeedbackContext : null) ||
         null
       const restoredPendingSuggestion =
-        targetVariantSession?.pendingSuggestion || activeHistoryItem?.pendingSuggestion || null
+        targetVariantSession?.pendingSuggestion ||
+        (useTopLevelSelectedSession ? activeHistoryItem?.pendingSuggestion : null) ||
+        null
       const restoredPreviousAdvice = normalizePreviousAdviceForState(
         targetVariantSession?.previousAdvice ||
-          (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem?.previousAdvice : null),
+          (useTopLevelSelectedSession ? activeHistoryItem?.previousAdvice : null),
       )
       const restoredDraftMessage =
         typeof targetVariantSession?.draftMessage === 'string'
           ? targetVariantSession.draftMessage
-          : typeof activeHistoryItem?.draftMessage === 'string'
+          : useTopLevelSelectedSession && typeof activeHistoryItem?.draftMessage === 'string'
             ? activeHistoryItem.draftMessage
             : ''
       const restoredEditTarget = COPILOT_EDIT_TARGETS.has(targetVariantSession?.editTarget)
         ? targetVariantSession.editTarget
-        : COPILOT_EDIT_TARGETS.has(activeHistoryItem?.editTarget)
+        : useTopLevelSelectedSession && COPILOT_EDIT_TARGETS.has(activeHistoryItem?.editTarget)
           ? activeHistoryItem.editTarget
           : 'all'
       const restoredChatMessages =
         Array.isArray(targetVariantSession?.chatMessages) && targetVariantSession.chatMessages.length
           ? targetVariantSession.chatMessages
-          : Array.isArray(activeHistoryItem?.chatMessages) &&
+          : useTopLevelSelectedSession &&
+              Array.isArray(activeHistoryItem?.chatMessages) &&
               activeHistoryItem.chatMessages.length &&
               activeHistoryItem.selectedScriptId === scriptId
             ? activeHistoryItem.chatMessages
@@ -2316,7 +2377,7 @@ export function AppStateProvider({ children }) {
         createInitialCopilotUsage()
       const restoredCopilotMemory = normalizeCopilotMemory(
         targetVariantSession?.copilotMemory ||
-          (activeHistoryItem?.selectedScriptId === scriptId ? activeHistoryItem?.copilotMemory : null) ||
+          (useTopLevelSelectedSession ? activeHistoryItem?.copilotMemory : null) ||
           createInitialCopilotMemory(),
       )
 
@@ -2380,10 +2441,15 @@ export function AppStateProvider({ children }) {
     setIsEditorEntering(false)
 
     try {
+      const selectedVariantContext = buildSelectedVariantContext(nextScript, nextScript.id)
       const created = await createScriptSelection({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
         selectedLabel: nextScript.label,
+        selectedVariantId: selectedVariantContext.selectedVariantId,
+        selectedVariantKey: selectedVariantContext.selectedVariantKey,
+        selectedVariantIndex: selectedVariantContext.selectedVariantIndex,
+        selectedAngle: selectedVariantContext.selectedAngle,
         title: `${referenceData?.title || '레퍼런스'} · ${nextScript.label}`,
         sections: nextScript.sections,
         score: nextScript.score,
@@ -2731,6 +2797,7 @@ export function AppStateProvider({ children }) {
     try {
       const serializedContent = serializeEditorSections(editorSections)
       const versionType = source === 'AI' ? 'ai_generation' : 'manual_save'
+      const selectedVariantContext = buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id)
       const nextVersion = await saveVersionRecord({
         accountId: requestAccountId,
         scriptId: activeScriptId,
@@ -2741,6 +2808,7 @@ export function AppStateProvider({ children }) {
         metadata: {
           referenceId: referenceData?.id,
           selectedLabel: selectedScript?.label,
+          ...selectedVariantContext,
         },
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
@@ -2831,12 +2899,18 @@ export function AppStateProvider({ children }) {
             appliedFeedbackContext: appliedFeedbackContext || null,
           }
         : null
+      const selectedVariantContext = buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id)
       const result = await generateScriptFeedback({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
         scriptId: activeScriptId,
         currentVersionId: versions[0]?.id,
         selectedLabel: selectedScript?.label,
+        selectedVariantId: selectedVariantContext.selectedVariantId,
+        selectedVariantKey: selectedVariantContext.selectedVariantKey,
+        selectedVariantIndex: selectedVariantContext.selectedVariantIndex,
+        selectedAngle: selectedVariantContext.selectedAngle,
+        sessionId: buildCopilotSessionId(requestAccountId, referenceData?.id, selectedVariantContext),
         sections: editorSections,
         previousFeedback: previousFeedbackWithContext,
       })
@@ -2928,12 +3002,18 @@ export function AppStateProvider({ children }) {
     let feedbackChangedSections = []
 
     try {
+      const selectedVariantContext = buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id)
       const applyResult = await applyScriptFeedback({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
         scriptId: activeScriptId,
         currentVersionId: versions[0]?.id,
         selectedLabel: selectedScript?.label,
+        selectedVariantId: selectedVariantContext.selectedVariantId,
+        selectedVariantKey: selectedVariantContext.selectedVariantKey,
+        selectedVariantIndex: selectedVariantContext.selectedVariantIndex,
+        selectedAngle: selectedVariantContext.selectedAngle,
+        sessionId: buildCopilotSessionId(requestAccountId, referenceData?.id, selectedVariantContext),
         sections: beforeSections,
         feedback: targetFeedback,
         editTarget: targetFeedback.editTarget || targetFeedback.targetSection || 'all',
@@ -3001,6 +3081,7 @@ export function AppStateProvider({ children }) {
     }
 
     try {
+      const selectedVariantContext = buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id)
       const beforeVersion = await saveVersionRecord({
         accountId: requestAccountId,
         scriptId: activeScriptId,
@@ -3011,6 +3092,7 @@ export function AppStateProvider({ children }) {
         metadata: {
           referenceId: referenceData?.id,
           selectedLabel: selectedScript?.label,
+          ...selectedVariantContext,
           feedbackSummary: targetFeedback.summary,
           pairedFeedbackApply: true,
         },
@@ -3025,6 +3107,7 @@ export function AppStateProvider({ children }) {
         metadata: {
           referenceId: referenceData?.id,
           selectedLabel: selectedScript?.label,
+          ...selectedVariantContext,
           feedbackSummary: targetFeedback.summary,
           feedbackOriginalScore: targetFeedback.score ?? null,
           needsFeedbackRecheck: true,
@@ -3168,6 +3251,7 @@ export function AppStateProvider({ children }) {
     })
 
     try {
+      const selectedVariantContext = buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id)
       const response = await generateChatReply({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
@@ -3175,6 +3259,11 @@ export function AppStateProvider({ children }) {
         currentVersionId: versions[0]?.id,
         editTarget,
         selectedLabel: selectedScript?.label,
+        selectedVariantId: selectedVariantContext.selectedVariantId,
+        selectedVariantKey: selectedVariantContext.selectedVariantKey,
+        selectedVariantIndex: selectedVariantContext.selectedVariantIndex,
+        selectedAngle: selectedVariantContext.selectedAngle,
+        sessionId: buildCopilotSessionId(requestAccountId, referenceData?.id, selectedVariantContext),
         editorSections,
         message: normalized,
         copilotMemory: nextCopilotMemory,
@@ -3211,6 +3300,8 @@ export function AppStateProvider({ children }) {
               content: response.message,
               feedback: normalizedFeedback,
               intent: response.intent,
+              sourceDraftId: activeScriptId,
+              sourceVariantId: selectedScriptId,
             },
           ]
           syncHistory(activeReferenceIdRef.current, {
@@ -3245,6 +3336,8 @@ export function AppStateProvider({ children }) {
               content: response.message,
               intent: response.intent,
               actionableAdvice: nextPreviousAdvice,
+              sourceDraftId: activeScriptId,
+              sourceVariantId: selectedScriptId,
             },
           ]
           syncHistory(activeReferenceIdRef.current, {
@@ -3268,6 +3361,8 @@ export function AppStateProvider({ children }) {
         editPlan: response.editPlan,
         qualityGate: response.qualityGate,
         sessionId: response.personalization?.sessionId,
+        sourceDraftId: activeScriptId,
+        sourceVariantId: selectedScriptId,
       }
 
       setCopilotUsage((current) => {
@@ -3354,6 +3449,10 @@ export function AppStateProvider({ children }) {
     const sourceMessage = messageId
       ? chatMessages.find((message) => message.id === messageId)
       : null
+    if (sourceMessage?.sourceDraftId && sourceMessage.sourceDraftId !== activeScriptId) {
+      showToast('현재 선택한 초안과 다른 수정안입니다. 해당 초안을 다시 선택한 뒤 적용해 주세요.', 'error')
+      return
+    }
     const sourceEditTarget = sourceMessage?.editTarget || editTarget || 'all'
 
     if (!activeScriptId) {
@@ -3387,6 +3486,7 @@ export function AppStateProvider({ children }) {
         metadata: {
           referenceId: referenceData?.id,
           selectedLabel: selectedScript?.label,
+          ...buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id),
           editTarget: sourceEditTarget,
           changedSections: sourceMessage?.changedSections || [],
           intent: sourceMessage?.intent?.intent || sourceMessage?.intent || '',

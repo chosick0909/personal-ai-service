@@ -998,7 +998,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                     : entitlementStatus.entitlement?.planType === 'challenge'
                       ? '챌린지 무제한'
                       : entitlementStatus.entitlement?.planType === 'student'
-                        ? `분석 ${entitlementStatus.usage?.monthlyReferenceUsed ?? 0}/${entitlementStatus.usage?.limits?.monthlyReferenceLimit ?? 30}`
+                        ? '학생 무제한'
                         : entitlementStatus.entitlement?.planType === 'paid'
                           ? '유료 무제한'
                           : '오픈베타 무제한'}
@@ -1077,7 +1077,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                       title: '레퍼런스 분석',
                       value: usageSummary.reference.label,
                       description: usageSummary.reference.subLabel,
-                      note: '계정 기준 월간 제한',
+                      note: '계정 기준 무제한',
                     },
                     {
                       title: '코파일럿 질문',

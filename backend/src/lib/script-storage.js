@@ -121,6 +121,9 @@ async function findRecentDuplicateScript({
   accountId,
   referenceId,
   selectedLabel,
+  selectedVariantId = '',
+  selectedVariantKey = '',
+  selectedVariantIndex = null,
   title,
   content,
 }) {
@@ -150,7 +153,22 @@ async function findRecentDuplicateScript({
       const sameContent = String(item.current_content || '').trim() === String(content || '').trim()
       const metadataLabel = String(item?.metadata?.selectedLabel || '').trim()
       const sameLabel = metadataLabel === String(selectedLabel || '').trim()
-      return sameTitle && sameContent && sameLabel
+      const metadataVariantId = String(item?.metadata?.selectedVariantId || '').trim()
+      const metadataVariantKey = String(item?.metadata?.selectedVariantKey || '').trim()
+      const metadataVariantIndex = item?.metadata?.selectedVariantIndex
+      const hasSelectedVariantIndex =
+        selectedVariantIndex !== null &&
+        selectedVariantIndex !== undefined &&
+        Number.isInteger(Number(selectedVariantIndex))
+      const hasVariantSelector =
+        String(selectedVariantId || selectedVariantKey || '').trim() ||
+        hasSelectedVariantIndex
+      const sameVariant = hasVariantSelector
+        ? (selectedVariantId && metadataVariantId === String(selectedVariantId).trim()) ||
+          (selectedVariantKey && metadataVariantKey === String(selectedVariantKey).trim()) ||
+          (hasSelectedVariantIndex && Number(metadataVariantIndex) === Number(selectedVariantIndex))
+        : sameLabel
+      return sameTitle && sameContent && sameVariant
     }) || null
   )
 }
@@ -159,6 +177,10 @@ export async function createScriptFromSelection({
   accountId,
   referenceId,
   selectedLabel,
+  selectedVariantId = '',
+  selectedVariantKey = '',
+  selectedVariantIndex = null,
+  selectedAngle = '',
   title,
   sections,
   score = null,
@@ -173,6 +195,9 @@ export async function createScriptFromSelection({
     accountId,
     referenceId,
     selectedLabel,
+    selectedVariantId,
+    selectedVariantKey,
+    selectedVariantIndex,
     title: scriptTitle,
     content,
   })
@@ -209,6 +234,10 @@ export async function createScriptFromSelection({
     metadata: {
       referenceId,
       selectedLabel,
+      selectedVariantId,
+      selectedVariantKey,
+      selectedVariantIndex,
+      selectedAngle,
       sections: normalizedSections,
     },
   }

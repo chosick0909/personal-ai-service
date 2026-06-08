@@ -92,6 +92,97 @@ test('refine/feedback reference context excludes full transcript content', () =>
   }
 })
 
+test('reference structure context resolves selected variation by key and index without falling back to A', () => {
+  const variantReference = {
+    ...reference,
+    variations: [
+      {
+        label: 'A안',
+        angle: '원본형',
+        structureBlueprint: {
+          sentenceBlueprint: [{ order: 1, section: 'hook', role: 'A 전개' }],
+        },
+      },
+      {
+        label: 'B안',
+        angle: '대화형',
+        structureBlueprint: {
+          sentenceBlueprint: [{ order: 1, section: 'hook', role: 'B 대화형 전개' }],
+        },
+      },
+    ],
+  }
+
+  const contextByKey = buildReferenceStructureContext(variantReference, { selectedVariantKey: 'B' })
+  const contextByIndex = buildReferenceStructureContext(variantReference, { selectedVariantIndex: 1 })
+  const missedContext = buildReferenceStructureContext(variantReference, {
+    selectedLabel: '대화형',
+    selectedVariantKey: 'Z',
+  })
+
+  assert.match(contextByKey, /B 대화형 전개/)
+  assert.equal(contextByKey, contextByIndex)
+  assert.doesNotMatch(missedContext, /A 전개/)
+  assert.doesNotMatch(missedContext, /B 대화형 전개/)
+})
+
+test('reference structure context does not fall back to A when variant selection is missing', () => {
+  const variantReference = {
+    ...reference,
+    variations: [
+      {
+        label: 'A안',
+        angle: '원본형',
+        structureBlueprint: {
+          sentenceBlueprint: [{ order: 1, section: 'hook', role: 'A 원본형 전개' }],
+        },
+      },
+      {
+        label: 'B안',
+        angle: '대화형',
+        structureBlueprint: {
+          sentenceBlueprint: [{ order: 1, section: 'hook', role: 'B 대화형 전개' }],
+        },
+      },
+    ],
+  }
+
+  const context = buildReferenceStructureContext(variantReference)
+
+  assert.doesNotMatch(context, /A 원본형 전개/)
+  assert.doesNotMatch(context, /B 대화형 전개/)
+})
+
+test('reference structure context does not fall back to A when variant selection is invalid', () => {
+  const variantReference = {
+    ...reference,
+    variations: [
+      {
+        label: 'A안',
+        angle: '원본형',
+        structureBlueprint: {
+          sentenceBlueprint: [{ order: 1, section: 'hook', role: 'A 원본형 전개' }],
+        },
+      },
+      {
+        label: 'B안',
+        angle: '대화형',
+        structureBlueprint: {
+          sentenceBlueprint: [{ order: 1, section: 'hook', role: 'B 대화형 전개' }],
+        },
+      },
+    ],
+  }
+
+  const context = buildReferenceStructureContext(variantReference, {
+    selectedVariantKey: 'Z',
+    selectedVariantIndex: 99,
+  })
+
+  assert.doesNotMatch(context, /A 원본형 전개/)
+  assert.doesNotMatch(context, /B 대화형 전개/)
+})
+
 test('feedback verdict marks high score drafts as ready', () => {
   const verdict = buildFeedbackVerdict({
     score: 88,
@@ -567,6 +658,75 @@ test('reply context converts feedback cards into executable edit advice', () => 
   assert.deepEqual(advice.preserveSections, ['hook', 'body'])
   assert.ok(advice.operations.some((operation) => operation.target === 'cta'))
   assert.match(advice.instructions.join('\n'), /오늘 바로 확인|CTA/)
+})
+
+test('semantic instruction keeps reply feedback context as executable reference', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '이대로 수정해줘',
+    intentResult: {
+      intent: 'apply_previous_advice',
+      shouldModifyScript: true,
+      editTarget: 'all',
+    },
+    replyContext: {
+      sourceType: 'feedback',
+      sourceMessageId: 'feedback-card-semantic',
+      editTarget: 'all',
+      feedback: {
+        summary: 'CTA가 약합니다.',
+        detail: '댓글을 남겨야 하는 이유가 부족합니다.',
+        issues: ['CTA 행동 이유가 약함'],
+        recommendations: ['CTA에 오늘 바로 확인해야 하는 이유를 한 문장 추가'],
+      },
+    },
+  })
+
+  assert.equal(semantic.replyReference.hasReplyTarget, true)
+  assert.equal(semantic.replyReference.sourceType, 'feedback')
+  assert.equal(semantic.replyReference.sourceMessageId, 'feedback-card-semantic')
+  assert.ok(semantic.replyReference.inheritedOperations.some((operation) => operation.target === 'cta'))
+})
+
+test('current section locks override feedback reply operations', () => {
+  const previousAdvice = {
+    sourceType: 'feedback',
+    priority: 'high',
+    diagnosis: 'HOOK과 CTA가 약함',
+    editTarget: 'all',
+    operations: [
+      {
+        type: 'hook_rewrite',
+        target: 'hook',
+        instruction: 'HOOK 첫 문장을 더 강하게 바꾼다.',
+        priority: 'high',
+      },
+      {
+        type: 'strengthen_action_reason',
+        target: 'cta',
+        instruction: 'CTA에 댓글을 남겨야 하는 이유를 추가한다.',
+        priority: 'high',
+      },
+    ],
+    instructions: ['HOOK 강화', 'CTA 행동 이유 추가'],
+  }
+  const plan = buildEditPlan({
+    userRequest: '피드백대로 해줘. 근데 훅은 건드리지 마',
+    currentSections: currentDraft,
+    intentResult: {
+      intent: 'apply_previous_advice',
+      shouldModifyScript: true,
+      editTarget: 'all',
+      previousAdvice,
+    },
+    previousAdvice,
+  })
+
+  assert.equal(plan.previousAdviceApplied, true)
+  assert.deepEqual(plan.targetSections, ['cta'])
+  assert.deepEqual(plan.preserveSections, ['hook', 'body'])
+  assert.equal(plan.resolvedOperations.some((operation) => operation.target === 'hook'), false)
+  assert.ok(plan.resolvedOperations.some((operation) => operation.target === 'cta'))
+  assert.match(plan.avoid.join('\n'), /HOOK 관련 직전 조언은 현재 사용자 잠금 지시 때문에 적용하지 않기/)
 })
 
 test('reply context uses suggestion sections as the base for follow-up edits', () => {
@@ -2162,4 +2322,121 @@ test('heavy copilot quality gate is reserved for broad or risky edit requests', 
     }),
     false,
   )
+})
+
+test('ask advice semantic instruction never creates edit operations', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '요런 멘트가 자주 나오는데 질문하는 방법 알려줘',
+    intentResult: {
+      intent: 'general_chat',
+      confidence: 0.8,
+    },
+  })
+
+  assert.equal(semantic.intent, 'ask_advice')
+  assert.equal(semantic.userFacingNeed, 'answer_question')
+  assert.equal(semantic.topicChange.requested, false)
+  assert.deepEqual(semantic.operations, [])
+})
+
+test('reply context preserves source draft id through executable advice', () => {
+  const advice = replyContextToEditInstructions({
+    replyContext: {
+      sourceType: 'feedback',
+      sourceMessageId: 'feedback-message-1',
+      sourceDraftId: 'draft-b',
+      editTarget: 'cta',
+      feedback: {
+        summary: 'CTA 행동 이유가 약합니다.',
+        detail: '왜 지금 댓글을 남겨야 하는지 이유가 필요합니다.',
+        recommendations: ['CTA에 확인 이유를 한 문장 추가합니다.'],
+      },
+    },
+    userMessage: '이대로 수정해줘',
+    editTarget: 'all',
+  })
+
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '이대로 수정해줘',
+    intentResult: {
+      intent: 'apply_previous_advice',
+      previousAdvice: advice,
+      replyContext: {
+        sourceType: 'feedback',
+        sourceMessageId: 'feedback-message-1',
+        sourceDraftId: 'draft-b',
+      },
+    },
+  })
+
+  assert.equal(advice.sourceDraftId, 'draft-b')
+  assert.equal(semantic.replyReference.sourceDraftId, 'draft-b')
+  assert.equal(semantic.replyReference.sourceMessageId, 'feedback-message-1')
+})
+
+test('format_fill semantic alias normalizes to format_apply without becoming a topic', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '훅을 딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘',
+    intentResult: {
+      intent: 'edit_script',
+      editTarget: 'hook',
+      structuredEditInstruction: {
+        operationType: 'format_fill',
+        toneHint: '딱 n초만에 정리해드릴게요',
+        confidence: 0.91,
+      },
+    },
+  })
+  const plan = buildEditPlan({
+    userRequest: '훅을 딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘',
+    currentSections: currentDraft,
+    intentResult: {
+      editTarget: 'hook',
+      semanticInstruction: semantic,
+    },
+  })
+
+  assert.equal(semantic.operations[0].type, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.FORMAT_APPLY)
+  assert.equal(plan.semanticTrace.finalPlan.semanticOperationType, 'format_fill')
+  assert.equal(plan.newSubject, '')
+})
+
+test('semantic trace records validated instruction as final decision source', () => {
+  const semantic = parseSemanticEditInstruction({
+    userMessage: '상품은 그대로 두고 공감되는 관점으로 바꿔줘',
+    intentResult: {
+      intent: 'edit_script',
+      editTarget: 'all',
+    },
+  })
+  const plan = buildEditPlan({
+    userRequest: '상품은 그대로 두고 공감되는 관점으로 바꿔줘',
+    currentSections: currentDraft,
+    intentResult: {
+      semanticInstruction: semantic,
+    },
+  })
+
+  assert.equal(plan.semanticTrace.finalDecisionSource, 'validated_semantic_instruction')
+  assert.equal(plan.semanticTrace.rawRequestPolicy, 'raw_request_is_context_only_after_semantic_validation')
+  assert.equal(plan.newSubject, '')
+  assert.ok(plan.semanticTrace.semantic.operations.some((operation) => operation.type === COPILOT_OPERATION_TYPES.FRAMING_REWRITE))
+})
+
+test('fallback rule check blocks meta instruction phrases from script text', () => {
+  const result = runFeedbackFallbackRuleCheck({
+    originalSections: currentDraft,
+    candidateSections: {
+      hook: '후기처럼 더 강하게 시작해보세요.',
+      body: '해소되는 느낌으로 공감되는 관점을 보여줍니다.',
+      cta: '이런 식으로 숫자를 넣어줘.',
+    },
+    editTarget: 'all',
+    request: '후기처럼 더 강하게 다시 짜줘',
+    targetSections: ['hook', 'body', 'cta'],
+  })
+
+  assert.equal(result.ok, false)
+  assert.ok(result.issues.some((issue) => issue.type === 'meta_instruction_leakage'))
 })

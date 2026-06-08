@@ -44,6 +44,8 @@ function normalizeChatMessages(messages) {
             qualityGate:
               message.qualityGate && typeof message.qualityGate === 'object' ? message.qualityGate : undefined,
             sessionId: typeof message.sessionId === 'string' ? message.sessionId : undefined,
+            sourceDraftId: typeof message.sourceDraftId === 'string' ? message.sourceDraftId : undefined,
+            sourceVariantId: typeof message.sourceVariantId === 'string' ? message.sourceVariantId : undefined,
           }
         })
         .filter(Boolean)

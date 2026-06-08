@@ -135,7 +135,7 @@ function buildFeedbackReplyAdvice(feedback, sourceMessageId = '') {
   }
 }
 
-function buildReplyContext(message, advice = null) {
+function buildReplyContext(message, advice = null, sourceDraftId = '') {
   if (!message || message.role === 'user') {
     return null
   }
@@ -145,6 +145,7 @@ function buildReplyContext(message, advice = null) {
   return {
     sourceType,
     sourceMessageId: message.id || advice?.sourceMessageId || '',
+    sourceDraftId: message.sourceDraftId || sourceDraftId,
     messageText: message.content || '',
     editTarget: message.editTarget || advice?.editTarget || 'all',
     feedback: message.feedback || null,
@@ -366,6 +367,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     pendingSuggestion,
     applySuggestion,
     copilotRemaining,
+    activeScriptId,
   } = useAppState()
   const chatRemainingLabel = Number.isFinite(copilotRemaining.chat) ? `${copilotRemaining.chat}회` : '무제한'
   const feedbackRemainingLabel = Number.isFinite(copilotRemaining.feedback) ? `${copilotRemaining.feedback}회` : '무제한'
@@ -464,7 +466,7 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     const options = replyTargetMessage
       ? {
           previousAdvice: replyAdvice,
-          replyContext: buildReplyContext(replyTargetMessage, replyAdvice),
+          replyContext: buildReplyContext(replyTargetMessage, replyAdvice, activeScriptId),
           replyToMessageId: replyTargetMessage.id,
         }
       : {}

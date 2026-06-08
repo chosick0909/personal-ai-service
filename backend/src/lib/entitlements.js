@@ -18,6 +18,8 @@ const UNLIMITED_LIMITS = {
   perReferenceFeedbackLimit: null,
 }
 
+const FORCE_UNLIMITED_USAGE_LIMITS = true
+
 const PLAN_LIMITS = {
   open_beta: {
     monthlyReferenceLimit: null,
@@ -25,9 +27,9 @@ const PLAN_LIMITS = {
     perReferenceFeedbackLimit: null,
   },
   student: {
-    monthlyReferenceLimit: 30,
-    perReferenceCopilotLimit: 5,
-    perReferenceFeedbackLimit: 2,
+    monthlyReferenceLimit: null,
+    perReferenceCopilotLimit: null,
+    perReferenceFeedbackLimit: null,
   },
   challenge: {
     monthlyReferenceLimit: null,
@@ -158,6 +160,10 @@ function readLimitValue(limitsRow, field, fallback) {
 }
 
 export function resolveEntitlementLimits(planType, limitsRow) {
+  if (FORCE_UNLIMITED_USAGE_LIMITS) {
+    return UNLIMITED_LIMITS
+  }
+
   const planLimits = getPlanLimits(planType)
   return {
     monthlyReferenceLimit: readLimitValue(
