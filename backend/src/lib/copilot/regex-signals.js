@@ -5,6 +5,15 @@ export function createRegexSignalsParser({
   isFormatApplyRequest,
   isApplyPreviousAdviceRequest,
 } = {}) {
+  function hasExplicitTopicChangeSignal(text = '') {
+    const source = String(text || '').trim()
+    return (
+      /(주제|소재|상품|제품|아이템|카테고리|콘셉트|컨셉)(?:를|은|는|이|가)?/i.test(source) ||
+      /(?:말고|대신|빼고|버리고|제외하고)/i.test(source) ||
+      /(?:^|[\s,])[^.!?\n]{1,40}에서\s+[^.!?\n]{1,40}(?:으로|로)(?:\s|$)/i.test(source)
+    )
+  }
+
   return function parseRegexSignals(userMessage = '') {
     const text = String(userMessage || '').trim()
     const compact = text.replace(/\s+/g, '')
@@ -18,12 +27,11 @@ export function createRegexSignalsParser({
           text,
         ),
       maybeTopicChange:
-        /(주제|소재|상품|제품|아이템|카테고리|말고|대신|빼고|버리고|제외하고|에서\s*.+?(?:으로|로))/i.test(
-          text,
-        ) &&
+        hasExplicitTopicChangeSignal(text) &&
         /(바꿔|바꾸|변경|전환|다시\s*(?:짜|써|작성|만들)|가자|주제|소재|상품|제품|아이템)/i.test(
           text,
         ),
+      hasExplicitTopicChange: hasExplicitTopicChangeSignal(text),
       mentionedSections,
       explicitLocks,
       hasDurationCompress: Boolean(targetDurationSeconds),

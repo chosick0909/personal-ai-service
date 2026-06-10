@@ -970,6 +970,7 @@ function normalizeSemanticEditInstruction(raw = {}, request = '') {
   const source = raw && typeof raw === 'object' ? raw : {}
   let operationType = normalizeOperationType(source.operationType)
   let newSubject = stripTrailingKoreanParticle(cleanRequestedPhrase(source.newSubject || ''))
+  const explicitTopicChange = hasExplicitTopicChangeSignal(request)
   if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME && isInvalidNewSubjectCandidate(newSubject)) {
     const meaning = classifyCandidateMeaning(newSubject)
     operationType =
@@ -978,6 +979,10 @@ function normalizeSemanticEditInstruction(raw = {}, request = '') {
         : meaning === 'format'
           ? COPILOT_OPERATION_TYPES.FORMAT_APPLY
           : COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+    newSubject = ''
+  }
+  if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME && !explicitTopicChange) {
+    operationType = COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
     newSubject = ''
   }
   const oldSubjectToRemove = parseSubjectList(
@@ -991,9 +996,14 @@ function normalizeSemanticEditInstruction(raw = {}, request = '') {
     24,
   )
   const requestedMaterials = uniqueCompactList(
-    Array.isArray(source.requestedMaterials)
-      ? source.requestedMaterials.map((item) => cleanRequestedPhrase(item)).filter(Boolean)
-      : splitRequestedMaterials(source.requestedMaterials || ''),
+    [
+      ...(Array.isArray(source.requestedMaterials)
+        ? source.requestedMaterials.map((item) => cleanRequestedPhrase(item)).filter(Boolean)
+        : splitRequestedMaterials(source.requestedMaterials || '')),
+      operationType === COPILOT_OPERATION_TYPES.PARTIAL_REWRITE && !explicitTopicChange
+        ? stripTrailingKoreanParticle(cleanRequestedPhrase(source.newSubject || ''))
+        : '',
+    ],
     8,
   )
   const explicitKeep = uniqueCompactList(
@@ -1039,6 +1049,15 @@ const FORMAT_CANDIDATE_PATTERN =
 
 const EXPLICIT_TOPIC_REFRAME_MARKER_PATTERN =
   /(주제|소재|상품|제품|아이템|카테고리|말고|대신|빼고|버리고|제외하고|에서\s*.+?(?:으로|로))/i
+
+function hasExplicitTopicChangeSignal(text = '') {
+  const source = String(text || '').trim()
+  return (
+    /(주제|소재|상품|제품|아이템|카테고리|콘셉트|컨셉)(?:를|은|는|이|가)?/i.test(source) ||
+    /(?:말고|대신|빼고|버리고|제외하고)/i.test(source) ||
+    /(?:^|[\s,])[^.!?\n]{1,40}에서\s+[^.!?\n]{1,40}(?:으로|로)(?:\s|$)/i.test(source)
+  )
+}
 
 const META_INSTRUCTION_LEAKAGE_PHRASES = [
   '후기처럼',
@@ -1113,12 +1132,15 @@ function buildForbiddenSurfacePhrases(oldSubjects = []) {
 
 function parseTopicReframeInstruction(text = '') {
   const source = String(text || '').trim()
-    if (!source) {
-      return null
-    }
-    if (isFramingRewriteRequest(source) || isFormatApplyRequest(source)) {
-      return null
-    }
+  if (!source) {
+    return null
+  }
+  if (isFramingRewriteRequest(source) || isFormatApplyRequest(source)) {
+    return null
+  }
+  if (!hasExplicitTopicChangeSignal(source)) {
+    return null
+  }
 
   const patterns = [
     /^(.+?)\s*(?:으로|로)\s*주제(?:를|은|는)?\s*(?:바꿔|바꾸|변경|수정)/i,
@@ -1970,6 +1992,9 @@ function extractRequestedNewSubject(request = '') {
   if (isStyleAdjustmentRequest(text) || isFramingRewriteRequest(text) || isFormatApplyRequest(text)) {
     return ''
   }
+  if (!hasExplicitTopicChangeSignal(text)) {
+    return ''
+  }
   const patterns = [
     /주제(?:를|은|는)?\s*(.+?)\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정|다시\s*(?:만들|써|작성))/i,
     /^(.+?)\s*(?:으로|로)\s*주제(?:를|은|는)?\s*(?:바꿔|바꾸|변경|수정)/i,
@@ -1999,7 +2024,7 @@ function extractRequestedNewSubject(request = '') {
 function splitRequestedMaterials(value = '') {
   return uniqueCompactList(
     String(value || '')
-      .split(/\s*(?:,|\/|·|그리고|및|랑|하고|와|과)\s*/g)
+      .split(/(?:\s*[,/·]\s*|\s*(?:그리고|및|랑|하고)\s*|\s+와\s+|\s+과\s+)/g)
       .map((item) => cleanRequestedPhrase(item))
       .filter((item) => item && item.length <= 60),
     8,
@@ -2119,18 +2144,23 @@ function extractRequestedMaterials(request = '', newSubject = '') {
   if (isFormatApplyRequest(text)) {
     return []
   }
-  if (!/(넣어|넣어줘|추가|포함|반영)/i.test(text)) {
+  if (!/(넣어|넣어줘|추가|포함|반영|들어가|들어갔)/i.test(text)) {
     return []
   }
 
   let materialSource = text
   if (newSubject) {
     materialSource = materialSource.replace(newSubject, '')
-    materialSource = materialSource.replace(/^\s*(?:으로|로)\s*/, '')
+    materialSource = materialSource
+      .replace(
+        /^\s*주제(?:를|은|는)?\s*(?:으로|로)?\s*(?:바꾸고|바꿔주고|바꾸어\s*주고|변경하고|수정하고)?\s*/i,
+        '',
+      )
+      .replace(/^\s*(?:으로|로)\s*(?:바꾸고|바꿔주고|바꾸어\s*주고|변경하고|수정하고)?\s*/i, '')
   }
   materialSource = materialSource
     .replace(/(?:HOOK|훅|후크|후킹|첫\s*문장|BODY|바디|본문|중간|내용|CTA|씨티에이|마무리|끝\s*문장)\s*(?:에|에는|에다가|쪽에)?/gi, '')
-    .replace(/(?:넣어줘|넣어|추가해줘|추가|포함해줘|포함|반영해줘|반영).*/i, '')
+    .replace(/(?:넣어줘|넣어|추가해줘|추가|포함해줘|포함|반영해줘|반영|들어가면|들어갔으면|들어가게|들어가).*/i, '')
     .replace(/(?:주제(?:를|은|는)?\s*)?.+?\s*(?:으로|로)\s*$/i, '')
 
   return splitRequestedMaterials(materialSource)
@@ -2407,9 +2437,10 @@ function buildSemanticDebugTrace({
     rawRequestPolicy: 'raw_request_is_context_only_after_semantic_validation',
     rawRequestPreview: String(request || '').slice(0, 120),
     regexSignals: {
-      hasEditVerb: Boolean(regexSignals.hasEditVerb),
-      maybeTopicChange: Boolean(regexSignals.maybeTopicChange),
-      mentionedSections: Array.isArray(regexSignals.mentionedSections) ? regexSignals.mentionedSections : [],
+	      hasEditVerb: Boolean(regexSignals.hasEditVerb),
+	      maybeTopicChange: Boolean(regexSignals.maybeTopicChange),
+	      hasExplicitTopicChange: Boolean(regexSignals.hasExplicitTopicChange),
+	      mentionedSections: Array.isArray(regexSignals.mentionedSections) ? regexSignals.mentionedSections : [],
       explicitLocks: Array.isArray(regexSignals.explicitLocks) ? regexSignals.explicitLocks : [],
       hasDurationCompress: Boolean(regexSignals.hasDurationCompress),
       targetDurationSeconds: regexSignals.targetDurationSeconds || null,
@@ -4363,7 +4394,7 @@ function createFallbackIntent(message = '', editTarget = '') {
   }
 
   const minimalGreetings = ['ㅎㅇ', '하이', '안녕', 'hi', 'hello']
-  const hasEditOrFeedbackSignal = /(수정|바꿔|변경|고쳐|다듬|줄여|늘려|강하게|약하게|자연스럽게|존댓말|존대|반말|해요체|말투|어미|넣어|살려|hook|body|cta|훅|바디|본문|마무리|도입|문장|톤|느낌|감정선|스토리|서사|다시|피드백|점수|평가|검토)/i.test(text)
+  const hasEditOrFeedbackSignal = /(수정|바꿔|변경|고쳐|다듬|줄여|늘려|강하게|약하게|자연스럽게|존댓말|존대|반말|해요체|말투|어미|넣어|추가|포함|반영|들어가|살려|hook|body|cta|훅|바디|본문|마무리|도입|문장|톤|느낌|감정선|스토리|서사|다시|피드백|점수|평가|검토)/i.test(text)
   if (minimalGreetings.includes(compact) || (compact.length <= 3 && !hasEditOrFeedbackSignal)) {
     return {
       intent: 'greeting',
@@ -4382,7 +4413,7 @@ function createFallbackIntent(message = '', editTarget = '') {
     }
   }
 
-  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|살려|살려줘|짜줘|짜줄래|더\s*좋게|존댓말|존대|반말|해요체|하십시오체|말투|어미|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(짜|써|작성|수정))/i.test(text)) {
+  if (/(수정해|수정해줘|바꿔|바꿔줘|변경해|변경해줘|고쳐|고쳐줘|다듬어|다듬어줘|줄여|줄여줘|늘려|늘려줘|넣어|넣어줘|추가|추가해|추가해줘|포함|포함해|포함해줘|반영|반영해|반영해줘|들어가면|들어갔으면|살려|살려줘|짜줘|짜줄래|더\s*좋게|존댓말|존대|반말|해요체|하십시오체|말투|어미|광고\s*같지\s*않게|판매\s*같지\s*않게|후킹감\s*있게|강하게\s*(해|바꿔|수정)|약하게\s*(해|바꿔|수정)|자연스럽게\s*(해|바꿔|수정)|감정선\s*(넣|살려|보강)|스토리처럼|서사(?:로|처럼)|브이로그처럼|실패담처럼|고객\s*사례처럼|다시\s*(짜|써|작성|수정))/i.test(text)) {
     const parsedInstruction = parseEditInstruction(text)
     const operationType =
       parsedInstruction.operationType && parsedInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN
@@ -4491,7 +4522,8 @@ async function extractCopilotInstructionWithLLM({
           '대본을 작성하지 않는다. 사용자 문장을 대본에 넣을 문장으로 보지 말고, 편집 의도/새 주제/삭제할 기존 소재/삽입할 상황 힌트로 분리한다.',
           '출력은 JSON만 반환한다.',
             'operationType은 topic_reframe, insert_material, duration_compress, format_apply, tone_adjust, framing_rewrite, partial_rewrite, edit_partial, unknown 중 하나다.',
-          'topic_reframe: 사용자가 새 주제/상품/소재로 바꾸려는 요청이다. 예: "삼겹살로 주제 바꿔줘", "물광토너 주제로", "만두말고 치킨너겟으로".',
+          'topic_reframe: 사용자가 명시적으로 새 주제/상품/소재로 바꾸려는 요청이다. 예: "삼겹살로 주제 바꿔줘", "물광토너 주제로", "만두말고 치킨너겟으로".',
+          '중요: "주제/소재/상품/제품/아이템" 또는 "A 말고 B/A 대신 B" 같은 명시 신호가 없으면 topic_reframe으로 분류하지 말고 선택된 초안 내부 수정(partial_rewrite/edit_partial)으로 분류한다.',
             'insert_material: 기존 대본에 특정 소재를 추가하는 요청이다. 예: "BODY에 손씻기 넣어줘".',
             'format_apply: 새 주제/소재가 아니라 예시 문장 포맷, 문장 형식, placeholder를 현재 대본에 적용하는 요청이다. 예: "훅을 딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘".',
             'tone_adjust: 주제는 유지하고 말투/광고감/자연스러움만 바꾸는 요청이다.',
@@ -4673,7 +4705,8 @@ export async function classifyCopilotIntent({
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
               '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입, duration_compress=목표 초수에 맞춘 삭제 중심 압축, format_apply=예시 포맷/형식/placeholder 적용, framing_rewrite=주제 유지 후 전개/감정 흐름 조정.',
             '사용자가 "30초로 압축", "45초 안에 말하게", "N초로 줄여줘"처럼 목표 초수를 말하면 duration_compress이고 targetDurationSeconds를 추출한다.',
-            '사용자가 "주제를 ~로", "~로 바꿔줘", "~소재로 다시"처럼 새 주제를 명시하면 topic_reframe이고 newSubject를 추출한다.',
+            '사용자가 "주제를 ~로", "~소재로 다시", "상품을 ~로", "A 말고 B로"처럼 새 주제/소재/상품 변경을 명시하면 topic_reframe이고 newSubject를 추출한다.',
+            '중요: 사용자가 "주제/소재/상품/제품/아이템" 또는 "A 말고 B"를 말하지 않은 단순 "~로 바꿔줘"는 기본적으로 선택된 초안 내부 내용 수정으로 본다.',
               '사용자가 "BODY에 ~ 넣어줘", "~도 포함해줘"처럼 소재 추가를 요청하면 insert_material이고 requestedMaterials를 추출한다.',
               '사용자가 "딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘", "이 포맷으로 훅 바꿔줘"처럼 예시 포맷이나 placeholder 적용을 요청하면 topic_reframe이 아니라 format_apply다.',
             '사용자가 "존댓말로", "반말 말고", "해요체로", "말투를"처럼 말투/어미를 요청하면 topic_reframe이 아니라 tone_adjust다. 이 단어들은 newSubject로 추출하지 않는다.',

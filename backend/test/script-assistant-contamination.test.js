@@ -1190,9 +1190,9 @@ test('copilot edit plan translates naturalness requests into a concrete strategy
 })
 
 test('copilot edit plan classifies explicit topic reframe requests', () => {
-  const intent = classifyCopilotIntentByRule('여름철 감염 예방법으로 바꿔줘', 'all')
+  const intent = classifyCopilotIntentByRule('주제를 여름철 감염 예방법으로 바꿔줘', 'all')
   const plan = buildEditPlan({
-    userRequest: '여름철 감염 예방법으로 바꿔줘',
+    userRequest: '주제를 여름철 감염 예방법으로 바꿔줘',
     currentSections: currentDraft,
     intentResult: intent,
     editTarget: 'all',
@@ -1208,6 +1208,31 @@ test('copilot edit plan classifies explicit topic reframe requests', () => {
   assert.ok(plan.discardFromOriginal.includes('기존 상품'))
   assert.match(plan.strategy, /새 주제/)
   assert.ok(plan.avoid.some((item) => item.includes('기존 주제')))
+})
+
+test('bare content change requests edit the selected draft instead of forcing topic reframe', () => {
+  const request = '옷입을 때 활용하기 좋은 색조합 팁으로 변경해줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const semantic = parseSemanticEditInstruction({
+    userMessage: request,
+    intentResult: intent,
+  })
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: {
+      ...intent,
+      semanticInstruction: semantic,
+    },
+    editTarget: 'all',
+  })
+
+  assert.equal(semantic.topicChange.requested, false)
+  assert.equal(semantic.topicChange.newSubject, null)
+  assert.notEqual(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '')
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.PRESERVE_TOPIC)
+  assert.match(plan.strategy, /기존 구조|요청 표현|범위/)
 })
 
 test('parse edit instruction separates old and new subjects from X 말고 Y requests', () => {
@@ -1285,7 +1310,7 @@ test('copilot edit plan prioritizes structured instruction over raw request word
 })
 
 test('copilot edit plan supports topic reframe with requested materials', () => {
-  const request = '여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘'
+  const request = '주제를 여름철 감염 예방법으로 바꾸고 손씻기, 물 자주 마시기 넣어줘'
   const intent = classifyCopilotIntentByRule(request, 'all')
   const plan = buildEditPlan({
     userRequest: request,
@@ -1298,6 +1323,43 @@ test('copilot edit plan supports topic reframe with requested materials', () => 
   assert.equal(plan.qaMode, COPILOT_QA_MODES.REFRAME_TOPIC)
   assert.equal(plan.newSubject, '여름철 감염 예방법')
   assert.deepEqual(plan.requestedMaterials, ['손씻기', '물 자주 마시기'])
+})
+
+test('material insertion phrasing without topic marker does not become topic reframe', () => {
+  const request = '여름철 감염 예방법으로 손씻기, 물 자주 마시기 넣어줘'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.notEqual(plan.operationType, COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+  assert.equal(plan.newSubject, '')
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.INSERT_MATERIAL)
+  assert.ok(plan.requestedMaterials.some((item) => item.includes('손씻기')))
+})
+
+test('soft material suggestions with why/reason phrasing stay in edit flow', () => {
+  const request = '과학적으로 왜 물때가 잘 벗겨지는지도 추가되면 좋을 거 같은데'
+  const intent = classifyCopilotIntentByRule(request, 'all')
+  const instruction = parseEditInstruction(request)
+  const plan = buildEditPlan({
+    userRequest: request,
+    currentSections: currentDraft,
+    intentResult: intent,
+    editTarget: 'all',
+  })
+
+  assert.equal(intent.intent, 'edit_script')
+  assert.equal(intent.shouldEdit, true)
+  assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.INSERT_MATERIAL)
+  assert.equal(instruction.operationType, COPILOT_OPERATION_TYPES.INSERT_MATERIAL)
+  assert.deepEqual(instruction.requestedMaterials, ['과학적으로 왜 물때가 잘 벗겨지는지도'])
+  assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.INSERT_MATERIAL)
+  assert.equal(plan.qaMode, COPILOT_QA_MODES.INSERT_MATERIAL)
+  assert.deepEqual(plan.requestedMaterials, ['과학적으로 왜 물때가 잘 벗겨지는지도'])
 })
 
 test('copilot edit plan separates subject, sales context, tone, and situation hints for food group-buy reframe', () => {
@@ -1907,7 +1969,7 @@ test('copilot edit plan keeps locked sections for insert material requests', () 
 })
 
 test('explicit preserve wording locks sections even during topic reframe', () => {
-  const request = 'HOOK은 유지하고 여름철 감염 예방법으로 바꿔줘'
+  const request = 'HOOK은 유지하고 주제를 여름철 감염 예방법으로 바꿔줘'
   const intent = classifyCopilotIntentByRule(request, 'all')
   const plan = buildEditPlan({
     userRequest: request,
@@ -1925,7 +1987,7 @@ test('explicit preserve wording locks sections even during topic reframe', () =>
 })
 
 test('partial topic reframe only changes the requested section', () => {
-  const request = 'BODY만 삼겹살로 바꿔줘'
+  const request = 'BODY만 삼겹살 주제로 바꿔줘'
   const intent = classifyCopilotIntentByRule(request, 'all')
   const plan = buildEditPlan({
     userRequest: request,

@@ -114,33 +114,51 @@ export function createStrictSemanticParser({
     const locks = normalizeLocks(candidate.locks || [])
     const userFacingNeed = normalizeUserFacingNeed(candidate.userFacingNeed)
     let intent = normalizeIntent(candidate.intent)
+    const hasExplicitTopicChangeSignal = Object.prototype.hasOwnProperty.call(
+      candidate.regexSignals || {},
+      'hasExplicitTopicChange',
+    )
+    const explicitTopicChange = hasExplicitTopicChangeSignal ? Boolean(candidate.regexSignals?.hasExplicitTopicChange) : true
 
     if (userFacingNeed === 'answer_question' || intent === 'ask_advice') {
       intent = 'ask_advice'
       operations = []
     }
 
-    if (topicChange.rejectedCandidate && operations.some((operation) => operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME)) {
+    if (
+      (topicChange.rejectedCandidate || (topicChange.requested && !explicitTopicChange)) &&
+      operations.some((operation) => operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
+    ) {
+      const rejectedCandidate = topicChange.rejectedCandidate || topicChange.newSubject
+      const rejectedCandidateMeaning =
+        topicChange.rejectedCandidateMeaning ||
+        (explicitTopicChange ? classifyCandidateMeaning(rejectedCandidate) : 'implicit_content_edit')
       const fallbackType =
-        topicChange.rejectedCandidateMeaning === 'tone'
+        rejectedCandidateMeaning === 'tone'
           ? COPILOT_OPERATION_TYPES.TONE_ADJUST
-          : topicChange.rejectedCandidateMeaning === 'format'
+          : rejectedCandidateMeaning === 'format'
             ? COPILOT_OPERATION_TYPES.FORMAT_APPLY
-            : COPILOT_OPERATION_TYPES.FRAMING_REWRITE
+            : COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
       operations = operations.map((operation, index) =>
         index === 0
           ? {
               ...operation,
               type: fallbackType,
-              goal: operation.goal || topicChange.rejectedCandidate || '전개 방식 조정',
+              goal: operation.goal || rejectedCandidate || '선택 초안 내부 내용 수정',
               styleTarget:
                 fallbackType === COPILOT_OPERATION_TYPES.TONE_ADJUST ||
                 fallbackType === COPILOT_OPERATION_TYPES.FORMAT_APPLY
-                  ? operation.styleTarget || topicChange.rejectedCandidate || ''
+                  ? operation.styleTarget || rejectedCandidate || ''
                   : operation.styleTarget || '',
             }
           : operation,
       )
+      topicChange.requested = false
+      topicChange.newSubject = null
+      topicChange.confidence = 0
+      topicChange.evidence = null
+      topicChange.rejectedCandidate = rejectedCandidate
+      topicChange.rejectedCandidateMeaning = rejectedCandidateMeaning
     }
 
     if (!operations.length && intent === 'edit_script' && userFacingNeed === 'modify_script') {

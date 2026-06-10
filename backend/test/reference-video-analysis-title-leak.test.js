@@ -4,6 +4,7 @@ import { __referenceVideoAnalysisTest } from '../src/lib/reference-video-analysi
 
 const {
   buildAccountIdentityLeakGuardPrompt,
+  buildTopicBrief,
   buildTopicFocusPrompt,
   extractReferenceSurfaceTerms,
   findAccountIdentityLeakage,
@@ -11,6 +12,7 @@ const {
   hasSelfIntroductionBlueprint,
   normalizeGenerationTopic,
   normalizeReferenceTitle,
+  validateTopicBriefAlignment,
   validateVariationAlignment,
 } = __referenceVideoAnalysisTest
 
@@ -24,6 +26,85 @@ test('empty reel topic never falls back to reference video title', () => {
   assert.equal(referenceTitle, '레레퍼퍼')
   assert.equal(topic, '일반')
   assert.equal(buildTopicFocusPrompt(topic, referenceTitle), '')
+})
+
+test('topic brief keeps raw topic unchanged while extracting generation hints', () => {
+  const topic = '간편 냉동볶음밥으로 바꿔줘. 남편/아이들이 배고프다고 할 때 냉동실에서 꺼내서 전자레인지로 바로 줄 수 있는 느낌'
+  const brief = buildTopicBrief(topic)
+
+  assert.equal(brief.rawTopic, topic)
+  assert.match(brief.subject, /냉동볶음밥|바로 줄 수 있는 느낌/)
+  assert.ok(brief.targetAudience.includes('남편'))
+  assert.ok(brief.targetAudience.includes('아이'))
+  assert.ok(brief.targetSituation.some((item) => item.includes('배고프다고 할 때')))
+  assert.ok(brief.usageContext.includes('냉동실'))
+  assert.ok(brief.usageContext.includes('전자레인지'))
+  assert.ok(brief.mustInclude.some((item) => item.includes('냉동')))
+})
+
+test('topic focus prompt includes structured brief without changing topic prompt contract', () => {
+  const topic = '육아맘이 집에서 시작하는 블로그 재택부업 모집'
+  const prompt = buildTopicFocusPrompt(topic, '레퍼런스 영상')
+
+  assert.match(prompt, /이번 릴스 주제\(반드시 반영\): 육아맘이 집에서 시작하는 블로그 재택부업 모집/)
+  assert.match(prompt, /이번 릴스 주제 구조화 brief/)
+  assert.match(prompt, /중심 소재\/상품\/상황/)
+  assert.match(prompt, /타겟\/대상: 육아맘/)
+  assert.match(prompt, /원문 문장을 그대로 대본에 복사하지 말고 의미만 반영/)
+})
+
+test('topic brief alignment passes when generated draft reflects subject and situation', () => {
+  const brief = buildTopicBrief(
+    '간편 냉동볶음밥으로 바꿔줘. 남편/아이들이 배고프다고 할 때 냉동실에서 꺼내서 전자레인지로 바로 줄 수 있는 느낌',
+  )
+  const alignment = validateTopicBriefAlignment(
+    {
+      hook: '밥 먹고도 아이가 배고프다 하면 또 차리기 막막하죠?',
+      body: '냉동실에 간편 냉동볶음밥 하나 두면 전자레인지에 바로 돌려 줄 수 있어요.',
+      cta: '오늘 저녁 루틴으로 저장해두세요.',
+    },
+    brief,
+    {},
+  )
+
+  assert.equal(alignment.ok, true)
+  assert.equal(alignment.shouldRetry, false)
+  assert.ok(alignment.matched.some((item) => item.includes('냉동볶음밥')))
+})
+
+test('topic brief alignment requests retry when subject is missing', () => {
+  const brief = buildTopicBrief('물광토너 제품소개')
+  const alignment = validateTopicBriefAlignment(
+    {
+      hook: '아침마다 피부가 답답해 보이면 루틴부터 바꿔보세요.',
+      body: '세안 후 첫 단계에서 가볍게 정리하면 화장이 덜 밀려요.',
+      cta: '댓글 남기시면 루틴표 보내드릴게요.',
+    },
+    brief,
+    {},
+  )
+
+  assert.equal(alignment.ok, false)
+  assert.equal(alignment.shouldRetry, true)
+  assert.ok(alignment.issues.includes('subject_missing'))
+})
+
+test('topic brief alignment blocks raw topic copy and reference surface leakage', () => {
+  const brief = buildTopicBrief('옷입을 때 활용하기 좋은 색조합 팁')
+  const alignment = validateTopicBriefAlignment(
+    {
+      hook: '옷입을 때 활용하기 좋은 색조합 팁 그대로 알려드릴게요.',
+      body: '레레퍼퍼에서 보던 방식처럼 색을 고르면 쉬워요.',
+      cta: '저장하고 내일 입을 옷에 바로 써보세요.',
+    },
+    brief,
+    { surfaceTerms: ['레레퍼퍼'] },
+  )
+
+  assert.equal(alignment.ok, false)
+  assert.equal(alignment.shouldRetry, true)
+  assert.ok(alignment.issues.includes('raw_topic_copied'))
+  assert.ok(alignment.issues.includes('reference_surface_leakage'))
 })
 
 test('reference video title is always treated as forbidden surface text', () => {

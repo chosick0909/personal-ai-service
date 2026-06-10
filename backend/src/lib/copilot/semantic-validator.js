@@ -151,6 +151,41 @@ export function createSemanticValidator({
     if (next.topicChange.requested && (!candidate || isInvalidNewSubjectCandidate(candidate))) {
       next = downgradeInvalidTopicInstruction(next, candidate)
     }
+    if (
+      next.topicChange.requested &&
+      candidate &&
+      Object.prototype.hasOwnProperty.call(next.regexSignals || {}, 'hasExplicitTopicChange') &&
+      !next.regexSignals.hasExplicitTopicChange
+    ) {
+      next = {
+        ...next,
+        validation: {
+          ...(next.validation || {}),
+          downgraded: true,
+          downgradedFrom: COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+          downgradedTo: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+          invalidNewSubjectCandidate: candidate,
+          candidateMeaning: 'implicit_content_edit',
+          reason: '명시적 주제 변경 신호가 없어 선택 초안 내부 수정으로 처리함',
+        },
+        topicChange: {
+          ...next.topicChange,
+          requested: false,
+          newSubject: null,
+          confidence: 0,
+          evidence: null,
+        },
+        operations: (next.operations?.length ? next.operations : [{}]).map((operation, index) =>
+          index === 0 && operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
+            ? {
+                ...operation,
+                type: COPILOT_OPERATION_TYPES.PARTIAL_REWRITE,
+                goal: operation.goal || candidate || '선택 초안 내부 내용 수정',
+              }
+            : operation,
+        ),
+      }
+    }
 
     const hasTopicOperation = next.operations.some((operation) => operation.type === COPILOT_OPERATION_TYPES.TOPIC_REFRAME)
     if (hasTopicOperation && (!next.topicChange.requested || !next.topicChange.newSubject)) {

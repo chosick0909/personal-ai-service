@@ -3448,17 +3448,317 @@ function buildPlaybookPrompt(playbook, mode = '') {
     .join('\n')
 }
 
-function buildTopicFocusPrompt(topic = '', _title = '') {
+function compactTopicBriefText(value = '') {
+  return stripReferenceMetadataText(value)
+    .replace(/[“”"'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function uniqueTopicBriefItems(items = [], max = 6) {
+  const seen = new Set()
+  const normalized = []
+
+  for (const item of items) {
+    const value = compactTopicBriefText(item)
+    if (!value || value.length < 2) continue
+    const key = value.replace(/\s+/g, '')
+    if (seen.has(key)) continue
+    seen.add(key)
+    normalized.push(value)
+    if (normalized.length >= max) break
+  }
+
+  return normalized
+}
+
+function inferTopicAudience(topic = '') {
+  const matches = topic.match(
+    /(육아맘|엄마|맘|아이|남편|부모|초보자|초보|직장인|사장님|대표님|자영업자|주부|학생|민감성\s*피부|건성\s*피부|지성\s*피부|중년|신혼|1인\s*가구)/gu,
+  )
+  return uniqueTopicBriefItems(matches || [], 4)
+}
+
+function inferTopicSalesContext(topic = '') {
+  if (/(공구|공동\s*구매)/u.test(topic)) return '공구/공동구매'
+  if (/(구매\s*링크|링크|구매|판매)/u.test(topic)) return '구매 전환'
+  if (/(상담|문의|신청|예약)/u.test(topic)) return '상담/신청 전환'
+  if (/(댓글|저장|DM|디엠)/iu.test(topic)) return '댓글/저장/DM 유도'
+  return ''
+}
+
+function inferTopicCtaGoal(topic = '') {
+  if (/(상담|문의|신청|예약)/u.test(topic)) return '상담이나 신청으로 자연스럽게 이어지게 한다'
+  if (/(공구|공동\s*구매|구매|판매|링크)/u.test(topic)) {
+    return '구매/링크 확인 이유가 자연스럽게 생기게 한다'
+  }
+  if (/(댓글|DM|디엠)/iu.test(topic)) return '댓글이나 DM을 남길 이유를 짧게 만든다'
+  if (/저장/u.test(topic)) return '나중에 다시 볼 저장 이유를 만든다'
+  return ''
+}
+
+function inferTopicContentGoal(topic = '') {
+  if (/(예방법|방지|줄이|관리|해결|해소|개선|방법|팁|가이드)/u.test(topic)) {
+    return '문제 상황을 해결하는 방법/팁으로 전달'
+  }
+  if (/(공구|공동\s*구매|구매|판매|링크)/u.test(topic)) return '구매 이유를 만드는 상품 소개'
+  if (/(모집|상담|문의|신청|예약)/u.test(topic)) return '상담/신청을 유도하는 설명'
+  if (/(추천|리뷰|비교|소개)/u.test(topic)) return '추천/소개형 콘텐츠'
+  return '이번 주제 중심으로 hook/body/cta를 구체화'
+}
+
+function inferTopicSituation(topic = '') {
+  const matches = []
+  const patterns = [
+    /([^.!?\n]{2,40}?(?:할|될|먹을|입을|쓸|고를|차릴|준비할|바를|관리할)\s*때)/gu,
+    /([^.!?\n]{2,40}?(?:상황|경우|순간))/gu,
+    /((?:냉동실|전자레인지|에어프라이어|에프|퇴근|등원|아침|저녁|외출|옷\s*입)[^.!?\n]{0,32})/gu,
+  ]
+
+  for (const pattern of patterns) {
+    for (const match of topic.matchAll(pattern)) {
+      matches.push(match[1])
+    }
+  }
+
+  return uniqueTopicBriefItems(matches, 4)
+}
+
+function inferTopicSubject(topic = '') {
+  const cleaned = compactTopicBriefText(topic)
+    .replace(/^(?:이번\s*)?(?:릴스\s*)?주제(?:를|는|가)?\s*/u, '')
+    .replace(/\s*(?:으로|로)?\s*(?:바꿔줘|바꿔|변경해줘|변경|잡아줘|해줘)\s*$/u, '')
+    .replace(/\s*(?:제품\s*)?(?:소개|추천|리뷰|비교|모집|공구|공동\s*구매|홍보)\s*$/u, '')
+    .trim()
+
+  if (!cleaned) return ''
+
+  const explicitReframeSubject = cleaned.match(
+    /^(.{2,40}?)(?:으로|로)\s*(?:바꿔줘|바꿔|변경해줘|변경|잡아줘|잡아|해줘)/u,
+  )?.[1]
+  if (explicitReframeSubject) {
+    return compactTopicBriefText(explicitReframeSubject)
+  }
+
+  const afterConnector = cleaned.match(/(?:위한|하는|되는|좋은|있는)\s+(.{2,40})$/u)?.[1]?.trim()
+  const candidate =
+    afterConnector && !/(느낌|톤|관점|흐름|전개|메시지|문구|멘트)$/u.test(afterConnector)
+      ? afterConnector
+      : cleaned
+  const tokens = candidate.split(/\s+/).filter(Boolean)
+  if (tokens.length <= 4) return candidate
+  return tokens.slice(-4).join(' ')
+}
+
+function buildTopicBrief(topic = '') {
+  const rawTopic = compactTopicBriefText(topic)
+
+  if (!rawTopic || rawTopic === '일반' || rawTopic === DEFAULT_REFERENCE_TITLE) {
+    return {
+      rawTopic: '',
+      subject: '',
+      contentGoal: '',
+      targetAudience: [],
+      targetSituation: [],
+      usageContext: [],
+      salesContext: '',
+      ctaGoal: '',
+      mustInclude: [],
+      confidence: 0,
+    }
+  }
+
+  const subject = inferTopicSubject(rawTopic)
+  const targetAudience = inferTopicAudience(rawTopic)
+  const targetSituation = inferTopicSituation(rawTopic)
+  const salesContext = inferTopicSalesContext(rawTopic)
+  const ctaGoal = inferTopicCtaGoal(rawTopic)
+  const contentGoal = inferTopicContentGoal(rawTopic)
+  const usageContext = uniqueTopicBriefItems(
+    [
+      ...(rawTopic.match(/(냉동실|전자레인지|에어프라이어|에프|바로|간편|빠르게|외출|등원|퇴근|아침|저녁|공구|상담|댓글|저장)/gu) || []),
+    ],
+    6,
+  )
+  const mustInclude = uniqueTopicBriefItems(
+    [subject, ...targetAudience, ...targetSituation, ...usageContext, salesContext].filter(Boolean),
+    8,
+  )
+
+  return {
+    rawTopic,
+    subject,
+    contentGoal,
+    targetAudience,
+    targetSituation,
+    usageContext,
+    salesContext,
+    ctaGoal,
+    mustInclude,
+    confidence: subject ? 0.78 : 0.45,
+  }
+}
+
+function formatTopicBriefPrompt(topicBrief = {}) {
+  if (!topicBrief?.rawTopic) return ''
+
+  return [
+    '이번 릴스 주제 구조화 brief(내부 해석, 원문 복사 금지):',
+    `- 중심 소재/상품/상황: ${topicBrief.subject || topicBrief.rawTopic}`,
+    topicBrief.contentGoal ? `- 콘텐츠 목적: ${topicBrief.contentGoal}` : '',
+    topicBrief.targetAudience?.length ? `- 타겟/대상: ${topicBrief.targetAudience.join(', ')}` : '',
+    topicBrief.targetSituation?.length ? `- 넣을 상황: ${topicBrief.targetSituation.join(', ')}` : '',
+    topicBrief.salesContext ? `- 전환/판매 맥락: ${topicBrief.salesContext}` : '',
+    topicBrief.ctaGoal ? `- CTA 방향: ${topicBrief.ctaGoal}` : '',
+    topicBrief.mustInclude?.length
+      ? `- 반드시 자연스럽게 반영할 요소: ${topicBrief.mustInclude.join(', ')}`
+      : '',
+    '- 위 brief는 생성 방향이다. topic 원문 문장을 그대로 대본에 복사하지 말고 의미만 반영한다.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+const TOPIC_BRIEF_GENERIC_TERMS = new Set([
+  '간편',
+  '바로',
+  '빠르게',
+  '아침',
+  '저녁',
+  '댓글',
+  '저장',
+  '상담',
+  '구매',
+  '링크',
+  '느낌',
+  '상황',
+  '경우',
+])
+
+function normalizeTopicBriefMatchText(value = '') {
+  return String(value || '')
+    .replace(/\s+/g, '')
+    .replace(/[“”"'`.,!?~·ㆍ:;()[\]{}<>]/g, '')
+    .toLowerCase()
+}
+
+function getTopicBriefTermParts(term = '') {
+  return compactTopicBriefText(term)
+    .split(/[\s,/·ㆍ|+]+/u)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2 && !TOPIC_BRIEF_GENERIC_TERMS.has(part))
+}
+
+function isTopicBriefTermMatched(textForMatch = '', term = '') {
+  const normalizedTerm = normalizeTopicBriefMatchText(term)
+  if (!normalizedTerm || normalizedTerm.length < 2) return false
+  if (textForMatch.includes(normalizedTerm)) return true
+
+  const parts = getTopicBriefTermParts(term)
+  if (!parts.length) return false
+  return parts.some((part) => textForMatch.includes(normalizeTopicBriefMatchText(part)))
+}
+
+function summarizeTopicBriefAlignment(alignment = {}) {
+  if (alignment.ok) return '이번 릴스 주제 반영 충분'
+  const missing = alignment.missing?.length ? `누락: ${alignment.missing.join(', ')}` : ''
+  const issues = alignment.issues?.length ? `이슈: ${alignment.issues.join(', ')}` : ''
+  return ['이번 릴스 주제 반영 약함', missing, issues].filter(Boolean).join(' / ')
+}
+
+function validateTopicBriefAlignment(variation = {}, topicBrief = {}, referenceGuard = {}) {
+  if (!topicBrief?.rawTopic) {
+    return {
+      ok: true,
+      shouldRetry: false,
+      score: 100,
+      matched: [],
+      missing: [],
+      issues: [],
+    }
+  }
+
+  const fullText = [variation?.hook, variation?.body, variation?.cta].filter(Boolean).join('\n')
+  const textForMatch = normalizeTopicBriefMatchText(fullText)
+  const issues = []
+  const matched = []
+  const missing = []
+  const candidateTerms = uniqueTopicBriefItems(
+    [
+      topicBrief.subject,
+      ...(topicBrief.targetAudience || []),
+      ...(topicBrief.targetSituation || []),
+      ...(topicBrief.usageContext || []),
+      topicBrief.salesContext,
+    ].filter(Boolean),
+    8,
+  )
+
+  for (const term of candidateTerms) {
+    if (isTopicBriefTermMatched(textForMatch, term)) {
+      matched.push(term)
+    } else if (!TOPIC_BRIEF_GENERIC_TERMS.has(term)) {
+      missing.push(term)
+    }
+  }
+
+  const subjectMatched = topicBrief.subject
+    ? isTopicBriefTermMatched(textForMatch, topicBrief.subject)
+    : true
+  if (!subjectMatched) {
+    issues.push('subject_missing')
+  }
+
+  const normalizedRawTopic = normalizeTopicBriefMatchText(topicBrief.rawTopic)
+  if (normalizedRawTopic.length >= 10 && textForMatch.includes(normalizedRawTopic)) {
+    issues.push('raw_topic_copied')
+  }
+
+  const referenceLeak = findReferenceSurfaceLeakage(fullText, referenceGuard?.surfaceTerms || [])
+  if (referenceLeak) {
+    issues.push('reference_surface_leakage')
+  }
+
+  const meaningfulTerms = candidateTerms.filter(
+    (term) => getTopicBriefTermParts(term).length > 0 || normalizeTopicBriefMatchText(term).length >= 3,
+  )
+  const minimumMatches = meaningfulTerms.length >= 3 ? 2 : Math.min(1, meaningfulTerms.length)
+  const enoughTopicSignals = matched.length >= minimumMatches
+  if (!enoughTopicSignals) {
+    issues.push('topic_signal_weak')
+  }
+
+  const score = Math.max(0, 100 - missing.length * 12 - issues.length * 18)
+  const shouldRetry =
+    Boolean(topicBrief.subject && !subjectMatched) ||
+    issues.includes('raw_topic_copied') ||
+    issues.includes('reference_surface_leakage') ||
+    (!enoughTopicSignals && meaningfulTerms.length > 0)
+
+  return {
+    ok: !shouldRetry,
+    shouldRetry,
+    score,
+    matched,
+    missing,
+    issues,
+  }
+}
+
+function buildTopicFocusPrompt(topic = '', _title = '', topicBrief = null) {
   const normalizedTopic = stripReferenceMetadataText(topic).trim()
 
   if (!normalizedTopic || normalizedTopic === '일반' || normalizedTopic === DEFAULT_REFERENCE_TITLE) {
     return ''
   }
 
+  const normalizedTopicBrief = topicBrief?.rawTopic ? topicBrief : buildTopicBrief(normalizedTopic)
+
   return [
     `이번 릴스 주제(반드시 반영): ${normalizedTopic}`,
     `중요: 계정의 큰 카테고리는 유지하되, 이번 결과물의 실제 소재/상품/상황은 "${normalizedTopic}" 기준으로 구체화하세요.`,
     '이번 릴스 주제는 분위기 참고용이 아니라 실제 주장, 예시, 표현, CTA가 모여야 하는 중심 소재입니다.',
+    formatTopicBriefPrompt(normalizedTopicBrief),
   ].join('\n')
 }
 
@@ -3478,7 +3778,8 @@ async function regenerateVariationWithGPT({
   retryReason = '',
   usageContext = {},
 }) {
-  const topicFocusPrompt = buildTopicFocusPrompt(focusTopic, referenceTitle)
+  const topicBrief = buildTopicBrief(focusTopic)
+  const topicFocusPrompt = buildTopicFocusPrompt(focusTopic, referenceTitle, topicBrief)
   const response = await openai.chat.completions.create({
     model: variationModel,
     temperature: 0.35,
@@ -4319,7 +4620,8 @@ export async function analyzeReferenceVideo({
   const analysisFingerprint = hashText(
     `${isTextReference ? 'script-text' : 'video'}:${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}`,
   )
-  const topicFocusPrompt = buildTopicFocusPrompt(normalizedTopic, normalizedTitle)
+  const topicBrief = buildTopicBrief(normalizedTopic)
+  const topicFocusPrompt = buildTopicFocusPrompt(normalizedTopic, normalizedTitle, topicBrief)
   const analysisReuseCacheKey = buildAnalysisReuseCacheKey({
     accountId,
     topic: normalizedTopic,
@@ -4499,7 +4801,9 @@ export async function analyzeReferenceVideo({
       accountId,
       referenceId: processingReference.id,
     }
-    const stageMetrics = {}
+    const stageMetrics = {
+      topic_brief: topicBrief,
+    }
     const stageHooks = {
       onStart: async (stage) => {
         await updateReferenceLifecycleState({
@@ -5426,13 +5730,54 @@ export async function analyzeReferenceVideo({
               if (normalized?.usage) {
                 delete normalized.usage
               }
-              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
-              structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
-            }
-          }
+	              alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
+	              structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
+	            }
+	          }
 
-          logAIUsage('abc-total', variationUsage, {
-            model: variationModel,
+	          let topicBriefAlignment = validateTopicBriefAlignment(normalized, topicBrief, referenceGuard)
+	          if (!stageMetrics.topic_brief_alignment) {
+	            stageMetrics.topic_brief_alignment = {}
+	          }
+	          stageMetrics.topic_brief_alignment[config.label] = topicBriefAlignment
+
+	          if (normalized && topicBriefAlignment.shouldRetry) {
+	            normalized = normalizeVariationYearReferences(await regenerateVariationWithGPT({
+	              openai,
+	              variationModel,
+	              config,
+	              categoryGuard,
+	              guardPromptSummary,
+	              characterSystemPrompt,
+	              generationGuides,
+	              structureBlueprint,
+	              referenceSurfaceTerms: referenceGuard.surfaceTerms,
+	              hookTemplateContext,
+	              focusTopic: normalizedTopic,
+	              referenceTitle: normalizedTitle,
+	              retryReason: summarizeTopicBriefAlignment(topicBriefAlignment),
+	              usageContext: {
+	                accountId,
+	                referenceId: processingReference.id,
+	                label: config.label,
+	                angle: config.angle,
+	              },
+	            }))
+	            variationUsage = sumAIUsage(variationUsage, normalized?.usage)
+	            if (normalized?.usage) {
+	              delete normalized.usage
+	            }
+	            alignment = validateVariationAlignment(normalized, categoryGuard, referenceGuard, structureBlueprint)
+	            structureMatch = validateSentenceBlueprintMatch(normalized, structureBlueprint, config)
+	            topicBriefAlignment = validateTopicBriefAlignment(normalized, topicBrief, referenceGuard)
+	            stageMetrics.topic_brief_alignment[config.label] = {
+	              ...topicBriefAlignment,
+	              retried: true,
+	            }
+	          }
+
+	          logAIUsage('abc-total', variationUsage, {
+	            model: variationModel,
             accountId,
             referenceId: processingReference.id,
             label: config.label,
@@ -6132,6 +6477,7 @@ export const __referenceVideoAnalysisTest = {
   buildCategorySubjectGuide,
   buildHookTemplatePromptBlock,
   buildPromptGuardSummary,
+  buildTopicBrief,
   buildTopicFocusPrompt,
   buildAccountIdentityLeakGuardPrompt,
   extractReferenceSurfaceTerms,
@@ -6142,5 +6488,6 @@ export const __referenceVideoAnalysisTest = {
   hasSelfIntroductionBlueprint,
   normalizeGenerationTopic,
   normalizeReferenceTitle,
+  validateTopicBriefAlignment,
   validateVariationAlignment,
 }
