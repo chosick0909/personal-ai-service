@@ -60,6 +60,7 @@ import {
   normalizeCopilotMemory,
   updateCopilotMemoryFromUserMessage,
 } from './copilotMemory'
+import { buildCopilotConversationContext } from '../lib/copilotConversation'
 import {
   getCachedAccounts,
   getCachedReferenceDetail,
@@ -3252,6 +3253,17 @@ export function AppStateProvider({ children }) {
 
     try {
       const selectedVariantContext = buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id)
+      const explicitReplyContext = requestOptions.replyContext || null
+      const conversationContext = buildCopilotConversationContext({
+        chatMessages,
+        activeDraftId: activeScriptId,
+        currentVersionId: versions[0]?.id,
+        selectedVariant: {
+          ...selectedVariantContext,
+          selectedLabel: selectedScript?.label || '',
+        },
+        explicitReplyContext,
+      })
       const response = await generateChatReply({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
@@ -3269,8 +3281,9 @@ export function AppStateProvider({ children }) {
         copilotMemory: nextCopilotMemory,
         targetDurationSeconds,
         previousAdvice: requestPreviousAdvice,
-        replyContext: requestOptions.replyContext || null,
+        replyContext: explicitReplyContext,
         replyToMessageId: requestOptions.replyToMessageId || '',
+        conversationContext,
       })
       if (!isCurrentAccountRequest(requestAccountId)) {
         return

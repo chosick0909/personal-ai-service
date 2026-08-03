@@ -13,6 +13,10 @@ import { createReplyContextHelpers } from './copilot/reply-context.js'
 import { createSemanticInstructionParser } from './copilot/semantic-instruction.js'
 import { createEditPlanResolver } from './copilot/edit-plan-resolver.js'
 import { createQaRecoveryPlanner } from './copilot/recovery.js'
+import {
+  COPILOT_SEMANTIC_RESPONSE_FORMAT,
+  semanticInstructionFromModelOutput,
+} from './copilot/semantic-schema.js'
 
 function requireClients() {
   if (!hasSupabaseAdminConfig()) {
@@ -1974,6 +1978,7 @@ function semanticInstructionToLegacyInstruction(semanticInstruction = {}) {
     explicitKeep,
     explicitRemove: legacy.explicitRemove || [],
     allowComparisonWithOldSubject: Boolean(legacy.allowComparisonWithOldSubject),
+    targetDurationSeconds: normalizeTargetDurationSeconds(legacy.targetDurationSeconds),
     semanticInstruction: instruction,
   }
 }
@@ -2516,13 +2521,11 @@ export function buildEditPlan({
   )
   const isApplyingPreviousAdvice =
     intentResult.intent === COPILOT_INTENTS.APPLY_PREVIOUS_ADVICE && isPreviousAdviceFresh(normalizedPreviousAdvice)
-  const durationTarget =
-    normalizeTargetDurationSeconds(targetDurationSeconds) ||
-    normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) ||
-    extractTargetDurationSeconds(request)
+  const suppliedSemanticInstruction =
+    semanticInstruction || intentResult.semanticInstruction || null
+  const usesValidatedSemanticSource = Boolean(suppliedSemanticInstruction)
   const validatedSemanticInstruction = resolveSemanticInstructionConflicts(
-    semanticInstruction ||
-      intentResult.semanticInstruction ||
+    suppliedSemanticInstruction ||
       parseSemanticEditInstruction({
         userMessage: request,
         intentResult: {
@@ -2535,26 +2538,37 @@ export function buildEditPlan({
       }),
   )
   const primarySemanticOperation = validatedSemanticInstruction.operations?.[0] || {}
+  const structuredEditInstruction = semanticInstructionToLegacyInstruction(validatedSemanticInstruction)
+  const durationTarget =
+    normalizeTargetDurationSeconds(targetDurationSeconds) ||
+    normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) ||
+    normalizeTargetDurationSeconds(structuredEditInstruction.targetDurationSeconds) ||
+    (!usesValidatedSemanticSource ? extractTargetDurationSeconds(request) : null)
   const semanticTarget = SECTION_KEYS.includes(primarySemanticOperation.target)
     ? primarySemanticOperation.target
     : ''
   const semanticTargetSections = semanticOperationTargetSections(validatedSemanticInstruction.operations || [])
-  const structuredEditInstruction = semanticInstructionToLegacyInstruction(validatedSemanticInstruction)
-    const isDurationCompress =
-      Boolean(durationTarget) ||
-      intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
-      structuredEditInstruction.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+  const isDurationCompress =
+    Boolean(durationTarget) ||
+    intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
+    structuredEditInstruction.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
   const previousAdviceTarget = isApplyingPreviousAdvice
     ? previousAdviceTargetToEditTarget(normalizedPreviousAdvice, intentResult.editTarget || editTarget || 'all')
     : ''
   const normalizedTarget = isDurationCompress
     ? 'all'
-    : normalizeEditTarget(previousAdviceTarget || semanticTarget || intentResult.editTarget || editTarget, request)
+    : normalizeEditTarget(
+        previousAdviceTarget || semanticTarget || intentResult.editTarget || editTarget,
+        usesValidatedSemanticSource ? '' : request,
+      )
   const semanticPreserveSections = validatedSemanticInstruction.locks
     .filter((lock) => SECTION_KEYS.includes(lock.target))
     .map((lock) => lock.target)
   const explicitPreserveSections = uniqueCompactList(
-    [...detectExplicitPreserveSections(request), ...semanticPreserveSections],
+    [
+      ...(!usesValidatedSemanticSource ? detectExplicitPreserveSections(request) : []),
+      ...semanticPreserveSections,
+    ],
     3,
   )
   const explicitPreserveSet = new Set(explicitPreserveSections)
@@ -2626,7 +2640,12 @@ export function buildEditPlan({
   ) {
     targetSections = isDurationCompress
       ? SECTION_KEYS
-      : getTargetSections(normalizeEditTarget(editTarget || intentResult.editTarget || '', request))
+      : getTargetSections(
+          normalizeEditTarget(
+            editTarget || intentResult.editTarget || '',
+            usesValidatedSemanticSource ? '' : request,
+          ),
+        )
     if (explicitPreserveSet.size) {
       const filteredTargets = targetSections.filter((key) => !explicitPreserveSet.has(key))
       targetSections = filteredTargets.length ? filteredTargets : SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
@@ -2808,30 +2827,58 @@ export function buildEditPlan({
     )
   }
 
-  if (/자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체/i.test(request)) {
+  if (
+    !usesValidatedSemanticSource &&
+    /자연스럽게|말\s*되게|말되게|사람\s*말|말하듯|구어체|부자연|어색|번역체/i.test(request)
+  ) {
     strategy.push('구어체화 + 번역체 제거 + 문장 호흡 정리')
     change.push('어색하거나 기계적인 문장을 실제 사람이 말하듯 자연스럽게 바꾼다')
     avoid.push('설명문처럼 길게 이어지는 문장')
   }
-  if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)) {
+  if (
+    !usesValidatedSemanticSource &&
+    /광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)
+  ) {
     strategy.push('판매 압박 제거 + 상황/정보 중심 전환')
     change.push('구매를 밀기보다 저장/확인/이해할 이유를 먼저 준다')
     avoid.push('과한 구매 압박과 흔한 광고성 표현')
   }
-  if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE || isFramingRewriteRequest(request)) {
+  if (
+    operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE ||
+    (!usesValidatedSemanticSource && isFramingRewriteRequest(request))
+  ) {
     strategy.push('문제 제기에서 해소감으로 이어지는 전개 정리')
-    change.push(`${toneHint || extractFramingRewriteHint(request)}이 느껴지도록 문제 상황과 해결 결과를 자연스럽게 연결한다`)
+    change.push(
+      `${
+        toneHint ||
+        primarySemanticOperation.goal ||
+        (!usesValidatedSemanticSource ? extractFramingRewriteHint(request) : '') ||
+        '요청한 전개'
+      }이 느껴지도록 문제 상황과 해결 결과를 자연스럽게 연결한다`,
+    )
     avoid.push('전개 방향 요청을 새 상품/새 주제로 해석하기')
   }
-    if (operationType !== COPILOT_OPERATION_TYPES.FORMAT_APPLY && /짧게|압축|간결|줄여|너무\s*길/i.test(request)) {
+    if (
+      !usesValidatedSemanticSource &&
+      operationType !== COPILOT_OPERATION_TYPES.FORMAT_APPLY &&
+      /짧게|압축|간결|줄여|너무\s*길/i.test(request)
+    ) {
       strategy.push('핵심만 남기고 문장 압축')
       change.push('중복 설명과 장황한 연결어를 줄인다')
     }
-  if (/강하게|세게|후킹감|첫\s*문장|훅/i.test(request) && targetSections.includes('hook')) {
+  if (
+    !usesValidatedSemanticSource &&
+    /강하게|세게|후킹감|첫\s*문장|훅/i.test(request) &&
+    targetSections.includes('hook')
+  ) {
     strategy.push('첫 문장 긴장감 강화 + BODY/CTA 연결 유지')
     change.push('타겟의 문제, 손해, 궁금증이 첫 문장에 더 빨리 보이게 한다')
   }
-  if (/cta|씨티에이|마무리|구매|댓글|저장|신청|상담/i.test(request) && targetSections.includes('cta')) {
+  if (
+    !usesValidatedSemanticSource &&
+    /cta|씨티에이|마무리|구매|댓글|저장|신청|상담/i.test(request) &&
+    targetSections.includes('cta')
+  ) {
     strategy.push('행동 이유가 보이는 CTA로 정리')
     change.push('시청자가 왜 지금 행동해야 하는지 자연스럽게 붙인다')
   }
@@ -4480,22 +4527,15 @@ function shouldUseSemanticInstructionExtractor(message = '', fallbackIntent = nu
     return false
   }
 
+  // Duration compression is already normalized by a deterministic parser.
   if (extractTargetDurationSeconds(text)) {
     return false
   }
 
-  const compact = text.replace(/\s+/g, '')
-  const hasComplexReframeSignal =
-    /(주제|소재|방향).{0,24}(바꿔|바꾸|변경|다시|가자)|(?:말고|대신|빼고|버리고|제외하고)|(?:으로|로).{0,20}(바꿔|바꾸|변경|다시|가자)/i.test(
-      text,
-    )
-  const hasMaterialOrContextSignal =
-    /(남편|아이|가족|육아맘|상황|느낌|공구|공동구매|만족도|전자레인지|에어프라이|냉동실|꺼내|바로|상담|구매|링크|모집)/i.test(
-      text,
-    )
-  const hasMultiSentence = /[?.!。]\s*\S/.test(text) || text.split(/\s+/g).length >= 10
-
-  return hasComplexReframeSignal || (hasMultiSentence && hasMaterialOrContextSignal) || compact.length >= 45
+  // Every non-trivial edit request uses one semantic contract. Regex remains a
+  // signal/fallback layer instead of deciding which natural-language requests
+  // deserve semantic interpretation.
+  return true
 }
 
 async function extractCopilotInstructionWithLLM({
@@ -4504,40 +4544,45 @@ async function extractCopilotInstructionWithLLM({
   message = '',
   sections,
   editTarget = '',
+  previousAdvice = null,
+  replyContext = null,
 }) {
   const normalizedSections = normalizeSections(sections)
   const normalizedMessage = String(message || '').trim()
   if (!normalizedMessage) {
     return null
   }
+  const regexSignals = parseRegexSignals(normalizedMessage)
 
   const response = await openai.chat.completions.create({
     model,
     temperature: 0,
+    response_format: COPILOT_SEMANTIC_RESPONSE_FORMAT,
     messages: [
       {
         role: 'system',
         content: [
           '당신은 HookAI 코파일럿 사용자 요청을 구조화된 편집 명령으로 정규화하는 파서다.',
-          '대본을 작성하지 않는다. 사용자 문장을 대본에 넣을 문장으로 보지 말고, 편집 의도/새 주제/삭제할 기존 소재/삽입할 상황 힌트로 분리한다.',
-          '출력은 JSON만 반환한다.',
-            'operationType은 topic_reframe, insert_material, duration_compress, format_apply, tone_adjust, framing_rewrite, partial_rewrite, edit_partial, unknown 중 하나다.',
+          '대본을 작성하지 않는다. 사용자 문장을 실행 가능한 의미 명령으로만 변환한다.',
+          'operations에는 한 문장에 섞인 작업을 섹션별로 모두 분리해 넣는다.',
           'topic_reframe: 사용자가 명시적으로 새 주제/상품/소재로 바꾸려는 요청이다. 예: "삼겹살로 주제 바꿔줘", "물광토너 주제로", "만두말고 치킨너겟으로".',
           '중요: "주제/소재/상품/제품/아이템" 또는 "A 말고 B/A 대신 B" 같은 명시 신호가 없으면 topic_reframe으로 분류하지 말고 선택된 초안 내부 수정(partial_rewrite/edit_partial)으로 분류한다.',
-            'insert_material: 기존 대본에 특정 소재를 추가하는 요청이다. 예: "BODY에 손씻기 넣어줘".',
-            'format_apply: 새 주제/소재가 아니라 예시 문장 포맷, 문장 형식, placeholder를 현재 대본에 적용하는 요청이다. 예: "훅을 딱 n초만에 정리해드릴게요 이런 식으로 숫자를 넣어줘".',
-            'tone_adjust: 주제는 유지하고 말투/광고감/자연스러움만 바꾸는 요청이다.',
+          'insert_material: 기존 대본에 특정 소재를 추가하는 요청이다. 예: "BODY에 손씻기 넣어줘".',
+          'format_apply: 새 주제/소재가 아니라 예시 문장 포맷, 문장 형식, placeholder를 현재 대본에 적용하는 요청이다.',
+          'tone_adjust: 주제는 유지하고 말투/광고감/자연스러움만 바꾸는 요청이다.',
           'framing_rewrite: 주제/상품은 유지하고 불편함→해소감, 문제→해결, 공감 관점 같은 전개 방식만 바꾸는 요청이다.',
           'partial_rewrite/edit_partial: 특정 섹션이나 일부 표현만 수정하는 요청이다.',
           '"존댓말", "반말", "해요체", "하십시오체", "말투", "어미", "톤"은 절대 newSubject가 아니다. 이런 요청은 tone_adjust다.',
-            '"불편함에서 해소되는 느낌", "문제가 해결되는 흐름", "공감되는 관점"처럼 전개/감정 효과를 말하는 표현은 절대 newSubject가 아니다. 이런 요청은 framing_rewrite다.',
-            '"이런 식으로", "포맷", "형식", "n초", "숫자를 넣어줘"는 절대 newSubject가 아니다. 이런 요청은 format_apply다.',
+          '"불편함에서 해소되는 느낌", "문제가 해결되는 흐름", "공감되는 관점"은 newSubject가 아니라 framing_rewrite다.',
+          '"이런 식으로", "포맷", "형식", "n초", "숫자를 넣어줘"는 newSubject가 아니라 format_apply다.',
           '사용자 요청의 raw 표현은 대본 문장에 복사할 표현이 아니다. "만두말고" 같은 표현은 forbiddenSurfacePhrases에 넣는다.',
           'newSubject는 최종 중심 주제/상품만 짧게 추출한다. 예: "간편 냉동볶음밥", "삼겹살", "치킨너겟".',
           'requestedMaterials는 대본에 그대로 복사할 문장이 아니라 반영할 상황/소재 힌트다.',
           'salesContext는 공구/상담/구매링크/모집 같은 판매 맥락만 짧게 추출한다.',
           'toneHint는 가족 생활 공감형, 자연스럽고 말하듯이, 공구 느낌처럼 톤 방향만 적는다.',
           '비교 요청이면 allowComparisonWithOldSubject=true다. 아니면 oldSubjectToRemove는 대본에 남기지 않는 소재다.',
+          '사용자가 수정하지 말라고 한 섹션은 locks에 do_not_touch로 넣는다.',
+          '조언이나 질문만 요청하면 intent=ask_advice, userFacingNeed=answer_question, operations=[]로 반환한다.',
         ].join('\n'),
       },
       {
@@ -4550,9 +4595,6 @@ async function extractCopilotInstructionWithLLM({
           `HOOK: ${normalizedSections.hook.slice(0, 160) || '-'}`,
           `BODY: ${normalizedSections.body.slice(0, 220) || '-'}`,
           `CTA: ${normalizedSections.cta.slice(0, 140) || '-'}`,
-          '',
-          'JSON 형식:',
-            '{"operationType":"topic_reframe|insert_material|duration_compress|format_apply|tone_adjust|framing_rewrite|partial_rewrite|edit_partial|unknown","newSubject":"","oldSubjectToRemove":[],"forbiddenSurfacePhrases":[],"requestedMaterials":[],"salesContext":"","toneHint":"","explicitKeep":[],"explicitRemove":[],"allowComparisonWithOldSubject":false,"targetDurationSeconds":null,"confidence":0,"reason":""}',
         ].join('\n'),
       },
     ],
@@ -4563,12 +4605,27 @@ async function extractCopilotInstructionWithLLM({
   })
 
   const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-  const instruction = normalizeSemanticEditInstruction(parsed, normalizedMessage)
-  return {
-    ...instruction,
-    targetDurationSeconds:
-      normalizeTargetDurationSeconds(parsed.targetDurationSeconds) || extractTargetDurationSeconds(normalizedMessage),
+  const parsedInstruction = semanticInstructionFromModelOutput(parsed, {
+      userMessage: normalizedMessage,
+      regexSignals,
+    })
+  const resolvedReplyAdvice = replyContextToEditInstructions({
+    replyContext,
+    userMessage: normalizedMessage,
+    fallbackAdvice: previousAdvice,
+    editTarget,
+  })
+  if (resolvedReplyAdvice) {
+    parsedInstruction.intent = 'apply_feedback'
+    parsedInstruction.replyReference = {
+      hasReplyTarget: true,
+      sourceType: replyContext?.sourceType || resolvedReplyAdvice.sourceType || 'advice',
+      sourceMessageId: replyContext?.sourceMessageId || resolvedReplyAdvice.sourceMessageId || '',
+      sourceDraftId: replyContext?.sourceDraftId || resolvedReplyAdvice.sourceDraftId || '',
+      inheritedOperations: resolvedReplyAdvice.operations || [],
+    }
   }
+  return resolveSemanticInstructionConflicts(parsedInstruction)
 }
 
 export async function classifyCopilotIntent({
@@ -4579,6 +4636,8 @@ export async function classifyCopilotIntent({
   personalizationContext = '',
   targetDurationSeconds = null,
   previousAdvice = null,
+  replyContext = null,
+  conversationContext = null,
 }) {
   const normalizedPreviousAdvice = normalizePreviousAdvice(previousAdvice)
   if (isApplyPreviousAdviceRequest(message)) {
@@ -4637,35 +4696,44 @@ export async function classifyCopilotIntent({
         message: normalizedMessage,
         sections: normalizedSections,
         editTarget,
+        previousAdvice: normalizedPreviousAdvice,
+        replyContext,
       })
-      if (semanticInstruction?.operationType && semanticInstruction.operationType !== COPILOT_OPERATION_TYPES.UNKNOWN) {
+      const primarySemanticOperation = semanticInstruction?.operations?.[0] || null
+      if (primarySemanticOperation?.type && primarySemanticOperation.type !== COPILOT_OPERATION_TYPES.UNKNOWN) {
+        const structuredInstruction = semanticInstructionToLegacyInstruction(semanticInstruction)
         const targetDuration =
-          normalizeTargetDurationSeconds(semanticInstruction.targetDurationSeconds) ||
+          normalizeTargetDurationSeconds(structuredInstruction.targetDurationSeconds) ||
           normalizeTargetDurationSeconds(targetDurationSeconds)
         const operationType =
-          semanticInstruction.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS && !targetDuration
+          primarySemanticOperation.type === COPILOT_OPERATION_TYPES.DURATION_COMPRESS && !targetDuration
             ? COPILOT_OPERATION_TYPES.EDIT_PARTIAL
-            : semanticInstruction.operationType
+            : primarySemanticOperation.type
         return {
           intent: 'edit_request',
           editTarget: operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
             ? 'all'
-            : normalizeEditTarget(editTarget, normalizedMessage),
+            : SECTION_KEYS.includes(primarySemanticOperation.target)
+              ? primarySemanticOperation.target
+              : normalizeEditTarget(editTarget, normalizedMessage),
           shouldModifyScript: true,
           operationType,
           targetDurationSeconds: operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ? targetDuration : null,
-          newSubject: operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ? semanticInstruction.newSubject : '',
-          requestedMaterials: semanticInstruction.requestedMaterials || [],
-          oldSubjectToRemove: semanticInstruction.oldSubjectToRemove || [],
-          forbiddenSurfacePhrases: semanticInstruction.forbiddenSurfacePhrases || [],
-          salesContext: semanticInstruction.salesContext || '',
-          toneHint: semanticInstruction.toneHint || '',
-          explicitKeep: semanticInstruction.explicitKeep || [],
-          explicitRemove: semanticInstruction.explicitRemove || [],
-          allowComparisonWithOldSubject: Boolean(semanticInstruction.allowComparisonWithOldSubject),
-          structuredEditInstruction: semanticInstruction,
+          newSubject: operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ? structuredInstruction.newSubject : '',
+          requestedMaterials: structuredInstruction.requestedMaterials || [],
+          oldSubjectToRemove: structuredInstruction.oldSubjectToRemove || [],
+          forbiddenSurfacePhrases: structuredInstruction.forbiddenSurfacePhrases || [],
+          salesContext: structuredInstruction.salesContext || '',
+          toneHint: structuredInstruction.toneHint || '',
+          explicitKeep: structuredInstruction.explicitKeep || [],
+          explicitRemove: structuredInstruction.explicitRemove || [],
+          allowComparisonWithOldSubject: Boolean(structuredInstruction.allowComparisonWithOldSubject),
+          structuredEditInstruction: structuredInstruction,
+          semanticInstruction,
+          replyContext,
+          conversationContext,
           reply: '',
-          reason: semanticInstruction.reason || '복합 수정 요청을 의미 기반 편집 명령으로 정규화함',
+          reason: structuredInstruction.reason || '사용자 요청을 strict schema 편집 명령으로 정규화함',
         }
       }
     } catch (error) {

@@ -1,0 +1,84 @@
+[
+  {
+    "name": "framing request keeps the current subject",
+    "message": "기존 불편함에서 해소되는 느낌으로 다시 짜줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "framing_rewrite", "target": "all" }],
+    "topicChangeRequested": false
+  },
+  {
+    "name": "testimonial-like wording is framing, not a topic",
+    "message": "후기처럼 더 강하게 다시 짜줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "framing_rewrite", "target": "all" }],
+    "topicChangeRequested": false
+  },
+  {
+    "name": "explicit product preservation keeps subject unchanged",
+    "message": "상품은 그대로 두고 공감되는 관점으로 바꿔줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "framing_rewrite", "target": "all" }],
+    "topicChangeRequested": false
+  },
+  {
+    "name": "honorific request only edits the hook",
+    "message": "훅을 존댓말로 바꿔줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "tone_adjust", "target": "hook" }],
+    "topicChangeRequested": false,
+    "expectedPlanTargets": ["hook"],
+    "expectedPreservedSections": ["body", "cta"]
+  },
+  {
+    "name": "explicit subject replacement becomes a topic reframe",
+    "message": "주제를 만두말고 치킨너겟으로 바꿔줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "topic_reframe", "target": "all" }],
+    "topicChangeRequested": true,
+    "expectedNewSubject": "치킨너겟",
+    "expectedOldSubjects": ["만두"]
+  },
+  {
+    "name": "body material insertion preserves hook and cta",
+    "message": "BODY에 손씻기랑 물 자주 마시기 넣어줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "insert_material", "target": "body" }],
+    "topicChangeRequested": false,
+    "expectedPlanTargets": ["body"],
+    "expectedPreservedSections": ["hook", "cta"]
+  },
+  {
+    "name": "cta purpose change stays inside cta",
+    "message": "CTA는 구매 말고 상담 유도로 바꿔줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "cta_reframe", "target": "cta" }],
+    "topicChangeRequested": false,
+    "expectedPlanTargets": ["cta"],
+    "expectedPreservedSections": ["hook", "body"]
+  },
+  {
+    "name": "multi-section request becomes multiple operations",
+    "message": "훅은 존댓말로 바꾸고 바디는 엄마들이 공감하게, CTA는 구매 말고 상담 유도로 바꿔줘",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [
+      { "type": "tone_adjust", "target": "hook" },
+      { "type": "framing_rewrite", "target": "body" },
+      { "type": "cta_reframe", "target": "cta" }
+    ],
+    "topicChangeRequested": false
+  },
+  {
+    "name": "question about wording does not edit the script",
+    "message": "요런 멘트가 자주 나오는데 질문하는 방법 알려줘",
+    "expectedIntent": "ask_advice",
+    "expectedOperations": [],
+    "topicChangeRequested": false
+  },
+  {
+    "name": "soft material request is still an insertion",
+    "message": "과학적으로 왜 물때가 잘 벗겨지는지도 추가되면 좋을 것 같은데",
+    "expectedIntent": "edit_script",
+    "expectedOperations": [{ "type": "insert_material", "target": "all" }],
+    "topicChangeRequested": false
+  }
+]

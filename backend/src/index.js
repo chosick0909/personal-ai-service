@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { createAccount, deleteAccount, listAccounts, resolveRequestAccount } from './lib/accounts.js'
 import { getAccountProfile, upsertAccountProfile } from './lib/account-profile.js'
 import { getAccountCharacterContext } from './lib/account-character.js'
+import { resolveCopilotConversationReference } from './lib/copilot/conversation-context.js'
 import { requireAuth, requireAdmin } from './lib/auth.js'
 import { getOpenAIModels, hasOpenAIConfig } from './lib/openai.js'
 import {
@@ -1633,7 +1634,15 @@ app.post(
         })
       }
     }
-    const replyContext = req.body?.replyContext || req.body?.reply_context || null
+    const explicitReplyContext = req.body?.replyContext || req.body?.reply_context || null
+    const conversationResolution = resolveCopilotConversationReference({
+      userMessage: requestText,
+      explicitReplyContext,
+      conversationContext: req.body?.conversationContext || req.body?.conversation_context || null,
+      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+      currentVariantId: req.body?.selectedScriptId || selectedVariantContext.selectedVariantId || '',
+    })
+    const replyContext = conversationResolution.replyContext
     const rawPreviousAdvice = req.body?.previousAdvice || req.body?.previous_advice || null
     const replyAdvice = replyContextToEditInstructions({
       replyContext,
@@ -1673,6 +1682,8 @@ app.post(
       editTarget: req.body?.editTarget || req.body?.edit_target || '',
       targetDurationSeconds,
       previousAdvice: requestPreviousAdvice,
+      replyContext,
+      conversationContext: conversationResolution.conversationContext,
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: intentPersonalization.context,
     })
