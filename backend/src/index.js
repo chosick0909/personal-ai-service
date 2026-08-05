@@ -143,6 +143,10 @@ function buildTopicReframeBestEffortMessage(editPlan = {}) {
   return `좋아요. 기존 소재에 끌려가지 않도록 "${subject}" 중심으로 다시 잡았어요. 새 주제 기준으로 자연스럽게 이어지도록 정리했습니다.`
 }
 
+function buildCopilotOriginalPreservedMessage() {
+  return '이번 수정안은 원문보다 나아지지 않아 적용하지 않았어요. 원문은 그대로 두고, 같은 요청으로 다시 시도해 주세요.'
+}
+
 function readSelectedVariantContext(body = {}) {
   const selectedVariantId = String(
     body?.selectedVariantId ||
@@ -2132,6 +2136,27 @@ app.post(
               partialAppliedSections: recoveryResult.partialAppliedSections || [],
             }
           } else {
+            const partialFallback = buildPartialSafeFeedbackApplyFallback({
+              originalSections: refineBaseSections,
+              candidateSources: [
+                { source: 'repair', sections: repairResult.sections },
+                { source: 'refine', sections: result.sections },
+              ],
+              editTarget: result.editTarget || editPlan.editTarget,
+              feedback: qaFeedback,
+              request: requestText,
+              qaMode: editPlan.qaMode,
+              newSubject: editPlan.newSubject,
+              requestedMaterials: editPlan.requestedMaterials,
+              oldSubjectToRemove: editPlan.oldSubjectToRemove,
+              forbiddenSurfacePhrases: editPlan.forbiddenSurfacePhrases,
+              allowComparisonWithOldSubject: editPlan.allowComparisonWithOldSubject,
+              targetSections: editPlan.targetSections,
+              targetDurationSeconds: editPlan.targetDurationSeconds,
+              targetCharRange: editPlan.targetCharRange,
+              editPlan,
+              copilotMemory,
+            })
             const fallbackCandidate = repairResult.sections || result.sections
             const fallbackCheck = runFeedbackFallbackRuleCheck({
               originalSections: refineBaseSections,
@@ -2152,7 +2177,20 @@ app.post(
               copilotMemory,
             })
 
-            if (canUseTopicReframeBestEffortFallback(editPlan, fallbackCheck)) {
+            if (partialFallback.success) {
+              const appliedAllTargets = (editPlan.targetSections || []).every((section) =>
+                partialFallback.changedSections.includes(section),
+              )
+              finalSections = partialFallback.sections
+              finalMessage = repairResult.message || result.message || finalMessage
+              qualityGate = {
+                ...qualityGate,
+                fallbackUsed: true,
+                fallbackType: appliedAllTargets ? 'safe_candidate_apply' : 'partial_safe_apply',
+                issueTypes: partialFallback.issueTypes || qualityGate.issueTypes,
+                partialAppliedSections: partialFallback.changedSections,
+              }
+            } else if (canUseTopicReframeBestEffortFallback(editPlan, fallbackCheck)) {
               finalSections = fallbackCandidate
               finalMessage = buildTopicReframeBestEffortMessage(editPlan)
               qualityGate = {
@@ -2166,7 +2204,7 @@ app.post(
               finalMessage =
                 editPlan.operationType === 'topic_reframe'
                   ? buildTopicReframeFailureMessage(editPlan)
-                  : '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
+                  : buildCopilotOriginalPreservedMessage()
               qualityGate = {
                 ...qualityGate,
                 fallbackUsed: true,
@@ -2204,54 +2242,129 @@ app.post(
         fallbackType: 'none',
       }
       if (ruleCheck.shouldRepair) {
-        const recoveryResult = await retryCopilotWithRecoveredEditPlan({
-          account,
-          req,
-          character,
-          personalization,
-          requestText,
-          refineBaseSections,
-          intent,
-          intentForEditPlan,
+        repairAttempted = true
+        const repairResult = await repairRefinedScriptWithQaIssues({
+          accountId: account.id,
+          referenceId: req.body?.referenceId,
+          selectedLabel: req.body?.selectedLabel,
+          ...selectedVariantContext,
+          originalSections: refineBaseSections,
+          proposedSections: result.sections,
+          request: requestText,
+          editTarget: result.editTarget || editPlan.editTarget,
+          feedback: qaFeedback,
+          qaIssues: ruleCheck.issues,
+          characterSystemPrompt: character.systemPrompt,
+          personalizationContext: personalization.context,
+          qaMode: editPlan.qaMode,
+          newSubject: editPlan.newSubject,
+          requestedMaterials: editPlan.requestedMaterials,
+          oldSubjectToRemove: editPlan.oldSubjectToRemove,
+          forbiddenSurfacePhrases: editPlan.forbiddenSurfacePhrases,
+          allowComparisonWithOldSubject: editPlan.allowComparisonWithOldSubject,
+          targetSections: editPlan.targetSections,
+          preserveSections: editPlan.preserveSections,
+          targetDurationSeconds: editPlan.targetDurationSeconds,
+          targetCharRange: editPlan.targetCharRange,
           editPlan,
-          ruleCheck,
-          qaFeedback,
           copilotMemory,
-          targetDurationSeconds,
-          previousAdvice,
         })
-        recoveryAttempted = Boolean(recoveryResult)
 
-        if (recoveryResult?.success) {
-          recoverySuccess = true
-          finalSections = recoveryResult.sections
-          finalMessage = recoveryResult.message || finalMessage
+        if (repairResult.success) {
+          repairSuccess = true
+          finalSections = repairResult.sections
+          finalMessage = repairResult.message || finalMessage
           qualityGate = {
             ...qualityGate,
-            fallbackUsed: true,
-            fallbackType: recoveryResult.partial ? 'reclassified_retry_partial' : 'reclassified_retry',
-            issueTypes: recoveryResult.issueTypes || qualityGate.issueTypes,
-            recovery: recoveryResult.editPlan?.recovery || null,
-            partialAppliedSections: recoveryResult.partialAppliedSections || [],
-          }
-        } else if (canUseTopicReframeBestEffortFallback(editPlan, ruleCheck)) {
-          finalSections = result.sections
-          finalMessage = buildTopicReframeBestEffortMessage(editPlan)
-          qualityGate = {
-            ...qualityGate,
-            fallbackUsed: true,
-            fallbackType: 'topic_reframe_best_effort',
+            repaired: true,
           }
         } else {
-          finalSections = req.body?.sections || result.sections
-          finalMessage =
-            editPlan.operationType === 'topic_reframe'
-              ? buildTopicReframeFailureMessage(editPlan)
-              : '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
-          qualityGate = {
-            ...qualityGate,
-            fallbackUsed: true,
-            fallbackType: 'original',
+          const recoveryResult = await retryCopilotWithRecoveredEditPlan({
+            account,
+            req,
+            character,
+            personalization,
+            requestText,
+            refineBaseSections,
+            intent,
+            intentForEditPlan,
+            editPlan,
+            ruleCheck,
+            qaFeedback,
+            copilotMemory,
+            targetDurationSeconds,
+            previousAdvice,
+          })
+          recoveryAttempted = Boolean(recoveryResult)
+
+          if (recoveryResult?.success) {
+            recoverySuccess = true
+            finalSections = recoveryResult.sections
+            finalMessage = recoveryResult.message || finalMessage
+            qualityGate = {
+              ...qualityGate,
+              fallbackUsed: true,
+              fallbackType: recoveryResult.partial ? 'reclassified_retry_partial' : 'reclassified_retry',
+              issueTypes: recoveryResult.issueTypes || qualityGate.issueTypes,
+              recovery: recoveryResult.editPlan?.recovery || null,
+              partialAppliedSections: recoveryResult.partialAppliedSections || [],
+            }
+          } else {
+            const partialFallback = buildPartialSafeFeedbackApplyFallback({
+              originalSections: refineBaseSections,
+              candidateSources: [
+                { source: 'repair', sections: repairResult.sections },
+                { source: 'refine', sections: result.sections },
+              ],
+              editTarget: result.editTarget || editPlan.editTarget,
+              feedback: qaFeedback,
+              request: requestText,
+              qaMode: editPlan.qaMode,
+              newSubject: editPlan.newSubject,
+              requestedMaterials: editPlan.requestedMaterials,
+              oldSubjectToRemove: editPlan.oldSubjectToRemove,
+              forbiddenSurfacePhrases: editPlan.forbiddenSurfacePhrases,
+              allowComparisonWithOldSubject: editPlan.allowComparisonWithOldSubject,
+              targetSections: editPlan.targetSections,
+              targetDurationSeconds: editPlan.targetDurationSeconds,
+              targetCharRange: editPlan.targetCharRange,
+              editPlan,
+              copilotMemory,
+            })
+
+            if (partialFallback.success) {
+              const appliedAllTargets = (editPlan.targetSections || []).every((section) =>
+                partialFallback.changedSections.includes(section),
+              )
+              finalSections = partialFallback.sections
+              finalMessage = repairResult.message || result.message || finalMessage
+              qualityGate = {
+                ...qualityGate,
+                fallbackUsed: true,
+                fallbackType: appliedAllTargets ? 'safe_candidate_apply' : 'partial_safe_apply',
+                issueTypes: partialFallback.issueTypes || qualityGate.issueTypes,
+                partialAppliedSections: partialFallback.changedSections,
+              }
+            } else if (canUseTopicReframeBestEffortFallback(editPlan, ruleCheck)) {
+              finalSections = result.sections
+              finalMessage = buildTopicReframeBestEffortMessage(editPlan)
+              qualityGate = {
+                ...qualityGate,
+                fallbackUsed: true,
+                fallbackType: 'topic_reframe_best_effort',
+              }
+            } else {
+              finalSections = req.body?.sections || result.sections
+              finalMessage =
+                editPlan.operationType === 'topic_reframe'
+                  ? buildTopicReframeFailureMessage(editPlan)
+                  : buildCopilotOriginalPreservedMessage()
+              qualityGate = {
+                ...qualityGate,
+                fallbackUsed: true,
+                fallbackType: 'original',
+              }
+            }
           }
         }
       }
@@ -2783,7 +2896,7 @@ app.post(
           }
         } else {
           finalSections = fallbackResult.sections
-          finalMessage = '수정안을 바로 적용하기 어려워 기존 대본은 유지했어요. 범위를 조금 좁혀 다시 요청해 주세요.'
+          finalMessage = buildCopilotOriginalPreservedMessage()
           qualityGate = {
             ...qualityGate,
             repaired: false,

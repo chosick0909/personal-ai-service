@@ -1138,6 +1138,44 @@ test('partial safe feedback apply fallback respects edit target section locks', 
   assert.match(result.sections.cta, /체크리스트/)
 })
 
+test('hook intensity request keeps body and cta while applying a safe hook candidate', () => {
+  const result = buildPartialSafeFeedbackApplyFallback({
+    originalSections: currentDraft,
+    candidateSources: [
+      {
+        source: 'refine',
+        sections: {
+          hook: '선크림 순서 하나 때문에 오후 얼굴이 더 칙칙해질 수 있습니다.',
+          body: '수정 대상이 아닌 BODY',
+          cta: '수정 대상이 아닌 CTA',
+        },
+      },
+    ],
+    editTarget: 'hook',
+    targetSections: ['hook'],
+    feedback: {
+      summary: 'HOOK을 더 자극적으로 바꾸는 요청',
+      detail: '기존 주제는 유지하고 첫 문장의 긴장감만 높인다.',
+    },
+    request: '훅을 더 자극적으로 바꿔봐',
+    editPlan: {
+      operationType: COPILOT_OPERATION_TYPES.EDIT_PARTIAL,
+      targetSections: ['hook'],
+      sectionInstructions: {
+        hook: { action: 'revise' },
+        body: { action: 'keep' },
+        cta: { action: 'keep' },
+      },
+    },
+  })
+
+  assert.equal(result.success, true)
+  assert.deepEqual(result.changedSections, ['hook'])
+  assert.notEqual(result.sections.hook, currentDraft.hook)
+  assert.equal(result.sections.body, currentDraft.body)
+  assert.equal(result.sections.cta, currentDraft.cta)
+})
+
 test('partial safe feedback apply fallback keeps original when every candidate is unsafe', () => {
   const result = buildPartialSafeFeedbackApplyFallback({
     originalSections: currentDraft,
@@ -2381,6 +2419,15 @@ test('heavy copilot quality gate is reserved for broad or risky edit requests', 
       request: 'CTA에서 저장을 댓글로 바꿔줘',
       editTarget: 'cta',
       targetSections: ['cta'],
+    }),
+    false,
+  )
+  assert.equal(
+    shouldUseHeavyQualityGateForCopilot({
+      request: '훅을 더 자극적으로 바꿔봐',
+      editTarget: 'hook',
+      targetSections: ['hook'],
+      operationType: COPILOT_OPERATION_TYPES.EDIT_PARTIAL,
     }),
     false,
   )
