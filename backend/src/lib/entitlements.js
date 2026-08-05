@@ -5,6 +5,7 @@ export const COUPON_CODES = {
   openBeta: 'WELCOME2OPENBETA_0425',
   student: 'WELCOME2INSTACAMPUS_0425',
   challenge: 'CHEER_TO_CHALLENGE',
+  management: 'HOOK_AI_MANAGE',
 }
 
 export const UNLIMITED_STUDENT_COUPON_CODES = new Set([
@@ -241,6 +242,27 @@ async function loadActiveEntitlementRows(supabaseAdmin, userId) {
     : null
 }
 
+async function syncExpiredEntitlements(supabaseAdmin, userId, nowIso) {
+  const { error } = await runEntitlementQuery('syncExpiredEntitlements', () =>
+    supabaseAdmin
+      .from('user_entitlements')
+      .update({ status: 'expired' })
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .not('ends_at', 'is', null)
+      .lte('ends_at', nowIso),
+  )
+
+  if (error) {
+    throw new AppError('만료된 이용권 상태를 갱신하지 못했습니다.', {
+      code: 'ENTITLEMENT_EXPIRY_SYNC_FAILED',
+      statusCode: 500,
+      exposeMessage: false,
+      cause: error,
+    })
+  }
+}
+
 async function loadEntitlementLimits(supabaseAdmin, entitlementId) {
   if (!entitlementId) {
     return null
@@ -293,13 +315,15 @@ async function loadActiveOrFutureEntitlements({ supabaseAdmin, userId, planType,
   return Array.isArray(data) ? data : []
 }
 
-function getCouponPlanType(couponType) {
+export function getCouponPlanType(couponType) {
+  if (couponType === 'admin') return 'paid'
   if (couponType === 'student') return 'student'
   if (couponType === 'challenge') return 'challenge'
   return 'open_beta'
 }
 
-function getEntitlementEndAt(planType, startsAt) {
+export function getEntitlementEndAt(planType, startsAt, couponType) {
+  if (couponType === 'admin') return null
   if (planType === 'student') return addMonths(startsAt, 3)
   if (planType === 'challenge') return addMonths(startsAt, 1)
   return addDays(startsAt, 7)
@@ -415,6 +439,7 @@ export async function getUserEntitlementStatus({ userId, referenceId = null }) {
   }
 
   const supabaseAdmin = requireSupabaseAdmin()
+  await syncExpiredEntitlements(supabaseAdmin, normalizedUserId, new Date().toISOString())
   const entitlement = await loadActiveEntitlementRows(supabaseAdmin, normalizedUserId)
 
   if (!entitlement) {
@@ -553,10 +578,10 @@ export async function applyCouponToUser({ userId, couponCode }) {
   }
 
   const planType = getCouponPlanType(coupon.type)
-  const startsAt = planType === 'student'
+  const startsAt = coupon.type !== 'admin' && planType === 'student'
     ? await getStudentStartAt({ supabaseAdmin, userId: normalizedUserId, now, nowIso })
     : now
-  const endsAt = getEntitlementEndAt(planType, startsAt)
+  const endsAt = getEntitlementEndAt(planType, startsAt, coupon.type)
   const planLimits = getCouponPlanLimits(planType, coupon.code)
 
   const { data: entitlement, error: insertError } = await runEntitlementQuery('createEntitlement', () =>
@@ -568,7 +593,7 @@ export async function applyCouponToUser({ userId, couponCode }) {
         plan_type: planType,
         status: 'active',
         starts_at: startsAt.toISOString(),
-        ends_at: endsAt.toISOString(),
+        ends_at: endsAt ? endsAt.toISOString() : null,
       })
       .select('id, user_id, coupon_id, plan_type, status, starts_at, ends_at, created_at')
       .single(),
@@ -614,13 +639,6 @@ export async function applyCouponToUser({ userId, couponCode }) {
       nowIso,
     })
   }
-
-  await runEntitlementQuery('incrementCouponRedemption', () =>
-    supabaseAdmin
-      .from('coupons')
-      .update({ redeemed_count: Number(coupon.redeemed_count || 0) + 1 })
-      .eq('id', coupon.id),
-  )
 
   return normalizeEntitlement(entitlement, limits)
 }
