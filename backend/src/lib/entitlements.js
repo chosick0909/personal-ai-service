@@ -242,27 +242,6 @@ async function loadActiveEntitlementRows(supabaseAdmin, userId) {
     : null
 }
 
-async function syncExpiredEntitlements(supabaseAdmin, userId, nowIso) {
-  const { error } = await runEntitlementQuery('syncExpiredEntitlements', () =>
-    supabaseAdmin
-      .from('user_entitlements')
-      .update({ status: 'expired' })
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .not('ends_at', 'is', null)
-      .lte('ends_at', nowIso),
-  )
-
-  if (error) {
-    throw new AppError('만료된 이용권 상태를 갱신하지 못했습니다.', {
-      code: 'ENTITLEMENT_EXPIRY_SYNC_FAILED',
-      statusCode: 500,
-      exposeMessage: false,
-      cause: error,
-    })
-  }
-}
-
 async function loadEntitlementLimits(supabaseAdmin, entitlementId) {
   if (!entitlementId) {
     return null
@@ -439,39 +418,42 @@ export async function getUserEntitlementStatus({ userId, referenceId = null }) {
   }
 
   const supabaseAdmin = requireSupabaseAdmin()
-  await syncExpiredEntitlements(supabaseAdmin, normalizedUserId, new Date().toISOString())
   const entitlement = await loadActiveEntitlementRows(supabaseAdmin, normalizedUserId)
 
   if (!entitlement) {
     return normalizeEntitlement(null, null)
   }
 
-  const limits = await loadEntitlementLimits(supabaseAdmin, entitlement.id)
-  const monthlyReferenceUsed = await countUsageEvents({
-    supabaseAdmin,
-    userId: normalizedUserId,
-    entitlementId: entitlement.id,
-    eventType: 'reference_analysis',
-    since: getMonthStartIso(),
-  })
-  const currentReferenceCopilotUsed = referenceId
-    ? await countUsageEvents({
-        supabaseAdmin,
-        userId: normalizedUserId,
-        entitlementId: entitlement.id,
-        eventType: 'copilot_message',
-        referenceId,
-      })
-    : null
-  const currentReferenceFeedbackUsed = referenceId
-    ? await countUsageEvents({
-        supabaseAdmin,
-        userId: normalizedUserId,
-        entitlementId: entitlement.id,
-        eventType: 'feedback_request',
-        referenceId,
-      })
-    : null
+  // These reads are independent. Keeping them concurrent prevents a slow
+  // PostgREST round trip from serially delaying the login access gate.
+  const [limits, monthlyReferenceUsed, currentReferenceCopilotUsed, currentReferenceFeedbackUsed] = await Promise.all([
+    loadEntitlementLimits(supabaseAdmin, entitlement.id),
+    countUsageEvents({
+      supabaseAdmin,
+      userId: normalizedUserId,
+      entitlementId: entitlement.id,
+      eventType: 'reference_analysis',
+      since: getMonthStartIso(),
+    }),
+    referenceId
+      ? countUsageEvents({
+          supabaseAdmin,
+          userId: normalizedUserId,
+          entitlementId: entitlement.id,
+          eventType: 'copilot_message',
+          referenceId,
+        })
+      : Promise.resolve(null),
+    referenceId
+      ? countUsageEvents({
+          supabaseAdmin,
+          userId: normalizedUserId,
+          entitlementId: entitlement.id,
+          eventType: 'feedback_request',
+          referenceId,
+        })
+      : Promise.resolve(null),
+  ])
 
   return normalizeEntitlement(entitlement, limits, {
     monthlyReferenceUsed,

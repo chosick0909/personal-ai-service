@@ -626,9 +626,16 @@ export function AppStateProvider({ children }) {
       setEntitlementStatus(status)
       return status
     } catch (error) {
-      const message = error.message || '이용권 정보를 불러오지 못했습니다.'
+      const rawErrorText = String(error?.message || error || '')
+      const isRuntimeTransient =
+        error?.name === 'AbortError' ||
+        /request timeout|timeout|failed to fetch|networkerror|network request failed/i.test(rawErrorText)
+      const isTransientError = Boolean(error?.isTransient || isRuntimeTransient)
+      const message = isRuntimeTransient
+        ? '서버 연결이 지연되어 이용권 상태를 확인하지 못했습니다. 잠시 후 다시 확인해주세요.'
+        : rawErrorText || '이용권 정보를 불러오지 못했습니다.'
       setEntitlementStatus((current) => {
-        if ((silent || error.isTransient) && current?.hasAccess) {
+        if ((silent || isTransientError) && current?.hasAccess) {
           return current
         }
 
@@ -639,7 +646,7 @@ export function AppStateProvider({ children }) {
           error: message,
           errorCode: error.code || null,
           requestId: error.requestId || null,
-          isTransientError: Boolean(error.isTransient),
+          isTransientError,
           isAuthExpired: Boolean(error.isAuthExpired),
         }
       })

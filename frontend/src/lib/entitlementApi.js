@@ -4,7 +4,8 @@ import { supabase } from './supabase'
 
 const ENTITLEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const ENTITLEMENT_CACHE_VERSION = 3
-const ENTITLEMENT_REQUEST_TIMEOUT_MS = 12000
+const ENTITLEMENT_REQUEST_TIMEOUT_MS = 20000
+const inFlightEntitlementRequests = new Map()
 
 async function getEntitlementCacheKey() {
   const {
@@ -116,32 +117,49 @@ export function readCachedEntitlementForUser(userId) {
 }
 
 export async function loadMyEntitlement({ referenceId, forceRefresh = false } = {}) {
-  const query = referenceId ? `?referenceId=${encodeURIComponent(referenceId)}` : ''
-  const cacheKey = referenceId ? '' : await getEntitlementCacheKey()
-  const cached = !forceRefresh && cacheKey ? readCachedEntitlement(cacheKey) : null
-  if (cached) {
-    return cached
-  }
-
-  let response
   try {
-    response = await apiFetch(`/api/entitlements/me${query}`, {
-      timeoutMs: ENTITLEMENT_REQUEST_TIMEOUT_MS,
-    })
+    const query = referenceId ? `?referenceId=${encodeURIComponent(referenceId)}` : ''
+    const cacheKey = referenceId ? '' : await getEntitlementCacheKey()
+    const cached = !forceRefresh && cacheKey ? readCachedEntitlement(cacheKey) : null
+    if (cached) {
+      return cached
+    }
+
+    const requestKey = `${cacheKey || 'uncached'}:${referenceId || 'account'}`
+    let request = inFlightEntitlementRequests.get(requestKey)
+    if (!request) {
+      request = (async () => {
+        const response = await apiFetch(`/api/entitlements/me${query}`, {
+          timeoutMs: ENTITLEMENT_REQUEST_TIMEOUT_MS,
+        })
+        const payload = await parseApiResponse(response)
+
+        if (!response.ok) {
+          throw createEntitlementError(response, payload)
+        }
+
+        return payload
+      })()
+      inFlightEntitlementRequests.set(requestKey, request)
+    }
+
+    try {
+      const payload = await request
+      if (cacheKey) {
+        writeCachedEntitlement(cacheKey, payload)
+      }
+      return payload
+    } finally {
+      if (inFlightEntitlementRequests.get(requestKey) === request) {
+        inFlightEntitlementRequests.delete(requestKey)
+      }
+    }
   } catch (error) {
+    if (error?.code && (error.isTransient || error.isAuthExpired)) {
+      throw error
+    }
     throw createEntitlementNetworkError(error)
   }
-  const payload = await parseApiResponse(response)
-
-  if (!response.ok) {
-    throw createEntitlementError(response, payload)
-  }
-
-  if (cacheKey) {
-    writeCachedEntitlement(cacheKey, payload)
-  }
-
-  return payload
 }
 
 export async function applyCouponCode(couponCode) {
