@@ -4,6 +4,7 @@ import { supabase } from './supabase'
 
 const ENTITLEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const ENTITLEMENT_CACHE_VERSION = 3
+const ENTITLEMENT_REQUEST_TIMEOUT_MS = 12000
 
 async function getEntitlementCacheKey() {
   const {
@@ -89,6 +90,22 @@ function createEntitlementError(response, payload) {
   return error
 }
 
+function createEntitlementNetworkError(cause) {
+  const rawMessage = String(cause?.message || cause || '')
+  const isTimeout = cause?.name === 'AbortError' || /timeout|aborted/i.test(rawMessage)
+  const error = new Error(
+    isTimeout
+      ? '이용권 확인이 평소보다 오래 걸리고 있습니다. 잠시 후 다시 확인해주세요.'
+      : '서버에 연결하지 못했습니다. 백엔드 실행 상태와 네트워크를 확인한 뒤 다시 시도해주세요.',
+  )
+  error.code = isTimeout ? 'ENTITLEMENT_REQUEST_TIMEOUT' : 'ENTITLEMENT_NETWORK_ERROR'
+  error.details = null
+  error.requestId = null
+  error.isTransient = true
+  error.isAuthExpired = false
+  return error
+}
+
 export function readCachedEntitlementForUser(userId) {
   const normalizedUserId = String(userId || '').trim()
   if (!normalizedUserId) {
@@ -106,9 +123,14 @@ export async function loadMyEntitlement({ referenceId, forceRefresh = false } = 
     return cached
   }
 
-  const response = await apiFetch(`/api/entitlements/me${query}`, {
-    timeoutMs: 5000,
-  })
+  let response
+  try {
+    response = await apiFetch(`/api/entitlements/me${query}`, {
+      timeoutMs: ENTITLEMENT_REQUEST_TIMEOUT_MS,
+    })
+  } catch (error) {
+    throw createEntitlementNetworkError(error)
+  }
   const payload = await parseApiResponse(response)
 
   if (!response.ok) {
