@@ -170,6 +170,11 @@ export function mapReferenceAnalysisToUi(analysis) {
       status: analysis.processing_status || 'ready',
       currentStage: analysis.current_stage || '',
       projectId: analysis.project_id || null,
+      sourceMode: analysis.source_mode || 'video',
+      topicBrief:
+        analysis.topic_brief && typeof analysis.topic_brief === 'object'
+          ? analysis.topic_brief
+          : {},
       structureAnalysis: analysis.structure_analysis || '구조 분석이 없습니다.',
       hookAnalysis: analysis.hook_analysis || '후킹 분석이 없습니다.',
       psychologyAnalysis: analysis.psychology_analysis || '심리 기제 분석이 없습니다.',
@@ -370,6 +375,39 @@ export async function analyzeReferenceScriptText({
   return mapReferenceAnalysisToUi(payload.analysis)
 }
 
+export async function generateScriptsFromTopic({
+  topic,
+  title,
+  accountId,
+  projectId,
+  clientGenerationId,
+  signal,
+}) {
+  const response = await apiFetch('/api/reference-videos/generate-topic', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(clientGenerationId ? { 'x-idempotency-key': String(clientGenerationId) } : {}),
+    },
+    timeoutMs: 8 * 60 * 1000,
+    body: JSON.stringify({
+      topic: String(topic || '').trim(),
+      title: String(title || '').trim(),
+      accountId,
+      projectId: projectId || null,
+      clientGenerationId: clientGenerationId || '',
+    }),
+    signal,
+  })
+  const payload = await parseApiResponse(response)
+
+  if (!response.ok) {
+    throw createApiError(response, payload, '주제 기반 대본 생성에 실패했습니다.')
+  }
+
+  return mapReferenceAnalysisToUi(payload.analysis)
+}
+
 function appendAccountQuery(path, accountId) {
   const normalizedAccountId = String(accountId || '').trim()
   if (!normalizedAccountId) {
@@ -398,6 +436,11 @@ export async function listReferenceVideoHistory(accountId) {
     status: item.processing_status || 'ready',
     currentStage: item.current_stage || '',
     projectId: item.project_id || null,
+    sourceMode: item.source_mode || 'video',
+    topicBrief:
+      item.topic_brief && typeof item.topic_brief === 'object'
+        ? item.topic_brief
+        : {},
     hasAnalysisPreview: Boolean(
       (item.transcript || '').trim() ||
         (item.structure_analysis || '').trim() ||

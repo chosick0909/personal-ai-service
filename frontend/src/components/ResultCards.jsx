@@ -54,7 +54,7 @@ function PlaybookNoticeCard({ title, body, tone = 'default' }) {
   return (
     <article className={`rounded-[20px] border p-5 ${toneClass}`}>
       <div className="text-base font-bold tracking-[-0.01em] text-[#F3F4F6] md:text-[18px]">{title}</div>
-      <p className="mt-2 text-sm leading-6 text-[#D1D5DB]">{body}</p>
+      <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#D1D5DB]">{body}</p>
     </article>
   )
 }
@@ -174,12 +174,18 @@ export default function ResultCards() {
   const [isResultStepLeaving, setIsResultStepLeaving] = useState(false)
   const resultStepTimerRef = useRef(null)
   const isReferenceProcessing = referenceData?.status === 'processing' || referenceData?.status === 'uploading'
+  const isTopicOnly = referenceData?.sourceMode === 'topic_only'
+  const topicBrief = referenceData?.topicBrief && typeof referenceData.topicBrief === 'object'
+    ? referenceData.topicBrief
+    : {}
   const hasTranscript = Boolean((referenceData?.transcript || '').trim())
   const transcriptQualityLevel = String(referenceData?.transcript_quality?.level || '').toLowerCase()
   const shouldBlockDraftsForMissingTranscript =
+    !isTopicOnly &&
     generatedScripts.length === 0 &&
     (!hasTranscript || (!isReferenceProcessing && transcriptQualityLevel === 'low'))
-  const isDraftGenerationPending = isReferenceProcessing && hasTranscript && generatedScripts.length === 0
+  const isDraftGenerationPending =
+    isReferenceProcessing && (isTopicOnly || hasTranscript) && generatedScripts.length === 0
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
     if (normalized) {
@@ -235,8 +241,30 @@ export default function ResultCards() {
       ].filter((item) => item.body && !item.body.includes('분석이 없습니다')),
     [referenceData],
   )
-  const resultSteps = useMemo(
-    () => [
+  const resultSteps = useMemo(() => {
+    if (isTopicOnly) {
+      return [
+        {
+          badge: 'Planning Basis',
+          title: '누구에게 어떤 도움을 줄지',
+          subtitle: '계정 설정과 릴스 주제를 바탕으로 타깃의 고민과 원하는 변화를 정리했습니다.',
+        },
+        {
+          badge: 'Core Information',
+          title: '대본에 담을 핵심 정보',
+          subtitle: '세 안이 공통으로 전달할 기준과 바로 실행할 수 있는 방법입니다.',
+        },
+        {
+          badge: 'Select Draft',
+          title: 'A/B/C 초안 선택',
+          subtitle: isDraftGenerationPending
+            ? '정보 구조를 검증하며 세 가지 초안을 마무리하고 있습니다.'
+            : '같은 정보를 서로 다른 감정 진입점으로 풀어낸 초안입니다.',
+        },
+      ]
+    }
+
+    return [
       {
         badge: 'Reference Script',
         title: REFERENCE_SCRIPT_SECTION_TITLE,
@@ -261,9 +289,9 @@ export default function ResultCards() {
             ? '읽는 동안 A/B/C 초안을 백그라운드에서 생성하고 있습니다.'
             : '원하는 스타일을 선택하여 에디터로 이동하세요.',
       },
-    ],
-    [isDraftGenerationPending, shouldBlockDraftsForMissingTranscript],
-  )
+    ]
+  }, [isDraftGenerationPending, isTopicOnly, shouldBlockDraftsForMissingTranscript])
+  const draftStepIndex = resultSteps.length - 1
   const hasRestorableEditorSession = Boolean(selectedScript && activeScriptId)
   const isEditorMode = currentStep === 'editor' && Boolean(selectedScript)
   const displayedResultStep =
@@ -421,12 +449,18 @@ export default function ResultCards() {
         </button>
 
         <div className="mt-6">
-          <SmallBadge>Analysis Results</SmallBadge>
+          <SmallBadge>{isTopicOnly ? 'Topic Planning Results' : 'Analysis Results'}</SmallBadge>
           <h1 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-5xl">
-            {isReferenceProcessing ? '분석 결과 정리 중' : '분석 완료'}
+            {isReferenceProcessing
+              ? isTopicOnly ? '대본 기획 마무리 중' : '분석 결과 정리 중'
+              : isTopicOnly ? '주제 기반 대본 기획 완료' : '분석 완료'}
           </h1>
           <p className="mt-3 text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">
-            {isDraftGenerationPending
+            {isTopicOnly
+              ? isDraftGenerationPending
+                ? '타깃과 핵심 정보를 먼저 정리했습니다. 세 가지 초안을 마무리하고 있습니다.'
+                : '레퍼런스 없이도 계정 설정과 주제를 바탕으로 실용 정보를 담은 세 가지 초안을 준비했습니다.'
+              : isDraftGenerationPending
               ? '전사와 핵심 인사이트를 먼저 정리했습니다. A/B/C 초안은 백그라운드에서 생성 중입니다.'
               : shouldBlockDraftsForMissingTranscript
               ? '레퍼런스 영상 분석은 완료했지만, 전사 텍스트가 없어 A/B/C 초안 생성은 진행하지 않았습니다.'
@@ -454,13 +488,31 @@ export default function ResultCards() {
               isResultStepLeaving ? 'opacity-0' : 'opacity-100'
             }`}
           >
-            <SmallBadge tone={displayedResultStep === 3 ? 'pink' : 'violet'}>{activeStep.badge}</SmallBadge>
+            <SmallBadge tone={displayedResultStep === draftStepIndex ? 'pink' : 'violet'}>{activeStep.badge}</SmallBadge>
             <h2 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-6 md:text-[42px]">
               {activeStep.title}
             </h2>
             <p className="mt-3 text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">{activeStep.subtitle}</p>
 
-            {displayedResultStep === 0 ? (
+            {isTopicOnly && displayedResultStep === 0 ? (
+              <div className="mt-8 grid gap-4 md:grid-cols-3">
+                <PlaybookNoticeCard
+                  title="핵심 타깃"
+                  body={topicBrief.targetAudience || '이 주제에 관심 있는 시청자'}
+                  tone="success"
+                />
+                <PlaybookNoticeCard
+                  title="지금 겪는 고민"
+                  body={topicBrief.specificPain || '주제와 관련된 구체적인 어려움을 정리했습니다.'}
+                />
+                <PlaybookNoticeCard
+                  title="원하는 변화"
+                  body={topicBrief.desiredOutcome || '실행 후 기대할 수 있는 현실적인 변화를 정리했습니다.'}
+                />
+              </div>
+            ) : null}
+
+            {!isTopicOnly && displayedResultStep === 0 ? (
               <div className="mt-8 overflow-hidden rounded-[18px] border border-[#2F3543] bg-[#131720]">
                 <div className="border-b border-[#2F3543] px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
                   Transcript
@@ -471,7 +523,24 @@ export default function ResultCards() {
               </div>
             ) : null}
 
-            {displayedResultStep === 1 ? (
+            {isTopicOnly && displayedResultStep === 1 ? (
+              <div className="mt-8 grid gap-5">
+                {Array.isArray(topicBrief.coreInformation) && topicBrief.coreInformation.length ? (
+                  <PlaybookNoticeCard
+                    title="반드시 전달할 핵심"
+                    body={topicBrief.coreInformation.map((item, index) => `${index + 1}. ${item}`).join('\n')}
+                    tone="success"
+                  />
+                ) : null}
+                <div className="grid gap-3">
+                  {(Array.isArray(topicBrief.actionableMethods) ? topicBrief.actionableMethods : []).map((method, index) => (
+                    <CheckpointRow key={`${method}-${index}`}>{method}</CheckpointRow>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {!isTopicOnly && displayedResultStep === 1 ? (
               <div className="mt-8 grid gap-4">
                 {(compactInsightCards.length
                   ? compactInsightCards
@@ -482,7 +551,7 @@ export default function ResultCards() {
               </div>
             ) : null}
 
-            {displayedResultStep === 2 ? (
+            {!isTopicOnly && displayedResultStep === 2 ? (
               <div className="mt-8 grid gap-3">
                 {keyPoints.map((point) => (
                   <CheckpointRow key={point}>{point}</CheckpointRow>
@@ -499,7 +568,7 @@ export default function ResultCards() {
               </div>
             ) : null}
 
-            {displayedResultStep === 3 ? (
+            {displayedResultStep === draftStepIndex ? (
               <div ref={draftSectionRef} className="mt-8">
                 {shouldBlockDraftsForMissingTranscript ? (
                   <div className="rounded-[20px] border border-[#3A414F] bg-[#121722] px-5 py-5 text-sm leading-6 text-[#D1D5DB]">
@@ -514,17 +583,26 @@ export default function ResultCards() {
                   </div>
                 ) : (
                   <>
-                    <div className="grid gap-4">
-                      <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
-                      <PlaybookNoticeCard title="전환을 만드는 흐름" body={viralInsight} />
-                    </div>
+                    {!isTopicOnly ? (
+                      <div className="grid gap-4">
+                        <PlaybookNoticeCard title="수익화 잘 되는 릴스 특징" body={monetizationInsight} tone="success" />
+                        <PlaybookNoticeCard title="전환을 만드는 흐름" body={viralInsight} />
+                      </div>
+                    ) : null}
                     <div className="mt-6 grid gap-5 md:gap-6 xl:grid-cols-3">
                       {isDraftGenerationPending
-                        ? [
-                            ['A안', '원본형'],
-                            ['B안', '대화형'],
-                            ['C안', '후킹형'],
-                          ].map(([label, title]) => <DraftSkeletonCard key={label} label={label} title={title} />)
+                        ? (isTopicOnly
+                            ? [
+                                ['A안', '손실 회피형'],
+                                ['B안', '통념 반박형'],
+                                ['C안', '공감 스토리형'],
+                              ]
+                            : [
+                                ['A안', '원본형'],
+                                ['B안', '대화형'],
+                                ['C안', '후킹형'],
+                              ]
+                          ).map(([label, title]) => <DraftSkeletonCard key={label} label={label} title={title} />)
                         : generatedScripts.map((script) => (
                             <ScriptCard
                               key={script.id}
@@ -568,7 +646,7 @@ export default function ResultCards() {
                   onClick={goBackToUpload}
                   className="inline-flex h-12 items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-6 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]"
                 >
-                  새 레퍼런스 분석
+                  {isTopicOnly ? '새 주제 기획' : '새 레퍼런스 분석'}
                 </button>
               )}
             </div>

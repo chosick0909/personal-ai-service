@@ -232,6 +232,8 @@ function getReferenceVideoSelectColumnList({ includeProjectId = true, detail = f
         'error_message',
         'analysis_stage_metrics',
         'transcript_quality',
+        'source_mode',
+        'topic_brief',
         'created_at',
       ]
     : [
@@ -251,6 +253,8 @@ function getReferenceVideoSelectColumnList({ includeProjectId = true, detail = f
         'error_message',
         'analysis_stage_metrics',
         'transcript_quality',
+        'source_mode',
+        'topic_brief',
         'created_at',
       ]
 
@@ -5125,6 +5129,7 @@ export async function analyzeReferenceVideo({
             topic: normalizedTopic,
             original_filename: normalizedOriginalName,
             mime_type: sourceMimeType,
+            source_mode: isTextReference ? 'script_text' : 'video',
             duration_seconds: durationSeconds,
             transcript: normalizedTranscript || '',
             transcript_segments: transcript.segments,
@@ -5152,6 +5157,7 @@ export async function analyzeReferenceVideo({
             'failure_message',
             'analysis_stage_metrics',
             'transcript_quality',
+            'source_mode',
           ],
           detail: true,
         }),
@@ -5853,6 +5859,7 @@ export async function analyzeReferenceVideo({
           topic: normalizedTopic,
           original_filename: normalizedOriginalName,
           mime_type: sourceMimeType,
+          source_mode: isTextReference ? 'script_text' : 'video',
           duration_seconds: durationSeconds,
           transcript: normalizedTranscript || '',
           transcript_segments: transcript.segments,
@@ -5888,6 +5895,7 @@ export async function analyzeReferenceVideo({
             'failure_message',
             'analysis_stage_metrics',
             'transcript_quality',
+            'source_mode',
             'processing_completed_at',
           ],
           detail: true,

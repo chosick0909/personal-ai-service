@@ -69,6 +69,7 @@ import {
   updateReferenceUploadSessionState,
   updateReferenceVideo,
 } from './lib/reference-video-analysis.js'
+import { generateTopicOnlyScripts } from './lib/topic-script-generation.js'
 import { createProject, deleteProject, listProjects } from './lib/projects.js'
 import {
   attachSentryRequestContext,
@@ -1403,6 +1404,76 @@ app.post(
     res.status(202).json({
       message: 'Reference script analysis accepted',
       analysis: previewReference,
+    })
+  }),
+)
+
+app.post(
+  '/api/reference-videos/generate-topic',
+  analyzeRateLimiter,
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const topic = String(req.body?.topic || '').trim()
+    if (topic.length < 2) {
+      throw new AppError('릴스 주제를 2자 이상 입력해주세요.', {
+        code: 'TOPIC_TOO_SHORT',
+        statusCode: 400,
+      })
+    }
+    if (topic.length > 500) {
+      throw new AppError('릴스 주제는 500자 이하로 입력해주세요.', {
+        code: 'TOPIC_TOO_LONG',
+        statusCode: 400,
+      })
+    }
+
+    const character = await getAccountCharacterContext(account.id, {
+      characterId: readRequestCharacterId(req),
+    })
+    const clientGenerationId = String(
+      req.body?.clientGenerationId ||
+        req.headers['x-idempotency-key'] ||
+        '',
+    ).trim()
+    const result = await generateTopicOnlyScripts({
+      accountId: account.id,
+      topic,
+      title: req.body?.title || '',
+      projectId: req.body?.projectId || null,
+      clientGenerationId,
+      characterSystemPrompt: character.systemPrompt,
+      accountSettings:
+        character?.profile?.settings && typeof character.profile.settings === 'object'
+          ? character.profile.settings
+          : {},
+      usageContext: {
+        userId: req.auth?.userId,
+      },
+      beforeCreate: () =>
+        assertUsageAllowed({
+          userId: req.auth?.userId,
+          eventType: 'reference_analysis',
+        }),
+    })
+
+    if (!result.reused && result.analysis?.processing_status === 'completed') {
+      await recordUsageEvent({
+        userId: req.auth?.userId,
+        entitlementId: result.creationContext.entitlement.id,
+        eventType: 'reference_analysis',
+        referenceId: result.analysis.id,
+      })
+    }
+
+    res.status(result.reused ? 200 : 201).json({
+      message: result.reused
+        ? 'Existing topic generation returned'
+        : 'Topic scripts generated successfully',
+      analysis: result.analysis,
+      reference: result.analysis,
+      variations: Array.isArray(result.analysis?.variations) ? result.analysis.variations : [],
+      topicBrief: result.analysis?.topic_brief || {},
+      reused: result.reused,
     })
   }),
 )

@@ -19,6 +19,7 @@ import {
   fetchReferenceUploadSessionByClientUploadId,
   fetchReferenceVideoDetail,
   generateChatReply,
+  generateScriptsFromTopic,
   generateScriptFeedback,
   listReferenceVideoHistory,
   updateReferenceVideo as updateReferenceVideoRecord,
@@ -363,6 +364,37 @@ function createClientUploadId() {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   return `upload-${randomPart}`
+}
+
+const TOPIC_GENERATION_ATTEMPT_STORAGE_KEY = 'hookai-topic-generation-attempt'
+const TOPIC_GENERATION_ATTEMPT_MAX_AGE_MS = 20 * 60 * 1000
+
+function readTopicGenerationAttempt() {
+  if (typeof window === 'undefined') return null
+  try {
+    const value = JSON.parse(window.sessionStorage.getItem(TOPIC_GENERATION_ATTEMPT_STORAGE_KEY) || 'null')
+    if (!value?.clientGenerationId || Date.now() - Number(value.createdAt || 0) > TOPIC_GENERATION_ATTEMPT_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(TOPIC_GENERATION_ATTEMPT_STORAGE_KEY)
+      return null
+    }
+    return value
+  } catch {
+    window.sessionStorage.removeItem(TOPIC_GENERATION_ATTEMPT_STORAGE_KEY)
+    return null
+  }
+}
+
+function writeTopicGenerationAttempt(value) {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.setItem(TOPIC_GENERATION_ATTEMPT_STORAGE_KEY, JSON.stringify(value))
+}
+
+function clearTopicGenerationAttempt(clientGenerationId = '') {
+  if (typeof window === 'undefined') return
+  const current = readTopicGenerationAttempt()
+  if (!clientGenerationId || current?.clientGenerationId === clientGenerationId) {
+    window.sessionStorage.removeItem(TOPIC_GENERATION_ATTEMPT_STORAGE_KEY)
+  }
 }
 
 function isTemporaryReferenceId(referenceId = '') {
@@ -2285,6 +2317,143 @@ export function AppStateProvider({ children }) {
     }
   }
 
+  const generateTopicScripts = async (topic, options = {}) => {
+    const requestAccountId = currentAccount?.id
+    const normalizedTopic = String(topic || '').trim()
+    if (!requestAccountId) {
+      throw new Error('계정을 먼저 선택하세요.')
+    }
+    if (normalizedTopic.length < 2) {
+      setAnalyzeError('릴스 주제를 2자 이상 입력해주세요.')
+      setAnalyzeErrorType('general')
+      return
+    }
+
+    const requestToken = analysisRunTokenRef.current + 1
+    analysisRunTokenRef.current = requestToken
+    canceledAnalysisTokensRef.current.delete(requestToken)
+    analysisAbortControllerRef.current?.abort()
+    const requestAbortController = new AbortController()
+    analysisAbortControllerRef.current = requestAbortController
+    const isCurrentAnalysisRequest = () =>
+      isCurrentAccountRequest(requestAccountId) && analysisRunTokenRef.current === requestToken
+    const persistedProjectId = getPersistedCurrentProjectId()
+    const normalizedTitle = String(options.title || uploadTitle).trim()
+    const previousAttempt = readTopicGenerationAttempt()
+    const canReusePreviousAttempt =
+      previousAttempt?.accountId === requestAccountId &&
+      previousAttempt?.topic === normalizedTopic &&
+      previousAttempt?.title === normalizedTitle &&
+      (previousAttempt?.projectId || null) === (persistedProjectId || null)
+    const clientGenerationId = canReusePreviousAttempt
+      ? previousAttempt.clientGenerationId
+      : createClientUploadId().replace(/^upload-/, 'topic-')
+    writeTopicGenerationAttempt({
+      accountId: requestAccountId,
+      topic: normalizedTopic,
+      title: normalizedTitle,
+      projectId: persistedProjectId || null,
+      clientGenerationId,
+      createdAt: canReusePreviousAttempt ? previousAttempt.createdAt : Date.now(),
+    })
+    const createdAt = new Date().toISOString()
+    const localReference = {
+      id: `reference-${Date.now()}`,
+      title: normalizedTitle || `${normalizedTopic} 기획`,
+      fileName: '주제만으로 기획',
+      topic: normalizedTopic,
+      projectId: persistedProjectId,
+      sourceMode: 'topic_only',
+      topicBrief: {},
+      createdAt,
+      status: 'processing',
+    }
+
+    activeReferenceIdRef.current = localReference.id
+    setReferenceData(localReference)
+    setGeneratedScripts([])
+    setSelectedScript(null)
+    setSelectedScriptId(null)
+    setActiveScriptId(null)
+    setVersions([])
+    setFeedback(null)
+    setAppliedFeedbackContext(null)
+    setEditorSections(createEditorSections())
+    setPendingSuggestion(null)
+    setPreviousAdvice(null)
+    setAnalyzeError('')
+    setAnalyzeErrorType('')
+    setUploadPhase('analyzing')
+    setChatMessages([])
+    setCopilotUsage(createInitialCopilotUsage())
+    setCopilotMemory(createInitialCopilotMemory())
+    setReferenceHistory((current) => [localReference, ...current])
+    setCurrentStep('analyzing')
+    setIsAnalyzing(true)
+    setViewTransition('idle')
+    setIsEditorEntering(false)
+    setIsResultEntering(false)
+
+    try {
+      const analysis = await generateScriptsFromTopic({
+        topic: normalizedTopic,
+        title: normalizedTitle,
+        accountId: requestAccountId,
+        projectId: persistedProjectId,
+        clientGenerationId,
+        signal: requestAbortController.signal,
+      })
+      if (!isCurrentAnalysisRequest()) return
+      clearTopicGenerationAttempt(clientGenerationId)
+
+      const completedReference = {
+        ...localReference,
+        ...analysis.reference,
+        status: isProcessingLikeReferenceStatus(analysis.reference?.status)
+          ? analysis.reference.status
+          : 'ready',
+      }
+      setUploadTitle('')
+      setUploadTopic('')
+      applyReferenceAnalysisResult({
+        accountId: requestAccountId,
+        baseReference: localReference,
+        analysis: {
+          ...analysis,
+          reference: completedReference,
+        },
+      })
+      void refreshEntitlement({ referenceId: completedReference.id, silent: true })
+    } catch (error) {
+      if (!isCurrentAnalysisRequest()) return
+      if (error?.name === 'AbortError' && !/timeout/i.test(String(error?.message || ''))) {
+        clearTopicGenerationAttempt(clientGenerationId)
+        return
+      }
+      const analyzedFailure = classifyAnalyzeFailure(error)
+      if (!['timeout', 'recovering'].includes(analyzedFailure.type)) {
+        clearTopicGenerationAttempt(clientGenerationId)
+      }
+      setAnalyzeError(
+        analyzedFailure.type === 'timeout'
+          ? '대본 기획 시간이 길어졌어요. 잠시 후 같은 주제로 다시 시도해주세요.'
+          : analyzedFailure.message || '주제 기반 대본 생성에 실패했습니다. 잠시 후 다시 시도해주세요.',
+      )
+      setAnalyzeErrorType(analyzedFailure.type)
+      setCurrentStep('upload')
+      setUploadPhase('failed')
+      setReferenceHistory((current) => current.filter((item) => item.id !== localReference.id))
+      if (activeReferenceIdRef.current === localReference.id) {
+        activeReferenceIdRef.current = null
+      }
+    } finally {
+      if (analysisAbortControllerRef.current === requestAbortController) {
+        analysisAbortControllerRef.current = null
+      }
+      if (isCurrentAnalysisRequest()) setIsAnalyzing(false)
+    }
+  }
+
   const selectScript = async (scriptId) => {
     const requestAccountId = currentAccount?.id
     const nextScript = generatedScripts.find((item) => item.id === scriptId)
@@ -3771,6 +3940,7 @@ export function AppStateProvider({ children }) {
       applyCoupon,
       analyzeReference,
       analyzeReferenceScript,
+      generateTopicScripts,
       selectScript,
       openReference,
       saveVersion,

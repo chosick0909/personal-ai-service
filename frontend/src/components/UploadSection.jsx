@@ -63,6 +63,7 @@ export default function UploadSection() {
     currentStep,
     analyzeReference,
     analyzeReferenceScript,
+    generateTopicScripts,
     cancelCurrentAnalysis,
     isAnalyzing,
     analyzeError,
@@ -77,6 +78,7 @@ export default function UploadSection() {
     uploadInputModeHint,
     clearUploadInputModeHint,
   } = useAppState()
+  const [generationMode, setGenerationMode] = useState('reference')
   const [inputMode, setInputMode] = useState('video')
   const [dragActive, setDragActive] = useState(false)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
@@ -93,6 +95,7 @@ export default function UploadSection() {
     if (uploadInputModeHint !== 'script') {
       return
     }
+    setGenerationMode('reference')
     setInputMode('script')
     setLocalUploadError('')
     clearUploadInputModeHint?.()
@@ -150,6 +153,12 @@ export default function UploadSection() {
   }, [isAnalysisStep])
 
   const analyzeStageText = useMemo(() => {
+    if (generationMode === 'topic') {
+      if (displayedAnalyzeProgress < 30) return '타깃과 핵심 고민을 정리하고 있습니다'
+      if (displayedAnalyzeProgress < 60) return '성공공식과 카테고리 기준을 검색하고 있습니다'
+      if (displayedAnalyzeProgress < 88) return '손실 회피형·통념 반박형·공감 스토리형을 만들고 있습니다'
+      return '정보 밀도와 표현 품질을 검증하고 있습니다'
+    }
     if (uploadPhase === 'creating-session') return '업로드 준비 중 · 서버에 작업을 먼저 등록하고 있습니다'
     if (uploadPhase === 'uploading') return '업로드 중 · 이 단계에서는 화면을 끄거나 앱을 전환하지 마세요'
     if (uploadPhase === 'server-accepted') return '서버에 접수됨 · 이제 재접속해도 최근 분석에서 이어서 확인할 수 있습니다'
@@ -160,9 +169,23 @@ export default function UploadSection() {
     if (displayedAnalyzeProgress < 80) return '구조화 분석중'
     if (displayedAnalyzeProgress < 95) return 'A/B/C 초안 생성중'
     return '결과 마무리중'
-  }, [displayedAnalyzeProgress, uploadPhase])
+  }, [displayedAnalyzeProgress, generationMode, uploadPhase])
 
   const uploadPhaseSteps = useMemo(() => {
+    if (generationMode === 'topic' && (currentStep === 'analyzing' || isAnalyzing)) {
+      const activeIndex = displayedAnalyzeProgress < 30 ? 0 : displayedAnalyzeProgress < 60 ? 1 : displayedAnalyzeProgress < 90 ? 2 : 3
+      return [
+        ['주제 기획', '타깃/고민'],
+        ['공식 검색', 'RAG 기준'],
+        ['초안 생성', 'A/B/C'],
+        ['품질 검증', '정보/표현'],
+      ].map(([label, description], index) => ({
+        label,
+        description,
+        active: activeIndex === index,
+        done: activeIndex > index,
+      }))
+    }
     if (inputMode === 'script' && (currentStep === 'analyzing' || isAnalyzing)) {
       return [
         {
@@ -225,7 +248,7 @@ export default function UploadSection() {
       active: activeIndex === index,
       done: activeIndex > index,
     }))
-  }, [currentStep, inputMode, isAnalyzing, uploadPhase])
+  }, [currentStep, displayedAnalyzeProgress, generationMode, inputMode, isAnalyzing, uploadPhase])
 
   const analyzeDelayNotice = useMemo(() => {
     if (!isAnalysisStep) {
@@ -290,6 +313,17 @@ export default function UploadSection() {
     await analyzeReferenceScript(normalized, { topic: uploadTopic })
   }
 
+  const handleTopicGenerate = async () => {
+    if (isAnalyzing) return
+    const normalizedTopic = uploadTopic.trim()
+    if (normalizedTopic.length < 2) {
+      setLocalUploadError('기획할 릴스 주제를 2자 이상 입력해주세요.')
+      return
+    }
+    setLocalUploadError('')
+    await generateTopicScripts(normalizedTopic, { title: uploadTitle })
+  }
+
   const handleCancelAnalysis = async () => {
     setIsCanceling(true)
     const canceled = await cancelCurrentAnalysis()
@@ -303,32 +337,61 @@ export default function UploadSection() {
     <div className="notranslate flex h-full w-full items-start justify-center overflow-y-auto bg-[linear-gradient(180deg,#0D0F14_0%,#141821_100%)] px-4 pb-6 pt-2 md:px-8 md:pb-16 md:pt-20" translate="no">
       <div className="w-full max-w-[1024px]">
         <div className="mx-auto flex h-[42px] w-fit items-center justify-center rounded-full border border-[#3A414F] bg-[#1B202A] px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
-          {currentStep === 'analyzing' ? '2단계 · 레퍼런스 분석 중' : '2단계 · 레퍼런스 업로드'}
+          {currentStep === 'analyzing'
+            ? generationMode === 'topic' ? '2단계 · 주제 기획 중' : '2단계 · 레퍼런스 분석 중'
+            : '2단계 · 대본 기획'}
         </div>
 
         <h1 className="mt-1 text-center text-[28px] font-bold leading-[1.1] tracking-[-0.03em] text-[#F3F4F6] md:mt-6 md:text-[42px] md:leading-[63px]">
-          레퍼런스 업로드
+          {generationMode === 'topic' ? '주제만으로 대본 기획' : '레퍼런스 업로드'}
         </h1>
         <p className="mt-1.5 text-center text-[13px] leading-5 text-[#8E97A6] md:text-base md:leading-7">
-          영상 파일을 올리거나, 레퍼런스 대본만 붙여넣어 빠르게 분석하세요
+          {generationMode === 'topic'
+            ? '영상 없이 릴스 주제와 계정 설정만으로 정보형 A/B/C 대본을 만듭니다'
+            : '영상 파일을 올리거나, 레퍼런스 대본만 붙여넣어 빠르게 분석하세요'}
         </p>
+
+        {!isAnalyzing && currentStep !== 'analyzing' ? (
+          <div className="mx-auto mt-5 grid w-full max-w-[680px] grid-cols-2 gap-2 rounded-2xl border border-[#2F3543] bg-[#10151E] p-1.5 md:mt-8">
+            {[
+              { key: 'reference', label: '레퍼런스 기반' },
+              { key: 'topic', label: '주제만으로 기획' },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  setGenerationMode(item.key)
+                  setLocalUploadError('')
+                }}
+                className={`h-11 rounded-xl text-sm font-semibold transition ${
+                  generationMode === item.key
+                    ? 'bg-[#F8F5EF] text-[#111827]'
+                    : 'text-[#94A3B8] hover:bg-[#171B24] hover:text-[#E5E7EB]'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         {!isAnalyzing && currentStep !== 'analyzing' ? (
           <div className="mx-auto mt-4 w-full max-w-[680px] md:mt-8">
             <label className="mb-2 block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
-              레퍼런스 제목 (선택)
+              {generationMode === 'topic' ? '기획 제목 (선택)' : '레퍼런스 제목 (선택)'}
             </label>
             <input
               value={uploadTitle}
               onChange={(event) => setUploadTitle(event.target.value)}
-              placeholder="비우면 파일명 사용"
+              placeholder={generationMode === 'topic' ? '비우면 릴스 주제로 저장' : '비우면 파일명 사용'}
               className="h-10 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
             />
             <div className="mt-3 flex items-center justify-between gap-3">
               <label className="block text-left text-xs font-semibold uppercase tracking-[0.14em] text-[#AEB6C5]">
-                이번 릴스 주제 (선택)
+                이번 릴스 주제 {generationMode === 'topic' ? '(필수)' : '(선택)'}
               </label>
-              {uploadTopic ? (
+              {uploadTopic && generationMode === 'reference' ? (
                 <button
                   type="button"
                   onClick={() => setUploadTopic('')}
@@ -345,12 +408,14 @@ export default function UploadSection() {
               className="mt-2 h-10 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
             />
             <p className="mt-1.5 text-left text-[11px] leading-4.5 text-[#8E97A6] md:mt-2 md:text-xs md:leading-5">
-              계정 사전세팅은 그대로 참고하고, 이번 영상에서 다룰 소주제가 있으면 여기에 적어주세요.
+              {generationMode === 'topic'
+                ? '타깃·카테고리·말투·상품·CTA는 계정 사전세팅에서 불러옵니다.'
+                : '계정 사전세팅은 그대로 참고하고, 이번 영상에서 다룰 소주제가 있으면 여기에 적어주세요.'}
             </p>
           </div>
         ) : null}
 
-        {!isAnalyzing && currentStep !== 'analyzing' ? (
+        {!isAnalyzing && currentStep !== 'analyzing' && generationMode === 'reference' ? (
           <div className="mx-auto mt-4 grid w-full max-w-[680px] grid-cols-2 gap-2 rounded-2xl border border-[#2F3543] bg-[#10151E] p-1.5 md:mt-6">
             {[
               { key: 'video', label: '영상으로 분석' },
@@ -375,6 +440,62 @@ export default function UploadSection() {
           </div>
         ) : null}
 
+        {generationMode === 'topic' ? (
+          <div className="mt-4 rounded-[26px] border-2 border-[#2F3543] bg-[#131720] px-5 py-10 md:mt-8 md:rounded-3xl md:px-10 md:py-14">
+            <div className="mx-auto flex max-w-[680px] flex-col items-center text-center">
+              {currentStep === 'analyzing' ? (
+                <div
+                  className="flex h-16 w-16 items-center justify-center rounded-full"
+                  style={{
+                    background: `conic-gradient(#7C3AED ${displayedAnalyzeProgress * 3.6}deg, #2F3543 ${displayedAnalyzeProgress * 3.6}deg 360deg)`,
+                  }}
+                >
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#141923] text-xs font-semibold text-[#E5E7EB]">
+                    {displayedAnalyzeProgress}%
+                  </div>
+                </div>
+              ) : null}
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D1D5DB]">
+                {currentStep === 'analyzing' ? '대본 기획 중' : 'Topic Planning'}
+              </div>
+              <h2 className="mt-4 text-2xl font-bold leading-8 text-[#F3F4F6]">
+                {currentStep === 'analyzing' ? '타깃에게 유용한 세 가지 대본을 만들고 있습니다' : '레퍼런스 없이 바로 시작하세요'}
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-[#8E97A6]">
+                손실 회피형, 통념 반박형, 공감 스토리형 모두 같은 핵심 정보를 바탕으로 구성됩니다.
+              </p>
+              {currentStep === 'analyzing' || isAnalyzing ? (
+                <>
+                  <p className="mt-3 text-xs text-[#9CA3AF]">{analyzeStageText}</p>
+                  <div className="mt-5 grid w-full grid-cols-4 gap-2 rounded-2xl border border-[#2F3543] bg-[#10151E] p-2">
+                    {uploadPhaseSteps.map((step) => (
+                      <div key={step.label} className={`rounded-xl px-2 py-2 text-center ${step.active ? 'bg-[#232B39] text-[#F3F4F6]' : step.done ? 'bg-[#13251B] text-[#86EFAC]' : 'text-[#6B7280]'}`}>
+                        <div className="text-[10px] font-semibold md:text-xs">{step.label}</div>
+                        <div className="mt-0.5 text-[9px] opacity-80 md:text-[10px]">{step.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {localUploadError || analyzeError ? (
+                <div className="mt-5 w-full rounded-2xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-3 text-sm text-[#B91C1C]">
+                  {localUploadError || analyzeError}
+                </div>
+              ) : null}
+              <div className="mt-7 flex items-center gap-4">
+                {currentStep === 'analyzing' || isAnalyzing ? (
+                  <button type="button" onClick={() => setIsCancelConfirmOpen(true)} className="h-12 rounded-full border border-[#4B5563] bg-[#171B24] px-6 text-sm font-semibold text-[#FCA5A5]">
+                    기획 중단
+                  </button>
+                ) : (
+                  <button type="button" onClick={handleTopicGenerate} className="btn-solid-contrast h-12 rounded-full px-7 text-sm font-semibold transition hover:bg-white">
+                    A/B/C 대본 생성
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
         <div
           onDragOver={(event) => {
             event.preventDefault()
@@ -547,6 +668,7 @@ export default function UploadSection() {
             </div>
           </div>
         </div>
+        )}
       </div>
       {isCancelConfirmOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">

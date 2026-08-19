@@ -233,6 +233,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       fileName: item.fileName || '',
       topic: item.topic || '',
       transcript: item.transcript || '',
+      sourceMode: item.sourceMode || 'video',
       projectId: item.projectId || null,
       active: referenceData?.id === item.id,
       isProcessing:
@@ -594,7 +595,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
           <div className="mt-2">
             <Row onClick={handleNewReferenceAnalysis}>
               <IconPencil />
-              새 레퍼런스 분석하기
+              새 대본 만들기
             </Row>
           </div>
         </div>
@@ -714,6 +715,11 @@ export default function Sidebar({ onRequestClose = () => {} }) {
               >
                 <RecentItemIcon />
                 <span className="notranslate truncate" translate="no">{item.title}</span>
+                {item.sourceMode === 'topic_only' ? (
+                  <span className="inline-flex shrink-0 whitespace-nowrap items-center rounded-full border border-[#4B5563] bg-[#1B202A] px-2 py-0.5 text-[9px] font-semibold leading-none text-[#CBD5E1]">
+                    주제 기획
+                  </span>
+                ) : null}
                 {item.isProcessing ? (
                   <span className="inline-flex shrink-0 whitespace-nowrap items-center gap-1 rounded-full border border-[#6B7280] bg-[#1B202A] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-[#D1D5DB]">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#60A5FA]" />
