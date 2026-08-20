@@ -378,7 +378,12 @@ export default function UploadSection() {
         clarifications: topicClarifications,
       })
     } catch (error) {
-      setLocalUploadError(error?.message || '주제 정보를 확인하지 못했어요. 잠시 후 다시 시도해주세요.')
+      const isTimeout = error?.name === 'AbortError' || /request timeout|timeout/i.test(String(error?.message || error))
+      setLocalUploadError(
+        isTimeout
+          ? '서버 응답이 늦어지고 있어요. 같은 주제로 다시 누르면 진행 중인 작업을 이어서 확인합니다.'
+          : error?.message || '주제 정보를 확인하지 못했어요. 잠시 후 다시 시도해주세요.',
+      )
     } finally {
       setIsTopicPreflighting(false)
     }

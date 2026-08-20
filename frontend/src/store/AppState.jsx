@@ -1838,6 +1838,9 @@ export function AppStateProvider({ children }) {
           current.map((item) => (item.id === normalizedReferenceId ? { ...item, ...nextReference } : item)),
         )
         if (activeReferenceIdRef.current === normalizedReferenceId || referenceData?.id === normalizedReferenceId) {
+          if (nextReference.sourceMode === 'topic_only') {
+            clearTopicGenerationAttempt()
+          }
           setReferenceData(nextReference)
           setCurrentStep('upload')
           setIsAnalyzing(false)
@@ -1848,6 +1851,9 @@ export function AppStateProvider({ children }) {
         return
       }
 
+      if (detail.reference?.sourceMode === 'topic_only') {
+        clearTopicGenerationAttempt()
+      }
       applyReferenceAnalysisResult({
         accountId: requestAccountId,
         baseReference,
@@ -2042,6 +2048,10 @@ export function AppStateProvider({ children }) {
         status: isProcessingLikeReferenceStatus(analysis.reference?.status)
           ? analysis.reference.status
           : 'ready',
+      }
+      if (analysis.reference?.status === 'failed') {
+        clearTopicGenerationAttempt(clientGenerationId)
+        throw new Error(analysis.reference?.errorMessage || '주제 기반 대본 생성에 실패했습니다. 다시 시도해주세요.')
       }
       if (!isProcessingLikeReferenceStatus(completedReference.status)) {
         void refreshEntitlement({ referenceId: completedReference.id, silent: true })
@@ -2407,6 +2417,7 @@ export function AppStateProvider({ children }) {
     setIsEditorEntering(false)
     setIsResultEntering(false)
 
+    let keepAnalyzingAfterAccepted = false
     try {
       const analysis = await generateScriptsFromTopic({
         topic: normalizedTopic,
@@ -2418,7 +2429,6 @@ export function AppStateProvider({ children }) {
         signal: requestAbortController.signal,
       })
       if (!isCurrentAnalysisRequest()) return
-      clearTopicGenerationAttempt(clientGenerationId)
 
       const completedReference = {
         ...localReference,
@@ -2426,6 +2436,9 @@ export function AppStateProvider({ children }) {
         status: isProcessingLikeReferenceStatus(analysis.reference?.status)
           ? analysis.reference.status
           : 'ready',
+      }
+      if (!isProcessingLikeReferenceStatus(completedReference.status)) {
+        clearTopicGenerationAttempt(clientGenerationId)
       }
       setUploadTitle('')
       setUploadTopic('')
@@ -2437,7 +2450,13 @@ export function AppStateProvider({ children }) {
           reference: completedReference,
         },
       })
-      void refreshEntitlement({ referenceId: completedReference.id, silent: true })
+      if (isProcessingLikeReferenceStatus(completedReference.status)) {
+        keepAnalyzingAfterAccepted = true
+        setUploadPhase('server-accepted')
+        setIsAnalyzing(true)
+      } else {
+        void refreshEntitlement({ referenceId: completedReference.id, silent: true })
+      }
     } catch (error) {
       if (!isCurrentAnalysisRequest()) return
       if (error?.name === 'AbortError' && !/timeout/i.test(String(error?.message || ''))) {
@@ -2464,7 +2483,7 @@ export function AppStateProvider({ children }) {
       if (analysisAbortControllerRef.current === requestAbortController) {
         analysisAbortControllerRef.current = null
       }
-      if (isCurrentAnalysisRequest()) setIsAnalyzing(false)
+      if (isCurrentAnalysisRequest() && !keepAnalyzingAfterAccepted) setIsAnalyzing(false)
     }
   }
 

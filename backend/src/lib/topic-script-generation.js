@@ -395,6 +395,7 @@ export async function generateTopicOnlyScripts({
   accountSettings = {},
   usageContext = {},
   beforeCreate = null,
+  onAccepted = null,
 }) {
   if (!hasSupabaseAdminConfig()) throw new AppError('Supabase admin client is not configured', { code: 'SUPABASE_NOT_CONFIGURED', statusCode: 500 })
   const normalizedTopic = normalizeText(topic, 500)
@@ -418,13 +419,18 @@ export async function generateTopicOnlyScripts({
       .eq('idempotency_key', normalizedIdempotencyKey).eq('source_mode', 'topic_only')
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (existingError) throw existingError
-    if (existing) return { analysis: existing, reused: true, creationContext: null }
+    if (existing) {
+      if (typeof onAccepted === 'function') {
+        await onAccepted(existing)
+      }
+      return { analysis: existing, reused: true, creationContext: null }
+    }
   }
 
   if (!hasOpenAIConfig()) throw new AppError('OpenAI client is not configured', { code: 'OPENAI_NOT_CONFIGURED', statusCode: 500 })
   const creationContext = typeof beforeCreate === 'function' ? await beforeCreate() : null
   const referenceId = randomUUID()
-  const { error: createError } = await supabaseAdmin.from('reference_videos').insert({
+  const { data: createdReference, error: createError } = await supabaseAdmin.from('reference_videos').insert({
     id: referenceId,
     account_id: accountId,
     ...buildReferencePayload({ topic: normalizedTopic, title, projectId, clientGenerationId: normalizedIdempotencyKey, readiness }),
@@ -434,9 +440,18 @@ export async function generateTopicOnlyScripts({
       const { data: racedExisting, error: racedExistingError } = await supabaseAdmin
         .from('reference_videos').select('*').eq('account_id', accountId)
         .eq('idempotency_key', normalizedIdempotencyKey).eq('source_mode', 'topic_only').maybeSingle()
-      if (!racedExistingError && racedExisting) return { analysis: racedExisting, reused: true, creationContext: null }
+      if (!racedExistingError && racedExisting) {
+        if (typeof onAccepted === 'function') {
+          await onAccepted(racedExisting)
+        }
+        return { analysis: racedExisting, reused: true, creationContext: null }
+      }
     }
     throw new AppError('주제 기획 작업을 만들지 못했습니다.', { code: 'TOPIC_GENERATION_CREATE_FAILED', statusCode: 500, cause: createError })
+  }
+
+  if (typeof onAccepted === 'function') {
+    await onAccepted(createdReference)
   }
 
   const openai = getOpenAIClient()

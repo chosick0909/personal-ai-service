@@ -1479,7 +1479,15 @@ app.post(
         req.headers['x-idempotency-key'] ||
         '',
     ).trim()
-    const result = await generateTopicOnlyScripts({
+    let accepted = false
+    let resolveAccepted
+    let rejectAccepted
+    const acceptedPromise = new Promise((resolve, reject) => {
+      resolveAccepted = resolve
+      rejectAccepted = reject
+    })
+
+    const generationPromise = generateTopicOnlyScripts({
       accountId: account.id,
       topic,
       title: req.body?.title || '',
@@ -1494,6 +1502,11 @@ app.post(
       usageContext: {
         userId: req.auth?.userId,
       },
+      onAccepted: async (acceptedReference) => {
+        if (accepted) return
+        accepted = true
+        resolveAccepted(acceptedReference)
+      },
       beforeCreate: () =>
         assertUsageAllowed({
           userId: req.auth?.userId,
@@ -1501,24 +1514,42 @@ app.post(
         }),
     })
 
-    if (!result.reused && result.analysis?.processing_status === 'completed') {
-      await recordUsageEvent({
-        userId: req.auth?.userId,
-        entitlementId: result.creationContext.entitlement.id,
-        eventType: 'reference_analysis',
-        referenceId: result.analysis.id,
+    generationPromise
+      .then(async (result) => {
+        if (!accepted) {
+          accepted = true
+          resolveAccepted(result.analysis)
+        }
+        if (!result.reused && result.analysis?.processing_status === 'completed') {
+          await recordUsageEvent({
+            userId: req.auth?.userId,
+            entitlementId: result.creationContext.entitlement.id,
+            eventType: 'reference_analysis',
+            referenceId: result.analysis.id,
+          })
+        }
       })
-    }
+      .catch((error) => {
+        if (!accepted) {
+          accepted = true
+          rejectAccepted(error)
+        }
+        logAIError('topic-script-generation', error, {
+          stage: 'async-topic-script-generation',
+          accountId: account.id,
+        })
+      })
 
-    res.status(result.reused ? 200 : 201).json({
-      message: result.reused
-        ? 'Existing topic generation returned'
-        : 'Topic scripts generated successfully',
-      analysis: result.analysis,
-      reference: result.analysis,
-      variations: Array.isArray(result.analysis?.variations) ? result.analysis.variations : [],
-      topicBrief: result.analysis?.topic_brief || {},
-      reused: result.reused,
+    const acceptedReference = await acceptedPromise
+    const completed = acceptedReference?.processing_status === 'completed'
+
+    res.status(completed ? 200 : 202).json({
+      message: completed ? 'Existing topic generation returned' : 'Topic generation accepted',
+      analysis: acceptedReference,
+      reference: acceptedReference,
+      variations: Array.isArray(acceptedReference?.variations) ? acceptedReference.variations : [],
+      topicBrief: acceptedReference?.topic_brief || {},
+      reused: Boolean(completed),
     })
   }),
 )
