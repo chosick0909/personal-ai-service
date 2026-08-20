@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { preflightScriptsFromTopic } from '../lib/referenceApi'
 import { useAppState } from '../store/AppState'
 
 function UploadIcon() {
@@ -77,6 +78,7 @@ export default function UploadSection() {
     setReferenceScriptText,
     uploadInputModeHint,
     clearUploadInputModeHint,
+    currentAccount,
   } = useAppState()
   const [generationMode, setGenerationMode] = useState('reference')
   const [inputMode, setInputMode] = useState('video')
@@ -86,6 +88,10 @@ export default function UploadSection() {
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false)
   const [isCanceling, setIsCanceling] = useState(false)
   const [localUploadError, setLocalUploadError] = useState('')
+  const [topicClarificationQuestions, setTopicClarificationQuestions] = useState([])
+  const [topicClarifications, setTopicClarifications] = useState({})
+  const [clarificationTopic, setClarificationTopic] = useState('')
+  const [isTopicPreflighting, setIsTopicPreflighting] = useState(false)
   const fileInputRef = useRef(null)
   const isAnalysisStep = currentStep === 'analyzing' || isAnalyzing
   const displayedAnalyzeProgress = isAnalysisStep ? analyzeProgress : 0
@@ -100,6 +106,16 @@ export default function UploadSection() {
     setLocalUploadError('')
     clearUploadInputModeHint?.()
   }, [clearUploadInputModeHint, uploadInputModeHint])
+
+  useEffect(() => {
+    if (!clarificationTopic || clarificationTopic === uploadTopic.trim()) {
+      return
+    }
+    setTopicClarificationQuestions([])
+    setTopicClarifications({})
+    setClarificationTopic('')
+    setLocalUploadError('')
+  }, [clarificationTopic, uploadTopic])
 
   useEffect(() => {
     if (!isAnalysisStep) {
@@ -314,14 +330,58 @@ export default function UploadSection() {
   }
 
   const handleTopicGenerate = async () => {
-    if (isAnalyzing) return
+    if (isAnalyzing || isTopicPreflighting) return
     const normalizedTopic = uploadTopic.trim()
     if (normalizedTopic.length < 2) {
       setLocalUploadError('기획할 릴스 주제를 2자 이상 입력해주세요.')
       return
     }
+    if (!currentAccount?.id) {
+      setLocalUploadError('대본을 기획할 계정을 먼저 선택해주세요.')
+      return
+    }
+
+    const missingQuestion = topicClarificationQuestions.find(
+      (question) => !String(topicClarifications[question.id] || '').trim(),
+    )
+    if (missingQuestion) {
+      setLocalUploadError(`“${missingQuestion.question}”에 답해주세요.`)
+      return
+    }
+
     setLocalUploadError('')
-    await generateTopicScripts(normalizedTopic, { title: uploadTitle })
+    setIsTopicPreflighting(true)
+    try {
+      const preflight = await preflightScriptsFromTopic({
+        topic: normalizedTopic,
+        accountId: currentAccount.id,
+        clarifications: topicClarifications,
+      })
+
+      if (!preflight.ready) {
+        setClarificationTopic(normalizedTopic)
+        setTopicClarificationQuestions(Array.isArray(preflight.questions) ? preflight.questions.slice(0, 3) : [])
+        setTopicClarifications((current) => {
+          const next = {}
+          for (const question of preflight.questions || []) {
+            next[question.id] = current[question.id] || ''
+          }
+          return next
+        })
+        return
+      }
+
+      setTopicClarificationQuestions([])
+      setClarificationTopic('')
+      await generateTopicScripts(normalizedTopic, {
+        title: uploadTitle,
+        clarifications: topicClarifications,
+      })
+    } catch (error) {
+      setLocalUploadError(error?.message || '주제 정보를 확인하지 못했어요. 잠시 후 다시 시도해주세요.')
+    } finally {
+      setIsTopicPreflighting(false)
+    }
   }
 
   const handleCancelAnalysis = async () => {
@@ -363,6 +423,9 @@ export default function UploadSection() {
                 onClick={() => {
                   setGenerationMode(item.key)
                   setLocalUploadError('')
+                  setTopicClarificationQuestions([])
+                  setTopicClarifications({})
+                  setClarificationTopic('')
                 }}
                 className={`h-11 rounded-xl text-sm font-semibold transition ${
                   generationMode === item.key
@@ -464,6 +527,31 @@ export default function UploadSection() {
               <p className="mt-3 text-sm leading-6 text-[#8E97A6]">
                 손실 회피형, 통념 반박형, 공감 스토리형 모두 같은 핵심 정보를 바탕으로 구성됩니다.
               </p>
+              {!isAnalyzing && currentStep !== 'analyzing' && topicClarificationQuestions.length ? (
+                <div className="mt-6 w-full rounded-2xl border border-[#3B4658] bg-[#10151E] p-4 text-left md:p-5">
+                  <div className="text-sm font-semibold text-[#F3F4F6]">대본을 구체화할 정보가 필요해요</div>
+                  <p className="mt-1 text-xs leading-5 text-[#94A3B8]">
+                    짧게 답해도 괜찮습니다. 답변 전에는 분석 횟수가 차감되지 않습니다.
+                  </p>
+                  <div className="mt-4 grid gap-4">
+                    {topicClarificationQuestions.map((question) => (
+                      <label key={question.id} className="block">
+                        <span className="text-xs font-semibold text-[#CBD5E1]">{question.question}</span>
+                        <input
+                          value={topicClarifications[question.id] || ''}
+                          onChange={(event) => {
+                            const value = event.target.value
+                            setTopicClarifications((current) => ({ ...current, [question.id]: value }))
+                            setLocalUploadError('')
+                          }}
+                          placeholder={question.placeholder || '짧게 입력해주세요'}
+                          className="mt-2 h-11 w-full rounded-xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#6B7280] focus:border-[#CBD5E1]"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {currentStep === 'analyzing' || isAnalyzing ? (
                 <>
                   <p className="mt-3 text-xs text-[#9CA3AF]">{analyzeStageText}</p>
@@ -488,8 +576,17 @@ export default function UploadSection() {
                     기획 중단
                   </button>
                 ) : (
-                  <button type="button" onClick={handleTopicGenerate} className="btn-solid-contrast h-12 rounded-full px-7 text-sm font-semibold transition hover:bg-white">
-                    A/B/C 대본 생성
+                  <button
+                    type="button"
+                    onClick={handleTopicGenerate}
+                    disabled={isTopicPreflighting}
+                    className="btn-solid-contrast h-12 rounded-full px-7 text-sm font-semibold transition hover:bg-white disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isTopicPreflighting
+                      ? '주제 확인 중...'
+                      : topicClarificationQuestions.length
+                        ? '답변하고 A/B/C 생성'
+                        : 'A/B/C 대본 생성'}
                   </button>
                 )}
               </div>

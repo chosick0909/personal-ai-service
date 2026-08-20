@@ -2346,11 +2346,16 @@ export function AppStateProvider({ children }) {
       isCurrentAccountRequest(requestAccountId) && analysisRunTokenRef.current === requestToken
     const persistedProjectId = getPersistedCurrentProjectId()
     const normalizedTitle = String(options.title || uploadTitle).trim()
+    const clarifications = options.clarifications && typeof options.clarifications === 'object'
+      ? options.clarifications
+      : {}
+    const clarificationKey = JSON.stringify(clarifications)
     const previousAttempt = readTopicGenerationAttempt()
     const canReusePreviousAttempt =
       previousAttempt?.accountId === requestAccountId &&
       previousAttempt?.topic === normalizedTopic &&
       previousAttempt?.title === normalizedTitle &&
+      previousAttempt?.clarificationKey === clarificationKey &&
       (previousAttempt?.projectId || null) === (persistedProjectId || null)
     const clientGenerationId = canReusePreviousAttempt
       ? previousAttempt.clientGenerationId
@@ -2359,6 +2364,7 @@ export function AppStateProvider({ children }) {
       accountId: requestAccountId,
       topic: normalizedTopic,
       title: normalizedTitle,
+      clarificationKey,
       projectId: persistedProjectId || null,
       clientGenerationId,
       createdAt: canReusePreviousAttempt ? previousAttempt.createdAt : Date.now(),
@@ -2408,6 +2414,7 @@ export function AppStateProvider({ children }) {
         accountId: requestAccountId,
         projectId: persistedProjectId,
         clientGenerationId,
+        clarifications,
         signal: requestAbortController.signal,
       })
       if (!isCurrentAnalysisRequest()) return

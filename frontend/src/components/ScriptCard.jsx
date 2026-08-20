@@ -1,8 +1,26 @@
-function SectionPreview({ label, value, tone, sizeClass = '' }) {
+import { useState } from 'react'
+
+function SectionPreview({ label, value, tone, sizeClass = '', expandable = false }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
   return (
     <div className={`flex flex-col rounded-2xl border px-4 py-3 ${tone} ${sizeClass}`}>
       <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">{label}</div>
-      <div className="mt-2 line-clamp-4 text-sm leading-6 text-[#E5E7EB]">{value || '-'}</div>
+      <div className={`mt-2 text-sm leading-6 text-[#E5E7EB] ${expandable && !isExpanded ? 'line-clamp-4' : ''}`}>
+        {value || '-'}
+      </div>
+      {expandable && value ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            setIsExpanded((current) => !current)
+          }}
+          className="mt-2 self-start text-xs font-semibold text-[#BFDBFE] transition hover:text-white"
+        >
+          {isExpanded ? '접기' : '전체 보기'}
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -75,6 +93,11 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
                 선택한 초안
               </div>
             ) : null}
+            {Number.isFinite(script.estimatedDurationSeconds) ? (
+              <div className="ml-auto text-xs font-medium text-[#94A3B8]">
+                약 {Math.round(script.estimatedDurationSeconds)}초
+              </div>
+            ) : null}
           </div>
           <h3 className="mt-3 text-xl font-bold leading-8 text-[#F8FAFC]">{displayAngle}</h3>
         </div>
@@ -92,6 +115,7 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
           value={script.body}
           tone="border-[#31435A] bg-[#141A23] text-[#93C5FD]"
           sizeClass="min-h-[222px]"
+          expandable={Number.isFinite(script.estimatedDurationSeconds)}
         />
         <SectionPreview
           label="CTA"

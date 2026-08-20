@@ -13,19 +13,29 @@ import {
 import { CATEGORY_PLAYBOOKS } from '../config/reference-analysis-config.js'
 import {
   TOPIC_VARIATION_CONFIGS,
-  countTopicActionSignals,
+  estimateTopicSpeechSeconds,
   validateTopicVariationSet,
 } from './topic-script-validation.js'
+import {
+  assessTopicReadiness,
+  normalizeTopicClarifications,
+} from './topic-script-preflight.js'
 
 export { validateTopicVariation, validateTopicVariationSet } from './topic-script-validation.js'
+export { assessTopicReadiness } from './topic-script-preflight.js'
+
+const HIGH_RISK_TOPIC_PATTERN = /(?:의료|질병|증상|진단|치료|약|복용|영양제|임신|출산|아기\s*안전|육아\s*안전|법률|소송|계약서|세금|절세|투자|주식|코인|대출|보험|재무|금융)/i
+const CURRENT_INFO_PATTERN = /(?:최신|현재|올해|요즘|지금|정책|법\s*개정|알고리즘|금리|가격|지원금|통계|트렌드|업데이트)/i
+const MIN_FACTS = 3
+const MIN_METHODS = 3
 
 function normalizeText(value = '', maxLength = 20000) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
 }
 
-function normalizeList(value, maxItems = 6) {
+function normalizeList(value, maxItems = 6, maxLength = 500) {
   if (!Array.isArray(value)) return []
-  return value.map((item) => normalizeText(item, 500)).filter(Boolean).slice(0, maxItems)
+  return value.map((item) => normalizeText(item, maxLength)).filter(Boolean).slice(0, maxItems)
 }
 
 function parseModelJson(content = '') {
@@ -45,51 +55,9 @@ function parseModelJson(content = '') {
   }
 }
 
-function normalizeTopicBrief(value = {}, topic = '', accountSettings = {}) {
-  const persona = accountSettings?.persona && typeof accountSettings.persona === 'object'
-    ? accountSettings.persona
-    : {}
-  const actionableMethods = normalizeList(value.actionableMethods || value.actionable_methods, 4)
-  const fallbackMethods = [
-    `${topic}에서 먼저 확인할 기준을 한 가지 정한다`,
-    `${topic}을 실행할 순서를 두 단계로 나눠 적용한다`,
-  ]
-  const coreInformation = normalizeList(value.coreInformation || value.core_information, 4)
-
-  return {
-    targetAudience: normalizeText(
-      value.targetAudience || value.target_audience || persona.job || accountSettings.targetAudience || '이 주제에 관심 있는 시청자',
-      300,
-    ),
-    specificPain: normalizeText(
-      value.specificPain || value.specific_pain || persona.painPoints || `${topic}을 해도 원하는 결과가 잘 나지 않는 문제`,
-      500,
-    ),
-    desiredOutcome: normalizeText(
-      value.desiredOutcome || value.desired_outcome || persona.desiredChange || `${topic}을 더 쉽고 정확하게 실행하는 상태`,
-      500,
-    ),
-    coreInformation: coreInformation.length
-      ? coreInformation
-      : [
-          `${topic}의 결과를 가르는 핵심 기준`,
-          `${topic}을 실제로 적용할 때 지켜야 할 순서`,
-        ],
-    actionableMethods: actionableMethods.length >= 2 ? actionableMethods : fallbackMethods,
-    allowedEvidence: normalizeList(value.allowedEvidence || value.allowed_evidence, 4),
-    forbiddenClaims: [
-      ...normalizeList(value.forbiddenClaims || value.forbidden_claims, 5),
-      '확인되지 않은 수치, 성과, 전문가 권위와 실제 경험을 만들지 않는다',
-    ].slice(0, 5),
-    ctaCandidates: normalizeList(value.ctaCandidates || value.cta_candidates, 4).length
-      ? normalizeList(value.ctaCandidates || value.cta_candidates, 4)
-      : ['저장', '댓글', '공유'],
-  }
-}
-
 function normalizeVariation(value = {}, index = 0) {
   const config = TOPIC_VARIATION_CONFIGS[index]
-  return {
+  const variation = {
     variantId: config.key,
     variantKey: config.key,
     label: `${config.key}안`,
@@ -100,6 +68,8 @@ function normalizeVariation(value = {}, index = 0) {
     usedKnowledge: [],
     usedChunkIds: [],
   }
+  variation.estimatedDurationSeconds = estimateTopicSpeechSeconds(variation)
+  return variation
 }
 
 function buildAccountContext(accountSettings = {}, characterSystemPrompt = '') {
@@ -134,80 +104,256 @@ function buildCategoryPlaybookPrompt(category = '') {
   ].filter(Boolean).join('\n') || '- 카테고리 플레이북 없음'
 }
 
-function buildGenerationPrompt({ topic, accountContext, categoryPrompt, hookTemplates, narrativePatterns }) {
-  return `릴스 주제: ${topic}\n\n계정/타깃 설정:\n${accountContext || '설정 없음'}\n\n카테고리 기준:\n${categoryPrompt}\n\n검색된 훅 성공공식(원문/예시 복사 금지, 추상 원리만 사용):\n${hookTemplates}\n\n검색된 서사 성공공식(C안에만 참고, 실제 경험 창작 금지):\n${narrativePatterns}\n\n먼저 세 안이 공유할 topicBrief를 설계한 뒤 A/B/C 대본을 작성하세요.\n\nA안 손실 회피형:\n- 놓치기 쉬운 행동/실수 → 구체적 손실 → 이유 → 예방 방법 2~4개 → 손실 방지 CTA.\n- HOOK은 질문하지 말고, 타깃의 현재 행동과 그 결과로 생기는 손실을 경고형 단정문으로 즉시 연결한다.\n- HOOK 문법은 “{현재 행동을 계속하면} {구체적 손실이 생긴다}”이며 무엇을 잃는지 생략하지 않는다.\n- 돈뿐 아니라 시간, 노동, 기회, 결과 저하, 반복 실패도 손실로 볼 수 있다. 공포 과장과 확인되지 않은 보장은 금지한다.\n\nB안 통념 반박형:\n- 흔한 믿음/방식 → 짧은 반박 → 왜 충분하지 않은지 → 올바른 판단 기준 → 적용 방법 2~4개 → CTA.\n- HOOK은 질문하지 말고 “문제는 X가 아니라 Y”, “X만으로는 부족하고 Y가 먼저”처럼 통념 X와 새 기준 Y를 한 문장 안에서 직접 대조한다.\n- 단순한 문제 질문, 손실 경고, 상황 공감으로 시작하면 B안 실패다.\n- 반박할 통념이 약하면 억지 논쟁 대신 잘못된 실행 순서 X와 올바른 순서 Y를 대조한다.\n\nC안 공감 스토리형:\n- 타깃의 구체적 일상 장면 → 불편/감정 → 막히는 지점 → 발견한 기준 → 실행 방법 2~4개 → CTA.\n- HOOK 첫 문장은 시간/장소/행동이 보이는 한 장면으로 시작한다. 추상적인 고민 질문으로 시작하지 않는다.\n- “~할 때마다”, “~하는 순간”, “막상 ~하려는데”처럼 장면을 연 뒤 타깃의 불편이나 감정을 붙인다.\n- 화자의 실제 경험처럼 쓰거나 허위 고객·가족·전문가 발언과 성과 사례를 만들지 않는다. 전체 대본의 절반 이상은 실행 정보여야 한다.\n\n공통 품질 계약:\n- 세 안은 같은 핵심 정보와 실행 방법을 공유하되 감정 진입점과 전개 방식은 분명히 다르게 한다.\n- 세 HOOK의 첫 문장 문법을 서로 다르게 만든다: A=손실 경고형 단정, B=통념 대조형 단정, C=장면 서사형.\n- 세 HOOK을 모두 질문형으로 쓰거나 같은 문제를 단어만 바꿔 반복하면 실패다.\n- 각 안의 BODY에 바로 실행할 수 있는 정보가 최소 2개 있어야 한다.\n- 인사말, 계정 ID, 자기소개, 내부 규칙명, 검색된 원문/예시는 출력하지 않는다.\n- 최신 통계, 허위 경험, 성과, 수치, 전문가 권위는 만들지 않는다.\n- CTA는 저장/댓글/공유/팔로우 중 내용상 가장 자연스러운 하나만 고른다.\n- 대본은 실제 말하는 자연스러운 한국어로 쓰고 HOOK/BODY/CTA 라벨을 본문에 넣지 않는다.\n\nJSON 형식만 반환하세요:\n{"topicBrief":{"targetAudience":"","specificPain":"","desiredOutcome":"","coreInformation":[""],"actionableMethods":["",""],"allowedEvidence":[""],"forbiddenClaims":[""],"ctaCandidates":[""]},"variations":[{"hook":"","body":"","cta":""},{"hook":"","body":"","cta":""},{"hook":"","body":"","cta":""}]}`
+function classifyTopicRisk(topic = '') {
+  if (HIGH_RISK_TOPIC_PATTERN.test(topic)) return 'high_risk'
+  if (CURRENT_INFO_PATTERN.test(topic)) return 'current_info'
+  return 'general'
 }
 
-function variationsToSentences(variations = []) {
-  return variations.flatMap((variation, index) => [
-    { id: `${index}-hook`, stage: 'HOOK', section: 'hook', sentenceRole: 'HOOK_START', text: variation.hook },
-    { id: `${index}-body`, stage: 'BODY', section: 'body', sentenceRole: 'BODY_SOLUTION', text: variation.body },
-    { id: `${index}-cta`, stage: 'CTA', section: 'cta', sentenceRole: 'CTA', text: variation.cta },
-  ])
+function extractResponseSources(response = {}) {
+  const sources = new Map()
+  for (const outputItem of response.output || []) {
+    if (outputItem?.type !== 'message') continue
+    for (const content of outputItem.content || []) {
+      for (const annotation of content?.annotations || []) {
+        const citation = annotation?.url_citation || annotation
+        const url = normalizeText(citation?.url, 1000)
+        if (!url) continue
+        sources.set(url, {
+          id: `source-${sources.size + 1}`,
+          title: normalizeText(citation?.title, 300) || url,
+          url,
+        })
+      }
+    }
+  }
+  return Array.from(sources.values()).slice(0, 3)
 }
 
-async function collectWritingRules(variations) {
+async function gatherEvidence({ openai, model, topic, readiness, riskLevel, accountId, referenceId, usageContext }) {
+  if (riskLevel === 'general') {
+    return { searched: false, sources: [], evidenceNotes: [], safeMode: false }
+  }
+
+  try {
+    const response = await openai.responses.create({
+      model,
+      tools: [{ type: 'web_search', search_context_size: 'low' }],
+      input:
+        '다음 숏폼 주제의 사실 검증용 근거를 조사한다. 정부·공공기관·학술기관·공식 제품 문서 등 권위 있는 출처를 우선한다. ' +
+        '광고성 주장, 개인 후기, 검증되지 않은 수치를 제외한다. 대본은 쓰지 말고 JSON만 반환한다.\n\n' +
+        `주제: ${topic}\n타깃: ${readiness.inferredContext.targetAudience}\n문제: ${readiness.inferredContext.specificProblem}\n원하는 결과: ${readiness.inferredContext.desiredOutcome}\n` +
+        '형식: {"evidenceNotes":["검증된 사실 또는 안전한 표현"],"unsafeClaims":["피해야 할 단정"],"canGeneralizeSafely":true}',
+    })
+    logAIUsage('topic-script-grounding', response, { model, accountId, referenceId, ...usageContext })
+    const parsed = parseModelJson(response.output_text || '') || {}
+    const sources = extractResponseSources(response)
+    const evidenceNotes = normalizeList(parsed.evidenceNotes, 6, 700)
+    const canGeneralizeSafely = parsed.canGeneralizeSafely !== false
+    if (riskLevel === 'high_risk' && (!evidenceNotes.length || !sources.length || !canGeneralizeSafely)) {
+      throw new AppError('전문 주제의 근거를 충분히 확인하지 못했습니다.', {
+        code: 'TOPIC_GROUNDING_REQUIRED',
+        statusCode: 422,
+        exposeMessage: true,
+      })
+    }
+    return {
+      searched: true,
+      sources,
+      evidenceNotes,
+      unsafeClaims: normalizeList(parsed.unsafeClaims, 6, 500),
+      safeMode: !canGeneralizeSafely || sources.length === 0,
+    }
+  } catch (error) {
+    if (riskLevel === 'high_risk') {
+      throw new AppError('전문 주제의 근거를 확인하지 못했어요. 공식 자료를 함께 입력하거나 주제를 일반 정보형으로 좁혀주세요.', {
+        code: 'TOPIC_GROUNDING_REQUIRED',
+        statusCode: 422,
+        exposeMessage: true,
+        cause: error,
+      })
+    }
+    return {
+      searched: false,
+      sources: [],
+      evidenceNotes: [],
+      unsafeClaims: ['최신 수치와 현재 정책을 단정하지 않는다'],
+      safeMode: true,
+    }
+  }
+}
+
+function normalizeFactPack(value = {}, evidence = {}) {
+  const rawFacts = Array.isArray(value.coreFacts) ? value.coreFacts : []
+  const rawMethods = Array.isArray(value.actionableMethods) ? value.actionableMethods : []
+  const coreFacts = rawFacts.slice(0, 5).map((item, index) => ({
+    id: normalizeText(item?.id, 40) || `fact-${index + 1}`,
+    claim: normalizeText(item?.claim || item, 700),
+    why: normalizeText(item?.why, 700),
+    condition: normalizeText(item?.condition, 500),
+    keywords: normalizeList(item?.keywords, 8, 80),
+    evidenceSourceIds: normalizeList(item?.evidenceSourceIds, 3, 80),
+  })).filter((item) => item.claim && item.why)
+  const actionableMethods = rawMethods.slice(0, 5).map((item, index) => ({
+    id: normalizeText(item?.id, 40) || `method-${index + 1}`,
+    action: normalizeText(item?.action || item, 500),
+    how: normalizeText(item?.how, 700),
+    whyOrWhen: normalizeText(item?.whyOrWhen || item?.why_or_when, 700),
+  })).filter((item) => item.action && item.how && item.whyOrWhen)
+  return {
+    coreFacts,
+    actionableMethods,
+    cautions: normalizeList(value.cautions, 6, 500),
+    forbiddenClaims: [
+      ...normalizeList(value.forbiddenClaims, 6, 500),
+      ...normalizeList(evidence.unsafeClaims, 6, 500),
+      '확인되지 않은 수치, 성과, 전문가 권위와 실제 경험을 만들지 않는다',
+    ].filter(Boolean).slice(0, 8),
+  }
+}
+
+function normalizeOutline(value = {}, index = 0) {
+  const config = TOPIC_VARIATION_CONFIGS[index]
+  const beats = (Array.isArray(value.beats) ? value.beats : []).slice(0, 13).map((item, beatIndex) => ({
+    order: beatIndex + 1,
+    section: ['hook', 'body', 'cta'].includes(String(item?.section || '').toLowerCase())
+      ? String(item.section).toLowerCase()
+      : beatIndex < 2 ? 'hook' : beatIndex >= 10 ? 'cta' : 'body',
+    role: normalizeText(item?.role, 120),
+    goal: normalizeText(item?.goal, 500),
+    bridgeToNext: normalizeText(item?.bridgeToNext || item?.bridge_to_next, 500),
+    factIds: normalizeList(item?.factIds, 4, 40),
+    methodIds: normalizeList(item?.methodIds, 4, 40),
+  })).filter((item) => item.goal)
+  return { key: config.key, label: config.label, beats }
+}
+
+function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, riskLevel }) {
+  const contentBriefRaw = parsed.contentBrief || parsed.topicBrief || {}
+  const factPack = normalizeFactPack(parsed.factPack || {}, evidence)
+  const outlines = TOPIC_VARIATION_CONFIGS.map((_, index) => normalizeOutline(parsed.outlines?.[index] || {}, index))
+  const contentBrief = {
+    targetAudience: normalizeText(contentBriefRaw.targetAudience, 300) || readiness.inferredContext.targetAudience,
+    specificProblem: normalizeText(contentBriefRaw.specificProblem, 500) || readiness.inferredContext.specificProblem,
+    desiredOutcome: normalizeText(contentBriefRaw.desiredOutcome, 500) || readiness.inferredContext.desiredOutcome,
+    corePromise: normalizeText(contentBriefRaw.corePromise, 500),
+    topic,
+  }
+
+  if (!contentBrief.targetAudience || !contentBrief.specificProblem || !contentBrief.desiredOutcome || !contentBrief.corePromise) {
+    throw new AppError('주제 기획의 핵심 맥락이 충분하지 않습니다.', {
+      code: 'TOPIC_PLANNING_INCOMPLETE', statusCode: 422, exposeMessage: true,
+    })
+  }
+  if (factPack.coreFacts.length < MIN_FACTS || factPack.actionableMethods.length < MIN_METHODS) {
+    throw new AppError('검증 가능한 핵심 정보와 실행 방법을 충분히 구성하지 못했습니다.', {
+      code: 'TOPIC_FACT_PACK_INCOMPLETE', statusCode: 422, exposeMessage: true,
+    })
+  }
+  if (outlines.some((outline) => outline.beats.length < 9)) {
+    throw new AppError('60초 이상 대본을 위한 구성안이 충분하지 않습니다.', {
+      code: 'TOPIC_OUTLINE_INCOMPLETE', statusCode: 422, exposeMessage: true,
+    })
+  }
+
+  return {
+    inputQuality: readiness.inputQuality,
+    clarifications: readiness.clarifications,
+    contentBrief,
+    factPack,
+    riskLevel,
+    grounding: evidence,
+    durationTarget: { minimumSeconds: 60, maximumSeconds: 90, minimumSentences: 9, maximumSentences: 13 },
+    outlines,
+  }
+}
+
+function buildPlanningPrompt({ topic, readiness, accountContext, categoryPrompt, hookTemplates, narrativePatterns, evidence, riskLevel }) {
+  return `릴스 주제: ${topic}\n위험도: ${riskLevel}\n\n추가 답변/계정에서 확정된 맥락:\n${JSON.stringify(readiness.inferredContext)}\n\n계정 설정:\n${accountContext || '설정 없음'}\n\n카테고리 기준:\n${categoryPrompt}\n\n검증 근거:\n${evidence.evidenceNotes?.join('\n') || '외부 근거 검색 대상 아님. 확인되지 않은 수치와 성과는 사용 금지.'}\n\n훅 성공공식(표현 복사 금지):\n${hookTemplates}\n\n서사 성공공식(C안에만 추상 원리로 사용):\n${narrativePatterns}\n\n대본을 쓰기 전에 정보 설계와 세 구성안을 만든다.\n- coreFacts는 서로 중복되지 않는 핵심 정보 3~5개다. claim만 쓰지 말고 왜 그런지와 적용 조건을 함께 적는다.\n- actionableMethods는 바로 실행 가능한 방법 3~5개다. 각 방법에 action, how, whyOrWhen을 모두 적는다.\n- “기준을 정한다”, “순서를 나눈다”, “꾸준히 한다” 같은 일반론은 금지한다.\n- 각 outline은 9~13개의 beat로 만들고 HOOK 1~2개, BODY 7~10개, CTA 1개로 구성한다.\n- 모든 beat에는 다음 문장으로 이어지는 이유 bridgeToNext를 적는다.\n- A는 현재 행동→손실→원인→예방 기준→방법→저장 CTA.\n- B는 흔한 믿음→반박→근거→새 기준→방법→의견/공유 CTA.\n- C는 장면→감정→막힘→관점 전환→방법→공감 CTA.\n- 세 안은 같은 factPack을 사용하고 관점과 전개만 다르게 한다.\n- 근거에 없는 수치, 진단, 보장, 전문가 권위, 실제 경험을 만들지 않는다.\n\nJSON만 반환한다:\n{"contentBrief":{"targetAudience":"","specificProblem":"","desiredOutcome":"","corePromise":""},"factPack":{"coreFacts":[{"id":"fact-1","claim":"","why":"","condition":"","keywords":[""]}],"actionableMethods":[{"id":"method-1","action":"","how":"","whyOrWhen":""}],"cautions":[""],"forbiddenClaims":[""]},"outlines":[{"beats":[{"section":"hook|body|cta","role":"","goal":"","bridgeToNext":"","factIds":["fact-1"],"methodIds":["method-1"]}]},{"beats":[]},{"beats":[]}]}`
+}
+
+function buildVariationPrompt({ planning, outline, config, writingRules }) {
+  return `공유 기획:\n${JSON.stringify(planning.contentBrief)}\n\n검증된 정보팩:\n${JSON.stringify(planning.factPack)}\n\n이 안의 문장 구성안:\n${JSON.stringify(outline)}\n\n문장 보정 규칙:\n${writingRules || '없음'}\n\n${config.key}안 ${config.label} 대본만 작성한다.\n- 구성안 beat 1개를 결과 문장 1개로 작성하고 순서를 바꾸거나 생략하지 않는다.\n- 전체 9~13문장, HOOK 1~2문장, BODY 7~10문장, CTA 1문장이다.\n- 예상 발화 시간은 60~90초다. 공백과 문장부호 제외 글자 수를 초당 4.5자로 계산한다.\n- BODY에 정보팩의 실행 방법을 최소 3개 넣고 각 방법마다 무엇을 어떻게 해야 하는지와 이유 또는 적용 시점을 말한다.\n- HOOK의 약속이나 문제를 BODY 첫 두 문장 안에서 같은 핵심어로 이어받는다.\n- CTA는 BODY 결론에서 자연스럽게 이어지는 행동 하나만 제안한다.\n- 사실은 정보팩 범위 안에서만 쓴다. 새로운 수치·성과·경험·권위를 만들지 않는다.\n- 인사말, 자기소개, 계정 ID, 내부 규칙명, HOOK/BODY/CTA 라벨은 쓰지 않는다.\n- 실제 사람이 말하는 자연스러운 한국어로 쓴다.\n- ${config.key === 'A' ? 'HOOK은 질문하지 말고 현재 행동이 만드는 구체적 손실을 단정한다.' : config.key === 'B' ? 'HOOK은 질문하지 말고 흔한 믿음 X와 새 기준 Y를 한 문장 안에서 직접 대조한다.' : 'HOOK은 시간·장소·행동이 보이는 구체적 장면으로 시작하고 허위 1인칭 경험은 쓰지 않는다.'}\n\nJSON만 반환한다: {"hook":"","body":"","cta":""}`
+}
+
+function planningToSentences(planning = {}) {
+  return (planning.outlines || []).flatMap((outline) => outline.beats.map((beat) => ({
+    id: `${outline.key}-${beat.order}`,
+    stage: String(beat.section || 'body').toUpperCase(),
+    section: beat.section,
+    sentenceRole: beat.role || 'BODY_SOLUTION',
+    text: beat.goal,
+  })))
+}
+
+async function collectWritingRules(planning) {
   const result = await retrieveWritingPlaybookRulesForSentences({
-    sentences: variationsToSentences(variations),
+    sentences: planningToSentences(planning),
     variantLabel: 'topic_only',
     topK: 2,
   })
   const unique = new Map()
   for (const rules of result.rulesBySentenceId?.values?.() || []) {
-    for (const rule of rules || []) {
-      unique.set(rule.rule_key || rule.id, rule)
-    }
+    for (const rule of rules || []) unique.set(rule.rule_key || rule.id, rule)
   }
   return Array.from(unique.values()).slice(0, 8)
 }
 
-async function repairAndPolish({ openai, model, topic, topicBrief, variations, rules, usageContext }) {
-  const validation = validateTopicVariationSet(variations)
+function normalizeEvaluation(parsed = {}) {
+  const items = Array.isArray(parsed.evaluations) ? parsed.evaluations : []
+  return TOPIC_VARIATION_CONFIGS.map((config, index) => {
+    const item = items[index] || {}
+    const scores = {
+      relevance: Number(item?.scores?.relevance || 0),
+      coherence: Number(item?.scores?.coherence || 0),
+      specificity: Number(item?.scores?.specificity || 0),
+      factualSafety: Number(item?.scores?.factualSafety || 0),
+      naturalness: Number(item?.scores?.naturalness || 0),
+    }
+    const pass = scores.relevance >= 4 && scores.coherence >= 4 && scores.specificity >= 4 && scores.factualSafety >= 4 && scores.naturalness >= 3.5
+    return { key: config.key, pass, scores, issues: normalizeList(item.issues, 8, 500) }
+  })
+}
+
+async function evaluateVariations({ openai, model, planning, variations, hardValidation, accountId, referenceId, usageContext }) {
   const response = await openai.chat.completions.create({
     model,
     response_format: { type: 'json_object' },
     messages: [
       {
         role: 'system',
-        content: '당신은 이미 설계된 숏폼 대본을 검수하고 문장 품질만 보정하는 편집자다. 세 안의 컨셉과 핵심 정보는 바꾸지 않는다. JSON만 반환한다.',
+        content: '당신은 숏폼 정보 대본 품질 심사자다. 문체 취향이 아니라 주제 적합성, 문장 연결, 정보 구체성, 사실 안전성, 말하기 자연스러움을 엄격하게 평가한다. JSON만 반환한다.',
       },
       {
         role: 'user',
-        content: `주제: ${topic}\n공유 기획 요약: ${JSON.stringify(topicBrief)}\n\n현재 초안: ${JSON.stringify(variations)}\n\n안별 검증 이슈: ${JSON.stringify(validation.issuesByIndex)}\n\n문장 보정 규칙(구조 창작에 사용 금지):\n${formatWritingPlaybookRulesForPrompt(rules)}\n\n수정 조건:\n- A HOOK은 현재 행동이 초래할 구체적 손실을 질문 없이 경고형 단정문으로 쓴다.\n- B HOOK은 흔한 통념 X와 새 판단 기준 Y를 질문 없이 한 문장 안에서 직접 대조한다.\n- C HOOK은 시간/장소/행동이 보이는 구체 장면으로 시작하고 감정을 연결한다. 허위 1인칭 경험은 만들지 않는다.\n- 세 HOOK을 같은 질문형이나 같은 문장 골격으로 쓰지 않는다. 첫 문장만 읽어도 유형을 구분할 수 있어야 한다.\n- 각 BODY에 실행 정보 최소 2개를 명확하게 넣는다.\n- 인사말, 자기소개, @계정, 내부 규칙명, 근거 없는 숫자/성과를 제거한다.\n- 원래보다 구체적이고 압축된 자연스러운 한국어로 보정한다.\n- JSON만 반환한다: {"variations":[{"hook":"","body":"","cta":""},{"hook":"","body":"","cta":""},{"hook":"","body":"","cta":""}]}`,
+        content: `공유 기획과 정보팩:\n${JSON.stringify(planning)}\n\n대본:\n${JSON.stringify(variations)}\n\n코드 검증 결과:\n${JSON.stringify(hardValidation.issuesByIndex)}\n\n각 안을 1~5점으로 평가한다.\n- relevance: 주제·타깃·약속 일치\n- coherence: HOOK→BODY→CTA와 문장 사이 인과 연결\n- specificity: 실행 정보가 무엇을·어떻게·왜/언제까지 설명하는지\n- factualSafety: 정보팩 밖의 주장·수치·경험이 없는지\n- naturalness: 실제 말할 수 있는 자연스러운 한국어인지\n- 코드 검증 이슈가 있으면 반드시 issues에 포함한다.\nJSON만 반환한다: {"evaluations":[{"key":"A","scores":{"relevance":0,"coherence":0,"specificity":0,"factualSafety":0,"naturalness":0},"issues":[""]},{"key":"B","scores":{},"issues":[]},{"key":"C","scores":{},"issues":[]}]}`,
       },
     ],
   })
-  logAIUsage('topic-script-polish', response, { model, ...usageContext })
-  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-  const repaired = Array.isArray(parsed?.variations) ? parsed.variations : []
-  return TOPIC_VARIATION_CONFIGS.map((_, index) => normalizeVariation(repaired[index] || variations[index], index))
+  logAIUsage('topic-script-quality-evaluation', response, { model, accountId, referenceId, ...usageContext })
+  return normalizeEvaluation(parseModelJson(response.choices[0]?.message?.content || '') || {})
 }
 
-function buildFallbackVariation(topic, brief, index) {
-  const methods = brief.actionableMethods.slice(0, 3)
-  const methodText = methods.map((item, methodIndex) => `${methodIndex + 1}. ${item}`).join(' ')
-  if (index === 0) {
-    return normalizeVariation({
-      hook: `${topic}, 기준 없이 계속하면 같은 일을 두 번 하며 시간과 노력을 낭비하게 됩니다.`,
-      body: `결과가 더뎌지는 이유는 기준 없이 한 번에 바꾸려 하기 때문입니다. ${methodText}`,
-      cta: '다음에 놓치지 않도록 저장해두고 하나씩 체크해보세요.',
-    }, index)
-  }
-  if (index === 1) {
-    return normalizeVariation({
-      hook: `${topic}의 문제는 적게 하는 게 아니라, 판단 기준 없이 반복하는 데 있습니다.`,
-      body: `흔히 양부터 늘리지만 그것만으로는 충분하지 않습니다. ${methodText}`,
-      cta: '기존 방식과 비교해보고 도움이 될 사람에게 공유해보세요.',
-    }, index)
-  }
-  return normalizeVariation({
-    hook: `${topic}을 다시 해보려는 순간, 어디서부터 손대야 할지 막혀 같은 자리에서 멈추게 됩니다.`,
-    body: `열심히 해도 기준이 없으면 같은 지점에서 다시 멈추기 쉽습니다. 이럴 때는 순서를 단순하게 잡아야 합니다. ${methodText}`,
-    cta: '비슷한 순간에 바로 꺼내볼 수 있게 저장해두세요.',
-  }, index)
+async function repairVariation({ openai, model, planning, variation, outline, config, issues, writingRules, accountId, referenceId, usageContext }) {
+  const response = await openai.chat.completions.create({
+    model,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content: '당신은 품질 기준에 미달한 정보형 숏폼 대본 한 안만 재작성한다. 검증된 정보팩과 원래 구성안을 벗어나지 않고 지적된 문제를 모두 해결한다. JSON만 반환한다.',
+      },
+      {
+        role: 'user',
+        content: `${buildVariationPrompt({ planning, outline, config, writingRules })}\n\n현재 대본:\n${JSON.stringify(variation)}\n\n반드시 해결할 문제:\n${issues.map((item) => `- ${item}`).join('\n')}`,
+      },
+    ],
+  })
+  logAIUsage('topic-script-quality-repair', response, { model, accountId, referenceId, label: config.key, ...usageContext })
+  return normalizeVariation(parseModelJson(response.choices[0]?.message?.content || '') || {}, TOPIC_VARIATION_CONFIGS.indexOf(config))
 }
 
-function buildReferencePayload({ topic, title, projectId, clientGenerationId }) {
+function buildReferencePayload({ topic, title, projectId, clientGenerationId, readiness }) {
   const now = new Date().toISOString()
   return {
     title: normalizeText(title, 200) || `${normalizeText(topic, 120)} 기획`,
@@ -216,7 +362,10 @@ function buildReferencePayload({ topic, title, projectId, clientGenerationId }) 
     mime_type: 'application/x-hookai-topic',
     project_id: projectId || null,
     source_mode: 'topic_only',
-    topic_brief: {},
+    topic_brief: {
+      inputQuality: readiness.inputQuality,
+      clarifications: readiness.clarifications,
+    },
     transcript: '',
     transcript_segments: [],
     frame_timestamps: [],
@@ -231,174 +380,202 @@ function buildReferencePayload({ topic, title, projectId, clientGenerationId }) 
   }
 }
 
+export function preflightTopicOnlyScripts({ topic, accountSettings = {}, clarifications = {} } = {}) {
+  return assessTopicReadiness({ topic, accountSettings, clarifications })
+}
+
 export async function generateTopicOnlyScripts({
   accountId,
   topic,
   title = '',
   projectId = null,
   clientGenerationId = '',
+  clarifications = {},
   characterSystemPrompt = '',
   accountSettings = {},
   usageContext = {},
   beforeCreate = null,
 }) {
-  if (!hasSupabaseAdminConfig()) {
-    throw new AppError('Supabase admin client is not configured', { code: 'SUPABASE_NOT_CONFIGURED', statusCode: 500 })
-  }
+  if (!hasSupabaseAdminConfig()) throw new AppError('Supabase admin client is not configured', { code: 'SUPABASE_NOT_CONFIGURED', statusCode: 500 })
   const normalizedTopic = normalizeText(topic, 500)
-  if (normalizedTopic.length < 2) {
-    throw new AppError('릴스 주제를 2자 이상 입력해주세요.', { code: 'TOPIC_TOO_SHORT', statusCode: 400 })
+  if (normalizedTopic.length < 2) throw new AppError('릴스 주제를 2자 이상 입력해주세요.', { code: 'TOPIC_TOO_SHORT', statusCode: 400 })
+
+  const readiness = assessTopicReadiness({ topic: normalizedTopic, accountSettings, clarifications })
+  if (!readiness.ready) {
+    throw new AppError('대본 품질을 위해 주제를 조금 더 구체화해주세요.', {
+      code: 'TOPIC_CLARIFICATION_REQUIRED',
+      statusCode: 409,
+      details: { questions: readiness.questions, inferredContext: readiness.inferredContext },
+      exposeMessage: true,
+    })
   }
 
   const supabaseAdmin = getSupabaseAdmin()
   const normalizedIdempotencyKey = normalizeText(clientGenerationId, 200)
   if (normalizedIdempotencyKey) {
     const { data: existing, error: existingError } = await supabaseAdmin
-      .from('reference_videos')
-      .select('*')
-      .eq('account_id', accountId)
-      .eq('idempotency_key', normalizedIdempotencyKey)
-      .eq('source_mode', 'topic_only')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .from('reference_videos').select('*').eq('account_id', accountId)
+      .eq('idempotency_key', normalizedIdempotencyKey).eq('source_mode', 'topic_only')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (existingError) throw existingError
     if (existing) return { analysis: existing, reused: true, creationContext: null }
   }
 
-  if (!hasOpenAIConfig()) {
-    throw new AppError('OpenAI client is not configured', { code: 'OPENAI_NOT_CONFIGURED', statusCode: 500 })
-  }
+  if (!hasOpenAIConfig()) throw new AppError('OpenAI client is not configured', { code: 'OPENAI_NOT_CONFIGURED', statusCode: 500 })
   const creationContext = typeof beforeCreate === 'function' ? await beforeCreate() : null
   const referenceId = randomUUID()
-  const { error: createError } = await supabaseAdmin
-    .from('reference_videos')
-    .insert({
-      id: referenceId,
-      account_id: accountId,
-      ...buildReferencePayload({ topic: normalizedTopic, title, projectId, clientGenerationId: normalizedIdempotencyKey }),
-    })
-    .select('*')
-    .single()
+  const { error: createError } = await supabaseAdmin.from('reference_videos').insert({
+    id: referenceId,
+    account_id: accountId,
+    ...buildReferencePayload({ topic: normalizedTopic, title, projectId, clientGenerationId: normalizedIdempotencyKey, readiness }),
+  }).select('*').single()
   if (createError) {
     if (createError.code === '23505' && normalizedIdempotencyKey) {
       const { data: racedExisting, error: racedExistingError } = await supabaseAdmin
-        .from('reference_videos')
-        .select('*')
-        .eq('account_id', accountId)
-        .eq('idempotency_key', normalizedIdempotencyKey)
-        .eq('source_mode', 'topic_only')
-        .maybeSingle()
-      if (!racedExistingError && racedExisting) {
-        return { analysis: racedExisting, reused: true, creationContext: null }
-      }
+        .from('reference_videos').select('*').eq('account_id', accountId)
+        .eq('idempotency_key', normalizedIdempotencyKey).eq('source_mode', 'topic_only').maybeSingle()
+      if (!racedExistingError && racedExisting) return { analysis: racedExisting, reused: true, creationContext: null }
     }
     throw new AppError('주제 기획 작업을 만들지 못했습니다.', { code: 'TOPIC_GENERATION_CREATE_FAILED', statusCode: 500, cause: createError })
   }
 
   const openai = getOpenAIClient()
   const { variationModel } = getOpenAIModels()
+  const searchModel = process.env.OPENAI_SEARCH_MODEL?.trim() || variationModel
   const category = normalizeText(accountSettings?.category || '', 100)
   const accountContext = buildAccountContext(accountSettings, characterSystemPrompt)
 
   try {
-    const [hookResult, narrativeResult] = await Promise.all([
-      retrieveHookTemplates({ topic: normalizedTopic, target: accountSettings?.persona?.job || '', category, purpose: '정보 기반 반응 유도', topK: 5 }),
+    const riskLevel = classifyTopicRisk(`${normalizedTopic} ${readiness.inferredContext.specificProblem}`)
+    const [hookResult, narrativeResult, evidence] = await Promise.all([
+      retrieveHookTemplates({ topic: normalizedTopic, target: readiness.inferredContext.targetAudience, category, purpose: '정보 기반 반응 유도', topK: 5 }),
       retrieveNarrativePatterns({ request: `주제만으로 정보형 릴스 기획: ${normalizedTopic}`, reference: { topic: normalizedTopic }, selectedLabel: '공감 스토리형', topK: 2 }),
+      gatherEvidence({ openai, model: searchModel, topic: normalizedTopic, readiness, riskLevel, accountId, referenceId, usageContext }),
     ])
-    const response = await openai.chat.completions.create({
+
+    const planningResponse = await openai.chat.completions.create({
       model: variationModel,
       response_format: { type: 'json_object' },
       messages: [
-        {
-          role: 'system',
-          content: '당신은 레퍼런스 영상 없이도 타깃에게 실질적으로 유용한 숏폼 대본을 설계하는 콘텐츠 전략가다. 정보 가치와 실행 가능성을 최우선으로 하며 JSON만 반환한다.',
-        },
+        { role: 'system', content: '당신은 정보형 숏폼의 대본을 쓰기 전에 사실, 실행 방법, 문장별 인과 흐름을 설계하는 콘텐츠 전략가다. 일반론을 구체 정보로 위장하지 않으며 JSON만 반환한다.' },
         {
           role: 'user',
-          content: buildGenerationPrompt({
+          content: buildPlanningPrompt({
             topic: normalizedTopic,
+            readiness,
             accountContext,
             categoryPrompt: buildCategoryPlaybookPrompt(category),
             hookTemplates: formatHookTemplatesForPrompt(hookResult.templates || [], 5),
             narrativePatterns: formatNarrativePatternsForPrompt(narrativeResult.patterns || [], 2),
+            evidence,
+            riskLevel,
           }),
         },
       ],
     })
-    logAIUsage('topic-script-generation', response, { model: variationModel, accountId, referenceId, ...usageContext })
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const topicBrief = normalizeTopicBrief(parsed?.topicBrief || {}, normalizedTopic, accountSettings)
-    let variations = TOPIC_VARIATION_CONFIGS.map((_, index) => normalizeVariation(parsed?.variations?.[index] || {}, index))
-    const rules = await collectWritingRules(variations)
-    variations = await repairAndPolish({
-      openai,
-      model: variationModel,
-      topic: normalizedTopic,
-      topicBrief,
-      variations,
-      rules,
-      usageContext: { accountId, referenceId, ...usageContext },
+    logAIUsage('topic-script-planning', planningResponse, { model: variationModel, accountId, referenceId, ...usageContext })
+    const planning = normalizePlanningResult(parseModelJson(planningResponse.choices[0]?.message?.content || '') || {}, {
+      topic: normalizedTopic, readiness, evidence, riskLevel,
     })
-    const finalValidation = validateTopicVariationSet(variations)
-    variations = variations.map((variation, index) =>
-      finalValidation.issuesByIndex[index].length === 0
-        ? variation
-        : buildFallbackVariation(normalizedTopic, topicBrief, index),
+    const rules = await collectWritingRules(planning)
+    const writingRules = formatWritingPlaybookRulesForPrompt(rules)
+
+    let variations = await Promise.all(TOPIC_VARIATION_CONFIGS.map(async (config, index) => {
+      const response = await openai.chat.completions.create({
+        model: variationModel,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: '당신은 검증된 정보 설계와 문장별 구성안을 실제 60~90초 숏폼 대본으로 옮기는 작가다. 정보의 정확성, 연결성, 말하기 자연스러움을 동시에 지키고 JSON만 반환한다.' },
+          { role: 'user', content: buildVariationPrompt({ planning, outline: planning.outlines[index], config, writingRules }) },
+        ],
+      })
+      logAIUsage('topic-script-variation', response, { model: variationModel, accountId, referenceId, label: config.key, ...usageContext })
+      return normalizeVariation(parseModelJson(response.choices[0]?.message?.content || '') || {}, index)
+    }))
+
+    const allowedEvidenceText = JSON.stringify({ evidence: planning.grounding.evidenceNotes, factPack: planning.factPack })
+    let hardValidation = validateTopicVariationSet(variations, { allowedEvidenceText })
+    let evaluations = await evaluateVariations({ openai, model: variationModel, planning, variations, hardValidation, accountId, referenceId, usageContext })
+    const failingIndexes = TOPIC_VARIATION_CONFIGS.map((_, index) => index).filter((index) =>
+      hardValidation.issuesByIndex[index].length > 0 || !evaluations[index].pass,
     )
 
-    const structureAnalysis = '세 안은 같은 핵심 정보를 공유하고 손실 회피, 통념 교정, 공감 상황이라는 서로 다른 진입점으로 전개됩니다.'
-    const hookAnalysis = `핵심 타깃인 ${topicBrief.targetAudience}이 겪는 ${topicBrief.specificPain}을 첫 문장에서 바로 자기 문제로 인식하도록 설계했습니다.`
-    const psychologyAnalysis = '놓치고 싶지 않은 마음, 새로운 판단 기준을 얻는 만족감, 내 상황과 닮았다는 공감을 각각 활용합니다.'
-    const aiFeedback = `실행 방법 ${topicBrief.actionableMethods.length}개를 중심으로 정보 밀도와 반응 CTA를 함께 점검했습니다.`
-    const completedAt = new Date().toISOString()
-    const { data: completed, error: updateError } = await supabaseAdmin
-      .from('reference_videos')
-      .update({
-        topic_brief: topicBrief,
-        variations,
-        structure_analysis: structureAnalysis,
-        hook_analysis: hookAnalysis,
-        psychology_analysis: psychologyAnalysis,
-        ai_feedback: aiFeedback,
-        processing_status: 'completed',
-        current_stage: 'completed',
-        processing_completed_at: completedAt,
-        last_heartbeat_at: completedAt,
-        error_message: null,
+    if (failingIndexes.length) {
+      const repaired = await Promise.all(failingIndexes.map((index) => repairVariation({
+        openai,
+        model: variationModel,
+        planning,
+        variation: variations[index],
+        outline: planning.outlines[index],
+        config: TOPIC_VARIATION_CONFIGS[index],
+        issues: [...hardValidation.issuesByIndex[index], ...evaluations[index].issues],
+        writingRules,
+        accountId,
+        referenceId,
+        usageContext,
+      })))
+      variations = variations.map((variation, index) => {
+        const repairedIndex = failingIndexes.indexOf(index)
+        return repairedIndex >= 0 ? repaired[repairedIndex] : variation
       })
-      .eq('id', referenceId)
-      .eq('account_id', accountId)
-      .select('*')
-      .single()
+      hardValidation = validateTopicVariationSet(variations, { allowedEvidenceText })
+      evaluations = await evaluateVariations({ openai, model: variationModel, planning, variations, hardValidation, accountId, referenceId, usageContext })
+    }
+
+    const qualityPassed = hardValidation.ok && evaluations.every((item) => item.pass)
+    if (!qualityPassed) {
+      throw new AppError('품질 기준을 충족하는 대본을 만들지 못했습니다. 주제를 조금 더 구체화해 다시 시도해주세요.', {
+        code: 'TOPIC_QUALITY_GATE_FAILED',
+        statusCode: 422,
+        details: { issuesByIndex: hardValidation.issuesByIndex, evaluations },
+        exposeMessage: true,
+      })
+    }
+
+    const topicBrief = {
+      ...planning,
+      estimatedDurationSeconds: hardValidation.metricsByIndex.map((item) => item.estimatedSeconds),
+      qualityScores: evaluations,
+      repaired: failingIndexes.length > 0,
+    }
+    const completedAt = new Date().toISOString()
+    const { data: completed, error: updateError } = await supabaseAdmin.from('reference_videos').update({
+      topic_brief: topicBrief,
+      variations,
+      structure_analysis: '공유 정보팩을 기준으로 손실 회피, 통념 교정, 공감 상황의 인과 흐름을 각각 설계했습니다.',
+      hook_analysis: `${planning.contentBrief.targetAudience}이 ${planning.contentBrief.specificProblem}을 자기 문제로 인식하도록 세 가지 진입점을 분리했습니다.`,
+      psychology_analysis: '손실 방지, 새로운 판단 기준, 구체 장면 공감을 각각 활용했습니다.',
+      ai_feedback: `핵심 정보 ${planning.factPack.coreFacts.length}개와 실행 방법 ${planning.factPack.actionableMethods.length}개를 기준으로 길이·연결성·사실 안전성을 검증했습니다.`,
+      processing_status: 'completed',
+      current_stage: 'completed',
+      processing_completed_at: completedAt,
+      last_heartbeat_at: completedAt,
+      error_message: null,
+    }).eq('id', referenceId).eq('account_id', accountId).select('*').single()
     if (updateError) throw updateError
     return { analysis: completed, reused: false, creationContext }
   } catch (error) {
     logAIError('topic-script-generation', error, { accountId, referenceId, topic: normalizedTopic })
-    await supabaseAdmin
-      .from('reference_videos')
-      .update({
-        processing_status: 'failed',
-        current_stage: 'failed',
-        failure_stage: 'topic_generation',
-        failure_code: String(error?.code || 'TOPIC_GENERATION_FAILED'),
-        failure_message: '주제 기반 대본 생성에 실패했습니다.',
-        error_message: '주제 기반 대본 생성에 실패했습니다. 잠시 후 다시 시도해주세요.',
-        last_heartbeat_at: new Date().toISOString(),
-      })
-      .eq('id', referenceId)
-      .eq('account_id', accountId)
+    const exposedMessage = error?.exposeMessage ? error.message : '주제 기반 대본 생성에 실패했습니다. 잠시 후 다시 시도해주세요.'
+    await supabaseAdmin.from('reference_videos').update({
+      processing_status: 'failed',
+      current_stage: 'failed',
+      failure_stage: 'topic_generation',
+      failure_code: String(error?.code || 'TOPIC_GENERATION_FAILED'),
+      failure_message: exposedMessage,
+      error_message: exposedMessage,
+      last_heartbeat_at: new Date().toISOString(),
+    }).eq('id', referenceId).eq('account_id', accountId)
+    if (error instanceof AppError) throw error
     throw new AppError('주제 기반 대본 생성에 실패했습니다. 잠시 후 다시 시도해주세요.', {
-      code: 'TOPIC_GENERATION_FAILED',
-      statusCode: 500,
-      cause: error,
+      code: 'TOPIC_GENERATION_FAILED', statusCode: 500, cause: error,
     })
   }
 }
 
 export const __topicScriptGenerationTest = {
-  normalizeTopicBrief,
+  classifyTopicRisk,
+  normalizeFactPack,
   normalizeVariation,
-  countActionSignals: countTopicActionSignals,
-  buildFallbackVariation,
+  normalizeTopicClarifications,
 }

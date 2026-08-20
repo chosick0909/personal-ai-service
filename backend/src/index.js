@@ -69,7 +69,10 @@ import {
   updateReferenceUploadSessionState,
   updateReferenceVideo,
 } from './lib/reference-video-analysis.js'
-import { generateTopicOnlyScripts } from './lib/topic-script-generation.js'
+import {
+  generateTopicOnlyScripts,
+  preflightTopicOnlyScripts,
+} from './lib/topic-script-generation.js'
 import { createProject, deleteProject, listProjects } from './lib/projects.js'
 import {
   attachSentryRequestContext,
@@ -1409,6 +1412,47 @@ app.post(
 )
 
 app.post(
+  '/api/reference-videos/topic-preflight',
+  analyzeRateLimiter,
+  asyncHandler(async (req, res) => {
+    const account = await resolveRequestAccount(req)
+    const topic = String(req.body?.topic || '').trim()
+    if (topic.length < 2) {
+      throw new AppError('릴스 주제를 2자 이상 입력해주세요.', {
+        code: 'TOPIC_TOO_SHORT',
+        statusCode: 400,
+      })
+    }
+    if (topic.length > 500) {
+      throw new AppError('릴스 주제는 500자 이하로 입력해주세요.', {
+        code: 'TOPIC_TOO_LONG',
+        statusCode: 400,
+      })
+    }
+
+    const character = await getAccountCharacterContext(account.id, {
+      characterId: readRequestCharacterId(req),
+    })
+    const result = preflightTopicOnlyScripts({
+      topic,
+      clarifications: req.body?.clarifications || {},
+      accountSettings:
+        character?.profile?.settings && typeof character.profile.settings === 'object'
+          ? character.profile.settings
+          : {},
+    })
+
+    res.json({
+      status: result.ready ? 'ready' : 'clarification_required',
+      ready: result.ready,
+      inputQuality: result.inputQuality,
+      questions: result.questions,
+      inferredContext: result.inferredContext,
+    })
+  }),
+)
+
+app.post(
   '/api/reference-videos/generate-topic',
   analyzeRateLimiter,
   asyncHandler(async (req, res) => {
@@ -1441,6 +1485,7 @@ app.post(
       title: req.body?.title || '',
       projectId: req.body?.projectId || null,
       clientGenerationId,
+      clarifications: req.body?.clarifications || {},
       characterSystemPrompt: character.systemPrompt,
       accountSettings:
         character?.profile?.settings && typeof character.profile.settings === 'object'

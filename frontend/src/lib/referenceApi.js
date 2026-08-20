@@ -74,6 +74,9 @@ function createScriptFromVariation(variation, index) {
     fullContent: [sections.hook, '', sections.body, '', sections.cta].join('\n'),
     globalKnowledgeDebug: usedKnowledge,
     usedChunkIds,
+    estimatedDurationSeconds: Number.isFinite(Number(variation?.estimatedDurationSeconds))
+      ? Number(variation.estimatedDurationSeconds)
+      : null,
   }
 }
 
@@ -381,6 +384,7 @@ export async function generateScriptsFromTopic({
   accountId,
   projectId,
   clientGenerationId,
+  clarifications,
   signal,
 }) {
   const response = await apiFetch('/api/reference-videos/generate-topic', {
@@ -396,6 +400,7 @@ export async function generateScriptsFromTopic({
       accountId,
       projectId: projectId || null,
       clientGenerationId: clientGenerationId || '',
+      clarifications: clarifications || {},
     }),
     signal,
   })
@@ -406,6 +411,38 @@ export async function generateScriptsFromTopic({
   }
 
   return mapReferenceAnalysisToUi(payload.analysis)
+}
+
+export async function preflightScriptsFromTopic({
+  topic,
+  accountId,
+  clarifications,
+  signal,
+}) {
+  const response = await apiFetch('/api/reference-videos/topic-preflight', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    timeoutMs: 30 * 1000,
+    body: JSON.stringify({
+      topic: String(topic || '').trim(),
+      accountId,
+      clarifications: clarifications || {},
+    }),
+    signal,
+  })
+  const payload = await parseApiResponse(response)
+
+  if (!response.ok) {
+    throw createApiError(response, payload, '주제 정보를 확인하지 못했습니다.')
+  }
+
+  return {
+    ready: Boolean(payload.ready),
+    status: payload.status || (payload.ready ? 'ready' : 'clarification_required'),
+    inputQuality: payload.inputQuality || '',
+    questions: Array.isArray(payload.questions) ? payload.questions : [],
+    inferredContext: payload.inferredContext || {},
+  }
 }
 
 function appendAccountQuery(path, accountId) {
