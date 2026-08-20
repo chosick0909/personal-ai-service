@@ -538,19 +538,19 @@ export async function generateTopicOnlyScripts({
     }
 
     const qualityPassed = hardValidation.ok && evaluations.every((item) => item.pass)
-    if (!qualityPassed) {
-      throw new AppError('품질 기준을 충족하는 대본을 만들지 못했습니다. 주제를 조금 더 구체화해 다시 시도해주세요.', {
-        code: 'TOPIC_QUALITY_GATE_FAILED',
-        statusCode: 422,
-        details: { issuesByIndex: hardValidation.issuesByIndex, evaluations },
-        exposeMessage: true,
-      })
-    }
 
     const topicBrief = {
       ...planning,
       estimatedDurationSeconds: hardValidation.metricsByIndex.map((item) => item.estimatedSeconds),
       qualityScores: evaluations,
+      qualityGatePassed: qualityPassed,
+      qualityWarnings: qualityPassed
+        ? []
+        : hardValidation.issuesByIndex.map((issues, index) => ({
+            key: TOPIC_VARIATION_CONFIGS[index].key,
+            issues,
+            evaluationIssues: evaluations[index]?.issues || [],
+          })),
       repaired: failingIndexes.length > 0,
     }
     const completedAt = new Date().toISOString()
