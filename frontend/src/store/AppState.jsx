@@ -219,11 +219,21 @@ function hasMeaningfulAccountSettings(profile) {
   const strategyPreferences = Array.isArray(settings.strategyPreferences)
     ? settings.strategyPreferences.filter((item) => hasNonEmptyText(String(item || '')))
     : []
+  const voiceTones = Array.isArray(settings.voiceTones)
+    ? settings.voiceTones.filter((item) => hasNonEmptyText(String(item || '')))
+    : []
 
   return (
+    hasNonEmptyText(profile?.tone) ||
+    hasNonEmptyText(profile?.persona) ||
+    hasNonEmptyText(profile?.target_audience) ||
+    hasNonEmptyText(profile?.targetAudience) ||
+    hasNonEmptyText(profile?.goal) ||
+    hasNonEmptyText(profile?.strategy) ||
     hasNonEmptyText(settings.category) ||
     hasNonEmptyText(settings.accountGoal) ||
     hasNonEmptyText(settings.voiceTone) ||
+    voiceTones.length > 0 ||
     hasNonEmptyText(settings.characterPrompt) ||
     hasNonEmptyText(settings.aiAdditionalInfo) ||
     hasConfiguredProducts(settings.products) ||
@@ -1627,7 +1637,15 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const isAccountConfigured = (accountId) => Boolean(accountId && accountSetupMap[accountId])
+  const isAccountConfigured = (accountId) => {
+    if (!accountId) {
+      return false
+    }
+
+    // An absent entry means the profile check is still pending or temporarily failed.
+    // Only an explicit false value should show the account as needing setup.
+    return accountSetupMap[accountId] !== false
+  }
 
   const deleteProject = async (projectId) => {
     if (!projectId) {
