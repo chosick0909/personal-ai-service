@@ -79,6 +79,7 @@ export default function UploadSection() {
     uploadInputModeHint,
     clearUploadInputModeHint,
     currentAccount,
+    ensureTopicAccount,
   } = useAppState()
   const [generationMode, setGenerationMode] = useState('reference')
   const [inputMode, setInputMode] = useState('video')
@@ -336,11 +337,6 @@ export default function UploadSection() {
       setLocalUploadError('기획할 릴스 주제를 2자 이상 입력해주세요.')
       return
     }
-    if (!currentAccount?.id) {
-      setLocalUploadError('대본을 기획할 계정을 먼저 선택해주세요.')
-      return
-    }
-
     const missingQuestion = topicClarificationQuestions.find(
       (question) => !String(topicClarifications[question.id] || '').trim(),
     )
@@ -352,9 +348,12 @@ export default function UploadSection() {
     setLocalUploadError('')
     setIsTopicPreflighting(true)
     try {
+      const topicAccount = currentAccount?.id
+        ? currentAccount
+        : await ensureTopicAccount()
       const preflight = await preflightScriptsFromTopic({
         topic: normalizedTopic,
-        accountId: currentAccount.id,
+        accountId: topicAccount.id,
         clarifications: topicClarifications,
       })
 
@@ -376,6 +375,7 @@ export default function UploadSection() {
       await generateTopicScripts(normalizedTopic, {
         title: uploadTitle,
         clarifications: topicClarifications,
+        accountId: topicAccount.id,
       })
     } catch (error) {
       const isTimeout = error?.name === 'AbortError' || /request timeout|timeout/i.test(String(error?.message || error))

@@ -525,8 +525,14 @@ export function AppStateProvider({ children }) {
   const canceledAnalysisTokensRef = useRef(new Set())
   const currentUserIdRef = useRef(null)
   const isSavingVersionRef = useRef(false)
+  const currentAccountRef = useRef(null)
+  const topicAccountPromiseRef = useRef(null)
   const isCurrentAccountRequest = (accountId) =>
     Boolean(accountId) && activeAccountIdRef.current === accountId
+
+  useEffect(() => {
+    currentAccountRef.current = currentAccount
+  }, [currentAccount])
 
   useEffect(() => {
     sanitizeOAuthUrlParams({ includeTokenParams: false })
@@ -1395,6 +1401,51 @@ export function AppStateProvider({ children }) {
     resetStudioForAccount()
 
     return created
+  }
+
+  const ensureTopicAccount = async () => {
+    if (currentAccountRef.current?.id) {
+      return currentAccountRef.current
+    }
+    if (topicAccountPromiseRef.current) {
+      return topicAccountPromiseRef.current
+    }
+
+    topicAccountPromiseRef.current = (async () => {
+      // The normal login bootstrap usually selects an account shortly after auth.
+      // Give it a brief chance to finish before using the recovery path.
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        if (currentAccountRef.current?.id) {
+          return currentAccountRef.current
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 100))
+      }
+
+      let availableAccounts = await listAccounts()
+      if (!availableAccounts.length) {
+        const emailPrefix = currentUser?.email?.split('@')[0]?.trim() || '기본 계정'
+        const created = await createAccount({ name: emailPrefix })
+        availableAccounts = [created]
+      }
+
+      const nextAccount = availableAccounts[0]
+      setAccounts(availableAccounts)
+      setStoredAccountId(nextAccount.id)
+      activeAccountIdRef.current = nextAccount.id
+      currentAccountRef.current = nextAccount
+      setCurrentAccount(nextAccount)
+      setAccountSetupMap((current) => ({
+        ...current,
+        [nextAccount.id]: current[nextAccount.id] ?? false,
+      }))
+      return nextAccount
+    })()
+
+    try {
+      return await topicAccountPromiseRef.current
+    } finally {
+      topicAccountPromiseRef.current = null
+    }
   }
 
   const deleteAccount = async (accountId) => {
@@ -2353,7 +2404,7 @@ export function AppStateProvider({ children }) {
   }
 
   const generateTopicScripts = async (topic, options = {}) => {
-    const requestAccountId = currentAccount?.id
+    const requestAccountId = options.accountId || currentAccount?.id
     const normalizedTopic = String(topic || '').trim()
     if (!requestAccountId) {
       throw new Error('계정을 먼저 선택하세요.')
@@ -3972,6 +4023,7 @@ export function AppStateProvider({ children }) {
       loadReferenceHistory,
       selectAccount,
       addAccount,
+      ensureTopicAccount,
       deleteAccount,
       isAccountConfigured,
       markAccountConfigured,
