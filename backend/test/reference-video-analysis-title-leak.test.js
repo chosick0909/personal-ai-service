@@ -6,6 +6,7 @@ const {
   buildAccountIdentityLeakGuardPrompt,
   buildTopicBrief,
   buildTopicFocusPrompt,
+  canReuseCachedAnalysis,
   extractReferenceSurfaceTerms,
   findAccountIdentityLeakage,
   findReferenceSurfaceLeakage,
@@ -15,6 +16,50 @@ const {
   validateTopicBriefAlignment,
   validateVariationAlignment,
 } = __referenceVideoAnalysisTest
+
+test('text reference cache requires the original transcript and all variations', () => {
+  const scriptText = '첫 문장입니다. 두 번째 문장입니다. 세 번째 문장입니다.'
+  const completeCache = {
+    transcript: scriptText,
+    variations: [{}, {}, {}],
+  }
+
+  assert.equal(
+    canReuseCachedAnalysis({ cachedAnalysis: completeCache, isTextReference: true, scriptText }),
+    true,
+  )
+  assert.equal(
+    canReuseCachedAnalysis({
+      cachedAnalysis: { ...completeCache, transcript: '' },
+      isTextReference: true,
+      scriptText,
+    }),
+    false,
+  )
+  assert.equal(
+    canReuseCachedAnalysis({
+      cachedAnalysis: { ...completeCache, variations: [] },
+      isTextReference: true,
+      scriptText,
+    }),
+    false,
+  )
+  assert.equal(
+    canReuseCachedAnalysis({
+      cachedAnalysis: completeCache,
+      isTextReference: true,
+      scriptText: `${scriptText} 다른 입력`,
+    }),
+    false,
+  )
+})
+
+test('video reference cache keeps its existing reuse behavior', () => {
+  assert.equal(
+    canReuseCachedAnalysis({ cachedAnalysis: {}, isTextReference: false }),
+    true,
+  )
+})
 
 test('empty reel topic never falls back to reference video title', () => {
   const referenceTitle = normalizeReferenceTitle({

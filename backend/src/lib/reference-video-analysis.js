@@ -4496,6 +4496,7 @@ async function persistReusedReferenceVideo({
   supabaseAdmin,
   accountId,
   referenceId = null,
+  sourceMode = 'video',
   projectId,
   title,
   topic,
@@ -4509,6 +4510,7 @@ async function persistReusedReferenceVideo({
     topic,
     original_filename: originalFilename,
     mime_type: mimeType || 'video/mp4',
+    source_mode: sourceMode,
     duration_seconds: cachedAnalysis.duration_seconds ?? null,
     transcript: cachedAnalysis.transcript || '',
     transcript_segments: cachedAnalysis.transcript_segments || [],
@@ -4543,6 +4545,7 @@ async function persistReusedReferenceVideo({
       'failure_message',
       'analysis_stage_metrics',
       'transcript_quality',
+      'source_mode',
       'processing_completed_at',
     ],
     detail: true,
@@ -4557,6 +4560,23 @@ async function persistReusedReferenceVideo({
   }
 
   return data
+}
+
+function canReuseCachedAnalysis({ cachedAnalysis, isTextReference, scriptText = '' }) {
+  if (!cachedAnalysis || typeof cachedAnalysis !== 'object') return false
+  if (!isTextReference) return true
+
+  const cachedTranscript = String(cachedAnalysis.transcript || '').trim()
+  const normalizedScriptText = String(scriptText || '').trim()
+  const cachedVariations = Array.isArray(cachedAnalysis.variations)
+    ? cachedAnalysis.variations
+    : []
+
+  return Boolean(
+    normalizedScriptText &&
+      cachedTranscript === normalizedScriptText &&
+      cachedVariations.length === VARIATION_CONFIGS.length,
+  )
 }
 
 export async function analyzeReferenceVideo({
@@ -4711,6 +4731,18 @@ export async function analyzeReferenceVideo({
     try {
       const cachedAnalysis = await getCacheJson(analysisReuseCacheKey)
       if (cachedAnalysis && typeof cachedAnalysis === 'object') {
+        if (!canReuseCachedAnalysis({
+          cachedAnalysis,
+          isTextReference,
+          scriptText: normalizedScriptText,
+        })) {
+          cacheLog('invalidate-incomplete-text-reference', {
+            accountId,
+            topic: normalizedTopic,
+            title: normalizedTitle,
+          })
+          throw new Error('cached text reference is missing its transcript or variations')
+        }
         const categoryGuard = buildCategoryGuard({
           accountSettings,
           characterSystemPrompt,
@@ -4763,6 +4795,7 @@ export async function analyzeReferenceVideo({
           supabaseAdmin,
           accountId,
           referenceId: processingReference.id,
+          sourceMode: isTextReference ? 'script_text' : 'video',
           projectId: normalizedProjectId,
           title: normalizedTitle,
           topic: normalizedTopic,
@@ -6488,6 +6521,7 @@ export const __referenceVideoAnalysisTest = {
   buildTopicBrief,
   buildTopicFocusPrompt,
   buildAccountIdentityLeakGuardPrompt,
+  canReuseCachedAnalysis,
   extractReferenceSurfaceTerms,
   findAccountSurfaceLeakage,
   findReferenceSurfaceLeakage,
