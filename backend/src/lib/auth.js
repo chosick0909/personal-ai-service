@@ -21,6 +21,47 @@ function extractBearerToken(authorizationHeader = '') {
   return header.slice('Bearer '.length).trim()
 }
 
+export async function verifyAccessToken(authClient, token) {
+  let data
+  let error
+
+  try {
+    const result = await authClient.auth.getClaims(token)
+    data = result?.data
+    error = result?.error
+  } catch (cause) {
+    throw new AppError('인증 서버 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', {
+      code: 'AUTH_SERVICE_UNAVAILABLE',
+      statusCode: 503,
+      exposeMessage: true,
+      cause,
+    })
+  }
+
+  if (error && isTransientFetchError(error)) {
+    throw new AppError('인증 서버 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', {
+      code: 'AUTH_SERVICE_UNAVAILABLE',
+      statusCode: 503,
+      exposeMessage: true,
+      cause: error,
+    })
+  }
+
+  const claims = data?.claims
+  if (error || !claims?.sub) {
+    throw new AppError('Invalid or expired authorization token', {
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      cause: error || undefined,
+    })
+  }
+
+  return {
+    userId: String(claims.sub),
+    email: String(claims.email || ''),
+  }
+}
+
 export async function requireAuth(req, _res, next) {
   try {
     const token = extractBearerToken(req.headers.authorization)
@@ -33,43 +74,7 @@ export async function requireAuth(req, _res, next) {
     }
 
     const authClient = getAuthVerifierClient()
-    let data
-    let error
-
-    try {
-      const result = await authClient.auth.getUser(token)
-      data = result?.data
-      error = result?.error
-    } catch (cause) {
-      throw new AppError('인증 서버 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', {
-        code: 'AUTH_SERVICE_UNAVAILABLE',
-        statusCode: 503,
-        exposeMessage: true,
-        cause,
-      })
-    }
-
-    if (error && isTransientFetchError(error)) {
-      throw new AppError('인증 서버 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', {
-        code: 'AUTH_SERVICE_UNAVAILABLE',
-        statusCode: 503,
-        exposeMessage: true,
-        cause: error,
-      })
-    }
-
-    if (error || !data?.user) {
-      throw new AppError('Invalid or expired authorization token', {
-        code: 'UNAUTHORIZED',
-        statusCode: 401,
-        cause: error || undefined,
-      })
-    }
-
-    req.auth = {
-      userId: data.user.id,
-      email: data.user.email || '',
-    }
+    req.auth = await verifyAccessToken(authClient, token)
 
     next()
   } catch (error) {
