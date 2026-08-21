@@ -4,7 +4,6 @@ import { supabase } from './supabase'
 
 const ENTITLEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const ENTITLEMENT_CACHE_VERSION = 3
-const ENTITLEMENT_REQUEST_TIMEOUT_MS = 20000
 const inFlightEntitlementRequests = new Map()
 
 async function getEntitlementCacheKey() {
@@ -129,9 +128,10 @@ export async function loadMyEntitlement({ referenceId, forceRefresh = false } = 
     let request = inFlightEntitlementRequests.get(requestKey)
     if (!request) {
       request = (async () => {
-        const response = await apiFetch(`/api/entitlements/me${query}`, {
-          timeoutMs: ENTITLEMENT_REQUEST_TIMEOUT_MS,
-        })
+        // Login access checks must wait for the server response. Aborting this
+        // request can incorrectly block a valid user while Railway or Supabase
+        // is waking up.
+        const response = await apiFetch(`/api/entitlements/me${query}`)
         const payload = await parseApiResponse(response)
 
         if (!response.ok) {
@@ -169,7 +169,6 @@ export async function applyCouponCode(couponCode) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ couponCode }),
-    timeoutMs: 10000,
   })
   const payload = await parseApiResponse(response)
 
