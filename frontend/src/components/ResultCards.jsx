@@ -179,7 +179,7 @@ export default function ResultCards() {
     ? referenceData.topicBrief
     : {}
   const hasTranscript = Boolean((referenceData?.transcript || '').trim())
-  const transcriptQualityLevel = String(referenceData?.transcript_quality?.level || '').toLowerCase()
+  const transcriptQualityLevel = String(referenceData?.transcriptQuality?.level || '').toLowerCase()
   const shouldBlockDraftsForMissingTranscript =
     !isTopicOnly &&
     generatedScripts.length === 0 &&
@@ -191,8 +191,11 @@ export default function ResultCards() {
     if (normalized) {
       return normalized
     }
+    if (referenceData?.sourceMode === 'script_text' && isReferenceProcessing) {
+      return '붙여넣은 대본과 생성 결과를 불러오고 있습니다.'
+    }
     return MISSING_TRANSCRIPT_DRAFT_MESSAGE
-  }, [referenceData?.transcript])
+  }, [isReferenceProcessing, referenceData?.sourceMode, referenceData?.transcript])
   const categoryPlaybook = referenceData?.categoryPlaybook || null
   const monetizationInsight =
     '돈 되는 릴스는 문제 상황이 구체적이고, 제품이나 서비스가 해결책으로 자연스럽게 이어져야 합니다. 전후 차이, 후기, 작은 증거가 붙고 CTA도 하나로 짧게 가야 다음 행동이 쉬워집니다. 너무 세게 파는 느낌보다 “필요하면 다음 단계로” 연결되는 흐름이 전환에 더 유리합니다.'

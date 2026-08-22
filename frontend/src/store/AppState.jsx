@@ -161,6 +161,14 @@ function hasNonEmptyText(value) {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function isCompleteTextReferenceResult(reference = {}, generatedScripts = []) {
+  if (reference?.sourceMode !== 'script_text') {
+    return true
+  }
+
+  return hasNonEmptyText(reference?.transcript) && generatedScripts.length === 3
+}
+
 function getVariantIndexFromScriptId(value = '') {
   const match = String(value || '').match(/script-(\d+)/i)
   if (!match) return null
@@ -1815,21 +1823,33 @@ export function AppStateProvider({ children }) {
     activate = true,
   }) => {
     const rawStatus = String(analysis?.reference?.status || '').trim()
-    const completed = rawStatus === 'completed' || rawStatus === 'ready'
+    const nextGeneratedScripts = Array.isArray(analysis?.generatedScripts)
+      ? analysis.generatedScripts
+      : []
+    const textResultComplete = isCompleteTextReferenceResult(
+      analysis?.reference,
+      nextGeneratedScripts,
+    )
+    const completed =
+      (rawStatus === 'completed' || rawStatus === 'ready') && textResultComplete
     const nextReference = {
       ...baseReference,
       ...analysis.reference,
-      status: completed ? 'ready' : rawStatus || baseReference.status || 'ready',
+      status: completed
+        ? 'ready'
+        : !textResultComplete
+          ? 'processing'
+          : rawStatus || baseReference.status || 'ready',
     }
 
     if (activate) {
       activeReferenceIdRef.current = nextReference.id
       setReferenceData(nextReference)
-      setGeneratedScripts(analysis.generatedScripts || [])
+      setGeneratedScripts(nextGeneratedScripts)
     }
     setCachedReferenceDetail(accountId, nextReference.id, {
       reference: nextReference,
-      generatedScripts: analysis.generatedScripts || [],
+      generatedScripts: nextGeneratedScripts,
     })
     setReferenceHistory((current) =>
       current.map((item) =>
@@ -1837,7 +1857,7 @@ export function AppStateProvider({ children }) {
           ? {
               ...item,
               ...nextReference,
-              generatedScripts: analysis.generatedScripts || [],
+              generatedScripts: nextGeneratedScripts,
               lastStep: completed ? 'result' : item.lastStep,
             }
           : item,
@@ -1856,6 +1876,10 @@ export function AppStateProvider({ children }) {
           setIsResultEntering(false)
         }
       }, 420)
+    } else if (!textResultComplete && activate && !hasNonEmptyText(nextReference.transcript)) {
+      setCurrentStep('analyzing')
+      setIsAnalyzing(true)
+      setUploadPhase('server-accepted')
     }
   }
 
@@ -2339,9 +2363,11 @@ export function AppStateProvider({ children }) {
       const completedReference = {
         ...localReference,
         ...analysis.reference,
-        status: isProcessingLikeReferenceStatus(analysis.reference?.status)
-          ? analysis.reference.status
-          : 'ready',
+        status:
+          isProcessingLikeReferenceStatus(analysis.reference?.status) ||
+          !isCompleteTextReferenceResult(analysis.reference, analysis.generatedScripts || [])
+            ? 'processing'
+            : 'ready',
       }
       if (!isProcessingLikeReferenceStatus(completedReference.status)) {
         void refreshEntitlement({ referenceId: completedReference.id, silent: true })
@@ -2356,17 +2382,19 @@ export function AppStateProvider({ children }) {
           reference: completedReference,
         },
       })
-      if (isProcessingLikeReferenceStatus(completedReference.status) && completedReference.hasAnalysisPreview) {
+      if (isProcessingLikeReferenceStatus(completedReference.status)) {
         keepAnalyzingAfterAccepted = true
-        setCurrentStep('result')
         setUploadPhase('server-accepted')
         setIsAnalyzing(true)
-        setIsResultEntering(true)
-        window.setTimeout(() => {
-          if (isCurrentAccountRequest(requestAccountId)) {
-            setIsResultEntering(false)
-          }
-        }, 420)
+        if (completedReference.hasAnalysisPreview && hasNonEmptyText(completedReference.transcript)) {
+          setCurrentStep('result')
+          setIsResultEntering(true)
+          window.setTimeout(() => {
+            if (isCurrentAccountRequest(requestAccountId)) {
+              setIsResultEntering(false)
+            }
+          }, 420)
+        }
       }
     } catch (error) {
       if (!isCurrentAnalysisRequest()) {
