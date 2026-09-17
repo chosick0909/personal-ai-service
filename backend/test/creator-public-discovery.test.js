@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { accountSearchQueries, profileUsername, searchProfiles, normalizePublicProfiles, normalizePublicReels, publicAccountCandidates } from '../src/creator-tools/public-discovery.js'
+import { accountSearchQueries, profileUsername, searchProfiles, normalizePublicProfiles, normalizePublicReels, publicAccountCandidates, obviousBrandAccount } from '../src/creator-tools/public-discovery.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from '../src/creator-tools/categories.js'
 import { normalizeBrief } from '../src/creator-tools/domain.js'
 import { discoverAccounts } from '../src/creator-tools/discovery.js'
@@ -44,6 +44,18 @@ test('verified public accounts qualify; private, unsolicited and mismatched reco
   const sparse = normalizePublicProfiles([profile('ordinary', { followers: '100k', posts: [{ url: 'https://evil.test/p/1', datetime: '2026-09-10' }] })], ['ordinary'], now)[0]
   assert.equal(sparse.profile.followers, null); assert.equal(sparse.last_active_at, null)
 })
+test('clear brand and official-account signals are rejected without excluding an individual business account', () => {
+  assert.equal(obviousBrandAccount(profile('kahi_official'), 'kahi_official'), true)
+  assert.equal(obviousBrandAccount(profile('shop', { account:'ordinary_shop', full_name:'정리 상점' }), 'ordinary_shop'), true)
+  assert.equal(obviousBrandAccount(profile('brand', { account:'plainname', category_name:'Product/Service' }), 'plainname'), true)
+  assert.equal(obviousBrandAccount(profile('creator', { account:'jiwoo.home', is_business_account:true, full_name:'김지우', biography:'두 아이 엄마의 정리 기록' }), 'jiwoo.home'), false)
+  const rows = normalizePublicProfiles([
+    profile('kahi_official'),
+    profile('plainname', { full_name:'KAHI', biography:'브랜드 공식 계정' }),
+    profile('jiwoo.home', { is_business_account:true, full_name:'김지우', biography:'두 아이 엄마의 정리 기록' }),
+  ], ['kahi_official', 'plainname', 'jiwoo.home'], now)
+  assert.deepEqual(rows.map(row => row.username), ['jiwoo.home'])
+})
 test('reel reach evidence must match the requested URL owner and have a numeric view count', () => {
   const owners = new Map([['https://www.instagram.com/reel/ordinary12/', 'ordinary']])
   const rows = normalizePublicReels([
@@ -62,7 +74,7 @@ function context() {
     providers: { searchAccounts: async (_q, region, page) => { calls.push(['search', region, page]); return ['ordinary', 'private'] },
       publicProfiles: async names => { calls.push(['profiles', names]); return [profile('ordinary'), profile('private', { is_private: true })] },
       publicReels: async urls => { calls.push(['reels', urls]); return urls.map(url => ({ input:{ url }, url, user_posted:'ordinary', video_play_count:600000 })) },
-      json: async () => ({ accounts: [{ username: 'ordinary', topic: 95, target: 80, format: 80, reasons: ['수납 주제'], referencePoints: ['정리 순서'] }, { username: 'hallucinated', topic: 100 }] }) }, calls, stages }
+      json: async () => ({ accounts: [{ username: 'ordinary', accountType:'individual_creator', accountTypeEvidence:['개인의 경험과 관점이 확인됨'], categoryMatch:95, reasons: ['수납 주제'], referencePoints: ['정리 순서'] }, { username: 'hallucinated', accountType:'individual_creator', categoryMatch:100 }] }) }, calls, stages }
 }
 test('discovery works with no catalog or Meta, filters hallucinations and caches verified evidence', async () => {
   const ctx = context()
@@ -76,12 +88,27 @@ test('discovery works with no catalog or Meta, filters hallucinations and caches
   await publicAccountCandidates(ctx, new Set())
   assert.equal(ctx.calls.filter(c => c[0] === 'profiles').length, 1)
 })
+test('AI account-type verification excludes brands and unknown account types after numeric checks', async () => {
+  const ctx = context()
+  ctx.providers.searchAccounts = async () => ['person', 'commercialpage', 'unknownpage']
+  ctx.providers.publicProfiles = async () => [profile('person'), profile('commercialpage'), profile('unknownpage')]
+  ctx.providers.publicReels = async urls => urls.map(url => ({ input:{ url }, url, user_posted:url.match(/reel\/([^/]+)12/)?.[1], views:600000 }))
+  ctx.providers.json = async () => ({ accounts: [
+    { username:'person', accountType:'individual_creator', accountTypeEvidence:['개인 이름과 경험 중심'], categoryMatch:90 },
+    { username:'commercialpage', accountType:'brand', accountTypeEvidence:['제품 브랜드'], categoryMatch:95 },
+    { username:'unknownpage', accountType:'unknown', accountTypeEvidence:['근거 부족'], categoryMatch:85 },
+  ] })
+  const result = await discoverAccounts(ctx)
+  assert.deepEqual(result.accounts.map(row => row.username), ['person'])
+  assert.equal(result.accounts[0].accountType, 'individual_creator')
+})
 test('selected follower range and 500k reach are hard requirements', async () => {
   const ctx = context()
   ctx.job.input = { ...brief, accountSize:'50k_200k' }
   ctx.providers.publicProfiles = async () => [profile('too_small', { followers:4077 }), profile('qualified', { followers:50000 }), profile('too_large', { followers:200000 })]
   ctx.providers.searchAccounts = async () => ['too_small', 'qualified', 'too_large']
   ctx.providers.publicReels = async urls => urls.map(url => ({ input:{ url }, url, user_posted:url.includes('qualified12') ? 'qualified' : 'too_small', views:url.includes('qualified12') ? 500000 : 499999 }))
+  ctx.providers.json = async () => ({ accounts:[{ username:'qualified', accountType:'individual_creator', accountTypeEvidence:['개인 경험 중심'], categoryMatch:90 }] })
   const result = await discoverAccounts(ctx)
   assert.deepEqual(result.accounts.map(row => row.username), ['qualified'])
   assert.equal(result.accounts[0].followers, 50000)

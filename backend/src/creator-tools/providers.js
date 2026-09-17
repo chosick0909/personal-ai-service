@@ -130,7 +130,8 @@ export function createProviders({ db, redis, job, signal }) {
     if (!key) fail('ACCOUNT_PROVIDER_NOT_CONFIGURED', '공개 계정 조회 서비스 연결이 필요합니다.', 503)
     return collectDataset({ input: names.map(name => ({ url: `https://www.instagram.com/${name}/` })),
       dataset: process.env.BRIGHT_DATA_PROFILES_DATASET || 'gd_l1vikfch901nx3by4', receiptKey: 'accountProfilesReceipt', checkpoint, signal,
-      fields: ['account', 'url', 'profile_url', 'is_private', 'biography', 'full_name', 'followers', 'posts_count', 'posts', 'error', 'error_code'],
+      fields: ['account', 'url', 'profile_url', 'is_private', 'biography', 'full_name', 'followers', 'posts_count', 'posts',
+        'category_name', 'business_category_name', 'external_url', 'is_business_account', 'is_professional_account', 'is_verified', 'error', 'error_code'],
       request: (operation, path, options) => call('brightdata', `profiles-${operation}`, () => fetchJson(`https://api.brightdata.com/datasets/v3${path}`,
         { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal, operation === 'download' ? 8 * 1024 * 1024 : undefined)) })
   }

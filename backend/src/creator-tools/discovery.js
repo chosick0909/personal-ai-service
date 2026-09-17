@@ -51,7 +51,7 @@ export async function discoverAccounts(ctx) {
   if (!catalog.length) return { accounts: [], sourceStatus: 'no_verified_match',
     message: '선택한 팔로워 범위와 50만 이상 조회 콘텐츠 보유 조건을 모두 공개 데이터로 확인한 계정이 없습니다.', metricsAsOf: null }
   await stage('ranking_accounts')
-  const rankKey = `creator:ranking:${stableHash([job.user_id, input, catalog])}`
+  const rankKey = `creator:ranking:v2:${stableHash([job.user_id, input, catalog])}`
   const cachedRanking = await redis.get(rankKey)
   const frameSources = catalog.slice(0, 8).flatMap(row => row.profile.exampleMedia.filter(media => media.imageUrl).slice(0, 1)
     .map(media => ({ url: media.imageUrl, label: `@${row.username} 최근 공개 게시물 이미지 · ${media.permalink}` }))).slice(0, 8)
@@ -62,16 +62,19 @@ export async function discoverAccounts(ctx) {
   if (!cachedRanking) {
     try {
       ranking = await providers.json('rank-accounts',
-        '선택 카테고리와 실제 공개 프로필·최근 게시물 캡션·첨부 이미지 표본만 평가하세요. 모든 후보를 반환하세요. 얼굴은 이미지에서 직접 확인된 경우에만 visible, 얼굴이 없는 표본만 확인되면 hidden, 섞이면 mixed, 판단 불가면 unknown입니다. reasons에는 이 계정에서 관찰된 주제·전달 방식의 특징을 쓰고, referencePoints에는 이용자가 자신의 경험과 주제로 독립적인 콘텐츠를 기획할 때 확인할 질문이나 관점을 쓰세요. 원문 표현·사례·구성을 따라 하거나 복제하도록 제안하지 마세요. JSON {accounts:[{username,categoryMatch:0..100,faceVisibility:"visible|hidden|mixed|unknown",contentFormats:["talking|tutorial|vlog|before_after|review|text"],language:"ko|en|ja|unknown",reasons:[한국어],referencePoints:[한국어]}]}. 수치나 신원을 만들지 마세요.',
+        '선택 카테고리와 실제 공개 프로필·최근 게시물 캡션·첨부 이미지 표본만 평가하고 모든 후보를 반환하세요. accountType은 한 개인의 이름·얼굴·경험·관점이 콘텐츠의 중심이라고 공개 근거로 확인될 때만 individual_creator입니다. 제품 브랜드·공식몰·상점·회사·기관·미디어·출판사·에이전시·팀은 brand 또는 organization, 근거가 부족하면 unknown입니다. 프로페셔널/비즈니스 계정 설정만으로 개인이라고 판단하지 마세요. 얼굴은 이미지에서 직접 확인된 경우에만 visible, 얼굴이 없는 표본만 확인되면 hidden, 섞이면 mixed, 판단 불가면 unknown입니다. reasons에는 이 계정에서 관찰된 주제·전달 방식의 특징을 쓰고, referencePoints에는 이용자가 자신의 경험과 주제로 독립적인 콘텐츠를 기획할 때 확인할 질문이나 관점을 쓰세요. 원문 표현·사례·구성을 따라 하거나 복제하도록 제안하지 마세요. JSON {accounts:[{username,accountType:"individual_creator|brand|organization|unknown",accountTypeEvidence:[한국어],categoryMatch:0..100,faceVisibility:"visible|hidden|mixed|unknown",contentFormats:["talking|tutorial|vlog|before_after|review|text"],language:"ko|en|ja|unknown",reasons:[한국어],referencePoints:[한국어]}]}. 수치나 신원을 만들지 마세요.',
         { selection: input, candidates: catalog.map(r => ({ username:r.username, biography:r.profile.biography, followers:r.profile.followers,
+          displayName:r.profile.displayName, categoryName:r.profile.categoryName, businessCategoryName:r.profile.businessCategoryName,
+          externalUrl:r.profile.externalUrl, isBusiness:r.profile.isBusiness, isVerified:r.profile.isVerified,
           postsCount:r.profile.postsCount, recentPosts:r.profile.exampleMedia.map(p => ({ permalink:p.permalink, caption:p.caption, timestamp:p.timestamp, contentType:p.contentType })) })) }, frames)
       if (!Array.isArray(ranking.accounts)) ranking = { accounts: [] }
     } catch { ranking = { accounts: [] } }
     await redis.set(rankKey, JSON.stringify(ranking), 'EX', 21600)
   }
   const ranked = new Map(ranking.accounts.filter(Boolean).map(item => [item.username, item]))
-  const accounts = catalog.map((row) => {
+  const accounts = catalog.flatMap((row) => {
     const rank = ranked.get(row.username) || {}
+    if (rank.accountType !== 'individual_creator') return []
     const checks = {
       faceVisibility: input.faceVisibility === 'any' ? true : rank.faceVisibility === input.faceVisibility,
       contentFormat: input.contentFormat === 'any' ? true : Array.isArray(rank.contentFormats) ? rank.contentFormats.includes(input.contentFormat) : null,
@@ -90,11 +93,14 @@ export async function discoverAccounts(ctx) {
       exampleMedia: (row.profile.exampleMedia || []).slice(0, 3).map(({ permalink, caption, timestamp, likes, comments }) => ({ permalink, caption, timestamp, likes, comments })), metricsAsOf: row.verified_at,
       engagementAvailable: Number.isFinite(row.profile.engagementScore),
       lastActiveAt: row.last_active_at, source: row.source, followers: row.profile.followers, postsCount: row.profile.postsCount,
-      maxViews: row.profile.maxViews, viralMedia: row.profile.viralMedia,
+      maxViews: row.profile.maxViews, viralMedia: row.profile.viralMedia, accountType: 'individual_creator',
+      accountTypeEvidence: strings(rank.accountTypeEvidence).slice(0, 2),
       saved: preferences.some((p) => p.username === row.username && p.preference === 'saved') }]
-  }).flat().sort((a, b) => b.matchScore - a.matchScore).slice(0, 12)
+  }).sort((a, b) => b.matchScore - a.matchScore).slice(0, 12)
+  if (!accounts.length) return { accounts: [], sourceStatus: 'no_verified_match',
+    message: '팔로워·조회수 조건을 충족하면서 개인 크리에이터로 확인된 계정이 없습니다.', metricsAsOf: null }
   return { accounts, sourceStatus: 'public_search',
-    message: '선택한 팔로워 범위와 50만 이상 조회 콘텐츠 보유를 공개 데이터로 확인한 계정만 표시합니다.' }
+    message: '개인 크리에이터 여부, 선택한 팔로워 범위, 50만 이상 조회 콘텐츠 보유를 공개 데이터로 확인한 계정만 표시합니다.' }
 }
 
 export async function discoverKeywords(ctx) {

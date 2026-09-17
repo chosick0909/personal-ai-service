@@ -29,6 +29,15 @@ export function searchProfiles(response) {
 }
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null
 const short = (value, max) => typeof value === 'string' ? value.slice(0, max) : ''
+const normalizedText = value => short(value, 2000).normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+const brandUsername = /(^|[._])(official|shop|store|brand|corp|company)([._]|$)/i
+const brandCategory = /(brand|product\/service|shopping\s*&\s*retail|company|corporation|local business|cosmetics store|브랜드|제품.?서비스|쇼핑.?소매|회사|기업)/i
+const brandIdentity = /(공식\s*(계정|인스타그램|채널)|브랜드\s*공식|official\s*(account|instagram|channel)|주식회사|\binc\.?\b|\bcorp(?:oration)?\b|\bcompany\b)/i
+export function obviousBrandAccount(record, username) {
+  const category = `${normalizedText(record?.category_name)} ${normalizedText(record?.business_category_name)}`
+  const identity = `${normalizedText(record?.full_name || record?.profile_name)} ${normalizedText(record?.biography)}`
+  return brandUsername.test(username || '') || brandCategory.test(category) || brandIdentity.test(identity)
+}
 const accountSizeMatches = (followers, choice) => {
   if (choice === 'any') return Number.isFinite(followers)
   if (!Number.isFinite(followers)) return false
@@ -55,6 +64,9 @@ export function normalizePublicProfiles(records, requested, now = Date.now()) {
     if (!allowed.has(name) || seen.has(name)) return []
     // Do not allow a different provider URL to be attributed to this username.
     if ([record.url, record.profile_url].some(url => url && profileUsername(url) !== name)) return []
+    // Clear company/shop/official-account signals are rejected before paid reach checks.
+    // A business-account flag alone is not sufficient because individual creators also use it.
+    if (obviousBrandAccount(record, name)) return []
     seen.add(name)
     const posts = (Array.isArray(record.posts) ? record.posts : []).slice(0, 30).flatMap(post => {
       const permalink = postUrl(post.url)
@@ -67,6 +79,9 @@ export function normalizePublicProfiles(records, requested, now = Date.now()) {
         displayName: short(record.full_name || record.profile_name, 150), followers: count(record.followers),
         postsCount: count(record.posts_count), isProfessional: record.is_professional_account === true ? true : null,
         isBusiness: record.is_business_account === true ? true : null,
+        categoryName: short(record.category_name, 150), businessCategoryName: short(record.business_category_name, 150),
+        externalUrl: typeof record.external_url === 'string' && /^https:\/\//.test(record.external_url) ? short(record.external_url, 1000) : null,
+        isVerified: record.is_verified === true ? true : null,
         exampleMedia: posts.slice(0, 12), engagementScore: null, maxViews: null, viralMedia: null } }]
   })
 }
@@ -91,8 +106,8 @@ export function normalizePublicReels(records, owners) {
 export async function publicAccountCandidates(ctx, excluded) {
   const { providers, job, redis, checkpoint, stage } = ctx
   const input = job.input
-  const cacheKey = `creator:public-search:v5:${stableHash([input, [...excluded].sort()])}`
-  const poolKey = `creator:verified-category-pool:v2:${input.region}:${input.category}`
+  const cacheKey = `creator:public-search:v6:${stableHash([input, [...excluded].sort()])}`
+  const poolKey = `creator:verified-category-pool:v3:${input.region}:${input.category}`
   const cached = await redis.get(cacheKey)
   if (cached) return JSON.parse(cached).filter(row => !excluded.has(row.username))
   const pooled = JSON.parse(await redis.get(poolKey) || '[]')
@@ -114,7 +129,10 @@ export async function publicAccountCandidates(ctx, excluded) {
     catch { fresh = [] }
   }
   const merged = new Map([...pooled, ...fresh].map(row => [row.username, row]))
-  const candidates = [...merged.values()].filter(row => !excluded.has(row.username) && accountSizeMatches(row.profile.followers, input.accountSize))
+  const candidates = [...merged.values()].filter(row => !excluded.has(row.username)
+    && !obviousBrandAccount({ full_name:row.profile.displayName, biography:row.profile.biography,
+      category_name:row.profile.categoryName, business_category_name:row.profile.businessCategoryName }, row.username)
+    && accountSizeMatches(row.profile.followers, input.accountSize))
   const owners = new Map(candidates.flatMap(row => row.profile.exampleMedia.map(media => [media.permalink, row.username])).slice(0, 120))
   let viral = []
   if (owners.size) {
