@@ -11,8 +11,10 @@ export function createCreatorRouter() {
   const router = Router()
   const localPreview = () => process.env.CREATOR_LOCAL_PREVIEW_BYPASS_ENTITLEMENT === 'true'
     && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(process.env.CLIENT_ORIGIN || '')
-  const assertCreatorAccess = (req) => localPreview() ? Promise.resolve() : assertEntitlementAccess({ userId: req.auth.userId })
-  const referenceUsage = (req) => localPreview() ? Promise.resolve(null)
+  const staffPreview = () => process.env.CREATOR_TOOLS_BYPASS_ENTITLEMENT === 'true'
+  const bypassEntitlement = () => localPreview() || staffPreview()
+  const assertCreatorAccess = (req) => bypassEntitlement() ? Promise.resolve() : assertEntitlementAccess({ userId: req.auth.userId })
+  const referenceUsage = (req) => bypassEntitlement() ? Promise.resolve(null)
     : assertUsageAllowed({ userId: req.auth.userId, eventType: 'reference_analysis' })
   const enabled = (req, kind) => {
     if (!featureEnabled(kind, req.auth.userId)) fail('FEATURE_DISABLED', '아직 공개되지 않은 기능입니다.', 404)

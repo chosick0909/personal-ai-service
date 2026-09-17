@@ -3566,6 +3566,8 @@ function StudioShell() {
     refreshEntitlement,
     logout,
   } = useAppState()
+  const isCreatorStaffPreview = activeToolPage === 'creator-tools'
+    && import.meta.env.VITE_CREATOR_TOOLS_BYPASS_ENTITLEMENT === 'true'
   const forcedEntitlementRefreshKeyRef = useRef('')
   useEffect(() => {
     if (isAuthReady && !isLoggedIn && isCreatorStudioPath(window.location.pathname)) {
@@ -3598,7 +3600,7 @@ function StudioShell() {
     void refreshEntitlement({ silent: true, forceRefresh: true })
   }, [entitlementStatus, entitlementStatus?.entitlement?.id, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
 
-  if (!isAuthReady || !isEntitlementReady || (isLoggedIn && !entitlementStatus)) {
+  if (!isAuthReady || (!isCreatorStaffPreview && (!isEntitlementReady || (isLoggedIn && !entitlementStatus)))) {
     return (
       <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
         <div className="rounded-[24px] border border-[#2F3543] bg-[#121722] px-6 py-5 text-sm text-[#AEB6C5] shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
@@ -3612,7 +3614,7 @@ function StudioShell() {
     return <LoginScreen />
   }
 
-  if (entitlementStatus?.error && !entitlementStatus?.hasAccess) {
+  if (!isCreatorStaffPreview && entitlementStatus?.error && !entitlementStatus?.hasAccess) {
     const rawErrorText = String(entitlementStatus.error || '')
     const cleanedErrorText = rawErrorText
       .replace(/^\[[^\]]+\]\s*/, '')
@@ -3697,7 +3699,7 @@ function StudioShell() {
     )
   }
 
-  if (!entitlementStatus?.hasAccess) {
+  if (!isCreatorStaffPreview && !entitlementStatus?.hasAccess) {
     window.location.replace('/purchase')
     return null
   }
