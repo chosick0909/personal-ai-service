@@ -13,18 +13,54 @@ const feedbackSchema = { type: 'object', additionalProperties: false, required: 
     } } },
 } }
 export const FEEDBACK_AREAS = ['hook', 'flow', 'subtitles', 'information', 'cta']
+const fallbackFinding = (area) => ({
+  area, evidence: 'unverified', start: null, end: null,
+  problem: '확인되지 않음',
+  reason: '제공된 음성 전사·영상 표본·캡션만으로 이 항목을 충분히 확인하지 못했습니다.',
+  example: '해당 요소가 분명하게 드러나는 문구나 장면을 추가한 뒤 다시 확인하세요.',
+})
+
+function normalizeTiming(item, duration, sampleTimes) {
+  let evidence = item.evidence
+  let start = item.start === null ? null : Number(item.start)
+  let end = item.end === null ? null : Number(item.end)
+  const hasPair = start !== null && end !== null
+  const tolerance = Math.max(1, duration * 0.05)
+  const nearVideo = hasPair && Number.isFinite(start) && Number.isFinite(end) && end >= start
+    && start >= -tolerance && start <= duration + tolerance && end >= -tolerance && end <= duration + tolerance
+
+  if (hasPair && nearVideo) {
+    start = Math.max(0, Math.min(duration, start))
+    end = Math.max(start, Math.min(duration, end))
+  } else if (hasPair || start !== end) {
+    evidence = 'unverified'; start = null; end = null
+  }
+
+  // Caption-only and unverified observations must never claim a video range.
+  if (evidence === 'caption' || evidence === 'unverified') { start = null; end = null }
+  // A frame finding is valid only when its range includes an actual supplied sample.
+  if (evidence === 'frame' && (start === null || !sampleTimes.some(t => t >= start - 0.1 && t <= end + 0.1))) {
+    evidence = 'unverified'; start = null; end = null
+  }
+  return { evidence, start, end }
+}
+
 export function validateFeedback(raw, duration, sampleTimes) {
-  if (!raw || !Array.isArray(raw.findings) || !raw.findings.length || raw.findings.length > 15) fail('FEEDBACK_INVALID', '피드백 결과를 확인하지 못했습니다.', 422)
-  const findings = raw.findings.map(item => {
+  if (!raw || !Array.isArray(raw.findings)) fail('FEEDBACK_INVALID', '피드백 결과를 확인하지 못했습니다.', 422)
+  const findings = raw.findings.slice(0, 15).map(item => {
     if (!FEEDBACK_AREAS.includes(item.area) || !['transcript', 'frame', 'caption', 'unverified'].includes(item.evidence)) fail('FEEDBACK_INVALID', '피드백 근거 형식이 올바르지 않습니다.', 422)
-    const start = item.start === null ? null : Number(item.start)
-    const end = item.end === null ? null : Number(item.end)
-    if ((start === null) !== (end === null) || (start !== null && (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end > duration))) fail('FEEDBACK_INVALID', '피드백 구간을 확인하지 못했습니다.', 422)
-    if (item.evidence === 'frame' && (start === null || !sampleTimes.some(t => t >= start - 0.1 && t <= end + 0.1))) fail('FEEDBACK_INVALID', '영상 표본과 피드백 구간이 일치하지 않습니다.', 422)
-    return { area: item.area, evidence: item.evidence, start, end,
+    const { evidence, start, end } = normalizeTiming(item, duration, sampleTimes)
+    return { area: item.area, evidence, start, end,
       problem: textInput(item.problem, '문제', 1, 1000), reason: textInput(item.reason, '이유', 1, 1500), example: textInput(item.example, '수정 예시', 1, 1500) }
   })
-  if (!FEEDBACK_AREAS.every(area => findings.some(f => f.area === area))) fail('FEEDBACK_INVALID', '필수 피드백 항목이 누락되었습니다.', 422)
+  for (const area of FEEDBACK_AREAS) {
+    if (findings.some(f => f.area === area)) continue
+    if (findings.length >= 15) {
+      const duplicate = findings.findLastIndex(f => findings.filter(item => item.area === f.area).length > 1)
+      if (duplicate >= 0) findings.splice(duplicate, 1)
+    }
+    findings.push(fallbackFinding(area))
+  }
   return { findings, sampleTimes, scope: '음성 전사·최대 8개 영상 표본·입력 캡션 분석. 표본 사이의 모든 장면과 자막을 확인한 결과는 아닙니다.' }
 }
 export async function analyzeFeedback(ctx, input, directory, transcript, duration) {
