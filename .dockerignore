@@ -6,4 +6,8 @@ server/node_modules
 client/dist
 npm-debug.log
 .env
+.env.creator-tools
+frontend/test-results
+frontend/playwright-report
 .DS_Store
+artifacts

@@ -11,6 +11,7 @@ import { getAccountProfile, upsertAccountProfile } from './lib/account-profile.j
 import { getAccountCharacterContext } from './lib/account-character.js'
 import { resolveCopilotConversationReference } from './lib/copilot/conversation-context.js'
 import { requireAuth, requireAdmin } from './lib/auth.js'
+import { createCreatorRouter } from './creator-tools/routes.js'
 import { getOpenAIModels, hasOpenAIConfig } from './lib/openai.js'
 import {
   buildPersonalizationContext,
@@ -653,6 +654,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api', requireAuth)
+app.use('/api', createCreatorRouter())
 app.use('/api/admin', requireAdmin)
 
 app.get(

@@ -1,0 +1,19 @@
+FROM node:22-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY frontend/package.json ./frontend/package.json
+RUN npm ci --workspace frontend
+COPY frontend ./frontend
+# Public browser configuration only. Never pass service-role or provider keys here.
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_API_BASE_URL
+ARG VITE_AUTH_REDIRECT_URL
+ARG VITE_CREATOR_TOOLS_ENABLED=false
+ARG VITE_SENTRY_DSN
+ARG VITE_APP_RELEASE
+RUN npm run build --workspace frontend
+ENV NODE_ENV=production
+USER node
+WORKDIR /app/frontend
+CMD ["npm", "run", "serve"]

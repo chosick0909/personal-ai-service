@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import AppLayout from './components/AppLayout'
 import ChatPanel from './components/ChatPanel'
 import Editor from './components/Editor'
@@ -23,6 +23,9 @@ import logoWebp from './Logo.webp'
 import LandingScreen from './screens/LandingScreen'
 import { FABRIC_DARK_BACKGROUND } from './styles/fabricBackground'
 import { AppStateProvider, useAppState } from './store/AppState'
+import { isCreatorStudioPath } from './lib/creatorRoutes'
+const CreatorTools = lazy(() => import('./components/CreatorTools'))
+const CreatorToolsDemo = lazy(() => import('./components/CreatorToolsDemo'))
 
 const TRAIT_LABELS = {
   logic: '논리형',
@@ -3564,6 +3567,11 @@ function StudioShell() {
     logout,
   } = useAppState()
   const forcedEntitlementRefreshKeyRef = useRef('')
+  useEffect(() => {
+    if (isAuthReady && !isLoggedIn && isCreatorStudioPath(window.location.pathname)) {
+      window.location.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+    }
+  }, [isAuthReady, isLoggedIn])
   const toastToneClass = {
     loading: 'border-[#2F5F8F] bg-[#102033]/95 text-[#D8E9FF]',
     success: 'border-[#2F6B55] bg-[#10281F]/95 text-[#DCFCE7]',
@@ -3694,6 +3702,10 @@ function StudioShell() {
     return null
   }
 
+  if (activeToolPage === 'creator-tools') {
+    return <Suspense fallback={<div>도구 불러오는 중…</div>}><CreatorTools /></Suspense>
+  }
+
   return (
     <AppLayout
       sidebar={<Sidebar />}
@@ -3758,6 +3770,9 @@ function RecommendApp() {
 export default function App() {
   const pathname = window.location.pathname
 
+  if (/^\/tools\/demo\/?$/.test(pathname)) {
+    return <Suspense fallback={<div>시연 화면 준비 중…</div>}><CreatorToolsDemo /></Suspense>
+  }
   let content = <IntroApp />
 
   if (pathname.startsWith('/settings')) {
@@ -3768,7 +3783,7 @@ export default function App() {
     content = <SignupApp />
   } else if (pathname.startsWith('/purchase')) {
     content = <PurchaseApp />
-  } else if (pathname.startsWith('/analyze')) {
+  } else if (isCreatorStudioPath(pathname) || pathname.startsWith('/analyze')) {
     content = <StudioApp />
   } else if (pathname.startsWith('/recommend')) {
     content = <RecommendApp />
