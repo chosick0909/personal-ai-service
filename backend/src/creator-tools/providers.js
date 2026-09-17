@@ -134,6 +134,15 @@ export function createProviders({ db, redis, job, signal }) {
       request: (operation, path, options) => call('brightdata', `profiles-${operation}`, () => fetchJson(`https://api.brightdata.com/datasets/v3${path}`,
         { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal, operation === 'download' ? 8 * 1024 * 1024 : undefined)) })
   }
+  async function publicReels(urls, checkpoint) {
+    const key = process.env.BRIGHT_DATA_API_KEY
+    if (!key) fail('ACCOUNT_PROVIDER_NOT_CONFIGURED', '공개 릴스 조회 서비스 연결이 필요합니다.', 503)
+    return collectDataset({ input: urls.map(url => ({ url })),
+      dataset: process.env.BRIGHT_DATA_REELS_DATASET || 'gd_lyclm20il4r5helnj', receiptKey: 'accountReelsReceipt', checkpoint, signal,
+      fields: ['input', 'url', 'user_posted', 'views', 'video_play_count', 'error', 'error_code'],
+      request: (operation, path, options) => call('brightdata', `account-reels-${operation}`, () => fetchJson(`https://api.brightdata.com/datasets/v3${path}`,
+        { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal, operation === 'download' ? 8 * 1024 * 1024 : undefined)) })
+  }
   async function image(url) { return readPublicImage(url, signal) }
-  return { call, json, connection, meta, hashtag, brightData, searchAccounts, publicProfiles, image }
+  return { call, json, connection, meta, hashtag, brightData, searchAccounts, publicProfiles, publicReels, image }
 }

@@ -29,6 +29,12 @@ export function searchProfiles(response) {
 }
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null
 const short = (value, max) => typeof value === 'string' ? value.slice(0, max) : ''
+const accountSizeMatches = (followers, choice) => {
+  if (choice === 'any') return Number.isFinite(followers)
+  if (!Number.isFinite(followers)) return false
+  return choice === 'under_10k' ? followers < 10000 : choice === '10k_50k' ? followers >= 10000 && followers < 50000
+    : choice === '50k_200k' ? followers >= 50000 && followers < 200000 : followers >= 200000
+}
 function date(value, now) {
   const time = Date.parse(value)
   return Number.isFinite(time) && time <= now ? new Date(time).toISOString() : null
@@ -61,15 +67,32 @@ export function normalizePublicProfiles(records, requested, now = Date.now()) {
         displayName: short(record.full_name || record.profile_name, 150), followers: count(record.followers),
         postsCount: count(record.posts_count), isProfessional: record.is_professional_account === true ? true : null,
         isBusiness: record.is_business_account === true ? true : null,
-        exampleMedia: posts.slice(0, 6), engagementScore: null } }]
+        exampleMedia: posts.slice(0, 12), engagementScore: null, maxViews: null, viralMedia: null } }]
   })
+}
+
+export function normalizePublicReels(records, owners) {
+  if (!Array.isArray(records)) fail('PROFILE_REELS_INVALID_RESPONSE', '공개 릴스 조회수를 읽지 못했습니다.', 502)
+  const best = new Map()
+  for (const record of records) {
+    if (!record || record.error || record.error_code) continue
+    const requestedPermalink = postUrl(record.input?.url || record.url)
+    const permalink = postUrl(record.url || record.input?.url)
+    const expected = requestedPermalink && owners.get(requestedPermalink)
+    const actual = typeof record.user_posted === 'string' ? record.user_posted.replace(/^@/, '').toLowerCase() : null
+    const views = [count(record.video_play_count), count(record.views)].filter(Number.isFinite).sort((a,b) => b-a)[0]
+    if (!expected || actual !== expected || !Number.isFinite(views)) continue
+    const current = best.get(expected)
+    if (!current || views > current.views) best.set(expected, { permalink, views })
+  }
+  return [...best.entries()].map(([username, media]) => ({ username, ...media }))
 }
 
 export async function publicAccountCandidates(ctx, excluded) {
   const { providers, job, redis, checkpoint, stage } = ctx
   const input = job.input
-  const cacheKey = `creator:public-search:v4:${stableHash([input, [...excluded].sort()])}`
-  const poolKey = `creator:verified-category-pool:v1:${input.region}:${input.category}`
+  const cacheKey = `creator:public-search:v5:${stableHash([input, [...excluded].sort()])}`
+  const poolKey = `creator:verified-category-pool:v2:${input.region}:${input.category}`
   const cached = await redis.get(cacheKey)
   if (cached) return JSON.parse(cached).filter(row => !excluded.has(row.username))
   const pooled = JSON.parse(await redis.get(poolKey) || '[]')
@@ -91,9 +114,24 @@ export async function publicAccountCandidates(ctx, excluded) {
     catch { fresh = [] }
   }
   const merged = new Map([...pooled, ...fresh].map(row => [row.username, row]))
-  const candidates = [...merged.values()].filter(row => !excluded.has(row.username))
+  const candidates = [...merged.values()].filter(row => !excluded.has(row.username) && accountSizeMatches(row.profile.followers, input.accountSize))
+  const owners = new Map(candidates.flatMap(row => row.profile.exampleMedia.map(media => [media.permalink, row.username])).slice(0, 120))
+  let viral = []
+  if (owners.size) {
+    await stage('verifying_reach')
+    try {
+      viral = await checkpoint('publicAccountReels', async () => normalizePublicReels(
+        await providers.publicReels([...owners.keys()], checkpoint), owners))
+    } catch { viral = [] }
+  }
+  const viralByAccount = new Map(viral.map(item => [item.username, item]))
+  const qualified = candidates.flatMap(row => {
+    const media = viralByAccount.get(row.username)
+    if (!media || media.views < 500000) return []
+    return [{ ...row, profile: { ...row.profile, maxViews: media.views, viralMedia: media } }]
+  })
   if (fresh.length) await redis.set(poolKey, JSON.stringify([...merged.values()].slice(0, 100)), 'EX', 604800)
   // Only public profile evidence is cached. User uploads/transcripts never enter this path.
-  await redis.set(cacheKey, JSON.stringify(candidates), 'EX', 900)
-  return candidates.filter(row => !excluded.has(row.username))
+  await redis.set(cacheKey, JSON.stringify(qualified), 'EX', 900)
+  return qualified.filter(row => !excluded.has(row.username))
 }

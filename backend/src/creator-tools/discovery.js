@@ -44,9 +44,12 @@ export async function discoverAccounts(ctx) {
   await stage('finding_accounts')
   const preferences = await query(db.from('creator_account_preferences').select('username,preference').eq('user_id', job.user_id))
   const excluded = new Set([...input.excludeAccounts, ...preferences.filter((p) => p.preference === 'excluded').map((p) => p.username)])
-  const catalog = await publicAccountCandidates(ctx, excluded)
-  if (!catalog.length) return { accounts: [], sourceStatus: 'provider_unavailable',
-    message: '현재 공급자에서 검증 가능한 공개 계정을 가져오지 못했습니다. 같은 조건으로 다시 요청해주세요.', metricsAsOf: null }
+  const catalog = (await publicAccountCandidates(ctx, excluded)).filter(row =>
+    sizeMatches(row.profile.followers, input.accountSize) === true
+    && Number.isFinite(row.profile.maxViews) && row.profile.maxViews >= 500000
+    && row.profile.viralMedia?.permalink)
+  if (!catalog.length) return { accounts: [], sourceStatus: 'no_verified_match',
+    message: '선택한 팔로워 범위와 50만 이상 조회 콘텐츠 보유 조건을 모두 공개 데이터로 확인한 계정이 없습니다.', metricsAsOf: null }
   await stage('ranking_accounts')
   const rankKey = `creator:ranking:${stableHash([job.user_id, input, catalog])}`
   const cachedRanking = await redis.get(rankKey)
@@ -59,7 +62,7 @@ export async function discoverAccounts(ctx) {
   if (!cachedRanking) {
     try {
       ranking = await providers.json('rank-accounts',
-        '선택 카테고리와 실제 공개 프로필·최근 게시물 캡션·첨부 이미지 표본만 평가하세요. 모든 후보를 반환하세요. 얼굴은 이미지에서 직접 확인된 경우에만 visible, 얼굴이 없는 표본만 확인되면 hidden, 섞이면 mixed, 판단 불가면 unknown입니다. JSON {accounts:[{username,categoryMatch:0..100,faceVisibility:"visible|hidden|mixed|unknown",contentFormats:["talking|tutorial|vlog|before_after|review|text"],language:"ko|en|ja|unknown",reasons:[한국어],referencePoints:[한국어]}]}. 수치나 신원을 만들지 마세요.',
+        '선택 카테고리와 실제 공개 프로필·최근 게시물 캡션·첨부 이미지 표본만 평가하세요. 모든 후보를 반환하세요. 얼굴은 이미지에서 직접 확인된 경우에만 visible, 얼굴이 없는 표본만 확인되면 hidden, 섞이면 mixed, 판단 불가면 unknown입니다. reasons에는 이 계정에서 관찰된 주제·전달 방식의 특징을 쓰고, referencePoints에는 이용자가 자신의 경험과 주제로 독립적인 콘텐츠를 기획할 때 확인할 질문이나 관점을 쓰세요. 원문 표현·사례·구성을 따라 하거나 복제하도록 제안하지 마세요. JSON {accounts:[{username,categoryMatch:0..100,faceVisibility:"visible|hidden|mixed|unknown",contentFormats:["talking|tutorial|vlog|before_after|review|text"],language:"ko|en|ja|unknown",reasons:[한국어],referencePoints:[한국어]}]}. 수치나 신원을 만들지 마세요.',
         { selection: input, candidates: catalog.map(r => ({ username:r.username, biography:r.profile.biography, followers:r.profile.followers,
           postsCount:r.profile.postsCount, recentPosts:r.profile.exampleMedia.map(p => ({ permalink:p.permalink, caption:p.caption, timestamp:p.timestamp, contentType:p.contentType })) })) }, frames)
       if (!Array.isArray(ranking.accounts)) ranking = { accounts: [] }
@@ -87,10 +90,11 @@ export async function discoverAccounts(ctx) {
       exampleMedia: (row.profile.exampleMedia || []).slice(0, 3).map(({ permalink, caption, timestamp, likes, comments }) => ({ permalink, caption, timestamp, likes, comments })), metricsAsOf: row.verified_at,
       engagementAvailable: Number.isFinite(row.profile.engagementScore),
       lastActiveAt: row.last_active_at, source: row.source, followers: row.profile.followers, postsCount: row.profile.postsCount,
+      maxViews: row.profile.maxViews, viralMedia: row.profile.viralMedia,
       saved: preferences.some((p) => p.username === row.username && p.preference === 'saved') }]
   }).flat().sort((a, b) => b.matchScore - a.matchScore).slice(0, 12)
   return { accounts, sourceStatus: 'public_search',
-    message: '선택 카테고리의 공개 계정입니다. 선택 조건과 정확히 일치하지 않는 경우 가장 가까운 계정을 추천하고 차이를 표시합니다.' }
+    message: '선택한 팔로워 범위와 50만 이상 조회 콘텐츠 보유를 공개 데이터로 확인한 계정만 표시합니다.' }
 }
 
 export async function discoverKeywords(ctx) {
