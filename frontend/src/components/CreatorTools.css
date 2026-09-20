@@ -222,7 +222,6 @@
 .ct-live .ct-insights .ct-history time {font-size:10px;}
 .ct-live .ct-insights .ct-status {justify-content:flex-end;}
 .ct-live .ct-insights .ct-history button>svg {display:none;}
-.ct-mobile-history {display:none;}
 .ct-live .ct-history-page {margin:0;padding:0;border:0;max-width:1100px;}
 .ct-live .ct-history-page .ct-section-heading {margin-bottom:8px;}
 .ct-live .ct-history-page button {background:var(--ct-panel);border:1px solid var(--ct-line);border-radius:7px;margin:8px 0;padding:16px;grid-template-columns:minmax(190px,1fr) minmax(170px,auto) 110px 18px;}
@@ -230,5 +229,5 @@
 .ct-live .ct-history-page .ct-job-title {font-size:13px;}
 .ct-live .ct-transcripts article {background:var(--ct-panel);border-color:var(--ct-line);}
 @media(max-width:1200px){.ct-studio-sidebar{width:190px}.ct-live .ct-workspace{margin-left:190px;padding-left:22px;padding-right:22px}.ct-live .ct-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}.ct-work-layout{grid-template-columns:minmax(0,1fr);gap:20px}}
-@media(max-width:950px){.ct-studio-sidebar{display:none}.ct-live .ct-workspace{margin-left:0}.ct-mobile-history{display:flex;width:max-content;margin:8px 0 28px;align-items:center;gap:8px}.ct-work-layout{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:950px){.ct-studio-sidebar{display:none}.ct-live .ct-workspace{margin-left:0}.ct-work-layout{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:700px){.ct-live .ct-live-user{display:none}.ct-live .ct-workspace{padding:12px 14px 32px}.ct-live .ct-header{min-height:auto;padding:10px 0 20px}.ct-live .ct-header h1{font-size:23px}.ct-live .ct-tabs{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.ct-live .ct-tabs button{min-height:94px;padding:11px}.ct-work-heading{align-items:flex-start;flex-wrap:wrap}.ct-work-heading>div{align-items:flex-start}.ct-work-heading h2{font-size:17px}.ct-work-layout{grid-template-columns:1fr}.ct-insights{position:static;max-height:none;border-left:0;border-top:1px solid var(--ct-line);padding:24px 0 0}.ct-live .ct-insights .ct-history button{grid-template-columns:minmax(0,1fr) auto}.ct-live .ct-insights .ct-history time{grid-column:1;grid-row:2;margin:0}.ct-live .ct-insights .ct-status{grid-column:2;grid-row:2}.ct-live .ct-transcripts{gap:12px}.ct-live .ct-brand span{display:none}.ct-live .ct-back{font-size:0}.ct-live .ct-back svg{width:20px;height:20px}}
