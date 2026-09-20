@@ -1,7 +1,8 @@
 import { recordAIUsageLogSafe } from './analytics-logger.js'
 
 const DEFAULT_MODEL_PRICES_PER_1M = {
-  'gpt-5.2': { input: 1.25, output: 10 },
+  'gpt-5.6-terra': { input: 2, output: 12 },
+  'gpt-5.2': { input: 1.75, output: 14 },
   'gpt-5.1': { input: 1.25, output: 10 },
   'gpt-5': { input: 1.25, output: 10 },
   'gpt-5-mini': { input: 0.25, output: 2 },

@@ -6,7 +6,7 @@ function getOpenAIConfig() {
   const apiKey = process.env.OPENAI_API_KEY?.trim()
   const chatModel = process.env.OPENAI_CHAT_MODEL?.trim() || 'gpt-4.1'
   const variationModel =
-    process.env.OPENAI_VARIATION_MODEL?.trim() || 'gpt-5.2'
+    process.env.OPENAI_VARIATION_MODEL?.trim() || 'gpt-5.6-terra'
   const copilotModel =
     process.env.OPENAI_COPILOT_MODEL?.trim() || variationModel
   const captionModel =

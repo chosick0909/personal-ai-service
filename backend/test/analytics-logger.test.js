@@ -31,6 +31,15 @@ test('AI usage cost estimator calculates known model estimates', () => {
     }),
     0.75,
   )
+  assert.deepEqual(getModelPricePer1M('gpt-5.6-terra'), { input:2, output:12 })
+  assert.equal(
+    estimateAIUsageCostUsd({
+      model: 'gpt-5.6-terra',
+      promptTokens: 1_000_000,
+      completionTokens: 1_000_000,
+    }),
+    14,
+  )
 })
 
 test('logAIUsage returns estimated cost without requiring Supabase config', () => {
