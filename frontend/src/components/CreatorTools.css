@@ -104,6 +104,8 @@
 .ct-transcripts article button { display:inline-flex; align-items:center; gap:6px; }
 .ct-transcripts p { white-space:pre-wrap; line-height:1.8; font-size:14px; overflow-wrap:anywhere; }
 .ct-copy-notice { margin:0 0 12px; color:#6f3dc3; font-size:13px; }
+.ct-link-support-note { margin:24px 0 12px; }
+.creator-tools .ct-link-upload-switch { margin:0 0 28px; }
 .ct-preferences { padding:20px 0; border-top:1px solid #e0e7e4; }
 .ct-preferences .ct-row { padding-top:12px; }
 @media(max-width:700px) {
@@ -228,5 +230,5 @@
 .ct-live .ct-history-page .ct-job-title {font-size:13px;}
 .ct-live .ct-transcripts article {background:var(--ct-panel);border-color:var(--ct-line);}
 @media(max-width:1200px){.ct-studio-sidebar{width:190px}.ct-live .ct-workspace{margin-left:190px;padding-left:22px;padding-right:22px}.ct-live .ct-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}.ct-work-layout{grid-template-columns:minmax(0,1fr);gap:20px}}
-@media(max-width:950px){.ct-studio-sidebar{display:none}.ct-live .ct-workspace{margin-left:0}.ct-mobile-history{display:inline-flex;margin:0 0 16px;align-items:center;gap:8px}.ct-work-layout{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:950px){.ct-studio-sidebar{display:none}.ct-live .ct-workspace{margin-left:0}.ct-mobile-history{display:flex;width:max-content;margin:8px 0 28px;align-items:center;gap:8px}.ct-work-layout{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:700px){.ct-live .ct-live-user{display:none}.ct-live .ct-workspace{padding:12px 14px 32px}.ct-live .ct-header{min-height:auto;padding:10px 0 20px}.ct-live .ct-header h1{font-size:23px}.ct-live .ct-tabs{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.ct-live .ct-tabs button{min-height:94px;padding:11px}.ct-work-heading{align-items:flex-start;flex-wrap:wrap}.ct-work-heading>div{align-items:flex-start}.ct-work-heading h2{font-size:17px}.ct-work-layout{grid-template-columns:1fr}.ct-insights{position:static;max-height:none;border-left:0;border-top:1px solid var(--ct-line);padding:24px 0 0}.ct-live .ct-insights .ct-history button{grid-template-columns:minmax(0,1fr) auto}.ct-live .ct-insights .ct-history time{grid-column:1;grid-row:2;margin:0}.ct-live .ct-insights .ct-status{grid-column:2;grid-row:2}.ct-live .ct-transcripts{gap:12px}.ct-live .ct-brand span{display:none}.ct-live .ct-back{font-size:0}.ct-live .ct-back svg{width:20px;height:20px}}
