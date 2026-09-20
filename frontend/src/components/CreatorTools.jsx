@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bookmark, ExternalLink, Search, Scissors, Link, TrendingUp, X, Sun, Moon, MessageSquare, RefreshCw, ArrowLeft, ArrowRight, SlidersHorizontal, Clock3, UploadCloud, Info, FileVideo, CheckCircle2, Copy, LayoutDashboard } from 'lucide-react'
+import { Bookmark, ExternalLink, Search, Scissors, Link, X, Sun, Moon, MessageSquare, RefreshCw, ArrowLeft, ArrowRight, SlidersHorizontal, Clock3, UploadCloud, Info, FileVideo, CheckCircle2, Copy, LayoutDashboard } from 'lucide-react'
 import { Upload } from 'tus-js-client'
 import { creatorRequest, safeInstagramHref } from '../lib/creatorApi'
 import { creatorStudioPath } from '../lib/creatorRoutes'
@@ -11,7 +11,6 @@ import hookLogo from '../Logo_1.webp'
 
 const tools = [
   { id: 'reference-accounts', label: '계정 인사이트', title: '내 주제에 맞는 계정 인사이트', note: '카테고리·조건별 공개 계정 분석', icon: Search },
-  { id: 'trend-keywords', label: '트렌드 키워드', title: '다음 콘텐츠의 키워드 찾기', note: '넓은 키워드와 관련 키워드 구분', icon: TrendingUp },
   { id: 'import-link', label: '링크 분석', title: '릴스 원문 대본 추출', note: '원문 추출·한국어 해석', icon: Link },
   { id: 'media-analyze', label: '컷편집·자막', title: '영상은 간결하게, 자막은 정확하게', note: '삭제 구간과 자막 직접 편집', icon: Scissors },
   { id: 'feedback', label: '영상·캡션 피드백', title: '게시 전, 한 번 더 완성도 높이기', note: '영상·캡션의 개선점 확인', icon: MessageSquare },
@@ -81,7 +80,10 @@ function CreatorWorkspace() {
   const [referenceCategories, setReferenceCategories] = useState([])
   const [trendCategories, setTrendCategories] = useState([])
   const [readiness, setReadiness] = useState({})
-  const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'reference-accounts')
+  const [mode, setMode] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get('tab') || 'reference-accounts'
+    return requested === 'recent-jobs' || tools.some(tool => tool.id === requested) ? requested : 'reference-accounts'
+  })
   const [brief, setBrief] = useState({ category: '', region: 'KR', faceVisibility: 'any', accountSize: 'any', contentLanguage: 'ko',
     trendGoal:'education', audienceLevel:'beginner', keywordScope:'balanced', contentStructure:'howto' })
   const [url, setUrl] = useState('')
@@ -115,7 +117,7 @@ function CreatorWorkspace() {
       if (initial !== 'recent-jobs' && !tools.some(t=>t.id===initial)) setMode('reference-accounts')
       const history = await creatorRequest('/creator-tools/jobs', { signal: controller.signal })
       if (controller.signal.aborted) return
-      const visibleJobs = history.jobs.filter(item => !item.accountId || item.accountId === currentAccount?.id)
+      const visibleJobs = history.jobs.filter(item => item.kind !== 'trend-keywords' && (!item.accountId || item.accountId === currentAccount?.id))
       setJobs(visibleJobs)
       const resumeId = new URLSearchParams(window.location.search).get('job')
       if (resumeId) {
