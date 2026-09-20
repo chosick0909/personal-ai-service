@@ -8,7 +8,7 @@ function getOpenAIConfig() {
   const variationModel =
     process.env.OPENAI_VARIATION_MODEL?.trim() || 'gpt-5.6-terra'
   const copilotModel =
-    process.env.OPENAI_COPILOT_MODEL?.trim() || variationModel
+    process.env.OPENAI_COPILOT_MODEL?.trim() || 'gpt-5.2'
   const captionModel =
     process.env.OPENAI_CAPTION_MODEL?.trim() || 'gpt-5-mini'
   const thumbnailModel =

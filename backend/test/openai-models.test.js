@@ -9,7 +9,7 @@ test('script generation defaults to GPT-5.6 Terra while allowing an explicit ove
     delete process.env.OPENAI_VARIATION_MODEL
     delete process.env.OPENAI_COPILOT_MODEL
     assert.equal(getOpenAIModels().variationModel, 'gpt-5.6-terra')
-    assert.equal(getOpenAIModels().copilotModel, 'gpt-5.6-terra')
+    assert.equal(getOpenAIModels().copilotModel, 'gpt-5.2')
 
     process.env.OPENAI_VARIATION_MODEL = 'fixed-model'
     assert.equal(getOpenAIModels().variationModel, 'fixed-model')
