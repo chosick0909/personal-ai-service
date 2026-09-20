@@ -87,6 +87,7 @@ function CreatorWorkspace() {
   const [brief, setBrief] = useState({ category: '', region: 'KR', faceVisibility: 'any', accountSize: 'any', contentLanguage: 'ko',
     trendGoal:'education', audienceLevel:'beginner', keywordScope:'balanced', contentStructure:'howto' })
   const [url, setUrl] = useState('')
+  const [linkInputMode, setLinkInputMode] = useState('url')
   const [rights, setRights] = useState(false)
   const [file, setFile] = useState(null)
   const [jobs, setJobs] = useState([])
@@ -184,14 +185,15 @@ function CreatorWorkspace() {
     requestKey.current ||= crypto.randomUUID()
     let uploadFingerprint = null
     try {
-      const signature = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({mode,brief,url,caption,preferences}))))).map(b=>b.toString(16).padStart(2,'0')).join('')
+      const signature = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({mode,brief,url,linkInputMode,caption,preferences}))))).map(b=>b.toString(16).padStart(2,'0')).join('')
       const pendingKey = `hookai-tools-request:${currentUser?.id}:${currentAccount?.id}:${signature}`
       requestKey.current = safeGetStorageItem(pendingKey) || requestKey.current
       pendingReceipt.current = pendingKey
       safeSetStorageItem(pendingKey, requestKey.current)
       let next
-      if (['media-analyze','feedback'].includes(mode)) {
-        if (!rights) throw new Error('이번 자료의 분석·편집 권한을 확인해주세요.')
+      const importFile = mode === 'import-link' && linkInputMode === 'file'
+      if (['media-analyze','feedback'].includes(mode) || importFile) {
+        if (!rights) throw new Error(importFile ? '이번 자료의 분석 권한을 확인해주세요.' : '이번 자료의 분석·편집 권한을 확인해주세요.')
         if (!file) throw new Error('영상을 선택해주세요.')
         if (file.size > 300 * 1024 * 1024 || !['video/mp4','video/quicktime','video/webm'].includes(file.type)) throw new Error('300MB 이하 MP4·MOV·WebM 영상을 선택해주세요.')
         const fingerprint = `hookai-upload:${currentUser?.id}:${mode}:${signature}:${file.name}:${file.size}:${file.lastModified}`
@@ -199,7 +201,7 @@ function CreatorWorkspace() {
         uploadReceipt.current = fingerprint
         const clientUploadId = safeGetStorageItem(fingerprint) || crypto.randomUUID()
         safeSetStorageItem(fingerprint, clientUploadId)
-        const project = await creatorRequest('/media-projects', { method: 'POST', body: { filename: file.name, size: file.size, mimeType: file.type, clientUploadId, rightsConfirmed: rights } })
+        const project = await creatorRequest('/media-projects', { method: 'POST', body: { filename: file.name, size: file.size, mimeType: file.type, clientUploadId, rightsConfirmed: rights, purpose: importFile ? 'import-link' : 'media-analyze' } })
         if (project.job) {
           next = project.job
         } else {
@@ -214,7 +216,7 @@ function CreatorWorkspace() {
             uploadRef.current = upload
             upload.findPreviousUploads().then((previous) => { if (previous[0]) upload.resumeFromPreviousUpload(previous[0]); upload.start() }).catch(reject)
           })
-          next = await creatorRequest(`/media-projects/${project.id}/analyze`, { method: 'POST', body: { rightsConfirmed: rights, ...(mode === 'feedback' ? { feedbackCaption: caption } : {}) } })
+          next = await creatorRequest(importFile ? `/media-projects/${project.id}/import-transcript` : `/media-projects/${project.id}/analyze`, { method: 'POST', body: { rightsConfirmed: rights, ...(importFile ? { accountId: currentAccount?.id } : mode === 'feedback' ? { feedbackCaption: caption } : {}) } })
         }
         // Keep the upload receipt for refresh/retry deduplication; expiry is enforced by the server.
       } else if (mode === 'import-link') {
@@ -294,7 +296,10 @@ function CreatorWorkspace() {
   const CurrentIcon = historyMode ? Clock3 : (tools.find(tool => tool.id === mode) || tools[0]).icon
   const currentTool = historyMode ? { label:'최근 작업', title:'최근 작업 내역' } : tools.find(tool => tool.id === mode) || tools[0]
   const isMedia = ['media-analyze','feedback'].includes(mode)
-  function changeMode(id) { setMode(id); setJob(null); setMedia(null); setError(''); setRights(false); requestKey.current=null; window.history.pushState({}, '', `${creatorStudioPath(window.location.pathname)}?tab=${id}`) }
+  const isLinkFile = mode === 'import-link' && linkInputMode === 'file'
+  const usesFileUpload = isMedia || isLinkFile
+  function changeMode(id) { setMode(id); setJob(null); setMedia(null); setError(''); setRights(false); setFile(null); setLinkInputMode('url'); requestKey.current=null; window.history.pushState({}, '', `${creatorStudioPath(window.location.pathname)}?tab=${id}`) }
+  function changeLinkInputMode(nextMode) { setLinkInputMode(nextMode); setJob(null); setMedia(null); setError(''); setRights(false); setFile(null); requestKey.current=null }
   return <main className="creator-tools ct-live" data-theme={theme}>
     <div className="ct-topbar"><a className="ct-brand" href="/creatorstudio"><img src={hookLogo} alt="" />HookAI <span>CREATOR WORKSPACE</span></a><div className="ct-row"><span className="ct-live-user">{currentAccount?.name || '내 계정'}</span><a className="ct-back" href="/analyze"><ArrowLeft size={16} />대본 작업실</a><IconButton title={theme==='dark'?'라이트 모드로 전환':'다크 모드로 전환'} onClick={()=>{const next=theme==='dark'?'light':'dark';setTheme(next);safeSetStorageItem('hookai-tools-theme',next)}}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</IconButton></div></div>
     <aside className="ct-studio-sidebar"><p>WORKSPACE</p><button type="button" aria-current={!historyMode?'page':undefined}><LayoutDashboard size={18}/>크리에이터 스튜디오</button><button type="button" aria-current={historyMode?'page':undefined} onClick={()=>changeMode('recent-jobs')}><Clock3 size={18}/>최근 작업 <span className="ct-sidebar-count">{jobs.length}</span></button><div/><p>CREATOR TOOLS</p>{tools.map((tool)=><button type="button" key={tool.id} disabled={busy} aria-current={mode===tool.id?'page':undefined} onClick={()=>changeMode(tool.id)}><tool.icon size={17}/>{tool.label}</button>)}{accounts?.length>0&&<label className="ct-sidebar-account"><span>작업 계정</span><select aria-label="작업 계정" value={currentAccount?.id||''} disabled={busy} onChange={e=>selectAccount(e.target.value)}>{accounts.map(a=><option key={a.id} value={a.id}>{a.name||a.id}</option>)}</select></label>}</aside>
@@ -305,14 +310,14 @@ function CreatorWorkspace() {
     }
     <div className="ct-work-heading"><div><span className="ct-badge">{currentTool.label}</span><h2>{currentTool.title}</h2></div><span className="ct-muted">{currentAccount?.name||'내 계정'} · Instagram Reels</span></div>
     {historyMode ? <section className="ct-history ct-history-page"><div className="ct-section-heading"><h2><Clock3 size={19}/>전체 작업 <span>{jobs.length}</span></h2><span className="ct-muted">최신 작업부터 표시합니다.</span></div>{jobs.length===0&&<div className="ct-empty"><Clock3 size={28}/><strong>최근 작업이 없습니다.</strong></div>}{jobs.map((item)=><button type="button" key={item.id} disabled={busy} onClick={()=>loadJob(item)}><span className="ct-job-title">{item.kind.startsWith('media-')?<FileVideo size={18}/>:<Search size={18}/>} {item.purpose==='feedback'?'영상·캡션 피드백':tools.find(t=>t.id===item.kind)?.label||'영상 내보내기'}</span><time>{new Date(item.createdAt).toLocaleString('ko-KR')}</time><span className={`ct-status ct-status-${(job?.id===item.id?job:item).status}`}>{(job?.id===item.id?job:item).status==='completed'&&<CheckCircle2 size={14}/>} {stages[(job?.id===item.id?job:item).status]||'처리 중'}</span><ArrowRight size={16}/></button>)}</section> : <div className="ct-work-layout"><div className="ct-main-flow">
-    <div className="ct-section-heading"><h2><SlidersHorizontal size={19} />{isMedia ? '원본 영상' : mode === 'import-link' ? '분석할 콘텐츠' : '콘텐츠 조건'}</h2><span className="ct-badge ct-badge-neutral">{isMedia ? 'MP4 · MOV · WebM' : 'Instagram'}</span></div>
+    <div className="ct-section-heading"><h2><SlidersHorizontal size={19} />{usesFileUpload ? '원본 영상' : mode === 'import-link' ? '분석할 콘텐츠' : '콘텐츠 조건'}</h2><span className="ct-badge ct-badge-neutral">{usesFileUpload ? 'MP4 · MOV · WebM' : 'Instagram'}</span></div>
     <form onSubmit={submit} className="ct-form">
       {mode === 'reference-accounts' && <div className="ct-fields ct-fields-two"><SelectField label="카테고리" value={brief.category} onChange={category=>formChanged({category})} required options={[["","카테고리 선택"],...referenceCategories.map(category=>[category,category])]}/><SelectField label="얼굴 노출" value={brief.faceVisibility} onChange={faceVisibility=>formChanged({faceVisibility})} options={[["any","상관없음"],["visible","얼굴 자주 등장"],["mixed","얼굴 일부 등장"],["hidden","얼굴 비공개"]]}/><SelectField label="계정 규모" value={brief.accountSize} onChange={accountSize=>formChanged({accountSize})} options={[["any","상관없음"],["10k_50k","1만~5만"],["50k_100k","5만~10만"],["100k_200k","10만~20만"],["over_200k","20만 이상"]]}/><SelectField label="콘텐츠 언어" value={brief.contentLanguage} onChange={contentLanguage=>formChanged({contentLanguage})} options={[["any","상관없음"],["ko","한국어"],["en","영어"],["ja","일본어"]]}/></div>}
       {mode === 'trend-keywords' && <div className="ct-fields ct-fields-two"><SelectField label="카테고리" value={brief.category} onChange={category=>formChanged({category})} required options={[["","카테고리 선택"],...trendCategories.map(category=>[category,category])]}/><SelectField label="콘텐츠 목적" value={brief.trendGoal} onChange={trendGoal=>formChanged({trendGoal})} options={[["education","정보 전달"],["problem_solving","문제 해결"],["comparison","비교"],["review","후기"],["purchase","구매 검토"],["news","새 소식"]]}/><SelectField label="시청자 단계" value={brief.audienceLevel} onChange={audienceLevel=>formChanged({audienceLevel})} options={[["beginner","입문자"],["experienced","경험자"],["ready_to_buy","구매 직전"]]}/><SelectField label="키워드 범위" value={brief.keywordScope} onChange={keywordScope=>formChanged({keywordScope})} options={[["broad","넓은 키워드"],["balanced","넓은·구체 혼합"],["specific","구체 키워드"]]}/><SelectField label="콘텐츠 구성" value={brief.contentStructure} onChange={contentStructure=>formChanged({contentStructure})} options={[["howto","사용법"],["checklist","체크리스트"],["mistakes","실수·주의점"],["comparison","비교"],["review","후기"],["case_study","사례"]]}/><SelectField label="키워드 언어" value={brief.contentLanguage} onChange={contentLanguage=>formChanged({contentLanguage})} options={[["ko","한국어"],["en","영어"],["ja","일본어"]]}/></div>}
-      {mode === 'import-link' && <><Field label="인스타그램 영상 링크" type="url" value={url} onChange={(value) => { setUrl(value); setRights(false); requestKey.current = null }} required /><label className="ct-consent"><input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} required />직접 제작했거나 분석 권한이 있는 영상입니다.</label>{!currentAccount?.id && <p className="ct-muted">링크 대본을 저장할 계정을 선택해주세요.</p>}</>}
+      {mode === 'import-link' && linkInputMode === 'url' && <><Field label="인스타그램 영상 링크" type="url" value={url} onChange={(value) => { setUrl(value); setRights(false); requestKey.current = null }} required /><label className="ct-consent"><input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} required />직접 제작했거나 분석 권한이 있는 영상입니다.</label>{!currentAccount?.id && <p className="ct-muted">링크 대본을 저장할 계정을 선택해주세요.</p>}</>}
       {mode==='reference-accounts' && <p className="ct-muted">공개 개인 크리에이터의 주제와 전달 방식을 비교해 내 콘텐츠 방향을 살펴봅니다. 개인 크리에이터 여부, 선택한 팔로워 범위, 수집된 공개 게시물 중 조회수 50만 이상 콘텐츠 보유 여부는 필수 조건입니다.</p>}
-      {mode==='import-link' && <p className="ct-muted">전달 방식이 궁금한 공개 Instagram 콘텐츠의 링크를 입력하세요. 수집 불가 시 파일·대본으로 이어서 작업할 수 있습니다.</p>}
-      {isMedia && <><label className="ct-upload"><UploadCloud size={34} strokeWidth={1.5} /><strong>{file ? file.name : mode === 'feedback' ? '피드백 받을 영상 선택' : '편집할 영상 선택'}</strong><span>MP4, MOV, WebM · 최대 5분 · 300MB</span><input aria-label="영상 파일" type="file" accept="video/mp4,video/quicktime,video/webm" onChange={(e) => { setFile(e.target.files?.[0] || null); setRights(false); requestKey.current = null }} required /></label><p className="ct-muted">원본·미리보기 24시간 · 원본 포함 ZIP 7일 보관</p><label className="ct-consent"><input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} required/>직접 제작했거나 분석·편집 권한이 있는 영상입니다.</label></>}
+      {mode==='import-link' && linkInputMode === 'url' && <p className="ct-muted">전달 방식이 궁금한 공개 Instagram 콘텐츠의 링크를 입력하세요. 수집 불가 시 파일로 이어서 작업할 수 있습니다.</p>}
+      {usesFileUpload && <><label className="ct-upload"><UploadCloud size={34} strokeWidth={1.5} /><strong>{file ? file.name : isLinkFile ? '분석할 영상 업로드' : mode === 'feedback' ? '피드백 받을 영상 선택' : '편집할 영상 선택'}</strong><span>MP4, MOV, WebM · 최대 5분 · 300MB</span><input aria-label="영상 파일" type="file" accept="video/mp4,video/quicktime,video/webm" onChange={(e) => { setFile(e.target.files?.[0] || null); setRights(false); requestKey.current = null }} required /></label><p className="ct-muted">{isLinkFile ? '업로드 원본 24시간 보관' : '원본·미리보기 24시간 · 원본 포함 ZIP 7일 보관'}</p><label className="ct-consent"><input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} required/>직접 제작했거나 {isLinkFile ? '분석' : '분석·편집'} 권한이 있는 영상입니다.</label>{isLinkFile && !currentAccount?.id && <p className="ct-muted">파일 대본을 저장할 계정을 선택해주세요.</p>}</>}
       {mode === 'feedback' && <Field label="게시할 캡션" value={caption} onChange={value=>{setCaption(value);requestKey.current=null}} required maxLength={5000} multiline/>}
       {!features[mode] && <p role="status" className="ct-notice">이 계정에는 아직 공개되지 않은 기능입니다.</p>}
       {readiness[mode]?.ready === false && <p role="status" className="ct-notice"><Info size={17} />{readiness[mode].message}</p>}
@@ -324,12 +329,12 @@ function CreatorWorkspace() {
     {job?.status === 'completed' && job.kind === 'reference-accounts' && <AccountResults result={job.result} preferences={preferences} onPreference={preference} />}
     {job?.status === 'completed' && job.kind === 'trend-keywords' && <KeywordResults result={job.result} />}
     {job?.status === 'completed' && job.kind === 'import-link' && <section className="ct-results"><div className="ct-section-heading"><h2>추출된 대본</h2><span className="ct-badge">{job.result.sourceLanguage}</span></div>{copyNotice && <p role="status" className="ct-copy-notice">{copyNotice}</p>}<div className="ct-transcripts"><article><header><h3>원문</h3><button type="button" aria-label="원문 복사" onClick={()=>copyTranscript(job.result.originalTranscript,'원문')}><Copy size={16}/>복사</button></header><p>{job.result.originalTranscript}</p></article><article><header><h3>한국어 해석</h3><button type="button" aria-label="한국어 해석 복사" onClick={()=>copyTranscript(job.result.translatedTranscript,'한국어 해석')}><Copy size={16}/>복사</button></header><p>{job.result.translatedTranscript}</p></article></div></section>}
-    {mode === 'import-link' && <p className="ct-muted ct-link-support-note">현재 Instagram 공개 개별 영상 링크만 지원합니다. 국내·해외 언어를 감지해 한국어로 번역합니다. 다른 플랫폼, 비공개·삭제·로그인 필요 영상은 파일 또는 대본 입력을 사용해주세요.</p>}
-    {mode === 'import-link' && <button className="ct-link-upload-switch" type="button" onClick={() => changeMode('media-analyze')}>파일 업로드로 전환</button>}
+    {mode === 'import-link' && linkInputMode === 'url' && <p className="ct-muted ct-link-support-note">현재 Instagram 공개 개별 영상 링크만 지원합니다. 국내·해외 언어를 감지해 한국어로 번역합니다. 다른 플랫폼, 비공개·삭제·로그인 필요 영상은 파일 업로드를 사용해주세요.</p>}
+    {mode === 'import-link' && <button className="ct-link-upload-switch" type="button" onClick={() => changeLinkInputMode(isLinkFile ? 'url' : 'file')}>{isLinkFile ? 'Instagram 링크로 전환' : '파일 업로드로 전환'}</button>}
     {job?.result?.feedback && <FeedbackResults result={job.result.feedback} media={media} onRefresh={async()=>{try{setMedia(await creatorRequest(`/media-projects/${media.id}`))}catch(e){setError(e.message)}}}/>}
-    {media && mode !== 'feedback' && <CreatorMediaEditor key={media.id} media={media} onSave={save} onRender={render} onRefresh={async()=>{try{setMedia(await creatorRequest(`/media-projects/${media.id}`))}catch(e){setError(e.message)}}} busy={busy || active(job)} renderEnabled={features['media-render']} />}
+    {media && mode === 'media-analyze' && <CreatorMediaEditor key={media.id} media={media} onSave={save} onRender={render} onRefresh={async()=>{try{setMedia(await creatorRequest(`/media-projects/${media.id}`))}catch(e){setError(e.message)}}} busy={busy || active(job)} renderEnabled={features['media-render']} />}
     {mode === 'reference-accounts' && preferences.length > 0 && <details className="ct-preferences"><summary>저장·제외한 계정 ({preferences.length})</summary>{preferences.map((p) => <div className="ct-row" key={p.username}><a href={`https://www.instagram.com/${p.username}/`} target="_blank" rel="noreferrer">@{p.username}</a><span>{p.preference === 'saved' ? '저장됨' : '제외됨'}</span><IconButton title="해제" onClick={() => preference(p.username, null)}><X size={16} /></IconButton></div>)}</details>}
-    {!job && !media && <div className="ct-empty"><CurrentIcon size={28} strokeWidth={1.4} /><strong>{isMedia ? '아직 선택한 영상이 없습니다' : '아직 선택한 결과가 없습니다'}</strong></div>}
+    {!job && !media && <div className="ct-empty"><CurrentIcon size={28} strokeWidth={1.4} /><strong>{usesFileUpload ? '아직 선택한 영상이 없습니다' : '아직 선택한 결과가 없습니다'}</strong></div>}
     </div></div>}
     </div>
   </main>

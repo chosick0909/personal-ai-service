@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { featureEnabled, stableHash, normalizeInstagramUrl, validateManifest, keepRanges, retimeSubtitles, toSrt, safeCutCandidates, mediaUploadDisposition } from '../src/creator-tools/domain.js'
+import { featureEnabled, stableHash, normalizeInstagramUrl, validateManifest, keepRanges, retimeSubtitles, toSrt, safeCutCandidates, mediaUploadDisposition, mediaUploadPurpose } from '../src/creator-tools/domain.js'
 import { publicAddress, resolvePublicUrl } from '../src/creator-tools/network.js'
 import { verifiedAccount, weightedScore, keywordResult } from '../src/creator-tools/discovery.js'
 import { translateSegments, validateTranslation } from '../src/creator-tools/link-import.js'
@@ -23,6 +23,12 @@ test('upload replay refuses changed files, expired originals and invalid closed 
     assert.throws(() => mediaUploadDisposition({ ...uploadRow, job_id: 'old-job', original_expires_at }, uploadFile), { code: 'MEDIA_EXPIRED' })
   }
   assert.throws(() => mediaUploadDisposition({ ...uploadRow, status: 'completed' }, uploadFile), { code: 'UPLOAD_CLOSED' })
+})
+test('video uploads are limited to supported Creator Studio purposes', () => {
+  assert.equal(mediaUploadPurpose(), 'media-analyze')
+  assert.equal(mediaUploadPurpose('media-analyze'), 'media-analyze')
+  assert.equal(mediaUploadPurpose('import-link'), 'import-link')
+  assert.throws(() => mediaUploadPurpose('reference-accounts'), { code:'INVALID_UPLOAD_PURPOSE' })
 })
 
 test('rollout is off by default and stable per user, never activated by frontend', () => {

@@ -1,7 +1,8 @@
 import { join } from 'node:path'
 import { fail } from './domain.js'
 import { downloadPublicMedia } from './network.js'
-import { workspace, probeVideo, transcribeFile } from './media.js'
+import { ownedMedia } from './store.js'
+import { workspace, downloadStored, probeVideo, transcribeFile } from './media.js'
 
 // Protect written numerals verbatim, including non-Latin decimal digits.
 const digits = /\p{Decimal_Number}+(?:[.,٫٬]\p{Decimal_Number}+)*/gu
@@ -119,17 +120,29 @@ export async function translateSegments(providers, language, subtitles) {
     }
   }
 }
-export async function importLink(ctx) {
-  const { job, providers, checkpoint, stage, signal } = ctx
-  await stage('collecting_video')
-  const transcript = await checkpoint('transcript', async () => workspace(async (directory) => {
-    const media = await providers.brightData(job.input.url, checkpoint)
-    const path = join(directory, 'download.mp4')
-    await downloadPublicMedia(media.videoUrl, path, signal)
-    const info = await probeVideo(path, signal)
+const importDependencies = { workspace, ownedMedia, downloadStored, probeVideo, transcribeFile }
+export async function collectImportTranscript(ctx, dependencies = importDependencies) {
+  const { job, providers, stage, signal, db } = ctx
+  return dependencies.workspace(async (directory) => {
+    const path = join(directory, 'source-video')
+    if (job.input.projectId) {
+      await stage('reading_video')
+      const media = await dependencies.ownedMedia(db, job.input.projectId, job.user_id)
+      if (Date.parse(media.original_expires_at) <= Date.now()) fail('MEDIA_EXPIRED', '원본 보관 기간이 지났습니다. 파일을 다시 선택해주세요.', 410)
+      await dependencies.downloadStored(db, media.original_path, path, signal)
+    } else {
+      await stage('collecting_video')
+      const media = await providers.brightData(job.input.url, ctx.checkpoint)
+      await downloadPublicMedia(media.videoUrl, path, signal)
+    }
+    const info = await dependencies.probeVideo(path, signal)
     await stage('transcribing')
-    return { ...await transcribeFile(ctx, path, info.duration), duration: info.duration }
-  }))
+    return { ...await dependencies.transcribeFile(ctx, path, info.duration), duration: info.duration }
+  })
+}
+export async function importLink(ctx) {
+  const { providers, checkpoint, stage } = ctx
+  const transcript = await checkpoint('transcript', () => collectImportTranscript(ctx))
   await stage('translating')
   const translated = await checkpoint('translationV2', async () => {
     if (['ko', 'korean'].includes(transcript.language.toLowerCase())) return transcript.subtitles

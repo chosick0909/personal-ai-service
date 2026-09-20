@@ -159,6 +159,12 @@ export function mediaUploadDisposition(row, file, now = Date.now()) {
   return 'upload'
 }
 
+export function mediaUploadPurpose(value) {
+  if (value === undefined || value === 'media-analyze') return 'media-analyze'
+  if (value === 'import-link') return 'import-link'
+  fail('INVALID_UPLOAD_PURPOSE', '영상 처리 방식을 다시 선택해주세요.')
+}
+
 // Captions stay in source time; project each intersection into the ordered output.
 export function projectSubtitles(subtitles, clips) {
   let offset = 0

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { randomUUID } from 'node:crypto'
 import { asyncHandler } from '../lib/errors.js'
 import { assertEntitlementAccess, assertUsageAllowed } from '../lib/entitlements.js'
-import { KINDS, MAX_BYTES, featureEnabled, fail, normalizeBrief, normalizeInstagramUrl, stableHash, textInput, username, uuid, validateManifest, mediaUploadDisposition } from './domain.js'
+import { KINDS, MAX_BYTES, featureEnabled, fail, normalizeBrief, normalizeInstagramUrl, stableHash, textInput, username, uuid, validateManifest, mediaUploadDisposition, mediaUploadPurpose } from './domain.js'
 import { database, query, ownedJob, ownedMedia, createJob, publicJob, BUCKET, OUTPUT_BUCKET, signedDownload } from './store.js'
 import { enqueue } from './queue.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from './categories.js'
@@ -77,7 +77,7 @@ export function createCreatorRouter() {
       const owner = await query(db.from('accounts').select('id').eq('id', previous.account_id).eq('owner_user_id', req.auth.userId).maybeSingle())
       if (!owner) fail('ACCOUNT_NOT_FOUND', '작업 계정을 찾을 수 없습니다.', 404)
     }
-    if (previous.kind.startsWith('media-')) {
+    if (previous.kind.startsWith('media-') || (previous.kind === 'import-link' && input.projectId)) {
       const media = await ownedMedia(db, input.projectId, req.auth.userId)
       if (Date.parse(media.original_expires_at) <= Date.now()) fail('MEDIA_EXPIRED', '원본 보관 기간이 지났습니다. 새 파일을 올려주세요.', 410)
       if (previous.kind === 'media-render' && (req.body.confirmed !== true || media.revision !== input.revision)) fail('EDIT_CONFLICT', '최신 편집 내용을 확인한 뒤 내보내주세요.', 409)
@@ -86,7 +86,7 @@ export function createCreatorRouter() {
     const key = `retry:${previous.id}`
     const row = await createJob(db, { userId: req.auth.userId, accountId: previous.account_id, kind: previous.kind, key,
       input, hashInput: { previousJobId: previous.id } })
-    if (input.projectId && previous.kind.startsWith('media-')) await query(db.from('creator_media_projects').update({job_id:row.id}).eq('id',input.projectId).eq('user_id',req.auth.userId))
+    if (input.projectId && (previous.kind.startsWith('media-') || previous.kind === 'import-link')) await query(db.from('creator_media_projects').update({job_id:row.id}).eq('id',input.projectId).eq('user_id',req.auth.userId))
     await accept(row,res)
   }))
   for (const kind of ['reference-accounts', 'trend-keywords']) {
@@ -144,7 +144,8 @@ export function createCreatorRouter() {
     await accept(row, res)
   }))
   router.post('/media-projects', asyncHandler(async (req, res) => {
-    enabled(req, 'media-analyze')
+    const purpose = mediaUploadPurpose(req.body?.purpose)
+    enabled(req, purpose)
     await assertCreatorAccess(req)
     const body = req.body || {}
     if (body.rightsConfirmed !== true) fail('RIGHTS_REQUIRED', '직접 제작했거나 분석·편집 권한이 있는 영상인지 확인해주세요.')
@@ -166,6 +167,20 @@ export function createCreatorRouter() {
     const upload = await query(db.storage.from(BUCKET).createSignedUploadUrl(row.original_path))
     res.status(201).json({ id: row.id, upload: { token: upload.token, path: row.original_path, bucket: BUCKET,
       endpoint: `${process.env.SUPABASE_URL.replace(/\/$/, '')}/storage/v1/upload/resumable/sign` }, expiresAt: row.original_expires_at })
+  }))
+  router.post('/media-projects/:id/import-transcript', asyncHandler(async (req, res) => {
+    enabled(req, 'import-link')
+    await assertCreatorAccess(req)
+    if (req.body.rightsConfirmed !== true) fail('RIGHTS_REQUIRED', '이번 영상의 분석 권한을 확인해주세요.')
+    const db = database(), media = await ownedMedia(db, uuid(req.params.id), req.auth.userId)
+    if (Date.parse(media.original_expires_at) <= Date.now()) fail('MEDIA_EXPIRED', '원본 보관 기간이 지났습니다.', 410)
+    const ownerAccount = await accountId(req, db)
+    const status = await referenceUsage(req)
+    const input = { projectId:media.id }
+    const row = await createJob(db, { userId:req.auth.userId, accountId:ownerAccount, kind:'import-link', key:`file:${media.id}`, hashInput:{...input,accountId:ownerAccount},
+      input:{ ...input, ...(status ? { entitlementId:status.entitlement.id, monthlyReferenceLimit:status.entitlement.limits.monthlyReferenceLimit } : {}), rightsConfirmedAt:new Date().toISOString() } })
+    await query(db.from('creator_media_projects').update({ job_id:row.id }).eq('id',media.id).eq('user_id',req.auth.userId))
+    await accept(row,res)
   }))
   router.post('/media-projects/:id/analyze', asyncHandler(async (req, res) => {
     enabled(req, 'media-analyze')

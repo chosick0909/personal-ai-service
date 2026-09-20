@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { translateSegments, validateTranslation, importLink } from '../src/creator-tools/link-import.js'
+import { translateSegments, validateTranslation, importLink, collectImportTranscript } from '../src/creator-tools/link-import.js'
 
 // Numeric patterns observed in the failing Hindi transcript; no provider calls or credentials.
 const source = [
@@ -94,6 +94,48 @@ test('link import resumes saved Hindi transcription without repeating collection
   assert.match(result.translatedTranscript,/2개월/)
   assert.deepEqual(calls,['translate-reference','verify-reference-numbers'])
   assert.equal(stages.at(-1),'saving_transcript')
+})
+
+test('uploaded videos bypass link collection and enter the shared transcription pipeline', async () => {
+  const stages = [], calls = []
+  const result = await collectImportTranscript({
+    db:{ name:'database' }, job:{ user_id:'member', input:{ projectId:'project-1' } },
+    providers:{ brightData:async()=>assert.fail('uploaded files must not call the link provider') },
+    stage:async value=>stages.push(value), signal:{ aborted:false },
+  }, {
+    workspace:async callback=>callback('/private/workspace'),
+    ownedMedia:async (db,id,userId)=>{
+      calls.push(['ownedMedia',db.name,id,userId])
+      return { original_path:'member/project-1/original', original_expires_at:'2099-01-01T00:00:00Z' }
+    },
+    downloadStored:async (_db,path,target)=>calls.push(['downloadStored',path,target]),
+    probeVideo:async path=>{ calls.push(['probeVideo',path]); return { duration:12 } },
+    transcribeFile:async (_ctx,path,duration)=>{
+      calls.push(['transcribeFile',path,duration])
+      return { language:'en', text:'Use one bottle.', subtitles:[{id:'a',start:0,end:2,text:'Use one bottle.'}] }
+    },
+  })
+  assert.equal(result.language,'en')
+  assert.equal(result.duration,12)
+  assert.deepEqual(stages,['reading_video','transcribing'])
+  assert.deepEqual(calls,[
+    ['ownedMedia','database','project-1','member'],
+    ['downloadStored','member/project-1/original','/private/workspace/source-video'],
+    ['probeVideo','/private/workspace/source-video'],
+    ['transcribeFile','/private/workspace/source-video',12],
+  ])
+})
+
+test('expired uploaded originals stop before download or transcription', async () => {
+  await assert.rejects(collectImportTranscript({
+    db:{}, job:{ user_id:'member', input:{ projectId:'expired' } }, stage:async()=>{}, signal:{}, providers:{},
+  }, {
+    workspace:async callback=>callback('/private/workspace'),
+    ownedMedia:async()=>({ original_path:'expired', original_expires_at:'2000-01-01T00:00:00Z' }),
+    downloadStored:async()=>assert.fail('expired file must not download'),
+    probeVideo:async()=>assert.fail('expired file must not be probed'),
+    transcribeFile:async()=>assert.fail('expired file must not be transcribed'),
+  }), { code:'MEDIA_EXPIRED' })
 })
 
 test('unverifiable, incomplete or fabricated numeric review evidence cannot approve a translation', async () => {
