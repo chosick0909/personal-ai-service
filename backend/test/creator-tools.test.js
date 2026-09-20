@@ -105,13 +105,14 @@ test('translation retries once when the model changes a numeric claim', async ()
   const calls = []
   const providers = { json: async (operation, _instruction, input) => {
     calls.push(operation)
+    if (operation === 'verify-reference-numbers') return {segments:input.segments.map(s => ({id:s.id,verdict:'equivalent',sourceQuotes:[s.source],translatedQuotes:[s.translation],reason:'원문 수량 보존'}))}
     return { segments: [{ id: 'a', text: operation.endsWith('correction')
       ? `${input.segments[0].text.match(/__HOOKAINUM[A-Z]+__/)[0]}3개를 사용하세요.` : '5개를 사용하세요.' }] }
   } }
   const source = [{ id: 'a', start: 0, end: 1, text: 'Use 3 items.' }]
   const result = await translateSegments(providers, 'en', source)
   assert.equal(result[0].text, '3개를 사용하세요.')
-  assert.deepEqual(calls, ['translate-reference', 'translate-reference-correction'])
+  assert.deepEqual(calls, ['translate-reference', 'translate-reference-correction', 'verify-reference-numbers'])
 })
 test('public jobs never expose checkpoints or entitlement credentials', () => {
   const result = publicJob({ id:'a',input:{secret:'x'},checkpoint:{videoUrl:'private'},user_id:'x',status:'queued' })

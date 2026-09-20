@@ -3,15 +3,42 @@ import { fail } from './domain.js'
 import { downloadPublicMedia } from './network.js'
 import { workspace, probeVideo, transcribeFile } from './media.js'
 
-export function validateTranslation(source, translated) {
+// Protect written numerals verbatim, including non-Latin decimal digits.
+const digits = /\p{Decimal_Number}+(?:[.,٫٬]\p{Decimal_Number}+)*/gu
+const translationSchema = { type:'object', additionalProperties:false, required:['segments'], properties:{ segments:{
+  type:'array', items:{ type:'object', additionalProperties:false, required:['id','text'], properties:{ id:{type:'string'}, text:{type:'string'} } },
+} } }
+const quoteList = { type:'array', items:{type:'string'} }
+const numericReviewSchema = { type:'object', additionalProperties:false, required:['segments'], properties:{ segments:{
+  type:'array', items:{ type:'object', additionalProperties:false, required:['id','verdict','sourceQuotes','translatedQuotes','reason'], properties:{
+    id:{type:'string'}, verdict:{type:'string',enum:['equivalent','changed','uncertain']},
+    sourceQuotes:quoteList, translatedQuotes:quoteList, reason:{type:'string'},
+  } },
+} } }
+function numberChanged() { fail('TRANSLATION_NUMBER_CHANGED', '번역 중 수치가 달라졌거나 의미를 확인하지 못해 중단했습니다.', 422) }
+function checkedRows(source, translated) {
   if (!Array.isArray(translated) || translated.length !== source.length) fail('TRANSLATION_INVALID', '번역 문장 수가 원문과 다릅니다.', 422)
-  return translated.map((row, index) => {
-    if (row.id !== source[index].id || typeof row.text !== 'string' || !row.text.trim() || row.text.length > 2000) fail('TRANSLATION_INVALID', '번역 결과를 확인하지 못했습니다.', 422)
-    const numbers = (source[index].text.match(/\d+(?:[.,]\d+)*/g) || []).sort()
-    const actual = (row.text.match(/\d+(?:[.,]\d+)*/g) || []).sort()
-    if (JSON.stringify(numbers) !== JSON.stringify(actual)) fail('TRANSLATION_NUMBER_CHANGED', '번역 중 수치가 달라져 생성을 중단했습니다.', 422)
-    return { ...source[index], text: row.text.trim() }
-  })
+  for (const [index, row] of translated.entries()) {
+    if (!row || row.id !== source[index].id || typeof row.text !== 'string' || !row.text.trim() || row.text.length > 2000) fail('TRANSLATION_INVALID', '번역 결과를 확인하지 못했습니다.', 422)
+  }
+  return translated.map((row,index) => ({ ...source[index], text:row.text.trim() }))
+}
+function checkWrittenNumbers(source, translated, allowSpokenNumerals = false) {
+  for (const [index, row] of translated.entries()) {
+    const remaining = row.text.match(digits) || []
+    for (const number of source[index].text.match(digits) || []) {
+      const found = remaining.indexOf(number)
+      if (found < 0) numberChanged()
+      remaining.splice(found, 1)
+    }
+    if (!allowSpokenNumerals && remaining.length) numberChanged()
+  }
+}
+// Strict synchronous validator for callers without an independent semantic review.
+export function validateTranslation(source, translated) {
+  const result = checkedRows(source, translated)
+  checkWrittenNumbers(source, result)
+  return result
 }
 function letterId(value) {
   let result = ''
@@ -24,45 +51,72 @@ function letterId(value) {
 function protectNumbers(segments) {
   const values = new Map()
   const protectedSegments = segments.map((segment, segmentIndex) => ({ ...segment,
-    text: segment.text.replace(/\d+(?:[.,]\d+)*/g, (value) => {
-      const token = `__HOOKAINUM${letterId(segmentIndex)}${letterId(values.size)}__`
+    text: segment.text.replace(digits, value => {
+      const token = `__HOOKAINUM${letterId(values.size)}__`
       values.set(token, { value, segmentIndex })
       return token
     }) }))
   return { protectedSegments, restore(translated) {
     const seen = new Set()
-    const restored = translated.map((segment, segmentIndex) => {
-      const expected = [...values.entries()].filter(([, item]) => item.segmentIndex === segmentIndex)
+    const restored = checkedRows(segments, translated).map((segment, segmentIndex) => {
       let text = segment.text
-      for (const raw of text.match(/\d+(?:[.,]\d+)*/g) || []) {
-        const match = expected.find(([, item]) => item.value === raw)
-        if (!match || !text.includes(match[0])) fail('TRANSLATION_NUMBER_CHANGED', '번역 중 수치가 달라져 생성을 중단했습니다.', 422)
-        text = text.replace(raw, '')
+      for (const [token, item] of values) {
+        if (item.segmentIndex !== segmentIndex) continue
+        // Collapse only a literal echo adjacent to its own placeholder, never a number elsewhere.
+        const escaped = item.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        text = text.replace(new RegExp(`${token}${escaped}(?![\\p{Decimal_Number}.,٫٬])`, 'gu'), token)
       }
-      text = text.replace(/__HOOKAINUM[A-Z]+__/g, (token) => {
-      const item = values.get(token)
-      if (!item || seen.has(token)) fail('TRANSLATION_NUMBER_CHANGED', '번역 중 수치가 달라져 생성을 중단했습니다.', 422)
-      seen.add(token)
-      return item.value
+      text = text.replace(/__HOOKAINUM[A-Z]+__/g, token => {
+        const item = values.get(token)
+        if (!item || item.segmentIndex !== segmentIndex || seen.has(token)) numberChanged()
+        seen.add(token)
+        return item.value
       })
+      if (/__HOOKAINUM/i.test(text)) numberChanged()
       return { ...segment, text }
     })
-    if (seen.size !== values.size) fail('TRANSLATION_NUMBER_CHANGED', '번역 중 수치가 달라져 생성을 중단했습니다.', 422)
-    return restored
+    if (seen.size !== values.size) numberChanged()
+    const result = checkedRows(segments, restored)
+    // Verbal quantities may legitimately become digits; only the independent review can approve them.
+    checkWrittenNumbers(segments, result, true)
+    return result
   } }
 }
+async function reviewNumericMeaning(providers, language, source, translated) {
+  const review = await providers.json('verify-reference-numbers',
+    `원문과 한국어 번역의 수량 의미를 독립적으로 검증하세요. 번역하지 말고 각 구간의 판정만 반환하세요.
+모든 숫자와 말로 표현된 수량을 비교하세요. 언어·문자 체계에 관계없이 개수, 횟수, 기간, 날짜, 가격·통화, 단위, 비율, 범위, 배수, 제품명의 숫자까지 포함합니다.
+예: five-in-one → 5-in-1, 한 병 → 1병은 의미가 같으면 equivalent입니다. 단위 변경·환산·새 수치 추가·수량 누락은 changed입니다. 숫자가 같아도 사용 횟수나 단위가 바뀌면 changed입니다.
+아라비아 숫자의 유무만 비교하지 마세요. 두 달 → 세 달 같은 문자 수량 변경도 changed입니다. 관용구·단수 관사 등은 맥락으로 판단하고 근거가 부족하면 uncertain입니다.
+모든 구간을 동일 id/순서로 반환하세요. sourceQuotes와 translatedQuotes에 판단에 사용한 원문/번역의 정확한 부분 문자열을 넣고 reason에 근거를 적으세요. 수량 표현이 없는 구간은 빈 배열을 허용합니다. 추측하여 승인하지 마세요.`,
+    { language, segments:source.map((row,index) => ({id:row.id,source:row.text,translation:translated[index].text})) }, [], numericReviewSchema)
+  if (!Array.isArray(review?.segments) || review.segments.length !== source.length) numberChanged()
+  for (const [index, row] of review.segments.entries()) {
+    if (!row || row.id !== source[index].id || row.verdict !== 'equivalent' || typeof row.reason !== 'string' || !row.reason.trim()) numberChanged()
+    for (const [quotes,text] of [[row.sourceQuotes,source[index].text],[row.translatedQuotes,translated[index].text]]) {
+      if (!Array.isArray(quotes) || quotes.some(q => typeof q !== 'string' || !q.trim() || !text.includes(q))) numberChanged()
+      if ((text.match(digits) || []).length && !quotes.length) numberChanged()
+    }
+  }
+}
 export async function translateSegments(providers, language, subtitles) {
-  const instruction = '영상 원문을 한국어로 번역하세요. 문장 순서와 훅/전개를 유지. 인명, 브랜드명, 상품명은 원문 표기 보존. 원문에 없는 조언·성과 추가 금지. JSON {segments:[{id,text}]}. 모든 원문 구간을 같은 순서와 id로 반환. __HOOKAINUM...__ 자리표시자는 반드시 같은 문장에 문자 하나까지 그대로 유지하고, 응답 text에 다른 0-9 숫자를 쓰지 마세요.'
+  const instruction = '영상 원문을 한국어로 번역하세요. 문장 순서와 훅/전개를 유지. 인명, 브랜드명, 상품명 보존. 원문에 없는 조언·성과·수량 추가 금지. JSON {segments:[{id,text}]}. 모든 구간을 같은 순서와 id로 반환. __HOOKAINUM...__ 자리표시자는 반드시 같은 문장에 문자 하나까지 그대로 유지하세요. 말로 표현된 수량은 한국어 단어나 숫자로 자연스럽게 옮기되 수량·단위·사용 횟수·제품명 의미를 바꾸지 마세요.'
   const protectedInput = protectNumbers(subtitles)
-  const input = { language, segments: protectedInput.protectedSegments }
-  const checked = (segments) => validateTranslation(subtitles, protectedInput.restore(segments))
-  const first = await providers.json('translate-reference', instruction, input)
-  try { return checked(first.segments) }
-  catch (error) {
-    if (error.code !== 'TRANSLATION_NUMBER_CHANGED') throw error
-    const corrected = await providers.json('translate-reference-correction',
-      `${instruction} 이전 번역에서 숫자 자리표시자가 누락되거나 달라졌습니다. 자리표시자를 이동·중복·해석하지 말고 원래 문장에 그대로 복사하세요.`, input)
-    return checked(corrected.segments)
+  const input = { language, segments:protectedInput.protectedSegments }
+  let previousSegments
+  // At most two translations and two independent reviews, all through existing provider guards.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await providers.json(attempt ? 'translate-reference-correction' : 'translate-reference',
+      attempt ? `${instruction} 이전 결과가 수량 검증을 통과하지 못했습니다. 원문과 대조해 수량·단위·횟수 및 자리표시자의 누락·추가·변경을 바로잡으세요.` : instruction,
+      attempt ? { ...input, previousSegments } : input, [], translationSchema)
+    previousSegments = response?.segments
+    try {
+      const result = protectedInput.restore(previousSegments)
+      await reviewNumericMeaning(providers, language, subtitles, result)
+      return result
+    } catch (error) {
+      if (error.code !== 'TRANSLATION_NUMBER_CHANGED' || attempt) throw error
+    }
   }
 }
 export async function importLink(ctx) {
@@ -77,7 +131,7 @@ export async function importLink(ctx) {
     return { ...await transcribeFile(ctx, path, info.duration), duration: info.duration }
   }))
   await stage('translating')
-  const translated = await checkpoint('translation', async () => {
+  const translated = await checkpoint('translationV2', async () => {
     if (['ko', 'korean'].includes(transcript.language.toLowerCase())) return transcript.subtitles
     return translateSegments(providers, transcript.language, transcript.subtitles)
   })
