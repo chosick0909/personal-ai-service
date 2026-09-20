@@ -90,7 +90,7 @@ test('unverified keyword counts cannot earn a verified badge or synthetic trend 
 })
 test('stale, unverified and inactive accounts do not become recommendations', () => {
   const now = Date.now(), row = { active:true,professional:true,verified_at:new Date(now).toISOString(),last_active_at:new Date(now).toISOString() }
-  assert.equal(verifiedAccount(row,now),true)
+  assert.equal(verifiedAccount(row,now),false, 'legacy rows without quality evidence and operator review are not approved')
   assert.equal(verifiedAccount({...row,professional:false},now),false)
   assert.equal(verifiedAccount({...row,last_active_at:'2020-01-01'},now),false)
   assert.equal(weightedScore({topic:80,engagement:null},{topic:35,engagement:20}),80)

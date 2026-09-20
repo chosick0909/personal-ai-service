@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import { createDecipheriv, createCipheriv, randomBytes } from 'node:crypto'
 import { getOpenAIClient, getOpenAIModels } from '../lib/openai.js'
 import { fail, stableHash } from './domain.js'
@@ -28,8 +29,12 @@ export function selectMetaConnection(rows, userId, serviceUserId) {
   return rows.find((item) => item.user_id === userId) || rows.find((item) => item.user_id === serviceUserId) || null
 }
 
-export function createProviders({ db, redis, job, signal }) {
-  async function call(provider, operation, fn) {
+export function createProviders({ db, redis, job, signal, beforeCall, referencePollMs = 10000 }) {
+  if (!Number.isSafeInteger(referencePollMs) || referencePollMs < 10000 || referencePollMs > 60000) {
+    throw new Error('Reference polling interval must be 10000 to 60000 ms')
+  }
+  const referencePause = (_ms, value, options) => delay(referencePollMs, value, options)
+  async function call(provider, operation, fn, billing = {}) {
     const circuit = `creator:circuit:${provider}`
     if (Number(await redis.get(circuit)) >= 5) fail('PROVIDER_CIRCUIT_OPEN', '외부 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', 503)
     const budgetKey = `creator:budget:${provider}:${new Date().toISOString().slice(0, 10)}`
@@ -37,6 +42,8 @@ export function createProviders({ db, redis, job, signal }) {
     if (used === 1) await redis.expire(budgetKey, 172800)
     const limit = Number(process.env.CREATOR_PROVIDER_DAILY_CALLS || 500)
     if (used > limit) fail('PROVIDER_BUDGET', '오늘의 외부 조회 한도에 도달했습니다.', 429)
+    // Optional catalog seed guard adds to (never replaces) daily budget and circuit checks.
+    await beforeCall?.({ provider, operation, ...billing })
     const started = Date.now()
     let result, success = false
     try { result = await fn(); success = true; await redis.del(circuit); return result }
@@ -125,25 +132,33 @@ export function createProviders({ db, redis, job, signal }) {
     }, signal))
     return searchProfiles(response)
   }
-  async function publicProfiles(names, checkpoint) {
+  async function publicProfiles(names, checkpoint, receiptKey = 'accountProfilesReceipt') {
     const key = process.env.BRIGHT_DATA_API_KEY
     if (!key) fail('ACCOUNT_PROVIDER_NOT_CONFIGURED', '공개 계정 조회 서비스 연결이 필요합니다.', 503)
     return collectDataset({ input: names.map(name => ({ url: `https://www.instagram.com/${name}/` })),
-      dataset: process.env.BRIGHT_DATA_PROFILES_DATASET || 'gd_l1vikfch901nx3by4', receiptKey: 'accountProfilesReceipt', checkpoint, signal,
-      fields: ['account', 'url', 'profile_url', 'is_private', 'biography', 'full_name', 'followers', 'posts_count', 'posts',
-        'category_name', 'business_category_name', 'external_url', 'is_business_account', 'is_professional_account', 'is_verified', 'error', 'error_code'],
+      dataset: process.env.BRIGHT_DATA_PROFILES_DATASET || 'gd_l1vikfch901nx3by4', receiptKey, checkpoint, signal, pause:referencePause,
+      // Use the documented bare-array request; live custom_output_fields projection returned HTTP 500.
+      // normalizePublicProfiles retains only recommendation evidence, never contact fields.
       request: (operation, path, options) => call('brightdata', `profiles-${operation}`, () => fetchJson(`https://api.brightdata.com/datasets/v3${path}`,
-        { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal, operation === 'download' ? 8 * 1024 * 1024 : undefined)) })
+        { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal, operation === 'download' ? 8 * 1024 * 1024 : undefined), { units:names.length }) })
   }
-  async function publicReels(urls, checkpoint) {
+  async function publicReels(urls, checkpoint, receiptKey = 'accountReelsReceipt') {
     const key = process.env.BRIGHT_DATA_API_KEY
     if (!key) fail('ACCOUNT_PROVIDER_NOT_CONFIGURED', '공개 릴스 조회 서비스 연결이 필요합니다.', 503)
     return collectDataset({ input: urls.map(url => ({ url })),
-      dataset: process.env.BRIGHT_DATA_REELS_DATASET || 'gd_lyclm20il4r5helnj', receiptKey: 'accountReelsReceipt', checkpoint, signal,
-      fields: ['input', 'url', 'user_posted', 'views', 'video_play_count', 'error', 'error_code'],
+      dataset: process.env.BRIGHT_DATA_REELS_DATASET || 'gd_lyclm20il4r5helnj', receiptKey, checkpoint, signal, pause:referencePause,
       request: (operation, path, options) => call('brightdata', `account-reels-${operation}`, () => fetchJson(`https://api.brightdata.com/datasets/v3${path}`,
-        { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal, operation === 'download' ? 8 * 1024 * 1024 : undefined)) })
+        { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal, operation === 'download' ? 8 * 1024 * 1024 : undefined), { units:urls.length }) })
+  }
+  async function recentPublicReels(names, checkpoint, receiptKey = 'recentAccountReelsReceipt') {
+    const key = process.env.BRIGHT_DATA_API_KEY
+    if (!key) fail('ACCOUNT_PROVIDER_NOT_CONFIGURED', '공개 릴스 조회 서비스 연결이 필요합니다.', 503)
+    if (!Array.isArray(names) || !names.length || names.length > 10 || names.some(name => !/^[a-zA-Z0-9_.]{1,30}$/.test(name))) fail('INVALID_DISCOVERY', 'Invalid bounded profile list')
+    return collectDataset({ input:names.map(name => ({url:`https://www.instagram.com/${name}/`})), discoveryBy:'url_all_reels',
+      dataset:process.env.BRIGHT_DATA_REELS_DATASET || 'gd_lyclm20il4r5helnj', receiptKey, checkpoint, signal, pause:referencePause,
+      request:(operation,path,options) => call('brightdata', `account-reels-${operation}`, () => fetchJson(`https://api.brightdata.com/datasets/v3${path}`,
+        {...options,headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'}},signal,operation === 'download' ? 8 * 1024 * 1024 : undefined), {units:names.length * 24}) })
   }
   async function image(url) { return readPublicImage(url, signal) }
-  return { call, json, connection, meta, hashtag, brightData, searchAccounts, publicProfiles, publicReels, image }
+  return { call, json, connection, meta, hashtag, brightData, searchAccounts, publicProfiles, publicReels, recentPublicReels, image }
 }

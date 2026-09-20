@@ -1,10 +1,11 @@
 import { query } from './store.js'
-import { stableHash, fail } from './domain.js'
+import { stableHash } from './domain.js'
 import { publicAccountCandidates } from './public-discovery.js'
+import { referencePerformance, catalogQualityEligible, publicEvidenceEligible, hardReferenceMetrics, referenceQualityEligible, referenceQualityScore, referenceReviewPrompt, referenceReviewSchema, rethrowReferenceStop } from './reference-quality.js'
 
 export function verifiedAccount(row, now = Date.now()) {
-  return row.active && row.professional && new Date(row.verified_at).getTime() > now - 30 * 86400000
-    && new Date(row.last_active_at).getTime() > now - 90 * 86400000
+  return Boolean(row?.active && row.professional && publicEvidenceEligible(row, now)
+    && row.profile.categories?.some(category => catalogQualityEligible(row, category, now)))
 }
 export function weightedScore(values, weights) {
   const available = Object.entries(weights).filter(([key]) => Number.isFinite(values[key]))
@@ -21,10 +22,10 @@ export function keywordResult(candidate, activity, now) {
 }
 function strings(values) { return Array.isArray(values) ? values.filter((value) => typeof value === 'string').slice(0, 5).map((value) => value.slice(0, 500)) : [] }
 const sizeMatches = (followers, choice) => {
-  if (choice === 'any') return true
-  if (!Number.isFinite(followers)) return null
-  return choice === 'under_10k' ? followers < 10000 : choice === '10k_50k' ? followers >= 10000 && followers < 50000
-    : choice === '50k_200k' ? followers >= 50000 && followers < 200000 : followers >= 200000
+  if (!Number.isSafeInteger(followers) || followers < 10000) return false
+  return choice === 'any' ? true : choice === '10k_50k' ? followers < 50000
+    : choice === '50k_200k' ? followers >= 50000 && followers < 200000
+      : choice === 'over_200k' && followers >= 200000
 }
 const activityMatches = (lastActiveAt, choice) => {
   if (choice === 'any') return true
@@ -34,7 +35,7 @@ const activityMatches = (lastActiveAt, choice) => {
 const labels = {
   faceVisibility: { visible:'얼굴 자주 등장', hidden:'얼굴 비공개', mixed:'얼굴 일부 등장' },
   contentFormat: { talking:'말하는 영상', tutorial:'사용법·시연', vlog:'브이로그', before_after:'전후 비교', review:'제품 리뷰', text:'텍스트 중심' },
-  accountSize: { under_10k:'팔로워 1만 미만', '10k_50k':'팔로워 1만~5만', '50k_200k':'팔로워 5만~20만', over_200k:'팔로워 20만 이상' },
+  accountSize: { '10k_50k':'팔로워 1만~5만', '50k_200k':'팔로워 5만~20만', over_200k:'팔로워 20만 이상' },
   recentActivity: { '7d':'최근 7일 활동', '30d':'최근 30일 활동', '90d':'최근 90일 활동' },
   contentLanguage: { ko:'한국어', en:'영어', ja:'일본어' },
 }
@@ -43,38 +44,57 @@ export async function discoverAccounts(ctx) {
   const input = job.input
   await stage('finding_accounts')
   const preferences = await query(db.from('creator_account_preferences').select('username,preference').eq('user_id', job.user_id))
-  const excluded = new Set([...input.excludeAccounts, ...preferences.filter((p) => p.preference === 'excluded').map((p) => p.username)])
-  const catalog = (await publicAccountCandidates(ctx, excluded)).filter(row =>
-    sizeMatches(row.profile.followers, input.accountSize) === true
-    && Number.isFinite(row.profile.maxViews) && row.profile.maxViews >= 500000
-    && row.profile.viralMedia?.permalink)
+  const excluded = new Set([...(input.excludeAccounts || []), ...preferences.filter((p) => p.preference === 'excluded').map((p) => p.username)])
+  let preparedRows = []
+  try {
+    const rows = await query(db.from('creator_reference_catalog').select('*').eq('active', true).eq('professional', true)
+      .gte('verified_at', new Date(Date.now() - 30 * 86400000).toISOString()).order('verified_at', { ascending:false }).limit(200))
+    preparedRows = rows.filter(row => verifiedAccount(row) && !excluded.has(row.username)
+      && catalogQualityEligible(row, input.category))
+      .map(row => ({ username:row.username, verified_at:row.verified_at, last_active_at:row.last_active_at,
+        source:'사전 검증된 공개 계정 풀', profile:row.profile }))
+  } catch { preparedRows = [] }
+  const prepared = preparedRows.filter(row => sizeMatches(row.profile.followers, input.accountSize) === true
+    && hardReferenceMetrics(row.profile))
+  const discovered = prepared.length >= 5 ? [] : await publicAccountCandidates(ctx, new Set([...excluded, ...prepared.map(row => row.username)]))
+  const catalog = [...prepared, ...discovered].filter(row => publicEvidenceEligible(row)
+    && sizeMatches(row.profile.followers, input.accountSize) === true
+    && hardReferenceMetrics(row.profile))
   if (!catalog.length) return { accounts: [], sourceStatus: 'no_verified_match',
-    message: '선택한 팔로워 범위와 50만 이상 조회 콘텐츠 보유 조건을 모두 공개 데이터로 확인한 계정이 없습니다.', metricsAsOf: null }
+    message: '팔로워 범위·50만 이상 조회 콘텐츠·최근 릴스 12개 중앙값 1만 이상 조건을 확인한 계정이 없습니다.', metricsAsOf: null }
   await stage('ranking_accounts')
-  const rankKey = `creator:ranking:v2:${stableHash([job.user_id, input, catalog])}`
+  const rankKey = `creator:ranking:v5:${stableHash([job.user_id, input, catalog])}`
   const cachedRanking = await redis.get(rankKey)
-  const frameSources = catalog.slice(0, 8).flatMap(row => row.profile.exampleMedia.filter(media => media.imageUrl).slice(0, 1)
-    .map(media => ({ url: media.imageUrl, label: `@${row.username} 최근 공개 게시물 이미지 · ${media.permalink}` }))).slice(0, 8)
-  const frames = (await Promise.all(frameSources.map(async frame => {
-    try { return { ...frame, url: await providers.image(frame.url) } } catch { return null }
-  }))).filter(Boolean)
-  let ranking = cachedRanking ? JSON.parse(cachedRanking) : { accounts: [] }
-  if (!cachedRanking) {
+  const preparedRanking = prepared.flatMap(row => {
+    const insight = row.profile?.accountInsights?.[input.category]
+    return referenceQualityEligible(insight, row.profile) ? [{ ...insight, username:row.username }] : []
+  })
+  let ranking = null
+  try { ranking = JSON.parse(cachedRanking || 'null') } catch { /* Re-rank malformed cache. */ }
+  if (!Array.isArray(ranking?.accounts)) {
+    const rankedNames = new Set(preparedRanking.map(item => item.username))
+    const unrankedCatalog = catalog.filter(row => !rankedNames.has(row.username))
+    const frameSources = unrankedCatalog.slice(0, 8).flatMap(row => row.profile.exampleMedia.filter(media => media.imageUrl).slice(0, 1)
+      .map(media => ({ url: media.imageUrl, label: `@${row.username} 최근 공개 게시물 이미지 · ${media.permalink}` }))).slice(0, 8)
+    const frames = (await Promise.all(frameSources.map(async frame => {
+      try { return { ...frame, url: await providers.image(frame.url) } } catch { return null }
+    }))).filter(Boolean)
     try {
-      ranking = await providers.json('rank-accounts',
-        '선택 카테고리와 실제 공개 프로필·최근 게시물 캡션·첨부 이미지 표본만 평가하고 모든 후보를 반환하세요. accountType은 한 개인의 이름·얼굴·경험·관점이 콘텐츠의 중심이라고 공개 근거로 확인될 때만 individual_creator입니다. 제품 브랜드·공식몰·상점·회사·기관·미디어·출판사·에이전시·팀은 brand 또는 organization, 근거가 부족하면 unknown입니다. 프로페셔널/비즈니스 계정 설정만으로 개인이라고 판단하지 마세요. 얼굴은 이미지에서 직접 확인된 경우에만 visible, 얼굴이 없는 표본만 확인되면 hidden, 섞이면 mixed, 판단 불가면 unknown입니다. reasons에는 이 계정에서 관찰된 주제·전달 방식의 특징을 쓰고, referencePoints에는 이용자가 자신의 경험과 주제로 독립적인 콘텐츠를 기획할 때 확인할 질문이나 관점을 쓰세요. 원문 표현·사례·구성을 따라 하거나 복제하도록 제안하지 마세요. JSON {accounts:[{username,accountType:"individual_creator|brand|organization|unknown",accountTypeEvidence:[한국어],categoryMatch:0..100,faceVisibility:"visible|hidden|mixed|unknown",contentFormats:["talking|tutorial|vlog|before_after|review|text"],language:"ko|en|ja|unknown",reasons:[한국어],referencePoints:[한국어]}]}. 수치나 신원을 만들지 마세요.',
-        { selection: input, candidates: catalog.map(r => ({ username:r.username, biography:r.profile.biography, followers:r.profile.followers,
+      const freshRanking = unrankedCatalog.length ? await providers.json('rank-accounts',
+        referenceReviewPrompt,
+        { selection: input, candidates: unrankedCatalog.map(r => ({ username:r.username, biography:r.profile.biography, followers:r.profile.followers,
           displayName:r.profile.displayName, categoryName:r.profile.categoryName, businessCategoryName:r.profile.businessCategoryName,
-          externalUrl:r.profile.externalUrl, isBusiness:r.profile.isBusiness, isVerified:r.profile.isVerified,
-          postsCount:r.profile.postsCount, recentPosts:r.profile.exampleMedia.map(p => ({ permalink:p.permalink, caption:p.caption, timestamp:p.timestamp, contentType:p.contentType })) })) }, frames)
-      if (!Array.isArray(ranking.accounts)) ranking = { accounts: [] }
-    } catch { ranking = { accounts: [] } }
+          performance:referencePerformance(r.profile), maxViews:r.profile.maxViews, viralMedia:r.profile.viralMedia, externalUrl:r.profile.externalUrl, isBusiness:r.profile.isBusiness, isVerified:r.profile.isVerified,
+          postsCount:r.profile.postsCount, recentPosts:r.profile.exampleMedia.map(p => ({ permalink:p.permalink, caption:p.caption, timestamp:p.timestamp, contentType:p.contentType })) })) }, frames, referenceReviewSchema) : { accounts:[] }
+      ranking = { accounts:[...preparedRanking, ...(Array.isArray(freshRanking.accounts) ? freshRanking.accounts : [])] }
+    } catch (error) { rethrowReferenceStop(error); ranking = { accounts: preparedRanking } }
     await redis.set(rankKey, JSON.stringify(ranking), 'EX', 21600)
   }
   const ranked = new Map(ranking.accounts.filter(Boolean).map(item => [item.username, item]))
+  await ctx.reviewCandidates?.(catalog, ranked)
   const accounts = catalog.flatMap((row) => {
     const rank = ranked.get(row.username) || {}
-    if (rank.accountType !== 'individual_creator') return []
+    if (!referenceQualityEligible(rank, row.profile)) return []
     const checks = {
       faceVisibility: input.faceVisibility === 'any' ? true : rank.faceVisibility === input.faceVisibility,
       contentFormat: input.contentFormat === 'any' ? true : Array.isArray(rank.contentFormats) ? rank.contentFormats.includes(input.contentFormat) : null,
@@ -83,8 +103,9 @@ export async function discoverAccounts(ctx) {
     }
     const requested = Object.entries(checks).filter(([key]) => input[key] !== 'any')
     const preferenceScore = requested.length ? requested.reduce((sum, [,value]) => sum + (value === true ? 100 : value === null ? 45 : 10), 0) / requested.length : 75
-    const matchScore = weightedScore({ category: Number.isFinite(rank.categoryMatch) ? rank.categoryMatch : 55, preferences: preferenceScore,
+    const baseScore = weightedScore({ category: Number.isFinite(rank.categoryMatch) ? rank.categoryMatch : 55, preferences: preferenceScore,
       activity: Math.max(0, 100 - (Date.now() - Date.parse(row.last_active_at)) / 86400000) }, { category: 55, preferences: 35, activity: 10 })
+    const matchScore = referenceQualityScore(baseScore, rank, row.profile)
     const relaxedConditions = requested.filter(([,value]) => value !== true).map(([key,value]) => `${labels[key]?.[input[key]] || key}: ${value === null ? '확인되지 않음' : '조건과 다름'}`)
     return [{ username: row.username, profileUrl: `https://www.instagram.com/${row.username}/`, matchScore,
       reasons: strings(rank.reasons).slice(0, 3).length ? strings(rank.reasons).slice(0, 3) : [`${input.category} 카테고리 상위 공개 검색 결과에서 확인된 계정입니다.`],
@@ -95,12 +116,19 @@ export async function discoverAccounts(ctx) {
       lastActiveAt: row.last_active_at, source: row.source, followers: row.profile.followers, postsCount: row.profile.postsCount,
       maxViews: row.profile.maxViews, viralMedia: row.profile.viralMedia, accountType: 'individual_creator',
       accountTypeEvidence: strings(rank.accountTypeEvidence).slice(0, 2),
+      domesticCreator:rank.domesticCreator, domesticCreatorEvidence:strings(rank.domesticCreatorEvidence),
+      performance:referencePerformance(row.profile), ordinaryCreator:rank.ordinaryCreator, ordinaryCreatorEvidence:strings(rank.ordinaryCreatorEvidence),
+      monetizationEvidence:strings(rank.monetizationEvidence), monetizationSourceUrls:rank.monetizationSourceUrls,
+      productionLevel:rank.productionLevel, productionEvidence:strings(rank.productionEvidence),
+      replicability:rank.replicability, replicabilityEvidence:strings(rank.replicabilityEvidence), evidencePostUrls:rank.evidencePostUrls,
       saved: preferences.some((p) => p.username === row.username && p.preference === 'saved') }]
   }).sort((a, b) => b.matchScore - a.matchScore).slice(0, 12)
   if (!accounts.length) return { accounts: [], sourceStatus: 'no_verified_match',
-    message: '팔로워·조회수 조건을 충족하면서 개인 크리에이터로 확인된 계정이 없습니다.', metricsAsOf: null }
+    message: '국내 활동·최근 릴스 조회수·일반인·제작 수준·재현 가능성 심사 기준을 모두 확인한 계정이 없습니다.', metricsAsOf: null }
+  // Catalog writes are exclusively an explicit operator import.
   return { accounts, sourceStatus: 'public_search',
-    message: '개인 크리에이터 여부, 선택한 팔로워 범위, 50만 이상 조회 콘텐츠 보유를 공개 데이터로 확인한 계정만 표시합니다.' }
+    message: prepared.length ? '사전 검증된 계정 풀을 우선 사용했습니다. 개인 크리에이터 여부, 팔로워 범위, 50만 이상 조회 콘텐츠 보유를 공개 데이터로 확인한 계정만 표시합니다.'
+      : '개인 크리에이터 여부, 선택한 팔로워 범위, 50만 이상 조회 콘텐츠 보유를 공개 데이터로 확인한 계정만 표시합니다.' }
 }
 
 export async function discoverKeywords(ctx) {

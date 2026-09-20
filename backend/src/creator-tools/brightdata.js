@@ -5,13 +5,14 @@ export async function collectInstagram({ url, request, checkpoint, signal, pause
   return collectDataset({ input: [{ url }], dataset: process.env.BRIGHT_DATA_REELS_DATASET || 'gd_lyclm20il4r5helnj', receiptKey: 'brightDataReceipt', request, checkpoint, signal, pause })
 }
 
-export async function collectDataset({ input, dataset, receiptKey, fields, request, checkpoint, signal, pause = delay }) {
+export async function collectDataset({ input, dataset, receiptKey, fields, discoveryBy, request, checkpoint, signal, pause = delay }) {
   if (!/^gd_[a-zA-Z0-9]+$/.test(dataset || '')) fail('PROVIDER_NOT_CONFIGURED', '데이터 공급자 설정을 확인해주세요.', 503)
+  if (discoveryBy && discoveryBy !== 'url_all_reels') fail('INVALID_DISCOVERY', 'Unsupported bounded discovery')
   // Persist the provider receipt before polling so worker retries reuse collection.
   const receipt = await checkpoint(receiptKey, async () => {
     const projection = fields ? `&custom_output_fields=${encodeURIComponent(fields.join('|'))}` : ''
-    const result = await request('trigger', `/trigger?dataset_id=${dataset}&include_errors=true${projection}`, {
-      method: 'POST', body: JSON.stringify(input),
+    const result = await request('trigger', `/trigger?dataset_id=${dataset}&include_errors=true${projection}${discoveryBy ? '&type=discover_new&discover_by=url_all_reels' : ''}`, {
+      method: 'POST', body: JSON.stringify(discoveryBy ? { input:input.map(item => ({...item,num_of_posts:24})), limit_per_input:24 } : input),
     })
     if (!/^[a-zA-Z0-9_]+$/.test(result?.snapshot_id || '')) fail('PROVIDER_INVALID_RESPONSE', '영상 수집 응답을 확인하지 못했습니다.', 502)
     return { snapshotId: result.snapshot_id }
