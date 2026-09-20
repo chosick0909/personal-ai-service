@@ -27,16 +27,9 @@ const sizeMatches = (followers, choice) => {
     : choice === '50k_200k' ? followers >= 50000 && followers < 200000
       : choice === 'over_200k' && followers >= 200000
 }
-const activityMatches = (lastActiveAt, choice) => {
-  if (choice === 'any') return true
-  const days = { '7d': 7, '30d': 30, '90d': 90 }[choice], time = Date.parse(lastActiveAt)
-  return Number.isFinite(time) ? Date.now() - time <= days * 86400000 : null
-}
 const labels = {
   faceVisibility: { visible:'얼굴 자주 등장', hidden:'얼굴 비공개', mixed:'얼굴 일부 등장' },
-  contentFormat: { talking:'말하는 영상', tutorial:'사용법·시연', vlog:'브이로그', before_after:'전후 비교', review:'제품 리뷰', text:'텍스트 중심' },
   accountSize: { '10k_50k':'팔로워 1만~5만', '50k_200k':'팔로워 5만~20만', over_200k:'팔로워 20만 이상' },
-  recentActivity: { '7d':'최근 7일 활동', '30d':'최근 30일 활동', '90d':'최근 90일 활동' },
   contentLanguage: { ko:'한국어', en:'영어', ja:'일본어' },
 }
 export async function discoverAccounts(ctx) {
@@ -56,7 +49,8 @@ export async function discoverAccounts(ctx) {
   } catch { preparedRows = [] }
   const prepared = preparedRows.filter(row => sizeMatches(row.profile.followers, input.accountSize) === true
     && hardReferenceMetrics(row.profile))
-  const discovered = prepared.length >= 5 ? [] : await publicAccountCandidates(ctx, new Set([...excluded, ...prepared.map(row => row.username)]))
+  const reviewedPoolOnly = input.category === '살림/인테리어' && preparedRows.length > 0
+  const discovered = prepared.length >= 5 || reviewedPoolOnly ? [] : await publicAccountCandidates(ctx, new Set([...excluded, ...prepared.map(row => row.username)]))
   const catalog = [...prepared, ...discovered].filter(row => publicEvidenceEligible(row)
     && sizeMatches(row.profile.followers, input.accountSize) === true
     && hardReferenceMetrics(row.profile))
@@ -97,8 +91,7 @@ export async function discoverAccounts(ctx) {
     if (!referenceQualityEligible(rank, row.profile)) return []
     const checks = {
       faceVisibility: input.faceVisibility === 'any' ? true : rank.faceVisibility === input.faceVisibility,
-      contentFormat: input.contentFormat === 'any' ? true : Array.isArray(rank.contentFormats) ? rank.contentFormats.includes(input.contentFormat) : null,
-      accountSize: sizeMatches(row.profile.followers, input.accountSize), recentActivity: activityMatches(row.last_active_at, input.recentActivity),
+      accountSize: sizeMatches(row.profile.followers, input.accountSize),
       contentLanguage: input.contentLanguage === 'any' ? true : rank.language ? rank.language === input.contentLanguage : null,
     }
     const requested = Object.entries(checks).filter(([key]) => input[key] !== 'any')

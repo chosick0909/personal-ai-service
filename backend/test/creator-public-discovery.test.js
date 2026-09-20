@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { accountSearchQueries, profileUsername, searchProfiles, normalizePublicProfiles, normalizePublicReels, normalizeRecentPublicReels, mergeRecentPublicReels, publicAccountCandidates, obviousNonReferenceAccount } from '../src/creator-tools/public-discovery.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from '../src/creator-tools/categories.js'
 import { normalizeBrief } from '../src/creator-tools/domain.js'
@@ -31,7 +32,7 @@ test('reference and trend discovery accept only bounded selection values', () =>
   for (const category of REFERENCE_CATEGORIES) assert.equal(normalizeBrief({ ...brief, category }, 'reference-accounts').category, category)
   for (const category of REFERENCE_CATEGORIES) assert.equal(normalizeBrief({ ...brief, category }, 'trend-keywords').category, category)
   assert.throws(() => normalizeBrief({ ...brief, category: 'made up' }), { code: 'INVALID_CATEGORY' })
-  assert.deepEqual(normalizeBrief(brief, 'reference-accounts'), { category:'살림/인테리어', faceVisibility:'any', contentFormat:'any', accountSize:'any', recentActivity:'any', contentLanguage:'ko', region:'GLOBAL' })
+  assert.deepEqual(normalizeBrief(brief, 'reference-accounts'), { category:'살림/인테리어', faceVisibility:'any', accountSize:'any', contentLanguage:'ko', region:'GLOBAL' })
   assert.throws(() => normalizeBrief({ ...brief, accountSize:'under_10k' }, 'reference-accounts'), { code:'INVALID_FILTER' })
   assert.throws(() => normalizeBrief({ ...brief, faceVisibility:'sometimes' }, 'reference-accounts'), { code:'INVALID_FILTER' })
   assert.deepEqual(normalizeBrief(brief, 'trend-keywords'), { category:'살림/인테리어', trendGoal:'education', audienceLevel:'beginner', keywordScope:'balanced', contentStructure:'howto', contentLanguage:'ko', region:'GLOBAL' })
@@ -138,6 +139,37 @@ test('five fresh prepared creators return without paid discovery or ranking call
   assert.deepEqual(result.accounts.map(row => row.username), rows.map(row => row.username))
   assert.match(result.message, /사전 검증된 계정 풀/)
   assert.equal(writes.length, 0)
+})
+test('every remaining home filter combination returns reviewed catalog accounts without paid discovery', async () => {
+  const fixedNow = Date.parse('2026-09-20T04:00:00Z')
+  const reviewed = JSON.parse(readFileSync(new URL('../catalog/home-2026-09-20.reviewed.json', import.meta.url)))
+  const catalog = normalizeReviewedCatalog(reviewed, fixedNow)
+  const originalNow = Date.now
+  Date.now = () => fixedNow
+  try {
+    for (const accountSize of ['any', '10k_50k', '50k_200k', 'over_200k']) {
+      for (const faceVisibility of ['any', 'visible', 'mixed', 'hidden']) {
+        for (const contentLanguage of ['any', 'ko', 'en', 'ja']) {
+          const ctx = context()
+          ctx.job.input = normalizeBrief({ category:'살림/인테리어', accountSize, faceVisibility, contentLanguage }, 'reference-accounts')
+          ctx.db = { from(table) {
+            if (table === 'creator_account_preferences') return { select(){ return { eq:async()=>({data:[],error:null}) } } }
+            return { select(){return this}, eq(){return this}, gte(){return this}, order(){return this}, limit:async()=>({data:catalog,error:null}) }
+          } }
+          ctx.providers.searchAccounts = async () => assert.fail('reviewed home pool must not run paid discovery')
+          ctx.providers.publicProfiles = async () => assert.fail('reviewed home pool must not fetch profiles')
+          ctx.providers.publicReels = async () => assert.fail('reviewed home pool must not fetch reels')
+          ctx.providers.json = async () => assert.fail('reviewed home pool must not rerank')
+          const result = await discoverAccounts(ctx)
+          assert.ok(result.accounts.length > 0, `${accountSize}/${faceVisibility}/${contentLanguage}`)
+          assert.ok(result.accounts.every(account => account.followers >= 10000))
+          if (accountSize === '10k_50k') assert.ok(result.accounts.every(account => account.followers < 50000))
+          if (accountSize === '50k_200k') assert.ok(result.accounts.every(account => account.followers >= 50000 && account.followers < 200000))
+          if (accountSize === 'over_200k') assert.ok(result.accounts.every(account => account.followers >= 200000))
+        }
+      }
+    }
+  } finally { Date.now = originalNow }
 })
 test('selected follower range and 500k reach are hard requirements', async () => {
   const ctx = context()

@@ -47,9 +47,7 @@ export function featureEnabled(kind, userId, env = process.env) {
 }
 const REFERENCE_CHOICES = {
   faceVisibility: ['any', 'visible', 'hidden', 'mixed'],
-  contentFormat: ['any', 'talking', 'tutorial', 'vlog', 'before_after', 'review', 'text'],
   accountSize: ['any', '10k_50k', '50k_200k', 'over_200k'],
-  recentActivity: ['any', '7d', '30d', '90d'],
   contentLanguage: ['any', 'ko', 'en', 'ja'],
 }
 const TREND_CHOICES = {
@@ -69,8 +67,7 @@ export function normalizeBrief(body, kind = 'trend-keywords') {
   if (kind === 'reference-accounts') {
     if (category && !REFERENCE_CATEGORIES.includes(category)) fail('INVALID_CATEGORY', '카테고리를 다시 선택해주세요.')
     if (!category) fail('CATEGORY_REQUIRED', '카테고리를 선택해주세요.')
-    return { category, faceVisibility: choice(body, 'faceVisibility'), contentFormat: choice(body, 'contentFormat'),
-      accountSize: choice(body, 'accountSize'), recentActivity: choice(body, 'recentActivity'),
+    return { category, faceVisibility: choice(body, 'faceVisibility'), accountSize: choice(body, 'accountSize'),
       contentLanguage: choice(body, 'contentLanguage'), region: 'GLOBAL' }
   }
   if (!category || !REFERENCE_CATEGORIES.includes(category)) fail('INVALID_CATEGORY', '카테고리를 선택해주세요.')
