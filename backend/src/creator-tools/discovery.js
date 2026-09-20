@@ -24,12 +24,14 @@ function strings(values) { return Array.isArray(values) ? values.filter((value) 
 const sizeMatches = (followers, choice) => {
   if (!Number.isSafeInteger(followers) || followers < 10000) return false
   return choice === 'any' ? true : choice === '10k_50k' ? followers < 50000
-    : choice === '50k_200k' ? followers >= 50000 && followers < 200000
+    : choice === '50k_100k' ? followers >= 50000 && followers < 100000
+      : choice === '100k_200k' ? followers >= 100000 && followers < 200000
+        : choice === '50k_200k' ? followers >= 50000 && followers < 200000
       : choice === 'over_200k' && followers >= 200000
 }
 const labels = {
   faceVisibility: { visible:'얼굴 자주 등장', hidden:'얼굴 비공개', mixed:'얼굴 일부 등장' },
-  accountSize: { '10k_50k':'팔로워 1만~5만', '50k_200k':'팔로워 5만~20만', over_200k:'팔로워 20만 이상' },
+  accountSize: { '10k_50k':'팔로워 1만~5만', '50k_100k':'팔로워 5만~10만', '100k_200k':'팔로워 10만~20만', '50k_200k':'팔로워 5만~20만', over_200k:'팔로워 20만 이상' },
   contentLanguage: { ko:'한국어', en:'영어', ja:'일본어' },
 }
 export async function discoverAccounts(ctx) {

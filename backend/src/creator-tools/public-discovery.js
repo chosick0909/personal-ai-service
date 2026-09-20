@@ -16,7 +16,7 @@ const searchWords = value => String(value || '').normalize('NFC').replace(/[^\p{
 export function accountSearchQueries(input) {
   const category = searchWords(input.category)
   const format = { talking:'말하는', tutorial:'사용법', vlog:'브이로그', before_after:'비포애프터', review:'리뷰', text:'정보' }[input.contentFormat] || ''
-  const size = { '10k_50k':'팔로워 1만 5만', '50k_200k':'팔로워 5만 20만', over_200k:'팔로워 20만 이상' }[input.accountSize] || ''
+  const size = { '10k_50k':'팔로워 1만 5만', '50k_100k':'팔로워 5만 10만', '100k_200k':'팔로워 10만 20만', '50k_200k':'팔로워 5만 20만', over_200k:'팔로워 20만 이상' }[input.accountSize] || ''
   return [...new Set([`${category} 공동구매 내돈내산 ${size}`, `${category} 체험단 협찬 ${size}`, `${category} ${format} 사용후기 릴스 ${size}`, `${category} 스마트스토어 클래스 일상`, `${category} 한국 일상 제품 리뷰 ${size}`]
     .map(value => `site:instagram.com 한국 ${value.replace(/\s+/g, ' ').trim()} -inurl:reel -inurl:reels -inurl:p/ -inurl:explore`))]
 }
@@ -33,7 +33,9 @@ const short = (value, max) => typeof value === 'string' ? value.slice(0, max) : 
 const accountSizeMatches = (followers, choice) => {
   if (!Number.isSafeInteger(followers) || followers < 10000) return false
   return choice === 'any' ? true : choice === '10k_50k' ? followers < 50000
-    : choice === '50k_200k' ? followers >= 50000 && followers < 200000
+    : choice === '50k_100k' ? followers >= 50000 && followers < 100000
+      : choice === '100k_200k' ? followers >= 100000 && followers < 200000
+        : choice === '50k_200k' ? followers >= 50000 && followers < 200000
       : choice === 'over_200k' && followers >= 200000
 }
 function date(value, now) {

@@ -47,7 +47,7 @@ export function featureEnabled(kind, userId, env = process.env) {
 }
 const REFERENCE_CHOICES = {
   faceVisibility: ['any', 'visible', 'hidden', 'mixed'],
-  accountSize: ['any', '10k_50k', '50k_200k', 'over_200k'],
+  accountSize: ['any', '10k_50k', '50k_100k', '100k_200k', 'over_200k'],
   contentLanguage: ['any', 'ko', 'en', 'ja'],
 }
 const TREND_CHOICES = {

@@ -147,7 +147,7 @@ test('every remaining home filter combination returns reviewed catalog accounts 
   const originalNow = Date.now
   Date.now = () => fixedNow
   try {
-    for (const accountSize of ['any', '10k_50k', '50k_200k', 'over_200k']) {
+    for (const accountSize of ['any', '10k_50k', '50k_100k', '100k_200k', 'over_200k']) {
       for (const faceVisibility of ['any', 'visible', 'mixed', 'hidden']) {
         for (const contentLanguage of ['any', 'ko', 'en', 'ja']) {
           const ctx = context()
@@ -164,7 +164,8 @@ test('every remaining home filter combination returns reviewed catalog accounts 
           assert.ok(result.accounts.length > 0, `${accountSize}/${faceVisibility}/${contentLanguage}`)
           assert.ok(result.accounts.every(account => account.followers >= 10000))
           if (accountSize === '10k_50k') assert.ok(result.accounts.every(account => account.followers < 50000))
-          if (accountSize === '50k_200k') assert.ok(result.accounts.every(account => account.followers >= 50000 && account.followers < 200000))
+          if (accountSize === '50k_100k') assert.ok(result.accounts.every(account => account.followers >= 50000 && account.followers < 100000))
+          if (accountSize === '100k_200k') assert.ok(result.accounts.every(account => account.followers >= 100000 && account.followers < 200000))
           if (accountSize === 'over_200k') assert.ok(result.accounts.every(account => account.followers >= 200000))
         }
       }
@@ -173,7 +174,7 @@ test('every remaining home filter combination returns reviewed catalog accounts 
 })
 test('selected follower range and 500k reach are hard requirements', async () => {
   const ctx = context()
-  ctx.job.input = { ...brief, accountSize:'50k_200k' }
+  ctx.job.input = { ...brief, accountSize:'50k_100k' }
   ctx.providers.publicProfiles = async () => [profile('too_small', { followers:4077 }), profile('qualified', { followers:50000 }), profile('too_large', { followers:200000 })]
   ctx.providers.searchAccounts = async () => ['too_small', 'qualified', 'too_large']
   ctx.providers.publicReels = async urls => urls.map(url => ({ input:{ url }, url, user_posted:url.includes('qualified12') ? 'qualified' : 'too_small', views:url.includes('qualified12') ? 500000 : 499999 }))
