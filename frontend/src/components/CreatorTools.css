@@ -104,6 +104,7 @@
 .ct-transcripts article button { display:inline-flex; align-items:center; gap:6px; }
 .ct-transcripts p { white-space:pre-wrap; line-height:1.8; font-size:14px; overflow-wrap:anywhere; }
 .ct-copy-notice { margin:0 0 12px; color:#6f3dc3; font-size:13px; }
+.ct-feedback-guidance { margin:24px 0 0; padding-top:18px; border-top:1px solid var(--ct-line,#e0e7e4); }
 .ct-link-support-note { margin:24px 0 12px; }
 .creator-tools .ct-link-upload-switch { margin:0 0 28px; }
 .ct-preferences { padding:20px 0; border-top:1px solid #e0e7e4; }
