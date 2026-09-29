@@ -242,3 +242,31 @@ export function semanticInstructionFromModelOutput(
     },
   }
 }
+
+// One model decision carries both the dialogue interpretation and the existing
+// section-operation contract. Generation and QA consume that same decision.
+export const COPILOT_DIALOGUE_RESPONSE_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'hookai_dialogue_decision', strict: true,
+    schema: {
+      type: 'object', additionalProperties: false,
+      required: ['intent', 'editTarget', 'operationType', 'targetDurationSeconds', 'newSubject',
+        'requestedMaterials', 'resolvedRequest', 'historySummary', 'shouldModifyScript', 'reply', 'reason', 'semanticInstruction'],
+      properties: {
+        intent: { type: 'string', enum: ['greeting', 'edit_request', 'feedback_request', 'advise_script', 'explain_script', 'compare_versions', 'brainstorm_options', 'question', 'clarification'] },
+        editTarget: { type: ['string', 'null'], enum: ['all', 'hook', 'body', 'cta', null] },
+        operationType: { type: ['string', 'null'], enum: [...OPERATION_TYPES, null] },
+        targetDurationSeconds: { type: ['number', 'null'] },
+        newSubject: { type: 'string' },
+        requestedMaterials: { type: 'array', items: { type: 'string' } },
+        resolvedRequest: { type: 'string' },
+        historySummary: { type: 'string' },
+        shouldModifyScript: { type: 'boolean' },
+        reply: { type: 'string' },
+        reason: { type: 'string' },
+        semanticInstruction: { anyOf: [COPILOT_SEMANTIC_RESPONSE_FORMAT.json_schema.schema, { type: 'null' }] },
+      },
+    },
+  },
+}

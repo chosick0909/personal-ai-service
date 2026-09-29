@@ -705,6 +705,7 @@ export async function generateChatReply({
 
   return {
     type: payload.type || 'refine',
+    conversationSummary: payload.conversationSummary || null,
     mode: payload.mode || payload.type || 'suggestion',
     autoApplied: Boolean(payload.autoApplied),
     canUndo: Boolean(payload.canUndo),

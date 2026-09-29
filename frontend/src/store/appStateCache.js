@@ -44,6 +44,11 @@ function normalizeChatMessages(messages) {
             qualityGate:
               message.qualityGate && typeof message.qualityGate === 'object' ? message.qualityGate : undefined,
             sessionId: typeof message.sessionId === 'string' ? message.sessionId : undefined,
+            conversationSummary: message.conversationSummary && typeof message.conversationSummary === 'object' ? message.conversationSummary : undefined,
+            sourceAccountId: typeof message.sourceAccountId === 'string' ? message.sourceAccountId : undefined,
+            sourceReferenceId: typeof message.sourceReferenceId === 'string' ? message.sourceReferenceId : undefined,
+            sourceVersionId: typeof message.sourceVersionId === 'string' ? message.sourceVersionId : undefined,
+            sourceSections: message.sourceSections && typeof message.sourceSections === 'object' ? message.sourceSections : undefined,
             sourceDraftId: typeof message.sourceDraftId === 'string' ? message.sourceDraftId : undefined,
             sourceVariantId: typeof message.sourceVariantId === 'string' ? message.sourceVariantId : undefined,
           }
