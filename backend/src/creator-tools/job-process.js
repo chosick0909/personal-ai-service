@@ -10,7 +10,7 @@ import { importLink } from './link-import.js'
 import { featureEnabled, fail } from './domain.js'
 
 dotenv.config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), quiet: true })
-const handlers = { 'reference-accounts': discoverAccounts, 'trend-keywords': discoverKeywords,
+const handlers = { 'reference-accounts': ctx => discoverAccounts(ctx, { catalogOnly: true }), 'trend-keywords': discoverKeywords,
   'media-analyze': analyzeMedia, 'media-render': renderMedia, 'import-link': importLink }
 
 process.once('message', async ({ id }) => {

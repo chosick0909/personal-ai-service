@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { referenceAnalysisSchema, referenceAnalysisInstructions, validateReferenceAnalysis } from './reference-analysis.js'
 import { fail } from './domain.js'
 import { downloadPublicMedia } from './network.js'
 import { ownedMedia } from './store.js'
@@ -141,6 +142,7 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
   })
 }
 export async function importLink(ctx) {
+  const startedAt = Date.now()
   const { providers, checkpoint, stage } = ctx
   const transcript = await checkpoint('transcript', () => collectImportTranscript(ctx))
   await stage('translating')
@@ -153,7 +155,29 @@ export async function importLink(ctx) {
   if (originalText.length < 2 || translatedText.length < 2 || originalText.length > 20000 || translatedText.length > 20000) {
     fail('REFERENCE_LENGTH', '추출 가능한 음성 대본을 확인하지 못했습니다.', 422)
   }
+  let analysis = null
+  if (process.env.CREATOR_LINK_ANALYSIS !== 'off' && !ctx.signal?.aborted) {
+    try {
+      await stage('analyzing_reference')
+      const raw = await checkpoint('referenceAnalysisV1', async () => {
+        // Leave time for the existing 90-second request and transcript persistence.
+        // Worker termination / database outages cannot be recovered by this catch.
+        const deadline = Date.parse(ctx.job?.deadline_at)
+        const remaining = Math.min(startedAt + 15 * 60000, Number.isFinite(deadline) ? deadline : Infinity) - Date.now()
+        if (remaining <= 105000 || ctx.signal?.aborted) return null
+        const result = await providers.json('reference-analysis', referenceAnalysisInstructions,
+          { script: translatedText, sourceLanguage: transcript.language }, [], referenceAnalysisSchema)
+        return validateReferenceAnalysis(result, translatedText)
+      })
+      analysis = validateReferenceAnalysis(raw, translatedText)
+    } catch (error) {
+      // Never log provider messages, request bodies, model output or arbitrary error codes.
+      const code = error?.status === 400 ? 'ANALYSIS_REQUEST_REJECTED'
+        : error?.name === 'SyntaxError' ? 'ANALYSIS_INVALID_JSON' : 'ANALYSIS_UNAVAILABLE'
+      console.warn('[creator-reference-analysis]', code)
+    }
+  }
   await stage('saving_transcript')
   return { sourceLanguage: transcript.language, originalTranscript: originalText, translatedTranscript: translatedText,
-    extractedAt: new Date().toISOString() }
+    extractedAt: new Date().toISOString(), analysisStatus: analysis ? 'ready' : 'unavailable', ...(analysis ? { analysis } : {}) }
 }

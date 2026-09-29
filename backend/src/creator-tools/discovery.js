@@ -34,7 +34,7 @@ const labels = {
   accountSize: { '10k_50k':'팔로워 1만~5만', '50k_100k':'팔로워 5만~10만', '100k_200k':'팔로워 10만~20만', '50k_200k':'팔로워 5만~20만', over_200k:'팔로워 20만 이상' },
   contentLanguage: { ko:'한국어', en:'영어', ja:'일본어' },
 }
-export async function discoverAccounts(ctx) {
+export async function discoverAccounts(ctx, { catalogOnly = false } = {}) {
   const { db, job, providers, stage, redis } = ctx
   const input = job.input
   await stage('finding_accounts')
@@ -43,15 +43,15 @@ export async function discoverAccounts(ctx) {
   let preparedRows = []
   try {
     const rows = await query(db.from('creator_reference_catalog').select('*').eq('active', true).eq('professional', true)
-      .gte('verified_at', new Date(Date.now() - 30 * 86400000).toISOString()).order('verified_at', { ascending:false }).limit(200))
+      .gte('verified_at', new Date(Date.now() - 30 * 86400000).toISOString()).order('verified_at', { ascending:false }).limit(1000))
     preparedRows = rows.filter(row => verifiedAccount(row) && !excluded.has(row.username)
       && catalogQualityEligible(row, input.category))
       .map(row => ({ username:row.username, verified_at:row.verified_at, last_active_at:row.last_active_at,
         source:'사전 검증된 공개 계정 풀', profile:row.profile }))
-  } catch { preparedRows = [] }
+  } catch (error) { if (catalogOnly) throw error; preparedRows = [] }
   const prepared = preparedRows.filter(row => sizeMatches(row.profile.followers, input.accountSize) === true
     && hardReferenceMetrics(row.profile))
-  const reviewedPoolOnly = input.category === '살림/인테리어' && preparedRows.length > 0
+  const reviewedPoolOnly = catalogOnly || (input.category === '살림/인테리어' && preparedRows.length > 0)
   const discovered = prepared.length >= 5 || reviewedPoolOnly ? [] : await publicAccountCandidates(ctx, new Set([...excluded, ...prepared.map(row => row.username)]))
   const catalog = [...prepared, ...discovered].filter(row => publicEvidenceEligible(row)
     && sizeMatches(row.profile.followers, input.accountSize) === true
@@ -60,13 +60,13 @@ export async function discoverAccounts(ctx) {
     message: '팔로워 범위·50만 이상 조회 콘텐츠·최근 릴스 12개 중앙값 1만 이상 조건을 확인한 계정이 없습니다.', metricsAsOf: null }
   await stage('ranking_accounts')
   const rankKey = `creator:ranking:v5:${stableHash([job.user_id, input, catalog])}`
-  const cachedRanking = await redis.get(rankKey)
+  const cachedRanking = catalogOnly ? null : await redis.get(rankKey)
   const preparedRanking = prepared.flatMap(row => {
     const insight = row.profile?.accountInsights?.[input.category]
     return referenceQualityEligible(insight, row.profile) ? [{ ...insight, username:row.username }] : []
   })
-  let ranking = null
-  try { ranking = JSON.parse(cachedRanking || 'null') } catch { /* Re-rank malformed cache. */ }
+  let ranking = catalogOnly ? { accounts: preparedRanking } : null
+  try { if (!catalogOnly) ranking = JSON.parse(cachedRanking || 'null') } catch { /* Re-rank malformed cache. */ }
   if (!Array.isArray(ranking?.accounts)) {
     const rankedNames = new Set(preparedRanking.map(item => item.username))
     const unrankedCatalog = catalog.filter(row => !rankedNames.has(row.username))

@@ -116,7 +116,7 @@ export function validateManifest(input, original, duration) {
     const length = clips.reduce((sum, clip) => sum + clip.end - clip.start, 0)
     if (new Set(clips.map(c => c.id)).size !== clips.length || length < 0.5 || length > 300) fail('INVALID_CLIPS', '중복 ID 없이 총 0.5초~5분의 편집을 구성해주세요.')
   }
-  return { cuts, subtitles, words: original.words || [], ...(clips ? { clips } : {}) }
+  return { ...(original.hookDiagnosis ? { hookDiagnosis: original.hookDiagnosis } : {}), cuts, subtitles, words: original.words || [], ...(clips ? { clips } : {}) }
 }
 export function keepRanges(duration, cuts) {
   let cursor = 0

@@ -5,6 +5,7 @@ import { assertEntitlementAccess, assertUsageAllowed } from '../lib/entitlements
 import { KINDS, MAX_BYTES, featureEnabled, fail, normalizeBrief, normalizeInstagramUrl, stableHash, textInput, username, uuid, validateManifest, mediaUploadDisposition, mediaUploadPurpose } from './domain.js'
 import { database, query, ownedJob, ownedMedia, createJob, publicJob, BUCKET, OUTPUT_BUCKET, signedDownload } from './store.js'
 import { enqueue } from './queue.js'
+import { completeReviewedReferenceJob } from './reference-immediate.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from './categories.js'
 
 export function createCreatorRouter() {
@@ -28,6 +29,10 @@ export function createCreatorRouter() {
     return id
   }
   async function accept(row, res) {
+    if (row.kind === 'reference-accounts') {
+      const completed = await completeReviewedReferenceJob(database(), row)
+      return res.status(completed.status === 'completed' ? 200 : 202).json(publicJob(completed))
+    }
     // The durable DB row is the outbox; worker reconciliation recovers Redis outages.
     try { await enqueue(row) } catch (e) { console.error('[creator-enqueue]', e.code || 'QUEUE_UNAVAILABLE') }
     res.status(row.status === 'completed' ? 200 : 202).json(publicJob(row))
@@ -52,7 +57,7 @@ export function createCreatorRouter() {
   router.get('/creator-tools/jobs/:id', asyncHandler(async (req, res) => {
     const row = await ownedJob(database(), uuid(req.params.id), req.auth.userId)
     enabled(req, row.kind)
-    res.json(publicJob(row))
+    res.json(publicJob(row.kind === 'reference-accounts' ? await completeReviewedReferenceJob(database(), row) : row))
   }))
   router.post('/creator-tools/jobs/:id/retry', asyncHandler(async (req, res) => {
     const db = database(), previous = await ownedJob(db, uuid(req.params.id), req.auth.userId)

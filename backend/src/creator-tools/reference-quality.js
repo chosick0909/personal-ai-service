@@ -85,9 +85,15 @@ export function operatorReviewEligible(profile, now = Date.now()) {
     && typeof profile.reviewedBy === 'string' && profile.reviewedBy.trim()
     && fresh(profile.reviewedAt, 30, now))
 }
+export function candidatePublicationEligible(profile, now = Date.now()) {
+  const approval = profile?.candidatePublication
+  return Boolean(profile?.qualityVersion === REFERENCE_QUALITY_VERSION && profile.reviewedByOperator === false
+    && approval?.authorized === true && typeof approval.authorizedBy === 'string' && approval.authorizedBy.trim()
+    && typeof approval.instruction === 'string' && approval.instruction.trim() && fresh(approval.authorizedAt, 30, now))
+}
 export function catalogQualityEligible(row, category, now = Date.now()) {
-  return publicEvidenceEligible(row, now) && hardReferenceMetrics(row.profile) && operatorReviewEligible(row.profile, now)
-    && Date.parse(row.profile.reviewedAt) >= Date.parse(row.verified_at)
+  return publicEvidenceEligible(row, now) && hardReferenceMetrics(row.profile) && (operatorReviewEligible(row.profile, now) || candidatePublicationEligible(row.profile, now))
+    && Date.parse(row.profile.reviewedByOperator ? row.profile.reviewedAt : row.profile.candidatePublication?.authorizedAt) >= Date.parse(row.verified_at)
     && row.profile.accountType === 'individual_creator' && Array.isArray(row.profile.categories)
     && row.profile.categories.includes(category) && referenceQualityEligible(row.profile.accountInsights?.[category], row.profile)
 }

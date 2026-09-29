@@ -1,3 +1,4 @@
+import { diagnoseMediaHook } from './media-hook.js'
 import { analyzeFeedback } from './feedback.js'
 import { spawn } from 'node:child_process'
 import { createReadStream, createWriteStream } from 'node:fs'
@@ -79,6 +80,7 @@ export async function transcribeFile(ctx, path, duration) {
   return { text: transcript.text.trim(), language: transcript.language || 'unknown', words, subtitles }
 }
 export async function analyzeMedia(ctx) {
+  const startedAt=Date.now()
   const { db, job, stage, checkpoint, signal } = ctx
   const media = await ownedMedia(db, job.input.projectId, job.user_id)
   if (Date.parse(media.original_expires_at) <= Date.now()) fail('MEDIA_EXPIRED', '원본 보관 기간이 지났습니다.', 410)
@@ -103,7 +105,8 @@ export async function analyzeMedia(ctx) {
     const previewPath = `${job.user_id}/${media.id}/preview.mp4`
     await query(db.from('creator_media_artifacts').upsert({ path: previewPath, bucket: BUCKET, project_id: media.id, expires_at: media.original_expires_at }))
     await uploadFile(db, previewPath, preview, 'video/mp4')
-    const manifest = { subtitles: transcript.subtitles, words: transcript.words, cuts: safeCutCandidates(silences, transcript.words, info.duration) }
+    const hookDiagnosis = job.input.feedbackCaption === undefined ? await diagnoseMediaHook(ctx, transcript, info.duration, startedAt) : null
+    const manifest = { ...(hookDiagnosis ? {hookDiagnosis} : {}), subtitles: transcript.subtitles, words: transcript.words, cuts: safeCutCandidates(silences, transcript.words, info.duration) }
     await query(db.from('creator_media_projects').update({ status: 'ready', duration_seconds: info.duration, manifest,
       preview_path: previewPath, job_id: job.id }).eq('id', media.id).eq('revision', 0))
     return { projectId: media.id, ...(feedback ? { feedback } : {}) }

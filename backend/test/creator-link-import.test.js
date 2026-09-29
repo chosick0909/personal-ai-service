@@ -86,13 +86,13 @@ test('link import resumes saved Hindi transcription without repeating collection
   const stages=[], calls=[]
   const result=await importLink({job:{input:{url:'https://www.instagram.com/reel/DW8tMKyiTxO/'}},
     stage:async s=>stages.push(s), checkpoint:async(name,fn)=>name==='transcript'?{language:'hindi',subtitles:source,text:source.map(s=>s.text).join(' '),duration:10}:fn(),
-    providers:{brightData:async()=>assert.fail('must reuse transcript'),json:async(op,_p,input)=>{calls.push(op);return op==='verify-reference-numbers'?approve(input):{segments:translated(input)}}},
+    providers:{brightData:async()=>assert.fail('must reuse transcript'),json:async(op,_p,input)=>{calls.push(op);if(op==='reference-analysis')return {};return op==='verify-reference-numbers'?approve(input):{segments:translated(input)}}},
   })
   assert.equal(result.sourceLanguage,'hindi')
   assert.match(result.translatedTranscript,/99\.9%/)
   assert.match(result.translatedTranscript,/254루피/)
   assert.match(result.translatedTranscript,/2개월/)
-  assert.deepEqual(calls,['translate-reference','verify-reference-numbers'])
+  assert.deepEqual(calls,['translate-reference','verify-reference-numbers','reference-analysis'])
   assert.equal(stages.at(-1),'saving_transcript')
 })
 

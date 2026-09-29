@@ -27,7 +27,7 @@ export function normalizeReviewedCatalog(rows, now = Date.now()) {
       !REFERENCE_CATEGORIES.includes(category) || !catalogQualityEligible(normalized, category, now))) {
       throw new Error('Current quality evidence, hard metrics and dated operator review required')
     }
-    if (Date.parse(row.reviewedAt) < Date.parse(row.verifiedAt)
+    if (Date.parse(profile.reviewedByOperator ? profile.reviewedAt : profile.candidatePublication?.authorizedAt) < Date.parse(row.verifiedAt)
       || !profile.exampleMedia.length || profile.exampleMedia.some(item => !instagramPostUrl(item.permalink))) {
       throw new Error('Review must follow collection and include valid evidence posts')
     }
