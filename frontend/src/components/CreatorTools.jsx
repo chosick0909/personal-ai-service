@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bookmark, ExternalLink, Search, Scissors, Link, X, Sun, Moon, MessageSquare, RefreshCw, ArrowLeft, ArrowRight, SlidersHorizontal, Clock3, UploadCloud, Info, FileVideo, CheckCircle2, Copy, LayoutDashboard } from 'lucide-react'
+import { Bookmark, ExternalLink, Search, Scissors, Link, X, Sun, Moon, MessageSquare, RefreshCw, ArrowLeft, ArrowRight, SlidersHorizontal, Clock3, UploadCloud, Info, FileVideo, CheckCircle2, LayoutDashboard } from 'lucide-react'
 import { Upload } from 'tus-js-client'
 import { creatorRequest, safeInstagramHref } from '../lib/creatorApi'
 import { referenceContentHref } from '../lib/referenceContentLink'
@@ -8,7 +8,7 @@ import { useAppState } from '../store/AppState'
 import { safeGetStorageItem, safeSetStorageItem, safeRemoveStorageItem } from '../lib/safeStorage'
 import './CreatorTools.css'
 import CreatorMediaEditor from './CreatorMediaEditor'
-import { hasKoreanTranslation } from '../lib/referenceTranslation'
+import CreatorLinkResult from './CreatorLinkResult'
 import hookLogo from '../Logo_1.webp'
 
 const tools = [
@@ -67,34 +67,6 @@ function KeywordResults({ result }) {
     {!rows.some(r=>r.countStatus==='verified' && Number.isFinite(r.postCount)) && <p className="ct-muted">공식 수치가 확인된 키워드가 없습니다.</p>}
     <p className="ct-source-note"><Info size={15} />실시간 상승세와 전체 게시물 수는 아직 검증되지 않았습니다.</p>
   </section>
-}
-
-const analysisHookLabels = { question:'질문형', loss_aversion:'손실회피형', myth_busting:'통념반박형', result_first:'결과 먼저', empathy:'공감형', curiosity:'호기심형', other:'기타' }
-const analysisRoleLabels = { hook:'훅', problem:'문제 제기', empathy:'공감', evidence:'근거', method:'방법', twist:'반전', cta:'CTA', other:'기타' }
-function ReferenceAnalysisResults({ analysis, onCopy }) {
-  if (!analysis || typeof analysis !== 'object' || Array.isArray(analysis)) return null
-  const safeText = value => typeof value === 'string' ? value : ''
-  const entries = (value, fields, limit) => Array.isArray(value) ? value.filter(item => item && fields.every(field => typeof item[field] === 'string')).slice(0, limit) : []
-  const label = (labels, key) => typeof key === 'string' && Object.hasOwn(labels, key) ? labels[key] : '기타'
-  const summary = safeText(analysis.summary)
-  const hook = { quote:safeText(analysis.hook?.quote), type:label(analysisHookLabels, analysis.hook?.type), why:safeText(analysis.hook?.why) }
-  const structure = entries(analysis.structure, ['role','quote','purpose'], 6)
-  const reasons = entries(analysis.reasons, ['point','quote'], 4)
-  const apply = entries(analysis.apply, ['step','example'], 4)
-  const guidance = '아래는 내 주제에 맞게 빈칸을 채우는 문장 틀입니다. 실제 경험·근거가 있는 내용만 넣으세요.'
-  const scope = '조회수 등 성과 데이터가 아니라 대본을 근거로 한 분석입니다.'
-  const copyText = [summary && `한 줄 요약\n${summary}`, `후킹 분석 · ${hook.type}\n“${hook.quote}”\n${hook.why}`,
-    '구조 분석', ...structure.map((row, i) => `${i+1}. ${label(analysisRoleLabels, row.role)}\n“${row.quote}”\n${row.purpose}`),
-    '이 콘텐츠가 잘 된 이유', ...reasons.map(row => `${row.point}\n“${row.quote}”`),
-    '내 콘텐츠에 적용하기', guidance, ...apply.map((row, i) => `${i+1}. ${row.step}\n${row.example}`), scope].filter(Boolean).join('\n\n')
-  return <div className="ct-reference-analysis">
-    {summary && <article className="ct-account"><h2>한 줄 요약</h2><p>{summary}</p></article>}
-    <article className="ct-account"><div className="ct-section-heading"><h2>후킹 분석</h2><span className="ct-badge">{hook.type}</span></div><blockquote>{hook.quote}</blockquote>{hook.why && <p>{hook.why}</p>}</article>
-    <article className="ct-account"><h2>구조 분석</h2><ol>{structure.map((row, i) => <li key={i}><span className="ct-badge">{label(analysisRoleLabels, row.role)}</span><blockquote>{row.quote}</blockquote><p>{row.purpose}</p></li>)}</ol></article>
-    {reasons.length > 0 && <article className="ct-account"><h2>이 콘텐츠가 잘 된 이유</h2>{reasons.map((row, i) => <div key={i}><p>{row.point}</p><blockquote>{row.quote}</blockquote></div>)}</article>}
-    <article className="ct-account"><h2>내 콘텐츠에 적용하기</h2><p className="ct-muted">{guidance}</p><ol>{apply.map((row, i) => <li key={i}><h3>{row.step}</h3><p>{row.example}</p></li>)}</ol></article>
-    <div className="ct-row"><button type="button" onClick={() => onCopy(copyText, '분석 내용')}><Copy size={16}/>분석 결과 복사</button></div>
-  </div>
 }
 
 export default function CreatorTools() {
@@ -355,10 +327,10 @@ function CreatorWorkspace() {
     </form>
     {error && <div role="alert" className="ct-error">{error}{!job && <button type="button" onClick={()=>{setError('');setConnectionAttempt(v=>v+1)}}>연결 다시 확인</button>}{job && <IconButton title="상태 다시 확인" onClick={() => loadJob(job)}><RefreshCw size={17} /></IconButton>}</div>}
     {job?.status === 'failed' && <div className="ct-row"><button type="button" disabled={busy || (['import-link','media-analyze'].includes(job.kind) && !rights)} onClick={retryJob}>실패한 작업 다시 요청</button>{['import-link','media-analyze'].includes(job.kind) && <span className="ct-muted">위의 자료 이용 권한을 다시 확인한 뒤 재시도해주세요.</span>}</div>}
-    {active(job) && <div role="status" className="ct-progress"><span className="ct-pulse" />{stages[job.stage] || '작업 처리 중'}<small>시작 {new Date(job.createdAt).toLocaleTimeString('ko-KR')}</small></div>}
+    {active(job) && !(job.kind === 'import-link' && job.result?.originalTranscript) && <div role="status" className="ct-progress"><span className="ct-pulse" />{stages[job.stage] || '작업 처리 중'}<small>시작 {new Date(job.createdAt).toLocaleTimeString('ko-KR')}</small></div>}
     {job?.status === 'completed' && job.kind === 'reference-accounts' && <AccountResults result={job.result} preferences={preferences} onPreference={preference} />}
     {job?.status === 'completed' && job.kind === 'trend-keywords' && <KeywordResults result={job.result} />}
-    {job?.status === 'completed' && job.kind === 'import-link' && <section className="ct-results">{job.result.analysisStatus === 'ready' && <ReferenceAnalysisResults analysis={job.result.analysis} onCopy={copyTranscript}/>}<div className="ct-section-heading"><h2>추출된 대본</h2><span className="ct-badge">{job.result.sourceLanguage}</span></div>{copyNotice && <p role="status" className="ct-copy-notice">{copyNotice}</p>}<div className="ct-transcripts"><article><header><h3>원문</h3><button type="button" aria-label="원문 복사" onClick={()=>copyTranscript(job.result.originalTranscript,'원문')}><Copy size={16}/>복사</button></header><p>{job.result.originalTranscript}</p></article>{hasKoreanTranslation(job.result) && <article><header><h3>한국어 해석</h3><button type="button" aria-label="한국어 해석 복사" onClick={()=>copyTranscript(job.result.translatedTranscript,'한국어 해석')}><Copy size={16}/>복사</button></header><p>{job.result.translatedTranscript}</p></article>}</div>{job.result.analysisStatus === 'unavailable' && <p className="ct-notice">대본은 추출했지만 이번에는 분석을 완료하지 못했습니다. 대본을 복사해 훅AI 에서 분석할 수 있습니다.</p>}{job.result.analysisStatus === 'ready' && <p className="ct-muted">조회수 등 성과 데이터가 아니라 대본을 근거로 한 분석입니다.</p>}</section>}
+    <CreatorLinkResult job={job} onCopy={copyTranscript} copyNotice={copyNotice} />
     {mode === 'import-link' && linkInputMode === 'url' && <p className="ct-muted ct-link-support-note">현재 Instagram 공개 개별 영상 링크만 지원합니다. 국내·해외 언어를 감지해 한국어로 번역합니다. 다른 플랫폼, 비공개·삭제·로그인 필요 영상은 파일 업로드를 사용해주세요.</p>}
     {mode === 'import-link' && <button className="ct-link-upload-switch" type="button" onClick={() => changeLinkInputMode(isLinkFile ? 'url' : 'file')}>{isLinkFile ? 'Instagram 링크로 전환' : '파일 업로드로 전환'}</button>}
     {job?.result?.feedback && <FeedbackResults result={job.result.feedback} media={media} onRefresh={async()=>{try{setMedia(await creatorRequest(`/media-projects/${media.id}`))}catch(e){setError(e.message)}}}/>}

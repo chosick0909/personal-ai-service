@@ -155,6 +155,12 @@ export async function importLink(ctx) {
   if (originalText.length < 2 || translatedText.length < 2 || originalText.length > 20000 || translatedText.length > 20000) {
     fail('REFERENCE_LENGTH', '추출 가능한 음성 대본을 확인하지 못했습니다.', 422)
   }
+  // Publish only validated original/translation fields. The job remains running:
+  // completion and usage are still committed once by creator_complete_job.
+  const transcriptResult = await checkpoint('referenceTranscriptV1', async () => ({
+    sourceLanguage: transcript.language, originalTranscript: originalText,
+    translatedTranscript: translatedText, extractedAt: new Date().toISOString(),
+  }))
   let analysis = null
   if (process.env.CREATOR_LINK_ANALYSIS !== 'off' && !ctx.signal?.aborted) {
     try {
@@ -178,6 +184,5 @@ export async function importLink(ctx) {
     }
   }
   await stage('saving_transcript')
-  return { sourceLanguage: transcript.language, originalTranscript: originalText, translatedTranscript: translatedText,
-    extractedAt: new Date().toISOString(), analysisStatus: analysis ? 'ready' : 'unavailable', ...(analysis ? { analysis } : {}) }
+  return { ...transcriptResult, analysisStatus: analysis ? 'ready' : 'unavailable', ...(analysis ? { analysis } : {}) }
 }

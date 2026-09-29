@@ -239,3 +239,10 @@
 .ct-reference-analysis ol { padding-inline-start: 24px; }
 .ct-reference-analysis li + li { margin-top: 18px; }
 .ct-reference-analysis blockquote { margin-inline: 0; }
+
+.ct-analysis-pending { display:flex; align-items:center; gap:14px; padding:22px; border:1px solid var(--ct-line); border-radius:10px; background:var(--ct-panel); }
+.ct-analysis-pending strong { font-size:15px; line-height:1.6; }
+.ct-analysis-pending p { margin:5px 0 0; }
+.ct-analysis-spinner { flex:0 0 24px; width:24px; height:24px; border:3px solid var(--ct-line); border-top-color:var(--ct-accent); border-radius:50%; animation:ct-analysis-spin 1s linear infinite; }
+@keyframes ct-analysis-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .ct-analysis-spinner { animation:none; } }

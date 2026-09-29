@@ -40,8 +40,20 @@ export async function updateJob(db, id, patch) {
   return query(db.from('creator_jobs').update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', id).in('status', ['queued', 'running']).select().maybeSingle())
 }
+// Never expose raw checkpoints: receipts and provider data can contain private URLs.
+// This checkpoint exists only after translation and length validation have passed.
+function visibleLinkTranscript(row) {
+  if (row.kind !== 'import-link' || !['queued', 'running', 'failed', 'cancelled'].includes(row.status)) return null
+  const preview = row.checkpoint?.referenceTranscriptV1
+  if (!preview || !['originalTranscript', 'translatedTranscript'].every(key =>
+    typeof preview[key] === 'string' && preview[key].trim().length >= 2 && preview[key].length <= 20000)) return null
+  if (typeof preview.sourceLanguage !== 'string' || typeof preview.extractedAt !== 'string') return null
+  return { sourceLanguage: preview.sourceLanguage, originalTranscript: preview.originalTranscript,
+    translatedTranscript: preview.translatedTranscript, extractedAt: preview.extractedAt,
+    analysisStatus: ['queued', 'running'].includes(row.status) ? 'pending' : 'unavailable' }
+}
 export function publicJob(row) {
-  return { id: row.id, accountId: row.account_id, kind: row.kind, purpose: row.input?.feedbackCaption !== undefined ? 'feedback' : null, status: row.status, stage: row.stage, result: row.result,
+  return { id: row.id, accountId: row.account_id, kind: row.kind, purpose: row.input?.feedbackCaption !== undefined ? 'feedback' : null, status: row.status, stage: row.stage, result: row.result ?? visibleLinkTranscript(row),
     error: row.error_code ? { code: row.error_code, message: row.error_message } : null,
     createdAt: row.created_at, updatedAt: row.updated_at, deadlineAt: row.deadline_at }
 }

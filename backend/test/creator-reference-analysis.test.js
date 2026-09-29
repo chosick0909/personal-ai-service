@@ -175,3 +175,59 @@ test('source-grounded stages survive derived ordinals without granting arbitrary
  assert.ok(!JSON.stringify(result).includes('300%'))
  raw.structure[2].quote='없는 원문';assert.equal(validateReferenceAnalysis(raw,script).structure.length,2)
 })
+
+// Exercise the real import handler while the optional provider is still pending.
+test('validated transcript is visible through public polling before analysis resolves, including reload', async () => {
+  const { publicJob } = await import('../src/creator-tools/store.js')
+  let finish, entered
+  const analyzing = new Promise(resolve => { entered = resolve })
+  const response = new Promise(resolve => { finish = resolve })
+  const { ctx, calls } = context({ json: async () => { entered(); return response } })
+  Object.assign(ctx.job, { kind:'import-link', status:'running', result:null, usage_recorded:false })
+  const running = importLink(ctx)
+  await analyzing
+  const snapshot = structuredClone(ctx.job)
+  const visible = publicJob(snapshot)
+  assert.equal(visible.status, 'running')
+  assert.equal(visible.result.analysisStatus, 'pending')
+  transcriptPreserved(visible.result)
+  assert.equal(snapshot.usage_recorded, false)
+  assert.equal(snapshot.result, null)
+  assert.equal('checkpoint' in visible, false)
+  finish(valid())
+  const completed = await running
+  assert.equal(completed.analysisStatus, 'ready')
+  assert.equal(completed.extractedAt, visible.result.extractedAt)
+  assert.equal(calls.length, 1)
+  assert.equal(publicJob({ ...snapshot, status:'completed', result:completed, checkpoint:{} }).result, completed)
+})
+
+test('translation not yet verified never publishes a transcript preview', async () => {
+  const { publicJob } = await import('../src/creator-tools/store.js')
+  const { ctx } = context({ language:'en', json:async () => { throw Object.assign(new Error('invalid translation'), {code:'TRANSLATION_NUMBER_CHANGED'}) } })
+  Object.assign(ctx.job, {kind:'import-link',status:'running',result:null})
+  await assert.rejects(importLink(ctx), {code:'TRANSLATION_NUMBER_CHANGED'})
+  assert.equal(publicJob(ctx.job).result,null)
+  assert.equal(Object.hasOwn(ctx.job.checkpoint,'referenceTranscriptV1'),false)
+})
+
+test('checkpoint publication must succeed before starting optional analysis', async () => {
+  const {ctx,calls}=context()
+  const checkpoint=ctx.checkpoint
+  ctx.checkpoint=(name,fn)=>name==='referenceTranscriptV1' ? Promise.reject(new Error('storage unavailable')) : checkpoint(name,fn)
+  await assert.rejects(importLink(ctx), /storage unavailable/)
+  assert.equal(calls.length,0)
+})
+
+test('preview projection excludes private data, survives terminal failure and cannot leak across kinds', async () => {
+  const { publicJob } = await import('../src/creator-tools/store.js')
+  const preview={sourceLanguage:'en',originalTranscript:'Original text',translatedTranscript:'검증된 한국어',extractedAt:new Date().toISOString(),secret:'PRIVATE_SIGNED_URL'}
+  const row={kind:'import-link',status:'running',result:null,checkpoint:{referenceTranscriptV1:preview,brightDataReceipt:{snapshotId:'PRIVATE_RECEIPT'},transcript:{text:'UNVERIFIED'}}}
+  assert.equal(JSON.stringify(publicJob(row)).includes('PRIVATE'),false)
+  for (const status of ['failed','cancelled']) {
+    assert.equal(publicJob({...row,status}).result.analysisStatus,'unavailable')
+    assert.equal(publicJob({...row,status}).result.originalTranscript,preview.originalTranscript)
+  }
+  assert.equal(publicJob({...row,kind:'media-analyze'}).result,null)
+  assert.equal(publicJob({...row,checkpoint:{transcript:{text:'UNVERIFIED'}}}).result,null)
+})
