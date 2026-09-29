@@ -206,7 +206,7 @@ export function createCreatorRouter() {
     const db = database(), media = await ownedMedia(db, uuid(req.params.id), req.auth.userId)
     const job = media.job_id ? await ownedJob(db, media.job_id, req.auth.userId) : null
     res.json({ id: media.id, originalName: media.original_name, status: media.status, durationSeconds: media.duration_seconds,
-      revision: media.revision, manifest: { cuts: media.manifest.cuts, subtitles: media.manifest.subtitles, ...(media.manifest.clips ? { clips: media.manifest.clips } : {}) },
+      revision: media.revision, manifest: { ...(media.manifest.hookDiagnosis ? { hookDiagnosis: media.manifest.hookDiagnosis } : {}), cuts: media.manifest.cuts, subtitles: media.manifest.subtitles, ...(media.manifest.clips ? { clips: media.manifest.clips } : {}) },
       previewUrl: Date.parse(media.original_expires_at) > Date.now() ? await signedDownload(db, media.preview_path) : null,
       downloadUrl: Date.parse(media.output_expires_at) > Date.now() && !media.output_deleted_at && media.output_path?.endsWith(`output-${media.revision}.zip`) ? await signedDownload(db, media.output_path, OUTPUT_BUCKET) : null,
       originalExpiresAt: media.original_expires_at, outputExpiresAt: media.output_expires_at, job: job ? publicJob(job) : null })
@@ -221,7 +221,7 @@ export function createCreatorRouter() {
     const row = await query(db.from('creator_media_projects').update({ manifest, revision: media.revision + 1 })
       .eq('id', media.id).eq('revision', media.revision).select('revision').maybeSingle())
     if (!row) fail('EDIT_CONFLICT', '편집 내용이 변경되었습니다. 다시 불러와주세요.', 409)
-    res.json({ revision: row.revision, manifest: { cuts: manifest.cuts, subtitles: manifest.subtitles, ...(manifest.clips ? { clips: manifest.clips } : {}) } })
+    res.json({ revision: row.revision, manifest: { ...(manifest.hookDiagnosis ? { hookDiagnosis: manifest.hookDiagnosis } : {}), cuts: manifest.cuts, subtitles: manifest.subtitles, ...(manifest.clips ? { clips: manifest.clips } : {}) } })
   }))
   router.post('/media-projects/:id/render', asyncHandler(async (req, res) => {
     enabled(req, 'media-render')
