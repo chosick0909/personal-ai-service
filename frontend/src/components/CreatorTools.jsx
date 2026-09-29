@@ -48,8 +48,9 @@ function AccountResults({ result, preferences, onPreference }) {
           onClick={() => onPreference(account.username, preferences.some((p) => p.username === account.username && p.preference === 'saved') ? null : 'saved')}><Bookmark size={18} /></IconButton>
         <IconButton title="결과에서 제외" onClick={() => onPreference(account.username, 'excluded')}><X size={18} /></IconButton></header>
       <ul>{account.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>
-      {account.referencePoints?.length > 0 && <h3>기획 포인트 살펴보기</h3>}
-      {account.referencePoints.map((point, i) => <p key={i}>{point}</p>)}
+      {account.referencePoints?.length > 0 && <><h3>기획 포인트 살펴보기</h3><p className="ct-muted">내 콘텐츠로 만들어볼 주제 · 실제 사용하는 물건과 경험에 맞게 응용해보세요.</p></>}
+      {(account.referencePoints || []).map((point, i) => <p key={i}>{point}</p>)}
+      {account.referencePointsStatus === 'needs_review' && <p className="ct-muted">이 계정의 기획 주제는 검토 중입니다.</p>}
       {account.relaxedConditions?.length > 0 && <p className="ct-muted">일부 조건 차이 · {account.relaxedConditions.join(' · ')}</p>}
       <div className="ct-tags"><span>개인 크리에이터 확인</span><span>얼굴 노출 {({visible:'확인됨',hidden:'비공개형',mixed:'일부 등장',unknown:'확인되지 않음'})[account.faceVisibility] || '확인되지 않음'}</span><span>언어 {({ko:'한국어',en:'영어',ja:'일본어',unknown:'확인되지 않음'})[account.contentLanguage] || '확인되지 않음'}</span></div>
       <div className="ct-links">{referenceContentHref(account.viralMedia?.permalink) && <a href={referenceContentHref(account.viralMedia.permalink)} target="_blank" rel="noreferrer">50만+ 조회 콘텐츠 <ExternalLink size={14} /></a>}{account.exampleMedia.map((media, i) => referenceContentHref(media.permalink) && referenceContentHref(media.permalink) !== referenceContentHref(account.viralMedia?.permalink) ? <a key={i} href={referenceContentHref(media.permalink)} target="_blank" rel="noreferrer">공개 콘텐츠 {i + 1} <ExternalLink size={14} /></a> : null)}</div>

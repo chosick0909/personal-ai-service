@@ -1,6 +1,7 @@
 import { query } from './store.js'
 import { stableHash } from './domain.js'
 import { publicAccountCandidates } from './public-discovery.js'
+import { REFERENCE_PLANNING_VERSION, generatedPlanningTopics, referencePlanningPoints } from './reference-planning.js'
 import { referencePerformance, catalogQualityEligible, publicEvidenceEligible, hardReferenceMetrics, referenceQualityEligible, referenceQualityScore, referenceReviewPrompt, referenceReviewSchema, rethrowReferenceStop } from './reference-quality.js'
 
 export function verifiedAccount(row, now = Date.now()) {
@@ -59,7 +60,7 @@ export async function discoverAccounts(ctx, { catalogOnly = false } = {}) {
   if (!catalog.length) return { accounts: [], sourceStatus: 'no_verified_match',
     message: '팔로워 범위·50만 이상 조회 콘텐츠·최근 릴스 12개 중앙값 1만 이상 조건을 확인한 계정이 없습니다.', metricsAsOf: null }
   await stage('ranking_accounts')
-  const rankKey = `creator:ranking:v5:${stableHash([job.user_id, input, catalog])}`
+  const rankKey = `creator:ranking:v6:${stableHash([job.user_id, input, catalog])}`
   const cachedRanking = catalogOnly ? null : await redis.get(rankKey)
   const preparedRanking = prepared.flatMap(row => {
     const insight = row.profile?.accountInsights?.[input.category]
@@ -102,9 +103,12 @@ export async function discoverAccounts(ctx, { catalogOnly = false } = {}) {
       activity: Math.max(0, 100 - (Date.now() - Date.parse(row.last_active_at)) / 86400000) }, { category: 55, preferences: 35, activity: 10 })
     const matchScore = referenceQualityScore(baseScore, rank, row.profile)
     const relaxedConditions = requested.filter(([,value]) => value !== true).map(([key,value]) => `${labels[key]?.[input[key]] || key}: ${value === null ? '확인되지 않음' : '조건과 다름'}`)
+    const contentTopics = generatedPlanningTopics(rank, row.profile)
+    const planning = referencePlanningPoints({ username:row.username, referencePoints:contentTopics?.map(topic => topic.title) || rank.referencePoints,
+      referencePointsVersion:contentTopics ? REFERENCE_PLANNING_VERSION : undefined }, input.category)
     return [{ username: row.username, profileUrl: `https://www.instagram.com/${row.username}/`, matchScore,
       reasons: strings(rank.reasons).slice(0, 3).length ? strings(rank.reasons).slice(0, 3) : [`${input.category} 카테고리 상위 공개 검색 결과에서 확인된 계정입니다.`],
-      referencePoints: strings(rank.referencePoints).slice(0, 3), relaxedConditions,
+      ...planning, contentTopics:contentTopics || [], relaxedConditions,
       faceVisibility: rank.faceVisibility || 'unknown', contentFormats: strings(rank.contentFormats), contentLanguage: rank.language || 'unknown',
       exampleMedia: (row.profile.exampleMedia || []).slice(0, 3).map(({ permalink, caption, timestamp, likes, comments }) => ({ permalink, caption, timestamp, likes, comments })), metricsAsOf: row.verified_at,
       engagementAvailable: Number.isFinite(row.profile.engagementScore),

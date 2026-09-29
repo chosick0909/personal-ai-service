@@ -116,7 +116,13 @@ export const referenceReviewPrompt = `교육생이 실제 재현 가능한 일�
 집·주방·욕실·동네에서 스마트폰으로 재현 가능한 촬영은 personal, 소규모 보조 제작은 semi_pro, 전문 스튜디오·편집팀·고비용 제작은 professional, 근거 부족은 unknown입니다. 외모의 아름다움·평범함·매력을 절대 평가하지 마세요.
 monetizationEvidence는 확인된 스마트스토어/쇼핑몰/제휴 링크, 공동구매·체험단, #광고/#협찬/#유료광고 협업, 자체 제품·클래스·전자책·상담 판매만 적으세요. 링크 내용이 제공되지 않았다면 확인했다고 추측하지 마세요. 없으면 []이며 제외 사유가 아니라 큰 감점입니다.
 replicability는 일상 공간·스마트폰·일반인 경험으로 재현 가능한 정도 0~100입니다. 경험담·리뷰·사용법·전후비교 등 신뢰 기반 콘텐츠를 우대하고 팔로워 대비 조회수를 참고하세요. 각 판정의 구체적인 근거를 반환하세요. evidencePostUrls는 반드시 제공된 최근 게시물 URL만, monetizationSourceUrls는 제공된 게시물 URL 또는 externalUrl만 사용하세요.
-얼굴 노출은 이미지에서 직접 확인할 때만 visible/hidden/mixed, 아니면 unknown. reasons는 관찰된 특징, referencePoints는 자신의 주제로 독립적으로 기획할 질문을 한국어로 적으세요. 복제 제안은 금지합니다. 모든 후보를 반환하세요.`
+얼굴 노출은 이미지에서 직접 확인할 때만 visible/hidden/mixed, 아니면 unknown. reasons는 관찰된 특징입니다.
+contentTopics는 이 추천을 읽는 수강생이 자기 계정에서 제작할 수 있는 새 콘텐츠 주제입니다. 추천 계정 운영자에게 인터뷰할 질문이 아닙니다. 모든 후보를 반환하세요.
+각 주제에 title(바로 콘텐츠로 만들 구체적인 주제), viewerProblem(수강생의 시청자가 겪는 궁금증·불편), filmingPlan(수강생이 직접 관찰·비교·시연할 장면), sourcePostUrl(착안한 제공 게시물 URL)을 적으세요. 한국어로 서로 다른 주제 1~3개를 제안하고 근거가 부족하면 []로 반환하세요.
+추천 계정의 개인사·사업 운영·협찬 계약·공구 선정 과정·팔로워와의 비공개 일화를 알아야만 답할 수 있는 질문은 제외합니다. 문장의 특정 단어나 물음표 유무가 아니라 누가 어떤 자료로 답할 수 있는지를 판단하세요.
+수강생이 추천 계정과 같은 가족 구성·경력·매출·후기를 가졌다고 전제하지 마세요. 실제로 써본 도구나 직접 관찰한 경험을 주제로 제안하는 것은 가능하지만 경험·성과를 지어내지 마세요.
+추천 계정의 주제·문제 해결 방식에서 착안하되 대본·제목을 복제하거나 계정 운영자가 실제로 한 말인 것처럼 쓰지 마세요. 판매 활동이 있다는 이유로 사업 운영 인터뷰를 제안하지 마세요.
+최종 확인: 이 주제로 수강생이 그 크리에이터에게 연락하지 않고도 자기 자료를 준비해 영상을 만들 수 있는가? 시청자가 무엇을 얻는가? 이 두 질문에 답하지 못하면 다른 주제로 바꾸거나 제외하세요.`
 const list = { type:'array', items:{ type:'string' } }
 const props = {
   username:{ type:'string' }, accountType:{ type:'string', enum:['individual_creator','brand','organization','unknown'] }, accountTypeEvidence:list,
@@ -126,7 +132,14 @@ const props = {
   replicability:{ type:'number', minimum:0, maximum:100 }, replicabilityEvidence:list, evidencePostUrls:list,
   categoryMatch:{ type:'number', minimum:0, maximum:100 }, faceVisibility:{ type:'string', enum:['visible','hidden','mixed','unknown'] },
   contentFormats:{ type:'array', items:{ type:'string', enum:['talking','tutorial','vlog','before_after','review','text'] } },
-  language:{ type:'string', enum:['ko','en','ja','unknown'] }, reasons:list, referencePoints:list,
+  language:{ type:'string', enum:['ko','en','ja','unknown'] }, reasons:list,
+  contentTopics:{ type:'array', maxItems:3, items:{ type:'object', additionalProperties:false,
+    required:['title','viewerProblem','filmingPlan','sourcePostUrl'], properties:{
+      title:{type:'string', description:'수강생이 자신의 자료로 제작할 콘텐츠 주제. 추천 계정 운영자에 대한 질문이 아님.'},
+      viewerProblem:{type:'string', description:'그 콘텐츠를 볼 시청자의 궁금증이나 불편'},
+      filmingPlan:{type:'string', description:'수강생이 직접 준비해 보여줄 구체적인 관찰·비교·시연'},
+      sourcePostUrl:{type:'string', description:'제공된 공개 게시물 중 착안한 게시물 URL'},
+    } } },
 }
 export const referenceReviewSchema = { type:'object', additionalProperties:false, required:['accounts'], properties:{
   accounts:{ type:'array', items:{ type:'object', additionalProperties:false, required:Object.keys(props), properties:props } },

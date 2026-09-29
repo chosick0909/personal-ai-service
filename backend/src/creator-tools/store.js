@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from '../lib/supabase.js'
 import { fail, stableHash } from './domain.js'
+import { presentReferencePlanning } from './reference-planning.js'
 
 export const BUCKET = 'creator-media'
 export const OUTPUT_BUCKET = 'creator-exports'
@@ -53,7 +54,8 @@ function visibleLinkTranscript(row) {
     analysisStatus: ['queued', 'running'].includes(row.status) ? 'pending' : 'unavailable' }
 }
 export function publicJob(row) {
-  return { id: row.id, accountId: row.account_id, kind: row.kind, purpose: row.input?.feedbackCaption !== undefined ? 'feedback' : null, status: row.status, stage: row.stage, result: row.result ?? visibleLinkTranscript(row),
+  const result = row.kind === 'reference-accounts' ? presentReferencePlanning(row.result, row.input?.category) : row.result
+  return { id: row.id, accountId: row.account_id, kind: row.kind, purpose: row.input?.feedbackCaption !== undefined ? 'feedback' : null, status: row.status, stage: row.stage, result: result ?? visibleLinkTranscript(row),
     error: row.error_code ? { code: row.error_code, message: row.error_message } : null,
     createdAt: row.created_at, updatedAt: row.updated_at, deadlineAt: row.deadline_at }
 }
