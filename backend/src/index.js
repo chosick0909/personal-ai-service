@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { createAccount, deleteAccount, listAccounts, resolveRequestAccount } from './lib/accounts.js'
 import { getAccountProfile, upsertAccountProfile } from './lib/account-profile.js'
 import { getAccountCharacterContext } from './lib/account-character.js'
-import { resolveCopilotConversationReference } from './lib/copilot/conversation-context.js'
+import { resolveCopilotConversationReference, scopeCopilotConversation } from './lib/copilot/conversation-context.js'
 import { requireAuth, requireAdmin } from './lib/auth.js'
 import { createCreatorRouter } from './creator-tools/routes.js'
 import { getOpenAIModels, hasOpenAIConfig } from './lib/openai.js'
@@ -325,6 +325,7 @@ async function retryCopilotWithRecoveredEditPlan({
   copilotMemory,
   targetDurationSeconds,
   previousAdvice,
+  conversationContext = null,
 } = {}) {
   const recoveryPlan = buildQaFailureRecoveryEditPlan({
     userRequest: requestText,
@@ -350,6 +351,8 @@ async function retryCopilotWithRecoveredEditPlan({
     selectedLabel: req.body?.selectedLabel,
     ...selectedVariantContext,
     request: requestText,
+    resolvedIntent: intent,
+    conversationContext,
     sections: refineBaseSections,
     editTarget: intent?.editTarget || req.body?.editTarget || req.body?.edit_target || '',
     currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
@@ -1788,12 +1791,23 @@ app.post(
       }
     }
     const explicitReplyContext = req.body?.replyContext || req.body?.reply_context || null
-    const conversationResolution = resolveCopilotConversationReference({
-      userMessage: requestText,
-      explicitReplyContext,
-      conversationContext: req.body?.conversationContext || req.body?.conversation_context || null,
+    const conversationContext = scopeCopilotConversation(req.body?.conversationContext || req.body?.conversation_context, {
+      accountId: account.id,
+      referenceId: req.body?.referenceId || '',
       currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
-      currentVariantId: req.body?.selectedScriptId || selectedVariantContext.selectedVariantId || '',
+      currentVariantId: selectedVariantContext.selectedVariantId || '',
+    })
+    if (conversationContext?.overflow || JSON.stringify(conversationContext || {}).length > 120000) {
+      throw new AppError('대화가 길어 맥락을 안전하게 전달하지 못했습니다. 새 대화를 시작해 주세요.', {
+        code: 'COPILOT_CONTEXT_TOO_LARGE', statusCode: 413,
+      })
+    }
+    // Implicit references are interpreted with the full dialogue by the model.
+    // Only an explicit reply may change the editor base to a particular proposal.
+    const conversationResolution = resolveCopilotConversationReference({
+      explicitReplyContext,
+      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+      currentVariantId: selectedVariantContext.selectedVariantId || '',
     })
     const replyContext = conversationResolution.replyContext
     const rawPreviousAdvice = req.body?.previousAdvice || req.body?.previous_advice || null
@@ -1836,10 +1850,12 @@ app.post(
       targetDurationSeconds,
       previousAdvice: requestPreviousAdvice,
       replyContext,
-      conversationContext: conversationResolution.conversationContext,
+      conversationContext,
       characterSystemPrompt: character.systemPrompt,
       personalizationContext: intentPersonalization.context,
     })
+
+    const resolvedRequest = intent.resolvedRequest || requestText
 
     if (intent.intent === 'feedback_request') {
       const personalization = await buildPersonalizationContext({
@@ -1861,6 +1877,8 @@ app.post(
         selectedLabel: req.body?.selectedLabel,
         ...selectedVariantContext,
         sections: req.body?.sections,
+        conversationContext,
+        request: resolvedRequest,
         currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
         currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
         characterSystemPrompt: character.systemPrompt,
@@ -1925,6 +1943,7 @@ app.post(
       })
 
       res.json({
+        conversationSummary: intent.conversationSummary || conversationContext?.summary || null,
         type: 'feedback',
         mode: 'feedback',
         autoApplied: false,
@@ -1944,7 +1963,7 @@ app.post(
       return
     }
 
-    if (intent.intent === 'advise_script' && req.body?.referenceId) {
+    if (['advise_script', 'brainstorm_options', 'explain_script', 'compare_versions', 'question'].includes(intent.intent) && req.body?.referenceId) {
       const personalization = await buildPersonalizationContext({
         accountId: account.id,
         characterId: character.characterId,
@@ -1953,25 +1972,28 @@ app.post(
         mode: 'question',
         query: requestText,
       })
-      const usageStatus = await assertUsageAllowed({
+      // Preserve the existing charging policy for formerly reply-only intents.
+      const usageStatus = intent.intent === 'advise_script' ? await assertUsageAllowed({
         userId: req.auth?.userId,
         eventType: 'copilot_message',
         referenceId: req.body?.referenceId,
-      })
+      }) : null
       const result = await refineScriptWithAI({
         accountId: account.id,
         referenceId: req.body?.referenceId,
         selectedLabel: req.body?.selectedLabel,
         ...selectedVariantContext,
-        request: requestText,
-      sections: req.body?.sections,
-      editTarget: 'none',
-      currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
-      currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
-      characterSystemPrompt: character.systemPrompt,
-      personalizationContext: personalization.context,
-      copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
-    })
+        conversationContext,
+        resolvedIntent: intent,
+        request: resolvedRequest,
+        sections: req.body?.sections,
+        editTarget: 'none',
+        currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
+        currentVersionId: req.body?.currentVersionId || req.body?.scriptVersionId || '',
+        characterSystemPrompt: character.systemPrompt,
+        personalizationContext: personalization.context,
+        copilotMemory: req.body?.copilotMemory || req.body?.copilot_memory || {},
+      })
       const memoryUpdate = await updatePersonalizationMemory({
         accountId: account.id,
         characterId: character.characterId,
@@ -1987,7 +2009,7 @@ app.post(
           copilotIntent: result.copilotIntent || intent.intent,
         },
       })
-      await recordUsageEvent({
+      if (usageStatus) await recordUsageEvent({
         userId: req.auth?.userId,
         entitlementId: usageStatus.entitlement.id,
         eventType: 'copilot_message',
@@ -2015,6 +2037,7 @@ app.post(
         },
       })
       res.json({
+        conversationSummary: intent.conversationSummary || conversationContext?.summary || null,
         type: 'reply',
         mode: 'advice',
         autoApplied: false,
@@ -2080,6 +2103,7 @@ app.post(
         },
       })
       res.json({
+        conversationSummary: intent.conversationSummary || conversationContext?.summary || null,
         type: 'reply',
         mode: 'question',
         autoApplied: false,
@@ -2126,7 +2150,7 @@ app.post(
           }
         : intent
     const editPlan = buildEditPlan({
-      userRequest: requestText,
+      userRequest: resolvedRequest,
       currentSections: refineBaseSections,
       intentResult: intentForEditPlan,
       editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
@@ -2139,7 +2163,9 @@ app.post(
       referenceId: req.body?.referenceId,
       selectedLabel: req.body?.selectedLabel,
       ...selectedVariantContext,
-      request: requestText,
+      conversationContext,
+      resolvedIntent: intent,
+      request: resolvedRequest,
       sections: refineBaseSections,
       editTarget: intent.editTarget || req.body?.editTarget || req.body?.edit_target || '',
       currentDraftId: req.body?.currentDraftId || req.body?.scriptId || '',
@@ -2161,7 +2187,7 @@ app.post(
       ],
     }
     const useHeavyQualityGate = shouldUseHeavyQualityGateForCopilot({
-      request: requestText,
+      request: resolvedRequest,
       editTarget: result.editTarget || editPlan.editTarget,
       targetSections: editPlan.targetSections,
       operationType: editPlan.operationType,
@@ -2190,7 +2216,8 @@ app.post(
         ...selectedVariantContext,
         originalSections: refineBaseSections,
         proposedSections: result.sections,
-        request: requestText,
+        conversationContext,
+        request: resolvedRequest,
         editTarget: result.editTarget || editPlan.editTarget,
         feedback: qaFeedback,
         characterSystemPrompt: character.systemPrompt,
@@ -2225,7 +2252,8 @@ app.post(
           ...selectedVariantContext,
           originalSections: refineBaseSections,
           proposedSections: result.sections,
-          request: requestText,
+          conversationContext,
+          request: resolvedRequest,
           editTarget: result.editTarget || editPlan.editTarget,
           feedback: qaFeedback,
           qaIssues: qaResult.issues,
@@ -2259,7 +2287,8 @@ app.post(
             req,
             character,
             personalization,
-            requestText,
+            requestText: resolvedRequest,
+            conversationContext,
             refineBaseSections,
             intent,
             intentForEditPlan,
@@ -2293,7 +2322,7 @@ app.post(
               ],
               editTarget: result.editTarget || editPlan.editTarget,
               feedback: qaFeedback,
-              request: requestText,
+              request: resolvedRequest,
               qaMode: editPlan.qaMode,
               newSubject: editPlan.newSubject,
               requestedMaterials: editPlan.requestedMaterials,
@@ -2312,7 +2341,7 @@ app.post(
               candidateSections: fallbackCandidate,
               editTarget: result.editTarget || editPlan.editTarget,
               feedback: qaFeedback,
-              request: requestText,
+              request: resolvedRequest,
               qaMode: editPlan.qaMode,
               newSubject: editPlan.newSubject,
               requestedMaterials: editPlan.requestedMaterials,
@@ -2370,7 +2399,7 @@ app.post(
         candidateSections: result.sections,
         editTarget: result.editTarget || editPlan.editTarget,
         feedback: qaFeedback,
-        request: requestText,
+        request: resolvedRequest,
         qaMode: editPlan.qaMode,
         newSubject: editPlan.newSubject,
         requestedMaterials: editPlan.requestedMaterials,
@@ -2399,7 +2428,8 @@ app.post(
           ...selectedVariantContext,
           originalSections: refineBaseSections,
           proposedSections: result.sections,
-          request: requestText,
+          conversationContext,
+          request: resolvedRequest,
           editTarget: result.editTarget || editPlan.editTarget,
           feedback: qaFeedback,
           qaIssues: ruleCheck.issues,
@@ -2433,7 +2463,8 @@ app.post(
             req,
             character,
             personalization,
-            requestText,
+            requestText: resolvedRequest,
+            conversationContext,
             refineBaseSections,
             intent,
             intentForEditPlan,
@@ -2467,7 +2498,7 @@ app.post(
               ],
               editTarget: result.editTarget || editPlan.editTarget,
               feedback: qaFeedback,
-              request: requestText,
+              request: resolvedRequest,
               qaMode: editPlan.qaMode,
               newSubject: editPlan.newSubject,
               requestedMaterials: editPlan.requestedMaterials,
@@ -2623,6 +2654,7 @@ app.post(
     })
 
     res.json({
+      conversationSummary: intent.conversationSummary || conversationContext?.summary || null,
       type: 'refine',
       mode: 'suggestion',
       autoApplied: false,

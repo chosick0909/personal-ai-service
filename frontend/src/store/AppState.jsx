@@ -62,7 +62,7 @@ import {
   normalizeCopilotMemory,
   updateCopilotMemoryFromUserMessage,
 } from './copilotMemory'
-import { buildCopilotConversationContext } from '../lib/copilotConversation'
+import { buildCopilotConversationContext, sameCopilotEditorSnapshot } from '../lib/copilotConversation'
 import {
   getCachedAccounts,
   getCachedReferenceDetail,
@@ -539,6 +539,15 @@ export function AppStateProvider({ children }) {
   const isSavingVersionRef = useRef(false)
   const currentAccountRef = useRef(null)
   const topicAccountPromiseRef = useRef(null)
+  const copilotRequestInFlightRef = useRef(false)
+  const copilotEditorSnapshotRef = useRef(null)
+  useEffect(() => {
+    copilotEditorSnapshotRef.current = {
+      accountId: currentAccount?.id, referenceId: referenceData?.id,
+      draftId: activeScriptId, variantId: selectedScriptId,
+      versionId: versions[0]?.id, sections: editorSections,
+    }
+  }, [currentAccount?.id, referenceData?.id, activeScriptId, selectedScriptId, versions, editorSections])
   const isCurrentAccountRequest = (accountId) =>
     Boolean(accountId) && activeAccountIdRef.current === accountId
 
@@ -3525,14 +3534,25 @@ export function AppStateProvider({ children }) {
       explicitPreviousAdvice ||
       (shouldCarryPreviousAdviceForMessage(normalized) ? agePreviousAdvice(previousAdvice) : null)
 
-    if (!requestAccountId || !normalized) {
+    if (!requestAccountId || !normalized || copilotRequestInFlightRef.current) {
       return
     }
 
+    const requestSnapshot = {
+      accountId: requestAccountId, referenceId: referenceData?.id,
+      draftId: activeScriptId, variantId: selectedScriptId,
+      versionId: versions[0]?.id, sections: createEditorSections(editorSections),
+    }
+    copilotRequestInFlightRef.current = true
     const userMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       content: normalized,
+      sourceAccountId: requestAccountId,
+      sourceReferenceId: referenceData?.id,
+      sourceDraftId: activeScriptId,
+      sourceVariantId: selectedScriptId,
+      sourceVersionId: versions[0]?.id,
     }
     const nextCopilotMemory = updateCopilotMemoryFromUserMessage(copilotMemory, normalized)
     setPreviousAdvice(requestPreviousAdvice)
@@ -3556,9 +3576,16 @@ export function AppStateProvider({ children }) {
 
     try {
       const selectedVariantContext = buildSelectedVariantContext(selectedScript, selectedScriptId || selectedScript?.id)
-      const explicitReplyContext = requestOptions.replyContext || null
+      const rawReplyContext = requestOptions.replyContext || null
+      const explicitReplyContext = rawReplyContext ? {
+        ...rawReplyContext,
+        sourceVariantId: rawReplyContext.sourceVariantId === selectedScriptId
+          ? selectedVariantContext.selectedVariantId : rawReplyContext.sourceVariantId,
+      } : null
       const conversationContext = buildCopilotConversationContext({
         chatMessages,
+        accountId: requestAccountId,
+        referenceId: referenceData?.id,
         activeDraftId: activeScriptId,
         currentVersionId: versions[0]?.id,
         selectedVariant: {
@@ -3588,7 +3615,8 @@ export function AppStateProvider({ children }) {
         replyToMessageId: requestOptions.replyToMessageId || '',
         conversationContext,
       })
-      if (!isCurrentAccountRequest(requestAccountId)) {
+      if (!isCurrentAccountRequest(requestAccountId) || !sameCopilotEditorSnapshot(requestSnapshot, copilotEditorSnapshotRef.current)) {
+        if (isCurrentAccountRequest(requestAccountId)) showToast('대본이 변경되어 이전 요청의 답변을 현재 대화에 추가하지 않았습니다.', 'info')
         return
       }
 
@@ -3614,6 +3642,10 @@ export function AppStateProvider({ children }) {
               id: `assistant-${Date.now()}`,
               role: 'assistant',
               content: response.message,
+              conversationSummary: response.conversationSummary,
+              sourceAccountId: requestAccountId,
+              sourceReferenceId: referenceData?.id,
+              sourceVersionId: versions[0]?.id,
               feedback: normalizedFeedback,
               intent: response.intent,
               sourceDraftId: activeScriptId,
@@ -3640,7 +3672,7 @@ export function AppStateProvider({ children }) {
                 createdAt: new Date().toISOString(),
                 messageTurnsSinceCreated: 0,
               }
-            : requestPreviousAdvice,
+            : null,
         )
         setPreviousAdvice(nextPreviousAdvice)
         setChatMessages((current) => {
@@ -3650,6 +3682,10 @@ export function AppStateProvider({ children }) {
               id: assistantId,
               role: 'assistant',
               content: response.message,
+              conversationSummary: response.conversationSummary,
+              sourceAccountId: requestAccountId,
+              sourceReferenceId: referenceData?.id,
+              sourceVersionId: versions[0]?.id,
               intent: response.intent,
               actionableAdvice: nextPreviousAdvice,
               sourceDraftId: activeScriptId,
@@ -3669,7 +3705,12 @@ export function AppStateProvider({ children }) {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: response.message,
+        conversationSummary: response.conversationSummary,
+        sourceAccountId: requestAccountId,
+        sourceReferenceId: referenceData?.id,
+        sourceVersionId: versions[0]?.id,
         proposedSections: response.proposedSections,
+        sourceSections: requestSnapshot.sections,
         editTarget: response.editTarget,
         changedSections: response.changedSections,
         flowValidation: response.flowValidation,
@@ -3704,7 +3745,8 @@ export function AppStateProvider({ children }) {
         return next
       })
     } catch (error) {
-      if (!isCurrentAccountRequest(requestAccountId)) {
+      if (!isCurrentAccountRequest(requestAccountId) || !sameCopilotEditorSnapshot(requestSnapshot, copilotEditorSnapshotRef.current)) {
+        if (isCurrentAccountRequest(requestAccountId)) showToast('대본이 변경되어 이전 요청의 답변을 현재 대화에 추가하지 않았습니다.', 'info')
         return
       }
       setChatMessages((current) => {
@@ -3722,6 +3764,7 @@ export function AppStateProvider({ children }) {
         return next
       })
     } finally {
+      copilotRequestInFlightRef.current = false
       if (isCurrentAccountRequest(requestAccountId)) {
         setIsChatLoading(false)
       }
@@ -3767,6 +3810,20 @@ export function AppStateProvider({ children }) {
       : null
     if (sourceMessage?.sourceDraftId && sourceMessage.sourceDraftId !== activeScriptId) {
       showToast('현재 선택한 초안과 다른 수정안입니다. 해당 초안을 다시 선택한 뒤 적용해 주세요.', 'error')
+      return
+    }
+    if (sourceMessage?.sourceSections && !sameCopilotEditorSnapshot({
+      accountId: sourceMessage.sourceAccountId || requestAccountId,
+      referenceId: sourceMessage.sourceReferenceId || referenceData?.id,
+      draftId: sourceMessage.sourceDraftId || activeScriptId,
+      variantId: sourceMessage.sourceVariantId || selectedScriptId,
+      versionId: sourceMessage.sourceVersionId,
+      sections: sourceMessage.sourceSections,
+    }, {
+      accountId: requestAccountId, referenceId: referenceData?.id, draftId: activeScriptId,
+      variantId: selectedScriptId, versionId: versions[0]?.id, sections: editorSections,
+    })) {
+      showToast('제안 이후 대본이 변경되었습니다. 현재 대본을 기준으로 다시 요청해 주세요.', 'error')
       return
     }
     const sourceEditTarget = sourceMessage?.editTarget || editTarget || 'all'

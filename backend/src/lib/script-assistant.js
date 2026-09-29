@@ -1,3 +1,4 @@
+import { COPILOT_CONVERSATION_RULES, conversationModelMessages, conversationSummaryRequest, advanceConversationSummary } from './copilot/conversation-context.js'
 import { AppError } from './errors.js'
 import { logAIError } from './ai-error-logger.js'
 import { logAIUsage } from './ai-usage-logger.js'
@@ -14,7 +15,7 @@ import { createSemanticInstructionParser } from './copilot/semantic-instruction.
 import { createEditPlanResolver } from './copilot/edit-plan-resolver.js'
 import { createQaRecoveryPlanner } from './copilot/recovery.js'
 import {
-  COPILOT_SEMANTIC_RESPONSE_FORMAT,
+  COPILOT_DIALOGUE_RESPONSE_FORMAT,
   semanticInstructionFromModelOutput,
 } from './copilot/semantic-schema.js'
 
@@ -4514,118 +4515,11 @@ function createFallbackIntent(message = '', editTarget = '') {
       intent: 'brainstorm_options',
       editTarget: null,
       shouldModifyScript: false,
-      reply: '좋습니다. 바로 수정하기보다 가능한 방향을 몇 가지로 나눠서 제안드릴게요.',
+      reply: '지금은 대화 내용을 바탕으로 제안을 생성할 수 없습니다. 잠시 후 다시 시도해 주세요.',
     }
   }
 
   return null
-}
-
-function shouldUseSemanticInstructionExtractor(message = '', fallbackIntent = null) {
-  const text = String(message || '').trim()
-  if (!text || fallbackIntent?.intent !== 'edit_request') {
-    return false
-  }
-
-  // Duration compression is already normalized by a deterministic parser.
-  if (extractTargetDurationSeconds(text)) {
-    return false
-  }
-
-  // Every non-trivial edit request uses one semantic contract. Regex remains a
-  // signal/fallback layer instead of deciding which natural-language requests
-  // deserve semantic interpretation.
-  return true
-}
-
-async function extractCopilotInstructionWithLLM({
-  openai,
-  model,
-  message = '',
-  sections,
-  editTarget = '',
-  previousAdvice = null,
-  replyContext = null,
-}) {
-  const normalizedSections = normalizeSections(sections)
-  const normalizedMessage = String(message || '').trim()
-  if (!normalizedMessage) {
-    return null
-  }
-  const regexSignals = parseRegexSignals(normalizedMessage)
-
-  const response = await openai.chat.completions.create({
-    model,
-    temperature: 0,
-    response_format: COPILOT_SEMANTIC_RESPONSE_FORMAT,
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '당신은 HookAI 코파일럿 사용자 요청을 구조화된 편집 명령으로 정규화하는 파서다.',
-          '대본을 작성하지 않는다. 사용자 문장을 실행 가능한 의미 명령으로만 변환한다.',
-          'operations에는 한 문장에 섞인 작업을 섹션별로 모두 분리해 넣는다.',
-          'topic_reframe: 사용자가 명시적으로 새 주제/상품/소재로 바꾸려는 요청이다. 예: "삼겹살로 주제 바꿔줘", "물광토너 주제로", "만두말고 치킨너겟으로".',
-          '중요: "주제/소재/상품/제품/아이템" 또는 "A 말고 B/A 대신 B" 같은 명시 신호가 없으면 topic_reframe으로 분류하지 말고 선택된 초안 내부 수정(partial_rewrite/edit_partial)으로 분류한다.',
-          'insert_material: 기존 대본에 특정 소재를 추가하는 요청이다. 예: "BODY에 손씻기 넣어줘".',
-          'format_apply: 새 주제/소재가 아니라 예시 문장 포맷, 문장 형식, placeholder를 현재 대본에 적용하는 요청이다.',
-          'tone_adjust: 주제는 유지하고 말투/광고감/자연스러움만 바꾸는 요청이다.',
-          'framing_rewrite: 주제/상품은 유지하고 불편함→해소감, 문제→해결, 공감 관점 같은 전개 방식만 바꾸는 요청이다.',
-          'partial_rewrite/edit_partial: 특정 섹션이나 일부 표현만 수정하는 요청이다.',
-          '"존댓말", "반말", "해요체", "하십시오체", "말투", "어미", "톤"은 절대 newSubject가 아니다. 이런 요청은 tone_adjust다.',
-          '"불편함에서 해소되는 느낌", "문제가 해결되는 흐름", "공감되는 관점"은 newSubject가 아니라 framing_rewrite다.',
-          '"이런 식으로", "포맷", "형식", "n초", "숫자를 넣어줘"는 newSubject가 아니라 format_apply다.',
-          '사용자 요청의 raw 표현은 대본 문장에 복사할 표현이 아니다. "만두말고" 같은 표현은 forbiddenSurfacePhrases에 넣는다.',
-          'newSubject는 최종 중심 주제/상품만 짧게 추출한다. 예: "간편 냉동볶음밥", "삼겹살", "치킨너겟".',
-          'requestedMaterials는 대본에 그대로 복사할 문장이 아니라 반영할 상황/소재 힌트다.',
-          'salesContext는 공구/상담/구매링크/모집 같은 판매 맥락만 짧게 추출한다.',
-          'toneHint는 가족 생활 공감형, 자연스럽고 말하듯이, 공구 느낌처럼 톤 방향만 적는다.',
-          '비교 요청이면 allowComparisonWithOldSubject=true다. 아니면 oldSubjectToRemove는 대본에 남기지 않는 소재다.',
-          '사용자가 수정하지 말라고 한 섹션은 locks에 do_not_touch로 넣는다.',
-          '조언이나 질문만 요청하면 intent=ask_advice, userFacingNeed=answer_question, operations=[]로 반환한다.',
-        ].join('\n'),
-      },
-      {
-        role: 'user',
-        content: [
-          `현재 선택 UI editTarget: ${editTarget || 'all'}`,
-          `사용자 요청: ${normalizedMessage}`,
-          '',
-          '[현재 초안 일부]',
-          `HOOK: ${normalizedSections.hook.slice(0, 160) || '-'}`,
-          `BODY: ${normalizedSections.body.slice(0, 220) || '-'}`,
-          `CTA: ${normalizedSections.cta.slice(0, 140) || '-'}`,
-        ].join('\n'),
-      },
-    ],
-  })
-
-  logAIUsage('copilot-instruction-extract', response, {
-    model,
-  })
-
-  const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-  const parsedInstruction = semanticInstructionFromModelOutput(parsed, {
-      userMessage: normalizedMessage,
-      regexSignals,
-    })
-  const resolvedReplyAdvice = replyContextToEditInstructions({
-    replyContext,
-    userMessage: normalizedMessage,
-    fallbackAdvice: previousAdvice,
-    editTarget,
-  })
-  if (resolvedReplyAdvice) {
-    parsedInstruction.intent = 'apply_feedback'
-    parsedInstruction.replyReference = {
-      hasReplyTarget: true,
-      sourceType: replyContext?.sourceType || resolvedReplyAdvice.sourceType || 'advice',
-      sourceMessageId: replyContext?.sourceMessageId || resolvedReplyAdvice.sourceMessageId || '',
-      sourceDraftId: replyContext?.sourceDraftId || resolvedReplyAdvice.sourceDraftId || '',
-      inheritedOperations: resolvedReplyAdvice.operations || [],
-    }
-  }
-  return resolveSemanticInstructionConflicts(parsedInstruction)
 }
 
 export async function classifyCopilotIntent({
@@ -4640,7 +4534,7 @@ export async function classifyCopilotIntent({
   conversationContext = null,
 }) {
   const normalizedPreviousAdvice = normalizePreviousAdvice(previousAdvice)
-  if (isApplyPreviousAdviceRequest(message)) {
+  if (!hasOpenAIConfig() && isApplyPreviousAdviceRequest(message)) {
     if (isPreviousAdviceFresh(normalizedPreviousAdvice)) {
       return {
         intent: COPILOT_INTENTS.APPLY_PREVIOUS_ADVICE,
@@ -4665,7 +4559,7 @@ export async function classifyCopilotIntent({
   }
 
   const durationIntent = classifyCopilotIntentByRule(message, editTarget, { targetDurationSeconds })
-  if (durationIntent.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+  if (!hasOpenAIConfig() && durationIntent.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
     return {
       intent: 'edit_request',
       editTarget: 'all',
@@ -4683,73 +4577,8 @@ export async function classifyCopilotIntent({
   const normalizedMessage = String(message || '').trim()
   const normalizedSections = normalizeSections(sections)
 
-  if (
-    fallback?.intent === 'edit_request' &&
-    shouldUseSemanticInstructionExtractor(normalizedMessage, fallback) &&
-    hasOpenAIConfig()
-  ) {
-    const { openai, models } = requireClients()
-    try {
-      const semanticInstruction = await extractCopilotInstructionWithLLM({
-        openai,
-        model: models.chatModel,
-        message: normalizedMessage,
-        sections: normalizedSections,
-        editTarget,
-        previousAdvice: normalizedPreviousAdvice,
-        replyContext,
-      })
-      const primarySemanticOperation = semanticInstruction?.operations?.[0] || null
-      if (primarySemanticOperation?.type && primarySemanticOperation.type !== COPILOT_OPERATION_TYPES.UNKNOWN) {
-        const structuredInstruction = semanticInstructionToLegacyInstruction(semanticInstruction)
-        const targetDuration =
-          normalizeTargetDurationSeconds(structuredInstruction.targetDurationSeconds) ||
-          normalizeTargetDurationSeconds(targetDurationSeconds)
-        const operationType =
-          primarySemanticOperation.type === COPILOT_OPERATION_TYPES.DURATION_COMPRESS && !targetDuration
-            ? COPILOT_OPERATION_TYPES.EDIT_PARTIAL
-            : primarySemanticOperation.type
-        return {
-          intent: 'edit_request',
-          editTarget: operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
-            ? 'all'
-            : SECTION_KEYS.includes(primarySemanticOperation.target)
-              ? primarySemanticOperation.target
-              : normalizeEditTarget(editTarget, normalizedMessage),
-          shouldModifyScript: true,
-          operationType,
-          targetDurationSeconds: operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ? targetDuration : null,
-          newSubject: operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ? structuredInstruction.newSubject : '',
-          requestedMaterials: structuredInstruction.requestedMaterials || [],
-          oldSubjectToRemove: structuredInstruction.oldSubjectToRemove || [],
-          forbiddenSurfacePhrases: structuredInstruction.forbiddenSurfacePhrases || [],
-          salesContext: structuredInstruction.salesContext || '',
-          toneHint: structuredInstruction.toneHint || '',
-          explicitKeep: structuredInstruction.explicitKeep || [],
-          explicitRemove: structuredInstruction.explicitRemove || [],
-          allowComparisonWithOldSubject: Boolean(structuredInstruction.allowComparisonWithOldSubject),
-          structuredEditInstruction: structuredInstruction,
-          semanticInstruction,
-          replyContext,
-          conversationContext,
-          reply: '',
-          reason: structuredInstruction.reason || '사용자 요청을 strict schema 편집 명령으로 정규화함',
-        }
-      }
-    } catch (error) {
-      logAIError('gpt', error, {
-        stage: 'copilot-instruction-extract',
-        message: normalizedMessage,
-        model: models.chatModel,
-      })
-    }
-  }
-
-  if (fallback) {
-    return fallback
-  }
-
   if (!hasOpenAIConfig()) {
+    if (fallback) return fallback
     return {
       intent: 'clarification',
       editTarget: null,
@@ -4764,11 +4593,19 @@ export async function classifyCopilotIntent({
     const response = await openai.chat.completions.create({
       model: models.chatModel,
       temperature: 0,
+      response_format: COPILOT_DIALOGUE_RESPONSE_FORMAT,
       messages: [
         {
           role: 'system',
           content: [
             '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
+            COPILOT_CONVERSATION_RULES,
+            '이번 발화를 단어 하나로 분류하지 말고 앞선 대화와 현재 에디터를 함께 해석한다.',
+            '정정이나 선택·복원 요청의 대상과 실제 수행할 내용을 resolvedRequest에 자립적인 문장으로 적는다. 사용자 요청에 없는 변경은 추가하지 않는다.',
+            '명확한 수정 요청만 edit_request로 반환한다. 수정 미리보기 생성과 에디터 저장은 다르며 자동 적용하지 않는다.',
+            '수정 요청이면 editTarget, operationType, newSubject, requestedMaterials를 같은 해석에 맞춰 작성한다.',
+            'edit_request면 semanticInstruction에 동일한 해석의 섹션별 operations와 locks를 작성한다. 다른 intent에서는 null이다. 현재 사용자의 유지 조건을 locks에 포함한다.',
+            conversationSummaryRequest(conversationContext),
             '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
               '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입, duration_compress=목표 초수에 맞춘 삭제 중심 압축, format_apply=예시 포맷/형식/placeholder 적용, framing_rewrite=주제 유지 후 전개/감정 흐름 조정.',
@@ -4796,19 +4633,20 @@ export async function classifyCopilotIntent({
             .filter(Boolean)
             .join('\n\n'),
         },
+        ...conversationModelMessages(conversationContext),
         {
           role: 'user',
           content: [
             `현재 선택 UI editTarget: ${editTarget || 'all'}`,
             `사용자 메시지: ${normalizedMessage}`,
             '',
-            '[현재 초안 요약]',
-            `HOOK: ${normalizedSections.hook.slice(0, 180) || '-'}`,
-            `BODY: ${normalizedSections.body.slice(0, 220) || '-'}`,
-            `CTA: ${normalizedSections.cta.slice(0, 160) || '-'}`,
+            '[현재 에디터 — 과거 제안보다 최신]',
+            JSON.stringify(normalizedSections),
+            `명시적 답장 대상: ${JSON.stringify(replyContext || null)}`,
+            `이전 실행 가능한 조언: ${JSON.stringify(normalizedPreviousAdvice)}`,
             '',
             'JSON 형식:',
-              '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|duration_compress|format_apply|framing_rewrite|null","targetDurationSeconds":null,"newSubject":"","requestedMaterials":[],"shouldModifyScript":false,"reply":"","reason":""}',
+              '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|duration_compress|format_apply|framing_rewrite|null","targetDurationSeconds":null,"newSubject":"","requestedMaterials":[],"resolvedRequest":"","historySummary":"","shouldModifyScript":false,"reply":"","reason":""}',
           ].join('\n'),
         },
       ],
@@ -4818,6 +4656,7 @@ export async function classifyCopilotIntent({
       model: models.chatModel,
     })
 
+    if (['length', 'content_filter'].includes(response.choices[0]?.finish_reason)) throw new Error('Incomplete copilot intent')
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
     const allowedIntents = new Set([
       'greeting',
@@ -4836,7 +4675,8 @@ export async function classifyCopilotIntent({
       : intent === 'edit_request'
         ? normalizeEditTarget(editTarget, normalizedMessage)
         : null
-    const normalizedParsedInstruction = normalizeSemanticEditInstruction(parsed, normalizedMessage)
+    const resolvedRequest = String(parsed.resolvedRequest || normalizedMessage).trim().slice(0, 6000)
+    const normalizedParsedInstruction = normalizeSemanticEditInstruction(parsed, resolvedRequest)
     const fallbackNewSubject =
       normalizedParsedInstruction.operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
         ? normalizedParsedInstruction.newSubject
@@ -4868,6 +4708,13 @@ export async function classifyCopilotIntent({
 
     return {
       intent,
+      resolvedRequest,
+      originalRequest: normalizedMessage,
+      semanticInstruction: intent === 'edit_request' && parsed.semanticInstruction
+        ? resolveSemanticInstructionConflicts(semanticInstructionFromModelOutput(parsed.semanticInstruction, {
+            userMessage: resolvedRequest, regexSignals: parseRegexSignals(normalizedMessage),
+          })) : null,
+      conversationSummary: advanceConversationSummary(conversationContext, parsed.historySummary),
       editTarget: parsedOperationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ? 'all' : target,
       shouldModifyScript: intent === 'edit_request' && Boolean(parsed.shouldModifyScript),
       operationType: intent === 'edit_request' ? parsedOperationType : null,
@@ -5265,8 +5112,8 @@ function buildCharacterBoundary(accountId) {
 function buildContextPriority() {
   return [
     '컨텍스트 우선순위(절대 준수):',
-    '1. 현재 초안',
-    '2. 사용자 요청',
+    '1. 현재 사용자 요청과 사용자 사실 정정',
+    '2. 현재 초안(편집 기준이며 사실의 증거는 아님)',
     '3. 계정/캐릭터 설정',
     '4. 기존 피드백',
     '5. 레퍼런스 구조 인사이트',
@@ -5445,7 +5292,7 @@ function buildFeedbackUserPrompt({
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     '피드백 오염 방지 규칙:\n' +
     '- 현재 제공된 HOOK/BODY/CTA에 없는 상품, 음식, 소재, 주제, 상황을 새로 만들지 않는다.\n' +
-    '- 이전 대화에서 나온 주제나 수정 요청은 현재 초안에 직접 포함되어 있지 않으면 무시한다.\n' +
+    '- 현재 초안과 무관한 과거 주제를 가져오지 않는다. 현재 대본에 대한 사용자의 사실 정정과 유지 조건은 반영한다.\n' +
     '- suggestedSections는 현재 초안의 주제와 상품을 유지해야 하며 피드백 과정에서 다른 주제로 바꾸지 않는다.\n\n' +
     '다음 JSON 형식으로만 답하세요: ' +
     '{"score":82,"summary":"","detail":"","issues":[""],"recommendations":[""],"suggestedSections":{"hook":"","body":"","cta":""}}'
@@ -5473,9 +5320,9 @@ function buildNaturalResponseUserPrompt({
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     '응답 규칙:\n' +
-    '- 지금은 대본을 수정하지 않는다. HOOK/BODY/CTA 문장을 새로 쓰거나 출력하지 않는다.\n' +
+    '- 지금은 에디터 내용을 변경하지 않는다. 설명에 필요한 문장 예시와 대안은 답변에 포함할 수 있다.\n' +
     '- 사용자의 질문에 자연어로만 답한다.\n' +
-    '- 조언/평가 요청이면 공감/확인 → 핵심 진단 1개 → 살릴 점 1개 → 아쉬운 점 1~2개 → 추천 수정 방향 → 원하면 수정 가능 안내 흐름으로 답한다.\n' +
+    '- 이번 요청에 직접 답한다. 설명·사실 정정·선택·비교·아이디어 요청에 동일한 평가 형식을 강제하지 않는다. 제안을 요청했다면 실제 제안을 이번 답변에 포함한다.\n' +
     '- HOOK/BODY/CTA를 전부 나열하지 말고 가장 큰 병목부터 말한다.\n' +
     '- 점수는 사용자가 명시적으로 점수나 몇 점인지 물었을 때만 말한다.\n' +
     '- 무조건 칭찬하지 않는다. 약한 부분이 있으면 약하다고 말한다.\n' +
@@ -5492,25 +5339,6 @@ function buildNaturalResponseUserPrompt({
   )
 }
 
-function buildFallbackNaturalResponse(sections = {}, intent = COPILOT_INTENTS.ADVISE) {
-  const normalized = normalizeSections(sections)
-  if (intent === COPILOT_INTENTS.GENERAL) {
-    return '지금 초안을 기준으로 도와드릴 수 있어요. 조언을 원하면 어떤 부분이 고민인지 말해주시고, 수정이 필요하면 HOOK/BODY/CTA 중 어디를 바꿀지 알려주세요.'
-  }
-
-  const hookNote = normalized.hook
-    ? '첫 문장에서 주제는 보이는데, 멈춰 보게 만드는 긴장감은 조금 더 선명하면 좋아요.'
-    : '첫 문장이 비어 있어서 시청자 고민을 바로 찌르는 시작점이 필요해요.'
-  const bodyNote = normalized.body
-    ? '살릴 점은 내용 흐름이 있다는 거고, 가장 먼저 볼 부분은 첫 문장과 본문 연결입니다.'
-    : '본문이 비어 있어서 문제 원인과 해결 기준을 짧게 이어줘야 해요.'
-  const ctaNote = normalized.cta
-    ? '원하면 전체를 갈아엎기보다 가장 약한 구간부터 바로 다듬어볼게요.'
-    : '마무리가 비어 있어서 시청자가 지금 해야 할 행동을 한 문장으로 잡아줘야 해요.'
-
-  return `그 느낌 이해돼요. ${hookNote} ${bodyNote} ${ctaNote}`
-}
-
 async function generateCopilotNaturalResponse({
   openai,
   model,
@@ -5525,6 +5353,7 @@ async function generateCopilotNaturalResponse({
   personalizationContext = '',
   copilotMemory = {},
   intentResult,
+  conversationContext = null,
 }) {
   const normalizedSections = normalizeSections(sections)
   const copilotMemoryContext = formatCopilotMemoryForPrompt(copilotMemory)
@@ -5538,13 +5367,14 @@ async function generateCopilotNaturalResponse({
           content: [
             '당신은 숏폼 콘텐츠 코파일럿이다. 지금은 대본 수정기가 아니라 대본 코치로 답한다. 출력은 JSON만 반환한다.',
             buildContextPriority(),
+            COPILOT_CONVERSATION_RULES,
             buildReferenceContaminationGuard(),
             '수정 금지: 사용자가 명시적으로 수정/고치기/바꾸기를 요청하지 않았으므로 HOOK/BODY/CTA를 변경하지 않는다.',
             buildCopilotEvaluationRubric(),
             buildCopilotMentorToneGuide(),
-            '응답 규칙: 자연어로 짧게 진단한다. 좋은 점, 약한 점, 다음 개선 방향을 기준표에 맞춰 구체적으로 말한다.',
-            '응답 규칙: "좋아요"만 말하지 않는다. 약한 점이 있으면 약하다고 말한다. 단, 대본을 새로 쓰거나 적용하지 않는다.',
-            '응답 구조: 공감/확인 → 핵심 진단 → 살릴 점 → 아쉬운 점 → 방향 제안 → 원하면 수정 가능 안내 순서로 답한다.',
+            '응답 규칙: 대화 맥락에서 사용자가 요청한 답변을 구체적으로 완성한다. 대본 평가를 요청한 경우에만 평가 기준을 사용한다.',
+            '응답 규칙: 확인 문구만 말하지 않는다. 대안이나 문장 예시를 답변할 수 있지만 에디터 적용은 하지 않는다.',
+            '요청에 필요한 답을 이번 응답에서 완성한다. 이전 AI 답변의 오류를 인정할 수 있으며, 사용자의 정정을 바탕으로 대안을 제시한다.',
             '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
@@ -5556,6 +5386,7 @@ async function generateCopilotNaturalResponse({
             .filter(Boolean)
             .join('\n\n'),
         },
+        ...conversationModelMessages(conversationContext),
         {
           role: 'user',
           content: buildNaturalResponseUserPrompt({
@@ -5576,8 +5407,10 @@ async function generateCopilotNaturalResponse({
       selectedLabel: selectedLabel || '',
       copilotIntent: intentResult.intent,
     })
+    if (['length', 'content_filter'].includes(response.choices[0]?.finish_reason)) throw new Error('Incomplete copilot response')
     const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const message = String(parsed?.message || '').trim() || buildFallbackNaturalResponse(normalizedSections, intentResult.intent)
+    const message = typeof parsed?.message === 'string' ? parsed.message.trim() : ''
+    if (!message) throw new Error('Missing copilot response message')
     const actionableAdvice = normalizePreviousAdvice({
       ...(parsed?.actionableAdvice && typeof parsed.actionableAdvice === 'object' ? parsed.actionableAdvice : {}),
       sourceUserMessage: request,
@@ -5595,10 +5428,7 @@ async function generateCopilotNaturalResponse({
       stage: 'script-natural-response',
       model,
     })
-    return {
-      message: buildFallbackNaturalResponse(normalizedSections, intentResult.intent),
-      actionableAdvice: null,
-    }
+    throw new AppError('답변 생성이 완료되지 않았습니다. 대본은 변경하지 않았습니다. 잠시 후 다시 시도해 주세요.', { code: 'COPILOT_RESPONSE_FAILED', statusCode: 502, cause: error })
   }
 }
 
@@ -5619,8 +5449,12 @@ export async function refineScriptWithAI({
   personalizationContext = '',
   copilotMemory = {},
   editPlan = null,
+  resolvedIntent = null,
+  conversationContext = null,
 }) {
-  const normalizedRequest = request?.trim()
+  const normalizedRequest = (resolvedIntent?.originalRequest || request)?.trim()
+  const contextualRequest = resolvedIntent?.resolvedRequest
+    ? `${normalizedRequest}\n[앞선 대화에 근거한 요청 해석]\n${resolvedIntent.resolvedRequest}` : normalizedRequest
   const normalizedSections = normalizeSections(sections)
 
   if (!normalizedRequest) {
@@ -5641,7 +5475,10 @@ export async function refineScriptWithAI({
   }
   const referenceContext = buildReferenceStructureContext(reference, selectedVariation)
   const guides = buildReferenceGuides(reference)
-  const intentResult = classifyCopilotIntentByRule(normalizedRequest, editTarget)
+  const intentResult = resolvedIntent
+    ? { ...resolvedIntent, shouldEdit: Boolean(resolvedIntent.shouldModifyScript),
+        responseMode: resolvedIntent.shouldModifyScript ? 'edit_only' : 'advice_only' }
+    : classifyCopilotIntentByRule(normalizedRequest, editTarget)
   const copilotMemoryContext = formatCopilotMemoryForPrompt(copilotMemory)
   const editPlanContext = formatEditPlanForPrompt(editPlan)
 
@@ -5664,7 +5501,7 @@ export async function refineScriptWithAI({
       accountId,
       referenceId,
       selectedLabel,
-      request: normalizedRequest,
+      request: contextualRequest,
       sections: normalizedSections,
       referenceContext,
       guides,
@@ -5672,6 +5509,7 @@ export async function refineScriptWithAI({
       personalizationContext,
       copilotMemory,
       intentResult,
+      conversationContext,
     })
     const message = naturalResponse.message
 
@@ -5700,7 +5538,7 @@ export async function refineScriptWithAI({
     const hookTemplateRetrieval = await retrieveHookTemplates({
       ...buildCopilotHookTemplateQuery({
         sections: normalizedSections,
-        request: normalizedRequest,
+        request: contextualRequest,
         reference,
         selectedLabel,
         selectedVariantId,
@@ -5718,7 +5556,7 @@ export async function refineScriptWithAI({
     const narrativePatternRetrieval = await retrieveNarrativePatterns({
       ...buildCopilotNarrativePatternQuery({
         sections: normalizedSections,
-        request: normalizedRequest,
+        request: contextualRequest,
         reference,
         selectedLabel,
       }),
@@ -5750,6 +5588,7 @@ export async function refineScriptWithAI({
           content: [
             '당신은 숏폼 콘텐츠 편집 코파일럿이다. 사용자의 수정 요청을 반영해 현재 초안의 HOOK/BODY/CTA만 한국어로 다듬는다. 출력은 JSON만 반환한다.',
             buildContextPriority(),
+            COPILOT_CONVERSATION_RULES,
             buildReferenceContaminationGuard(),
             buildCopilotEvaluationRubric(),
             buildCopilotMentorToneGuide(),
@@ -5789,11 +5628,12 @@ export async function refineScriptWithAI({
             .filter(Boolean)
             .join('\n\n'),
         },
+        ...conversationModelMessages(conversationContext),
         {
           role: 'user',
           content: buildRefineUserPrompt({
             sections: normalizedSections,
-            request: normalizedRequest,
+            request: contextualRequest,
             selectedLabel,
             referenceContext,
             guides,
@@ -5858,7 +5698,7 @@ export async function refineScriptWithAI({
   } catch (error) {
     logAIError('gpt', error, {
       referenceId,
-      request: normalizedRequest,
+      request: contextualRequest,
       stage: 'script-refine',
       model: models.copilotModel || models.chatModel,
     })
@@ -5885,6 +5725,8 @@ export async function generateScriptFeedback({
   characterSystemPrompt = '',
   personalizationContext = '',
   previousFeedback = null,
+  conversationContext = null,
+  request = '',
 }) {
   const normalizedSections = normalizeSections(sections)
   const { supabaseAdmin, openai, models } = requireClients()
@@ -5917,11 +5759,12 @@ export async function generateScriptFeedback({
           content: [
             '당신은 숏폼 콘텐츠 평가자다. 제공된 초안을 100점 만점으로 평가하고, 개선 포인트를 짧고 명확하게 제안한다. 출력은 JSON만 반환한다.',
             buildContextPriority(),
+            COPILOT_CONVERSATION_RULES,
             buildReferenceContaminationGuard(),
             buildCopilotEvaluationRubric(),
             'suggestedSections는 반드시 현재 초안을 개선한 결과여야 한다. 레퍼런스 전사/원문 내용을 기준으로 재생성하지 않는다.',
             '피드백 기준: 현재 제공된 HOOK/BODY/CTA에 없는 상품, 음식, 소재, 주제, 상황을 새로 만들지 않는다.',
-            '피드백 기준: 이전 대화에서 나온 주제나 수정 요청은 현재 초안에 직접 포함되어 있지 않으면 무시한다.',
+            '피드백 기준: 현재 초안과 무관한 과거 주제는 가져오지 않는다. 현재 대본에 대한 사용자의 사실 정정과 유지 조건은 반영한다.',
             'suggestedSections를 작성할 때는 설명형/교과서형 문장을 피하고, 실제 사람이 말하는 톤으로 다시 써라.',
             'suggestedSections는 현재 초안의 주제와 상품을 유지해야 한다. 피드백 과정에서 다른 주제로 바꾸지 않는다.',
             'suggestedSections는 선택 초안의 문장 단위 구조 설계도, 길이감, 문장 역할 순서, 심리 트리거, CTA 위치를 가능한 한 유지한다.',
@@ -5945,9 +5788,10 @@ export async function generateScriptFeedback({
             .filter(Boolean)
             .join('\n\n'),
         },
+        ...conversationModelMessages(conversationContext),
         {
           role: 'user',
-          content: buildFeedbackUserPrompt({
+          content: `현재 요청: ${request}\n` + buildFeedbackUserPrompt({
             sections: normalizedSections,
             selectedLabel,
             referenceContext,
@@ -6049,6 +5893,7 @@ export async function validateRefinedScriptQuality({
   targetCharRange = null,
   editPlan = null,
   copilotMemory = {},
+  conversationContext = null,
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -6090,6 +5935,7 @@ export async function validateRefinedScriptQuality({
         {
           role: 'system',
           content: [
+            COPILOT_CONVERSATION_RULES,
             '당신은 숏폼 대본 수정본의 내부 QA 검사자다. 수정자가 아니다.',
             '대본을 다시 작성하지 마라. 반드시 검사 결과 JSON만 반환한다.',
             '검사 기준은 qaMode에 따라 달라진다. 사용자 명시 요청을 기존 대본 보존 규칙보다 우선한다.',
@@ -6125,6 +5971,7 @@ export async function validateRefinedScriptQuality({
             .filter(Boolean)
             .join('\n\n'),
         },
+        ...conversationModelMessages(conversationContext),
         {
           role: 'user',
           content: [
@@ -6238,6 +6085,7 @@ export async function repairRefinedScriptWithQaIssues({
   targetCharRange = null,
   editPlan = null,
   copilotMemory = {},
+  conversationContext = null,
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -6286,6 +6134,7 @@ export async function repairRefinedScriptWithQaIssues({
         {
           role: 'system',
           content: [
+            COPILOT_CONVERSATION_RULES,
             '당신은 숏폼 대본을 최종으로 다듬는 편집자다. 문제가 확인된 섹션만 최소 수정한다.',
             '문제가 없는 섹션은 수정본 그대로 유지한다.',
             '잠긴 섹션은 원문 그대로 유지한다.',
@@ -6333,6 +6182,7 @@ export async function repairRefinedScriptWithQaIssues({
               ? 'duration_compress의 message에는 "문제였던 부분", "고쳤다" 같은 문제 해결 표현을 쓰지 않는다. 목표 시간에 맞춰 핵심만 압축했다는 식으로 한두 문장만 쓴다.'
               : 'message는 사용자가 이해하기 쉬운 말로 한두 문장만 쓴다. QA/repair 같은 내부 과정은 말하지 않는다.',
             buildContextPriority(),
+            COPILOT_CONVERSATION_RULES,
             buildReferenceContaminationGuard(),
             buildEditOutputInstruction(repairTargets),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
@@ -6341,6 +6191,7 @@ export async function repairRefinedScriptWithQaIssues({
             .filter(Boolean)
             .join('\n\n'),
         },
+        ...conversationModelMessages(conversationContext),
         {
           role: 'user',
           content: [

@@ -297,7 +297,8 @@ test('feedback prompt forbids introducing topics from previous conversations', (
   })
 
   assert.match(prompt, /현재 제공된 HOOK\/BODY\/CTA에 없는 상품, 음식, 소재, 주제, 상황을 새로 만들지 않는다/)
-  assert.match(prompt, /이전 대화에서 나온 주제나 수정 요청은 현재 초안에 직접 포함되어 있지 않으면 무시한다/)
+  assert.match(prompt, /현재 초안과 무관한 과거 주제를 가져오지 않는다/)
+  assert.match(prompt, /사용자의 사실 정정과 유지 조건은 반영한다/)
 })
 
 test('five repeated prompt assemblies do not reintroduce reference transcript terms', () => {
@@ -786,7 +787,7 @@ test('copilot treats honorific requests as tone adjustment, not topic reframe', 
   assert.ok(plan.mustChange.some((item) => /존댓말/.test(item)))
 })
 
-test('natural response prompt explicitly forbids section rewrites', () => {
+test('natural response permits examples without applying editor changes', () => {
   const prompt = buildNaturalResponseUserPrompt({
     sections: currentDraft,
     request: '이대로 올려도 돼?',
@@ -801,13 +802,13 @@ test('natural response prompt explicitly forbids section rewrites', () => {
 
   assert.equal(prompt.startsWith(buildDraftBlock(currentDraft)), true)
   assert.match(prompt, /대본을 수정하지 않는다/)
-  assert.match(prompt, /공감\/확인 → 핵심 진단 1개/)
+  assert.match(prompt, /이번 요청에 직접 답한다/)
   assert.match(prompt, /점수는 사용자가 명시적으로 점수나 몇 점인지 물었을 때만 말한다/)
   assert.match(prompt, /내부 용어와 평가 기준표 이름을 사용자에게 노출하지 않는다/)
   assert.match(prompt, /코파일럿 평가 기준표/)
   assert.match(prompt, /HOOK 흡입력/)
   assert.match(prompt, /무조건 칭찬하지 않는다/)
-  assert.match(prompt, /HOOK\/BODY\/CTA 문장을 새로 쓰거나 출력하지 않는다/)
+  assert.match(prompt, /에디터 내용을 변경하지 않는다/)
   assert.match(prompt, /\{"message":""\}/)
 })
 
