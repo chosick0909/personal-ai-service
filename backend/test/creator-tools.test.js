@@ -111,9 +111,9 @@ test('translation retries once when the model changes a numeric claim', async ()
   const calls = []
   const providers = { json: async (operation, _instruction, input) => {
     calls.push(operation)
-    if (operation === 'verify-reference-numbers') return {segments:input.segments.map(s => ({id:s.id,verdict:'equivalent',sourceQuotes:[s.source],translatedQuotes:[s.translation],reason:'원문 수량 보존'}))}
-    return { segments: [{ id: 'a', text: operation.endsWith('correction')
-      ? `${input.segments[0].text.match(/__HOOKAINUM[A-Z]+__/)[0]}3개를 사용하세요.` : '5개를 사용하세요.' }] }
+    if (operation === 'verify-reference-numbers') return {verdict:'equivalent',meaningVerdict:'equivalent',sourceQuotes:[input.source],translatedQuotes:[input.translation],reason:'원문 의미와 수량 보존'}
+    return { text: operation.endsWith('correction')
+      ? `${input.source.match(/__HOOKAINUM[A-Z]+__/)[0]}3개를 사용하세요.` : '5개를 사용하세요.' }
   } }
   const source = [{ id: 'a', start: 0, end: 1, text: 'Use 3 items.' }]
   const result = await translateSegments(providers, 'en', source)

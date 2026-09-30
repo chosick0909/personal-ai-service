@@ -1,99 +1,180 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { translateSegments, validateTranslation, importLink, collectImportTranscript } from '../src/creator-tools/link-import.js'
+const { translateSegments, validateTranslation, importLink, collectImportTranscript } = await import(process.env.LINK_IMPORT_TEST_MODULE || '../src/creator-tools/link-import.js')
 
-// Numeric patterns observed in the failing Hindi transcript; no provider calls or credentials.
-const source = [
-  { id:'product', start:0, end:2, text:'डेटॉल वाशिंग मशीन फाइव एन वन क्लिनर' },
-  { id:'dose', start:2, end:4, text:'हाफ बॉटल, टॉप लोड में एक फुल बॉटल' },
-  { id:'effect', start:4, end:6, text:'99.9% बैक्टेरिया को किल करता है' },
-  { id:'interval', start:6, end:8, text:'बस एवरी टूमन्स इसको यूज करो' },
-  { id:'price', start:8, end:10, text:'सिब 254 रुपीज में आपकी मशीन' },
-]
-const approve = input => ({segments:input.segments.map(s => ({id:s.id,verdict:'equivalent',sourceQuotes:[s.source],translatedQuotes:[s.translation],reason:'수량 의미 동일'}))})
+const approve = input => ({verdict:'equivalent',meaningVerdict:'equivalent',sourceQuotes:[input.source.slice(0,200)],translatedQuotes:[input.translation.slice(0,200)],reason:'원문 의미와 수량 보존'})
 const tokens = text => text.match(/__HOOKAINUM[A-Z]+__/g) || []
-const translated = input => input.segments.map(s => ({id:s.id, text:{
-  product:'세탁기 5-in-1 클리너', dose:'0.5병, 통돌이 세탁기에는 1병',
-  effect:`세균 ${tokens(s.text)[0]}% 제거`, interval:'2개월마다 사용', price:`가격은 ${tokens(s.text)[0]}루피`,
-}[s.id]}))
+const source = [
+  {id:'a',start:0,end:1,text:'Stop buying more boxes.'},
+  {id:'b',start:1,end:2,text:'Sort what you already own'},
+  {id:'c',start:2,end:3,text:'before choosing a shelf.'},
+]
+const korean = '상자를 더 사지 말고, 이미 가진 물건을 정리한 뒤 선반을 고르세요.'
+const provider = (translate, review=approve) => ({json:async(op,_p,input,_f,schema)=>op==='verify-reference-numbers'?review(input):translate(input,op,schema)})
 
-test('Hindi spoken quantities can become Korean digits while original percentages and prices stay exact', async () => {
-  let calls = 0
-  const result = await translateSegments({json:async (_operation,_prompt,input,_frames,schema) => {
-    calls++; assert.equal(schema.additionalProperties,false)
-    if (_operation === 'verify-reference-numbers') return approve(input)
-    return {segments:translated(input)}
-  }},'hindi',source)
-  assert.equal(calls,2)
-  assert.deepEqual(result.map(s => s.text), ['세탁기 5-in-1 클리너','0.5병, 통돌이 세탁기에는 1병','세균 99.9% 제거','2개월마다 사용','가격은 254루피'])
-  assert.deepEqual(result.map(({id,start,end}) => ({id,start,end})),source.map(({id,start,end})=>({id,start,end})))
+test('multiple transcription cues may become one natural Korean sentence', async()=>{
+  const calls=[]
+  const result=await translateSegments({json:async(op,_p,input,_f,schema)=>{
+    calls.push(op)
+    if(op==='verify-reference-numbers')return approve(input)
+    // Reproduce the original real shape of failure on the baseline too.
+    if(schema.properties.segments)return {segments:[{id:input.segments[0].id,text:korean}]}
+    assert.equal(input.source,source.map(s=>s.text).join('\n'))
+    return {text:korean}
+  }},'en',source)
+  assert.equal(result.map(s=>s.text).join('\n'),korean)
+  assert.deepEqual(calls,['translate-reference','verify-reference-numbers'])
 })
-test('spoken-number translations use independent semantic review for any language, without a numeral dictionary', async () => {
-  for (const [language,text,translation] of [
-    ['en','Use one bottle every two months.','2개월마다 1병'],
-    ['hi','दो बोतल','2병'], ['es','cada dos meses','2개월마다'],
-    ['ar','زجاجة واحدة','1병'], ['ja','二か月ごと','2개월마다'],
-  ]) {
+test('one cue may become several Korean sentences without a correction',async()=>{
+  const result=await translateSegments(provider((_input,op,schema)=>{
+    assert.equal(op,'translate-reference');assert.deepEqual(schema.required,['text']);assert.equal(schema.additionalProperties,false)
+    return {text:'상자를 더 사지 마세요. 가진 물건부터 정리하세요. 그다음 선반을 고르세요.'}
+  }),'en',[{text:'Stop buying boxes; sort your things, then choose a shelf.'}])
+  assert.equal(result[0].text.split('.').filter(s=>s.trim()).length,3)
+})
+test('different cue identities and timing do not constrain document translation',async()=>{
+  const result=await translateSegments(provider(()=>({text:korean})),'en',source.map(s=>({...s,id:'duplicate'})))
+  assert.equal(result[0].text,korean)
+})
+test('Hindi spoken quantities become Korean digits while written percentages and prices stay exact',async()=>{
+  const original=[{text:'फाइव एन वन क्लिनर, हाफ बॉटल, एक फुल बॉटल'}, {text:'99.9% बैक्टेरिया, एवरी टूमन्स, 254 रुपीज'}]
+  const result=await translateSegments(provider(input=>({text:`5-in-1 클리너. 0.5병 또는 1병. 세균 ${tokens(input.source)[0]}%. 2개월마다, ${tokens(input.source)[1]}루피.`})),'hi',original)
+  assert.match(result[0].text,/99\.9%/);assert.match(result[0].text,/254루피/)
+})
+test('spoken quantities work across languages without a numeral dictionary',async()=>{
+  for(const [language,text,translation] of [['en','Use one bottle every two months.','2개월마다 1병'],['hi','दो बोतल','2병'],['es','cada dos meses','2개월마다'],['ar','زجاجة واحدة','1병'],['ja','二か月ごと','2개월마다']]){
+    assert.equal((await translateSegments(provider(()=>({text:translation})),language,[{text}]))[0].text,translation)
+  }
+})
+test('actual numeric changes still fail after exactly one correction',async()=>{
+  let calls=0
+  await assert.rejects(translateSegments(provider(()=>{calls++;return{text:'255루피'}}),'hi',[{text:'254 rupees'}]),{code:'TRANSLATION_NUMBER_CHANGED'})
+  assert.equal(calls,2)
+})
+test('written numbers cannot be deleted, changed, duplicated or added',()=>{
+  for(const text of ['99%에 254루피','99.9%에 250루피','254루피','99.9%에 254루피 254루피']){
+    assert.throws(()=>validateTranslation([{id:'a',text:'99.9% for 254 rupees'}],[{id:'a',text}]),{code:'TRANSLATION_NUMBER_CHANGED'})
+  }
+})
+test('a written placeholder cannot be omitted, duplicated or exchanged for an unknown placeholder',async()=>{
+  for(const mutate of [()=>'',t=>t+t,()=> '__HOOKAINUMZZZ__']){
+    await assert.rejects(translateSegments(provider(input=>({text:`가격 ${mutate(tokens(input.source)[0])}`})),'en',[{text:'Price 254'}]),{code:'TRANSLATION_NUMBER_CHANGED'})
+  }
+})
+test('numeric meaning review still rejects changed units, word-only quantities and added frequency',async()=>{
+  for(const [text,translation] of [['every two months','세 달마다'],['Use one bottle','한 리터를 사용'],['Use one bottle','1병을 3회 사용']]){
+    let calls=0
+    await assert.rejects(translateSegments(provider(()=>{calls++;return{text:translation}},input=>({...approve(input),verdict:'changed'})),'en',[{text}]),{code:'TRANSLATION_NUMBER_CHANGED'})
+    assert.equal(calls,2)
+  }
+})
+test('lost negation, omitted condition or invented advice triggers semantic correction',async()=>{
+  for(const bad of ['상자를 더 사세요.','선반을 고르세요.','상자를 사고 매일 운동하세요.']){
     const calls=[]
     const result=await translateSegments({json:async(op,_p,input)=>{
       calls.push(op)
-      return op==='verify-reference-numbers'?approve(input):{segments:[{id:'a',text:translation}]}
-    }},language,[{id:'a',text}])
-    assert.equal(result[0].text,translation)
-    assert.deepEqual(calls,['translate-reference','verify-reference-numbers'])
+      if(op==='verify-reference-numbers')return{...approve(input),meaningVerdict:input.translation===bad?'changed':'equivalent'}
+      return{text:op.endsWith('correction')?korean:bad}
+    }},'en',source)
+    assert.equal(result[0].text,korean)
+    assert.deepEqual(calls,['translate-reference','verify-reference-numbers','translate-reference-correction','verify-reference-numbers'])
   }
 })
-test('actual numeric changes still fail after exactly one correction', async () => {
-  let calls=0
-  await assert.rejects(translateSegments({json:async (_op,_prompt,input)=> {
-    calls++; const result=translated(input);result.find(s=>s.id==='price').text='가격은 255루피';return {segments:result}
-  }},'hi',source),{code:'TRANSLATION_NUMBER_CHANGED'})
-  assert.equal(calls,2)
-})
-test('percentages and prices cannot be deleted, replaced or duplicated', () => {
-  const original=[{id:'a',text:'99.9% for 254 rupees'}]
-  for(const text of ['99%에 254루피','99.9%에 250루피','254루피','99.9%에 254루피 254루피']) {
-    assert.throws(()=>validateTranslation(original,[{id:'a',text}],'hi'),{code:'TRANSLATION_NUMBER_CHANGED'})
+test('semantic uncertainty and fabricated evidence remain blocked after one repair',async()=>{
+  for(const mutate of [r=>{r.meaningVerdict='uncertain'},r=>{r.meaningVerdict='changed'},r=>{r.sourceQuotes=['invented']},r=>{r.translatedQuotes=[]},r=>{delete r.meaningVerdict}]){
+    await assert.rejects(translateSegments(provider(()=>({text:korean}),input=>{const r=approve(input);mutate(r);return r}),'en',source),{code:'TRANSLATION_CONTENT_CHANGED'})
   }
 })
-test('same-valued placeholders cannot move between segments', async () => {
-  const original=[{id:'a',text:'Use 3 bottles'},{id:'b',text:'Wait 3 days'}]
-  await assert.rejects(translateSegments({json:async (_op,_p,input)=>({segments:[
-    {id:'a',text:`${tokens(input.segments[1].text)[0]}병`},
-    {id:'b',text:`${tokens(input.segments[0].text)[0]}일`},
-  ]})},'en',original),{code:'TRANSLATION_NUMBER_CHANGED'})
-})
-test('a new instruction is not silently erased and a semantic rejection stays blocked', async () => {
-  const calls=[]
-  await assert.rejects(translateSegments({json:async(op,_p,input)=>{
-    calls.push(op)
-    if(op==='verify-reference-numbers') {
-      assert.match(input.segments[0].translation,/3병을 3회/)
-      const result=approve(input);result.segments[0].verdict='changed';result.segments[0].reason='원문에 없는 사용 횟수 추가';return result
-    }
-    return{segments:[{id:'a',text:`${tokens(input.segments[0].text)[0]}병을 3회 사용`}]}
-  }},'en',[{id:'a',text:'Use 3 bottles'}]),{code:'TRANSLATION_NUMBER_CHANGED'})
-  assert.deepEqual(calls,['translate-reference','verify-reference-numbers','translate-reference-correction','verify-reference-numbers'])
-})
-test('malformed translations report a controlled shape error without spending on a numeric repair', async () => {
-  for (const value of [null,{}, {segments:null},{segments:[null]}]) {
+test('empty and malformed responses get only one repair; no empty translation is returned',async()=>{
+  for(const response of [null,{}, {text:null},{text:''},{text:'   '},{text:'가'.repeat(12001)}]){
     let calls=0
-    await assert.rejects(translateSegments({json:async()=>{calls++;return value}},'en',[{id:'a',text:'Use 3 bottles'}]),{code:'TRANSLATION_INVALID'})
-    assert.equal(calls,1)
+    await assert.rejects(translateSegments(provider(()=>{calls++;return response}),'en',source),{code:'TRANSLATION_CONTENT_CHANGED'})
+    assert.equal(calls,2)
   }
 })
-test('link import resumes saved Hindi transcription without repeating collection or transcription', async () => {
-  const stages=[], calls=[]
-  const result=await importLink({job:{input:{url:'https://www.instagram.com/reel/DW8tMKyiTxO/'}},
-    stage:async s=>stages.push(s), checkpoint:async(name,fn)=>name==='transcript'?{language:'hindi',subtitles:source,text:source.map(s=>s.text).join(' '),duration:10}:fn(),
-    providers:{brightData:async()=>assert.fail('must reuse transcript'),json:async(op,_p,input)=>{calls.push(op);if(op==='reference-analysis')return {};return op==='verify-reference-numbers'?approve(input):{segments:translated(input)}}},
-  })
-  assert.equal(result.sourceLanguage,'hindi')
-  assert.match(result.translatedTranscript,/99\.9%/)
-  assert.match(result.translatedTranscript,/254루피/)
-  assert.match(result.translatedTranscript,/2개월/)
-  assert.deepEqual(calls,['translate-reference','verify-reference-numbers','reference-analysis'])
-  assert.equal(stages.at(-1),'saving_transcript')
+test('non-Latin decimal digits are protected verbatim',async()=>{
+  const result=await translateSegments(provider(input=>({text:`${tokens(input.source)[0]}% 보존`})),'ar',[{text:'٩٩٫٩%'}])
+  assert.equal(result[0].text,'٩٩٫٩% 보존')
+})
+test('provider budget, transport, cancellation and truncated responses do not cause translation retries',async()=>{
+  for(const code of ['PROVIDER_BUDGET','ECONNRESET','ABORT_ERR','CREATOR_INCOMPLETE_RESPONSE']){
+    for(const stage of ['translation','review']){
+      let calls=0
+      await assert.rejects(translateSegments({json:async(op)=>{
+        calls++
+        if(stage==='translation'||op==='verify-reference-numbers')throw Object.assign(new Error(code),{code})
+        return{text:korean}
+      }},'en',source),{code})
+      assert.equal(calls,stage==='translation'?1:2)
+    }
+  }
+})
+test('long transcripts are bounded by text size and reassembled without losing source coverage',async()=>{
+  for(const text of ['A useful sentence. '.repeat(420),'字'.repeat(7000),'😀'.repeat(3500),'x'.repeat(3000)+' '+ 'y'.repeat(1000)]){
+    const inputs=[]
+    const result=await translateSegments(provider(input=>{
+      inputs.push(input);assert.ok(input.source.length<=3000)
+      assert.ok(!/[\uD800-\uDBFF]$/.test(input.source));assert.ok(input.context.before.length<=500);assert.ok(input.context.after.length<=500)
+      return{text:'번역된 문맥 단락'}
+    }),'en',[{text}])
+    assert.equal(inputs.map(i=>i.source).join(''),text.trim());assert.equal(result.length,inputs.length)
+    assert.ok(inputs.length>1)
+  }
+})
+test('long translation is not constrained by the old per-subtitle 2000-character limit',async()=>{
+  const text='자연스러운 번역. '.repeat(220)
+  assert.ok(text.length>2000)
+  assert.equal((await translateSegments(provider(()=>({text})),'en',source))[0].text,text.trim())
+})
+test('invalid or oversized source fails before spending on a provider',async()=>{
+  for(const input of [[],null,[null],[{text:''}],[{text:'x'.repeat(20001)}]]){
+    await assert.rejects(translateSegments({json:()=>assert.fail('no provider call')},'en',input))
+  }
+})
+test('a later passage repair does not regenerate earlier successful passages',async()=>{
+  const calls=[]
+  await translateSegments({json:async(op,_p,input)=>{
+    calls.push(op)
+    if(op==='verify-reference-numbers')return approve(input)
+    if(input.context.before&&!op.endsWith('correction'))return{text:''}
+    return{text:'검증된 번역'}
+  }},'en',[{text:'x'.repeat(4000)}])
+  assert.deepEqual(calls,['translate-reference','verify-reference-numbers','translate-reference','translate-reference-correction','verify-reference-numbers'])
+})
+test('link and file imports use saved transcripts, expose different-count translation then analyze that exact text',async()=>{
+  for(const input of [{url:'https://www.instagram.com/reel/Dc4D3TLTBpB/'},{projectId:'synthetic-project'}]){
+    const saved={transcript:{language:'en',subtitles:source,text:source.map(s=>s.text).join(' '),duration:3}}
+    const stages=[],calls=[]
+    const ctx={job:{input},stage:async s=>stages.push(s),checkpoint:async(name,fn)=>{
+      if(Object.hasOwn(saved,name))return saved[name]
+      const r=await fn();saved[name]=structuredClone(r);return r
+    },providers:{json:async(op,_p,data)=>{
+      calls.push(op)
+      if(op==='reference-analysis'){
+        assert.equal(saved.referenceTranscriptV1.translatedTranscript,korean)
+        assert.equal(data.script,korean)
+        return {summary:'구매 전 정리 순서를 제시합니다.',
+          hook:{quote:'상자를 더 사지 말고',type:'myth_busting',why:'추가 구매보다 정리를 우선합니다.'},
+          structure:[{role:'hook',quote:'상자를 더 사지 말고',purpose:'추가 구매에 의문을 제기합니다.'},
+            {role:'method',quote:'이미 가진 물건을 정리한 뒤',purpose:'정리부터 시작합니다.'},
+            {role:'cta',quote:'선반을 고르세요.',purpose:'필요에 맞는 선택을 권합니다.'}],
+          reasons:[{quote:'이미 가진 물건을 정리한 뒤',point:'정리와 구매 순서를 연결합니다.'}]}
+
+      }
+      return op==='verify-reference-numbers'?approve(data):{text:korean}
+    }}}
+    const result=await importLink(ctx)
+    assert.equal(result.originalTranscript,source.map(s=>s.text).join('\n'));assert.equal(result.translatedTranscript,korean)
+    assert.equal(stages.at(-1),'saving_transcript')
+    assert.equal(result.analysisStatus,'ready');assert.equal(result.analysis.structure.length,3)
+    assert.equal(result.analysis.hook.quote,'상자를 더 사지 말고')
+    const before=calls.length;await importLink(ctx);assert.equal(calls.length,before,'saved successful translation reused')
+  }
+})
+test('Korean transcripts bypass translation and semantic review',async()=>{
+  const calls=[]
+  const result=await importLink({job:{input:{}},stage:async()=>{},checkpoint:async(name,fn)=>name==='transcript'?{language:'ko',text:korean,subtitles:[{text:korean}]}:fn(),providers:{json:async(op)=>{calls.push(op);return{}}}})
+  assert.equal(result.translatedTranscript,korean);assert.deepEqual(calls,['reference-analysis'])
 })
 
 test('uploaded videos bypass link collection and enter the shared transcription pipeline', async () => {
@@ -136,43 +217,4 @@ test('expired uploaded originals stop before download or transcription', async (
     probeVideo:async()=>assert.fail('expired file must not be probed'),
     transcribeFile:async()=>assert.fail('expired file must not be transcribed'),
   }), { code:'MEDIA_EXPIRED' })
-})
-
-test('unverifiable, incomplete or fabricated numeric review evidence cannot approve a translation', async () => {
-  for(const mutate of [
-    result=>{result.segments[0].verdict='uncertain'},
-    result=>{result.segments=[]},
-    result=>{result.segments[0].sourceQuotes=['invented evidence']},
-    result=>{result.segments[0].translatedQuotes=[]},
-    result=>{result.segments[0].id='wrong'},
-  ]) {
-    await assert.rejects(translateSegments({json:async(op,_p,input)=>{
-      if(op==='verify-reference-numbers'){const result=approve(input);mutate(result);return result}
-      return{segments:[{id:'a',text:'1병'}]}
-    }},'en',[{id:'a',text:'one bottle'}]),{code:'TRANSLATION_NUMBER_CHANGED'})
-  }
-})
-test('numeric meaning review catches word-only quantity changes and unit changes', async () => {
-  for(const [text,translation] of [['every two months','세 달마다'],['Use one bottle','한 리터를 사용']]) {
-    await assert.rejects(translateSegments({json:async(op,_p,input)=>{
-      if(op==='verify-reference-numbers') {const result=approve(input);result.segments[0].verdict='changed';return result}
-      return{segments:[{id:'a',text:translation}]}
-    }},'en',[{id:'a',text}]),{code:'TRANSLATION_NUMBER_CHANGED'})
-  }
-})
-test('non-Latin decimal digits are protected verbatim', async () => {
-  const result=await translateSegments({json:async(op,_p,input)=>{
-    if(op==='verify-reference-numbers')return approve(input)
-    return{segments:[{id:'a',text:`${tokens(input.segments[0].text)[0]}% 보존`}]}
-  }},'ar',[{id:'a',text:'٩٩٫٩%'}])
-  assert.equal(result[0].text,'٩٩٫٩% 보존')
-})
-test('provider budget and network failures do not trigger an extra paid translation', async () => {
-  const calls=[]
-  await assert.rejects(translateSegments({json:async(op,_p,input)=>{
-    calls.push(op)
-    if(op==='verify-reference-numbers')throw Object.assign(new Error('budget'),{code:'PROVIDER_BUDGET'})
-    return{segments:[{id:'a',text:'한 병'}]}
-  }},'en',[{id:'a',text:'one bottle'}]),{code:'PROVIDER_BUDGET'})
-  assert.equal(calls.length,2)
 })
