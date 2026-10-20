@@ -305,7 +305,7 @@ export default function LandingScreen() {
           <h2 style={{ margin: '12px 0 0', fontSize: 'clamp(30px, 3.8vw, 46px)', lineHeight: 1.25, fontWeight: 900, letterSpacing: '-0.045em' }}>
             잘 된 영상은 많은데,
             <br />
-            내 대본은 <span style={{ color: '#A98BFF' }}>왜 안 나올까요?</span>
+            내 기획안은 <span style={{ color: '#A98BFF' }}>왜 안 터질까요?</span>
           </h2>
           <div className="mt-12 grid items-center gap-6 md:grid-cols-[1fr_auto_1fr]">
             <div className="flex flex-col gap-4 py-2">
