@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import OpenAI from 'openai'
 import { Agent, setGlobalDispatcher } from 'undici'
+import { createOpenAITransport } from './openai-transport.js'
 
 function getOpenAIConfig() {
   const apiKey = process.env.OPENAI_API_KEY?.trim()
@@ -131,5 +132,6 @@ export function getOpenAIClient() {
 
   return new OpenAI({
     apiKey,
+    fetch: createOpenAITransport(),
   })
 }

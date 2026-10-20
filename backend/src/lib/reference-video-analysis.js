@@ -21,6 +21,7 @@ import { getSupabaseAdmin, hasSupabaseAdminConfig } from './supabase.js'
 import { retrieveGlobalKnowledgeContext } from './global-knowledge.js'
 import { formatHookTemplatesForPrompt, retrieveHookTemplates } from './hook-templates.js'
 import { normalizeUploadedText } from './text-normalize.js'
+import { truncateUnicode } from './openai-transport.js'
 import {
   formatWritingPlaybookRulesForPrompt,
   normalizeWritingSentenceRole,
@@ -661,6 +662,7 @@ async function updateReferenceLifecycleState({
   }
   if (payload.failure_message === null) {
     fallback.error_message = null
+    payload.error_message = null
   }
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -941,7 +943,13 @@ function clampText(text = '', maxLength = 800) {
   const normalized = String(text || '').trim()
   if (!normalized) return ''
   if (normalized.length <= maxLength) return normalized
-  return `${normalized.slice(0, maxLength)}...`
+  return `${truncateUnicode(normalized, maxLength)}...`
+}
+
+function referenceFailureMessage(stage = '') {
+  return stage.startsWith('variation-')
+    ? '대본 생성 단계에서 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+    : '분석 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
 }
 
 function normalizeGeneratedYearReferences(text = '') {
@@ -4484,7 +4492,7 @@ async function runStage(stage, context, task, hooks = {}) {
     }
 
     throw new AppError(`Reference video analysis failed at ${stage}`, {
-      code: 'REFERENCE_VIDEO_STAGE_FAILED',
+      code: error.code || 'REFERENCE_VIDEO_STAGE_FAILED',
       statusCode: 500,
       details,
       cause: error,
@@ -4877,6 +4885,7 @@ export async function analyzeReferenceVideo({
             failure_stage: stage,
             failure_code: meta.code || 'ANALYSIS_STAGE_FAILED',
             failure_message: meta.message || '분석 단계 실패',
+            error_message: referenceFailureMessage(stage),
           },
         })
       },
@@ -6015,6 +6024,7 @@ export async function analyzeReferenceVideo({
         failure_stage: error?.details?.stage || 'unknown',
         failure_code: error?.code || 'REFERENCE_VIDEO_ANALYSIS_FAILED',
         failure_message: error?.message || 'Reference video analysis failed',
+        error_message: referenceFailureMessage(error?.details?.stage || ''),
       },
     })
 
@@ -6514,6 +6524,10 @@ export async function updateReferenceVideo(referenceVideoId, accountId, { title,
 }
 
 export const __referenceVideoAnalysisTest = {
+  clampText,
+  referenceFailureMessage,
+  runStage,
+  updateReferenceLifecycleState,
   buildCategoryGuard,
   buildCategorySubjectGuide,
   buildHookTemplatePromptBlock,
