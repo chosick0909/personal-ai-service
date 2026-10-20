@@ -33,10 +33,7 @@ export default function LandingScreen() {
       <div className="relative z-10 flex min-h-screen items-center justify-center px-5 pb-16 pt-36 sm:pt-24">
         <section className="relative flex min-h-[620px] w-full flex-col items-center justify-center px-6 py-16 text-center md:px-12">
           <div className="relative z-10">
-            <div className="inline-flex h-10 items-center justify-center rounded-full border border-[#4B5563] bg-[#111827]/70 px-6 text-sm font-semibold text-[#D1D5DB] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:h-12 md:text-base">
-              베타서비스
-            </div>
-            <h1 className="mt-10 text-[38px] font-black leading-[1.18] tracking-[-0.04em] text-[#F8FAFC] md:text-[66px] lg:text-[86px]">
+            <h1 className="text-[38px] font-black leading-[1.18] tracking-[-0.04em] text-[#F8FAFC] md:text-[66px] lg:text-[86px]">
               검증 가능한 기준으로
               <br />
               숏폼 기획을 표준화하세요
