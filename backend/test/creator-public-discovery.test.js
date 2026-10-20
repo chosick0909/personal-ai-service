@@ -289,7 +289,8 @@ test('catalog import round-trips all metrics, insights and operator evidence; un
     assert.throws(() => normalizeReviewedCatalog([mutated]))
     assert.equal(catalogQualityEligible({ ...stored, profile:{ ...stored.profile, ...extra } }, brief.category), false)
   }
-  assert.throws(() => normalizeReviewedCatalog([{ ...record, verifiedAt:'2020-01-01' }]))
+  assert.doesNotThrow(() => normalizeReviewedCatalog([{ ...record, verifiedAt:'2020-01-01' }]))
+  assert.throws(() => normalizeReviewedCatalog([{ ...record, verifiedAt:null }]))
 })
 test('old ranking entries and unsafe/stale search or category cache entries never bypass quality', async () => {
   const ctx = context()

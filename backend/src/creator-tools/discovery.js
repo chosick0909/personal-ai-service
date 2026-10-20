@@ -5,8 +5,8 @@ import { REFERENCE_PLANNING_VERSION, generatedPlanningTopics, referencePlanningP
 import { referencePerformance, catalogQualityEligible, publicEvidenceEligible, hardReferenceMetrics, referenceQualityEligible, referenceQualityScore, referenceReviewPrompt, referenceReviewSchema, rethrowReferenceStop } from './reference-quality.js'
 
 export function verifiedAccount(row, now = Date.now()) {
-  return Boolean(row?.active && row.professional && publicEvidenceEligible(row, now)
-    && row.profile.categories?.some(category => catalogQualityEligible(row, category, now)))
+  return Boolean(row?.active && row.professional && Array.isArray(row.profile?.categories)
+    && row.profile.categories.some(category => catalogQualityEligible(row, category, now)))
 }
 export function weightedScore(values, weights) {
   const available = Object.entries(weights).filter(([key]) => Number.isFinite(values[key]))
@@ -44,19 +44,20 @@ export async function discoverAccounts(ctx, { catalogOnly = false } = {}) {
   let preparedRows = []
   try {
     const rows = await query(db.from('creator_reference_catalog').select('*').eq('active', true).eq('professional', true)
-      .gte('verified_at', new Date(Date.now() - 30 * 86400000).toISOString()).order('verified_at', { ascending:false }).limit(1000))
+      .order('verified_at', { ascending:false }).limit(1000))
     preparedRows = rows.filter(row => verifiedAccount(row) && !excluded.has(row.username)
       && catalogQualityEligible(row, input.category))
       .map(row => ({ username:row.username, verified_at:row.verified_at, last_active_at:row.last_active_at,
         source:'사전 검증된 공개 계정 풀', profile:row.profile }))
   } catch (error) { if (catalogOnly) throw error; preparedRows = [] }
   const prepared = preparedRows.filter(row => sizeMatches(row.profile.followers, input.accountSize) === true
-    && hardReferenceMetrics(row.profile))
+    && hardReferenceMetrics(row.profile, Date.now(), true))
   const reviewedPoolOnly = catalogOnly || (input.category === '살림/인테리어' && preparedRows.length > 0)
   const discovered = prepared.length >= 5 || reviewedPoolOnly ? [] : await publicAccountCandidates(ctx, new Set([...excluded, ...prepared.map(row => row.username)]))
-  const catalog = [...prepared, ...discovered].filter(row => publicEvidenceEligible(row)
+  const preparedNames = new Set(prepared.map(row => row.username))
+  const catalog = [...prepared, ...discovered].filter(row => publicEvidenceEligible(row, Date.now(), preparedNames.has(row.username))
     && sizeMatches(row.profile.followers, input.accountSize) === true
-    && hardReferenceMetrics(row.profile))
+    && hardReferenceMetrics(row.profile, Date.now(), preparedNames.has(row.username)))
   if (!catalog.length) return { accounts: [], sourceStatus: 'no_verified_match',
     message: '팔로워 범위·50만 이상 조회 콘텐츠·최근 릴스 12개 중앙값 1만 이상 조건을 확인한 계정이 없습니다.', metricsAsOf: null }
   await stage('ranking_accounts')
@@ -101,7 +102,7 @@ export async function discoverAccounts(ctx, { catalogOnly = false } = {}) {
     const preferenceScore = requested.length ? requested.reduce((sum, [,value]) => sum + (value === true ? 100 : value === null ? 45 : 10), 0) / requested.length : 75
     const baseScore = weightedScore({ category: Number.isFinite(rank.categoryMatch) ? rank.categoryMatch : 55, preferences: preferenceScore,
       activity: Math.max(0, 100 - (Date.now() - Date.parse(row.last_active_at)) / 86400000) }, { category: 55, preferences: 35, activity: 10 })
-    const matchScore = referenceQualityScore(baseScore, rank, row.profile)
+    const matchScore = referenceQualityScore(baseScore, rank, row.profile, preparedNames.has(row.username))
     const relaxedConditions = requested.filter(([,value]) => value !== true).map(([key,value]) => `${labels[key]?.[input[key]] || key}: ${value === null ? '확인되지 않음' : '조건과 다름'}`)
     const contentTopics = generatedPlanningTopics(rank, row.profile)
     const planning = referencePlanningPoints({ username:row.username, referencePoints:contentTopics?.map(topic => topic.title) || rank.referencePoints,
@@ -116,7 +117,7 @@ export async function discoverAccounts(ctx, { catalogOnly = false } = {}) {
       maxViews: row.profile.maxViews, viralMedia: row.profile.viralMedia, accountType: 'individual_creator',
       accountTypeEvidence: strings(rank.accountTypeEvidence).slice(0, 2),
       domesticCreator:rank.domesticCreator, domesticCreatorEvidence:strings(rank.domesticCreatorEvidence),
-      performance:referencePerformance(row.profile), ordinaryCreator:rank.ordinaryCreator, ordinaryCreatorEvidence:strings(rank.ordinaryCreatorEvidence),
+      performance:referencePerformance(row.profile, Date.now(), preparedNames.has(row.username)), ordinaryCreator:rank.ordinaryCreator, ordinaryCreatorEvidence:strings(rank.ordinaryCreatorEvidence),
       monetizationEvidence:strings(rank.monetizationEvidence), monetizationSourceUrls:rank.monetizationSourceUrls,
       productionLevel:rank.productionLevel, productionEvidence:strings(rank.productionEvidence),
       replicability:rank.replicability, replicabilityEvidence:strings(rank.replicabilityEvidence), evidencePostUrls:rank.evidencePostUrls,

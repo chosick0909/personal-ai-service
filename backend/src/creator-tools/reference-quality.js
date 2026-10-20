@@ -4,8 +4,10 @@ export const REFERENCE_QUALITY_VERSION = 3
 export const REFERENCE_REJECTED_ACCOUNTS = Object.freeze(['karennppo', 'love1004kgj'])
 const texts = (value, nonempty = true) => Array.isArray(value) && (!nonempty || value.length > 0)
   && value.every(item => typeof item === 'string' && item.trim().length > 0)
-const fresh = (value, days, now) => Number.isFinite(Date.parse(value)) && Date.parse(value) <= now
-  && Date.parse(value) > now - days * 86400000
+const dated = (value, now) => Number.isFinite(Date.parse(value)) && Date.parse(value) <= now
+const fresh = (value, days, now) => dated(value, now) && Date.parse(value) > now - days * 86400000
+// Approved stored snapshots remain available; live discovery still requires fresh evidence.
+const evidenceDate = (value, days, now, historical) => historical ? dated(value, now) : fresh(value, days, now)
 const normalizedText = value => typeof value === 'string' ? value.slice(0, 4000).normalize('NFKC').toLowerCase() : ''
 const brandUsername = /(^|[._])(official|shop|store|brand|corp|company|magazine|news|agency|mcn)([._]|$)/i
 const brandCategory = /(brand|product\/service|shopping\s*&\s*retail|company|corporation|local business|cosmetics store|브랜드|제품.?서비스|쇼핑.?소매|회사|기업|기관|쇼핑몰|상점)/i
@@ -27,22 +29,22 @@ export function instagramPostUrl(value) {
       ? `https://www.instagram.com${url.pathname.replace(/\/?$/, '/')}` : null
   } catch { return null }
 }
-export function publicEvidenceEligible(row, now = Date.now()) {
+export function publicEvidenceEligible(row, now = Date.now(), historical = false) {
   const p = row?.profile
   return Boolean(p && /^[a-zA-Z0-9_.]{1,30}$/.test(row.username || '')
     && Number.isSafeInteger(p.followers) && p.followers >= 10000
-    && fresh(row.verified_at, 30, now) && fresh(row.last_active_at, 90, now)
+    && evidenceDate(row.verified_at, 30, now, historical) && evidenceDate(row.last_active_at, 90, now, historical)
     && Array.isArray(p.exampleMedia) && p.exampleMedia.every(media => media && instagramPostUrl(media.permalink))
     && (!p.recentReelsSelection || p.recentReelsSelection.profileUrl === `https://www.instagram.com/${row.username}/`)
     && !obviousNonReferenceAccount(p, row.username))
 }
 // Use chronological, unique reels, never the highest-view subset. Missing views stay missing.
-export function referencePerformance(profile, now = Date.now()) {
+export function referencePerformance(profile, now = Date.now(), historical = false) {
   const seen = new Set(), raw = Array.isArray(profile?.recentReels) ? profile.recentReels : []
   const selection=profile?.recentReelsSelection
   const owner=selection?.profileUrl?.match(/^https:\/\/www\.instagram\.com\/([a-zA-Z0-9_.]{1,30})\/$/)?.[1]
   const providerSelected=Boolean(selection?.method === 'provider_recent_reels' && selection.requestedCount === 24
-    && fresh(selection.collectedAt,30,now) && owner && raw.length >= 12 && raw.length <= 24 && raw.every(p=>p?.owner === owner && instagramPostUrl(p.permalink) && Number.isFinite(Date.parse(p.timestamp)) && Date.parse(p.timestamp) <= now))
+    && evidenceDate(selection.collectedAt,30,now,historical) && owner && raw.length >= 12 && raw.length <= 24 && raw.every(p=>p?.owner === owner && instagramPostUrl(p.permalink) && Number.isFinite(Date.parse(p.timestamp)) && Date.parse(p.timestamp) <= now))
   const samples = raw
     .filter(p => p && instagramPostUrl(p.permalink) && (providerSelected || (Number.isFinite(Date.parse(p.timestamp)) && Date.parse(p.timestamp) <= now)))
     .sort((a,b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
@@ -56,15 +58,15 @@ export function referencePerformance(profile, now = Date.now()) {
     minimumViews:complete ? measured[0] : null, maximumViews:complete ? measured[11] : null,
     minimumMedianViews:10000, status:complete ? 'complete' : 'insufficient_data', samples }
 }
-export function referencePerformanceEligible(profile) {
-  const stats = referencePerformance(profile)
+export function referencePerformanceEligible(profile, now = Date.now(), historical = false) {
+  const stats = referencePerformance(profile, now, historical)
   return stats.status === 'complete' && stats.medianViews >= stats.minimumMedianViews
 }
-export function hardReferenceMetrics(profile) {
+export function hardReferenceMetrics(profile, now = Date.now(), historical = false) {
   return Boolean(profile && Number.isSafeInteger(profile.followers) && profile.followers >= 10000
     && Number.isSafeInteger(profile.maxViews) && profile.maxViews >= 500000
     && Number.isSafeInteger(profile.viralMedia?.views) && profile.viralMedia.views === profile.maxViews
-    && instagramPostUrl(profile.viralMedia?.permalink) && referencePerformanceEligible(profile))
+    && instagramPostUrl(profile.viralMedia?.permalink) && referencePerformanceEligible(profile, now, historical))
 }
 export function referenceQualityEligible(rank, profile) {
   const knownPosts = new Set((Array.isArray(profile?.exampleMedia) ? profile.exampleMedia : []).map(p => instagramPostUrl(p?.permalink)).filter(Boolean))
@@ -83,22 +85,22 @@ export function referenceQualityEligible(rank, profile) {
 export function operatorReviewEligible(profile, now = Date.now()) {
   return Boolean(profile?.qualityVersion === REFERENCE_QUALITY_VERSION && profile.reviewedByOperator === true
     && typeof profile.reviewedBy === 'string' && profile.reviewedBy.trim()
-    && fresh(profile.reviewedAt, 30, now))
+    && dated(profile.reviewedAt, now))
 }
 export function candidatePublicationEligible(profile, now = Date.now()) {
   const approval = profile?.candidatePublication
   return Boolean(profile?.qualityVersion === REFERENCE_QUALITY_VERSION && profile.reviewedByOperator === false
     && approval?.authorized === true && typeof approval.authorizedBy === 'string' && approval.authorizedBy.trim()
-    && typeof approval.instruction === 'string' && approval.instruction.trim() && fresh(approval.authorizedAt, 30, now))
+    && typeof approval.instruction === 'string' && approval.instruction.trim() && dated(approval.authorizedAt, now))
 }
 export function catalogQualityEligible(row, category, now = Date.now()) {
-  return publicEvidenceEligible(row, now) && hardReferenceMetrics(row.profile) && (operatorReviewEligible(row.profile, now) || candidatePublicationEligible(row.profile, now))
+  return publicEvidenceEligible(row, now, true) && hardReferenceMetrics(row.profile, now, true) && (operatorReviewEligible(row.profile, now) || candidatePublicationEligible(row.profile, now))
     && Date.parse(row.profile.reviewedByOperator ? row.profile.reviewedAt : row.profile.candidatePublication?.authorizedAt) >= Date.parse(row.verified_at)
     && row.profile.accountType === 'individual_creator' && Array.isArray(row.profile.categories)
     && row.profile.categories.includes(category) && referenceQualityEligible(row.profile.accountInsights?.[category], row.profile)
 }
-export function referenceQualityScore(base, rank, profile) {
-  const median = referencePerformance(profile).medianViews
+export function referenceQualityScore(base, rank, profile, historical = false) {
+  const median = referencePerformance(profile, Date.now(), historical).medianViews
   const reach = profile.followers > 0 && median !== null ? Math.min(100, median / profile.followers * 10) : 0
   const score = Math.round(base * 0.65 + rank.replicability * 0.25 + reach * 0.1)
   return Math.max(0, score - (rank.monetizationEvidence.length ? 0 : 35))
