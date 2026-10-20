@@ -1,3 +1,4 @@
+import { historyThumbnail } from './lib/toolHistoryApi'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import AppLayout from './components/AppLayout'
 import ChatPanel from './components/ChatPanel'
@@ -2682,7 +2683,14 @@ const CAPTION_GENERATION_PROGRESS_STEPS = [
 
 function ToolPage({ type }) {
   const isCaption = type === 'caption'
-  const { currentAccount, isCurrentAccountConfigured } = useAppState()
+  const { currentAccount, currentProjectId, toolHistory, isCurrentAccountConfigured } = useAppState()
+  const initialHistory = useRef(toolHistory.items.find(item => item.id === toolHistory.selected && item.kind === type)).current
+  const [savedRecord, setSavedRecord] = useState(initialHistory || null)
+  const [pendingHistory, setPendingHistory] = useState(null)
+  const [isSavingHistory, setIsSavingHistory] = useState(false)
+  const mounted = useRef(true)
+  const thumbnailRequest = useRef(0)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const [captionA, setCaptionA] = useState('')
   const [captionB, setCaptionB] = useState('')
   const [captionTopic, setCaptionTopic] = useState('')
@@ -2792,6 +2800,23 @@ function ToolPage({ type }) {
   }, [currentAccount?.id])
 
   useEffect(() => {
+    if (!initialHistory) return
+    const input = initialHistory.input
+    if (isCaption) {
+      setCaptionTopic(input.topic)
+      setCaptionA(input.captionA || '')
+      setCaptionB(input.captionB || '')
+      setMonetizationModel(input.monetizationModel || CAPTION_MONETIZATION_MODELS[0].id)
+      setCaptionResult(initialHistory.result)
+      setEditableCaptionDraft(initialHistory.edited_caption ?? initialHistory.result.caption ?? '')
+    } else {
+      setThumbnailTopic(input.topic)
+      setThumbnailAnalysis(input.imageAnalysis || null)
+      setThumbnailTitleResult(initialHistory.result)
+    }
+  }, [initialHistory, isCaption])
+
+  useEffect(() => {
     return () => {
       if (copiedCaptionTimerRef.current) {
         window.clearTimeout(copiedCaptionTimerRef.current)
@@ -2828,7 +2853,7 @@ function ToolPage({ type }) {
 
   useEffect(() => {
     if (!thumbnailFile) {
-      setThumbnailPreviewUrl('')
+      setThumbnailPreviewUrl(initialHistory?.input?.imagePreview || '')
       return undefined
     }
 
@@ -2838,7 +2863,7 @@ function ToolPage({ type }) {
     return () => {
       URL.revokeObjectURL(nextUrl)
     }
-  }, [thumbnailFile])
+  }, [thumbnailFile, initialHistory])
 
   useEffect(() => {
     let ignore = false
@@ -2864,7 +2889,39 @@ function ToolPage({ type }) {
     }
   }, [isCaption, accountCategory])
 
+  const saveGeneratedHistory = async (snapshot) => {
+    if (mounted.current) { setPendingHistory(snapshot); setIsSavingHistory(true) }
+    try {
+      const item = await toolHistory.save(snapshot)
+      if (mounted.current) {
+        setSavedRecord(item)
+        setPendingHistory(null)
+        setToolError('')
+        setToolNotice('최근 내역에 저장했습니다.')
+      }
+    } catch (error) {
+      if (mounted.current) setToolError(`결과는 생성되었지만 내역 저장에 실패했습니다. ${error.message || ''}`)
+    } finally {
+      if (mounted.current) setIsSavingHistory(false)
+    }
+  }
+
+  const saveEditedCaption = async () => {
+    if (!savedRecord || isSavingHistory) return
+    setIsSavingHistory(true)
+    setToolError('')
+    try {
+      const item = await toolHistory.update(savedRecord.id, { editedCaption: editableCaptionDraft, version: savedRecord.version })
+      if (mounted.current) { setSavedRecord(item); setToolNotice('수정한 캡션을 저장했습니다.') }
+    } catch (error) {
+      if (mounted.current) setToolError(error.message || '수정 내용을 저장하지 못했습니다.')
+    } finally {
+      if (mounted.current) setIsSavingHistory(false)
+    }
+  }
+
   const handleGenerateCaption = async () => {
+    if (isGenerating || isSavingHistory || pendingHistory) return
     setToolError('')
     setToolNotice('')
     setCaptionResult(null)
@@ -2884,6 +2941,7 @@ function ToolPage({ type }) {
     setGenerationProgressIndex(0)
     try {
       const result = await generateCaptionDraft({
+        accountId: currentAccount.id,
         topic: captionTopic,
         captionA,
         captionB,
@@ -2896,16 +2954,22 @@ function ToolPage({ type }) {
         riskNotes: captionStrategyRule.riskNotes,
         bannedExpressions: captionStrategyRule.bannedExpressions,
       })
-      setCaptionResult(result)
-      setEditableCaptionDraft(result.caption || '')
+      if (mounted.current) {
+        setCaptionResult(result)
+        setEditableCaptionDraft(result.caption || '')
+        setSavedRecord(null)
+      }
+      await saveGeneratedHistory({ id: crypto.randomUUID(), kind: 'caption', projectId: currentProjectId || null,
+        input: { topic: captionTopic, captionA, captionB, monetizationModel }, result })
     } catch (error) {
-      setToolError(error.message || '캡션 생성에 실패했습니다.')
+      if (mounted.current) setToolError(error.message || '캡션 생성에 실패했습니다.')
     } finally {
-      setIsGenerating(false)
+      if (mounted.current) setIsGenerating(false)
     }
   }
 
   const handleThumbnailFile = async (file) => {
+    if (isGenerating || isSavingHistory || pendingHistory) return
     setToolError('')
     setToolNotice('')
     if (!file) {
@@ -2915,6 +2979,7 @@ function ToolPage({ type }) {
       setToolError('썸네일 이미지만 업로드할 수 있습니다.')
       return
     }
+    const request = ++thumbnailRequest.current
     setThumbnailFile(file)
     setThumbnailAnalysis(null)
     setThumbnailTitleResult(null)
@@ -2922,22 +2987,24 @@ function ToolPage({ type }) {
     try {
       const payload = await analyzeThumbnailImage({
         image: file,
+        accountId: currentAccount.id,
         topic: thumbnailTopic,
       })
-      setThumbnailAnalysis(payload?.analysis || null)
+      if (mounted.current && request === thumbnailRequest.current) setThumbnailAnalysis(payload?.analysis || null)
     } catch (error) {
-      setToolError(error.message || '썸네일 이미지 분석에 실패했습니다.')
+      if (mounted.current && request === thumbnailRequest.current) setToolError(error.message || '썸네일 이미지 분석에 실패했습니다.')
     } finally {
-      setIsThumbnailAnalyzing(false)
+      if (mounted.current && request === thumbnailRequest.current) setIsThumbnailAnalyzing(false)
     }
   }
 
   const handleGenerateThumbnailTitles = async () => {
+    if (isGenerating || isSavingHistory || pendingHistory) return
     setToolError('')
     setToolNotice('')
     setThumbnailTitleResult(null)
 
-    if (!thumbnailFile) {
+    if (!thumbnailFile && !initialHistory?.input?.imageAnalysis) {
       setToolError('썸네일 이미지를 먼저 업로드해주세요.')
       return
     }
@@ -2954,15 +3021,19 @@ function ToolPage({ type }) {
 
     setIsGenerating(true)
     try {
+      const imagePreview = thumbnailFile ? await historyThumbnail(thumbnailFile) : initialHistory?.input?.imagePreview || null
       const result = await generateThumbnailTitles({
         topic: thumbnailTopic,
+        accountId: currentAccount.id,
         imageAnalysis: thumbnailAnalysis,
       })
-      setThumbnailTitleResult(result)
+      if (mounted.current) { setThumbnailTitleResult(result); setSavedRecord(null) }
+      await saveGeneratedHistory({ id: crypto.randomUUID(), kind: 'thumbnail', projectId: currentProjectId || null,
+        input: { topic: thumbnailTopic, imageAnalysis: thumbnailAnalysis, imagePreview, fileName: thumbnailFile?.name || initialHistory?.input?.fileName || '' }, result })
     } catch (error) {
-      setToolError(error.message || '썸네일 제목 생성에 실패했습니다.')
+      if (mounted.current) setToolError(error.message || '썸네일 제목 생성에 실패했습니다.')
     } finally {
-      setIsGenerating(false)
+      if (mounted.current) setIsGenerating(false)
     }
   }
 
@@ -3046,6 +3117,8 @@ function ToolPage({ type }) {
   }
 
   const resetCaptionDraftInputs = () => {
+    setSavedRecord(null)
+    setPendingHistory(null)
     setCaptionA('')
     setCaptionB('')
     setCaptionResult(null)
@@ -3203,7 +3276,8 @@ function ToolPage({ type }) {
                       setToolNotice('')
                     }}
                     className="h-12 rounded-[16px] border border-[#2F3543] bg-[#0F131B] px-4 text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
-                    placeholder="예: 헬스 초보 루틴 PDF 소개"
+                    disabled={isGenerating || isSavingHistory}
+                  placeholder="예: 헬스 초보 루틴 PDF 소개"
                   />
                 </label>
                 <label className="grid gap-2">
@@ -3268,7 +3342,7 @@ function ToolPage({ type }) {
                         className="max-h-[360px] w-full rounded-[18px] object-contain"
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#AEB6C5]">
-                        <span className="truncate">{thumbnailFile?.name}</span>
+                        <span className="truncate">{thumbnailFile?.name || initialHistory?.input?.fileName}</span>
                         <span>{isThumbnailAnalyzing ? '이미지를 분석 중입니다...' : '이미지를 다시 누르거나 드래그해서 교체'}</span>
                       </div>
                     </div>
@@ -3339,6 +3413,7 @@ function ToolPage({ type }) {
                     setThumbnailTitleResult(null)
                   }}
                   className="h-12 rounded-[16px] border border-[#2F3543] bg-[#0F131B] px-4 text-sm text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
+                  disabled={isGenerating || isSavingHistory}
                   placeholder="예: 운동해도 몸이 안 바뀌는 이유"
                 />
               </label>
@@ -3349,6 +3424,13 @@ function ToolPage({ type }) {
             <div className="mt-5 rounded-2xl border border-[#7F1D1D] bg-[#2A1417] px-4 py-3 text-sm leading-6 text-[#FCA5A5]">
               {toolError}
             </div>
+          ) : null}
+
+          {pendingHistory ? (
+            <button type="button" disabled={isSavingHistory} onClick={() => saveGeneratedHistory(pendingHistory)}
+              className="mt-3 rounded-xl border border-[#485064] px-4 py-2 text-sm text-white disabled:opacity-50">
+              {isSavingHistory ? '내역 저장 중…' : '생성 결과 다시 저장'}
+            </button>
           ) : null}
 
           {toolNotice ? (
@@ -3404,6 +3486,11 @@ function ToolPage({ type }) {
                   {isCaptionCopied ? '복사됨' : '복사'}
                 </button>
               </div>
+              {savedRecord ? <button type="button" onClick={saveEditedCaption}
+                disabled={isSavingHistory || editableCaptionDraft === savedRecord.edited_caption}
+                className="mt-3 rounded-xl border border-[#485064] px-4 py-2 text-sm text-white disabled:opacity-50">
+                {isSavingHistory ? '저장 중…' : '수정한 캡션 저장'}
+              </button> : null}
               <textarea
                 value={editableCaptionDraft}
                 onChange={(event) => setEditableCaptionDraft(event.target.value)}
@@ -3520,7 +3607,7 @@ function ToolPage({ type }) {
             <button
               type="button"
               onClick={isCaption && captionResult ? resetCaptionDraftInputs : isCaption ? handleGenerateCaption : handleGenerateThumbnailTitles}
-              disabled={isGenerating || (!isCaption && isThumbnailAnalyzing)}
+              disabled={isGenerating || isSavingHistory || Boolean(pendingHistory) || (!isCaption && isThumbnailAnalyzing)}
               className="btn-solid-contrast rounded-full px-6 py-3 text-sm font-semibold transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isGenerating ? '생성 중...' : isCaption && captionResult ? '다시 쓰기' : isCaption ? '초안 생성' : '제목 추천 생성'}
@@ -3533,10 +3620,10 @@ function ToolPage({ type }) {
 }
 
 function MainPanel() {
-  const { currentStep, activeToolPage, referenceData } = useAppState()
+  const { currentStep, activeToolPage, referenceData, currentAccount, currentUser, toolHistory } = useAppState()
 
   if (activeToolPage) {
-    return <ToolPage type={activeToolPage} />
+    return <ToolPage key={`${currentUser?.id}:${currentAccount?.id}:${activeToolPage}:${toolHistory.selected || 'new'}:${toolHistory.session}`} type={activeToolPage} />
   }
 
   const hasAnalysisPreview =

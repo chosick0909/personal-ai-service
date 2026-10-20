@@ -136,7 +136,7 @@ export async function apiFetch(input, init = {}) {
     data: { session },
   } = await supabase.auth.getSession()
 
-  if (accountId) {
+  if (accountId && !headers.has('x-account-id')) {
     headers.set('x-account-id', accountId)
   }
 

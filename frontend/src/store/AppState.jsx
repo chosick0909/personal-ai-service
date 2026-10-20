@@ -10,6 +10,7 @@ import {
 import { getStoredAccountId, setStoredAccountId } from '../lib/api'
 import { createAccount, deleteAccountById, listAccounts, loadAccountProfile } from '../lib/accountApi'
 import { supabase } from '../lib/supabase'
+import { useToolHistory } from '../hooks/useToolHistory'
 import { isCreatorStudioPath } from '../lib/creatorRoutes'
 import {
   analyzeReferenceScriptText,
@@ -522,6 +523,7 @@ export function AppStateProvider({ children }) {
   const [copilotUsage, setCopilotUsage] = useState(createInitialCopilotUsage())
   const [copilotMemory, setCopilotMemory] = useState(createInitialCopilotMemory())
   const [currentUser, setCurrentUser] = useState(null)
+  const toolHistory = useToolHistory(isLoggedIn ? currentUser?.id : null, currentAccount?.id)
   const [entitlementStatus, setEntitlementStatus] = useState(null)
   const [isEntitlementReady, setIsEntitlementReady] = useState(true)
   const activeReferenceIdRef = useRef(null)
@@ -4044,6 +4046,7 @@ export function AppStateProvider({ children }) {
 
   const value = useMemo(
     () => ({
+      toolHistory,
       isLoggedIn,
       isAuthReady,
       currentUser,
@@ -4156,6 +4159,7 @@ export function AppStateProvider({ children }) {
       serializeEditorSections,
     }),
     [
+      toolHistory,
       chatMessages,
       currentStep,
       activeToolPage,

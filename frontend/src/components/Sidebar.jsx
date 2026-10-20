@@ -173,6 +173,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
   const searchInputRef = useRef(null)
   const {
     referenceHistory,
+    toolHistory,
     referenceData,
     currentStep,
     activeToolPage,
@@ -229,6 +230,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
 
     const dynamic = scopedHistory.slice(0, 30).map((item) => ({
       id: item.id,
+      createdAt: item.updatedAt || item.createdAt || item.created_at,
       title: item.title,
       fileName: item.fileName || '',
       topic: item.topic || '',
@@ -256,8 +258,15 @@ export default function Sidebar({ onRequestClose = () => {} }) {
       },
     }))
 
-    return dynamic
+    const tools = toolHistory.items.filter(item => !currentProjectId || item.project_id === currentProjectId).map(item => ({
+      id:item.id,title:item.title,sourceMode:item.kind,createdAt:item.updated_at,
+      active:activeToolPage===item.kind && toolHistory.selected===item.id,
+      onClick:()=>{toolHistory.select(item.id);setActiveToolPage(item.kind);onRequestClose()},
+      onDelete:async()=>{if(window.confirm(`"${item.title}" 내역을 삭제할까요?`))await toolHistory.remove(item.id)},
+    }))
+    return [...dynamic,...tools].sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0)).slice(0,30)
   }, [
+    toolHistory,activeToolPage,setActiveToolPage,
     currentProjectId,
     currentStep,
     deleteReferenceHistoryItem,
@@ -306,9 +315,14 @@ export default function Sidebar({ onRequestClose = () => {} }) {
           onRequestClose()
         },
       }))
+      .concat(toolHistory.items.map(item => ({
+        id:item.id, title:item.title, topic:item.input.topic, transcript:item.edited_caption || '', createdAt:item.updated_at,
+        active:activeToolPage===item.kind && toolHistory.selected===item.id,
+        onClick:()=>{toolHistory.select(item.id);setActiveToolPage(item.kind);setIsSearchOpen(false);setSearchQuery('');onRequestClose()},
+      })))
       .filter((item) => matchesReferenceSearch(item))
       .slice(0, 40)
-  }, [normalizedQuery, onRequestClose, openReference, referenceData?.id, referenceHistory])
+  }, [normalizedQuery, onRequestClose, openReference, referenceData?.id, referenceHistory, toolHistory, activeToolPage, setActiveToolPage])
 
   const groupedSearchRows = useMemo(() => {
     const formatter = new Intl.DateTimeFormat('ko-KR', {
@@ -666,11 +680,11 @@ export default function Sidebar({ onRequestClose = () => {} }) {
 
         <div className="px-6 pt-4 text-sm font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">도구</div>
         <div className="px-3 pt-2">
-          <Row onClick={() => setActiveToolPage('caption')} active={activeToolPage === 'caption'}>
+          <Row onClick={() => { toolHistory.select(null); setActiveToolPage('caption') }} active={activeToolPage === 'caption'}>
             <IconChatBubble />
             캡션 생성기
           </Row>
-          <Row onClick={() => setActiveToolPage('thumbnail')} active={activeToolPage === 'thumbnail'}>
+          <Row onClick={() => { toolHistory.select(null); setActiveToolPage('thumbnail') }} active={activeToolPage === 'thumbnail'}>
             <IconFile />
             썸네일 제목 생성기
           </Row>
@@ -697,6 +711,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
         </button>
         {isRecentListExpanded ? (
           <div className="px-3 pb-3 pt-2">
+            {toolHistory.error ? <p className="px-3 py-2 text-xs text-amber-300" role="status">{toolHistory.error}</p> : null}
             {recentRows.map((item) => (
             <div
               key={item.id}
@@ -715,6 +730,7 @@ export default function Sidebar({ onRequestClose = () => {} }) {
               >
                 <RecentItemIcon />
                 <span className="notranslate truncate" translate="no">{item.title}</span>
+                {['caption','thumbnail'].includes(item.sourceMode) ? <span className="shrink-0 text-[9px] text-[#CBD5E1]">{item.sourceMode==='caption'?'캡션':'썸네일 제목'}</span> : null}
                 {item.sourceMode === 'topic_only' ? (
                   <span className="inline-flex shrink-0 whitespace-nowrap items-center rounded-full border border-[#4B5563] bg-[#1B202A] px-2 py-0.5 text-[9px] font-semibold leading-none text-[#CBD5E1]">
                     주제 기획
@@ -759,7 +775,8 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                         return
                       }
                       try {
-                        await renameReferenceHistoryItem(item.id, nextName.trim())
+                        if (['caption','thumbnail'].includes(item.sourceMode)) await toolHistory.update(item.id,{title:nextName.trim()})
+                        else await renameReferenceHistoryItem(item.id, nextName.trim())
                         setActiveReferenceMenuId(null)
                       } catch (error) {
                         window.alert(error.message || '이름 바꾸기에 실패했습니다.')
@@ -772,6 +789,8 @@ export default function Sidebar({ onRequestClose = () => {} }) {
                   <button
                     type="button"
                     className="flex h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm text-[#F3F4F6] transition hover:bg-[#343943]"
+                    disabled={['caption','thumbnail'].includes(item.sourceMode)}
+                    hidden={['caption','thumbnail'].includes(item.sourceMode)}
                     onClick={() => setActiveMoveMenuId((current) => (current === item.id ? null : item.id))}
                   >
                     <span className="flex items-center gap-3">

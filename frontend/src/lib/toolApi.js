@@ -5,6 +5,7 @@ function isRequestTimeoutError(error) {
 }
 
 export async function generateCaptionDraft({
+  accountId,
   topic,
   captionA,
   captionB,
@@ -23,6 +24,7 @@ export async function generateCaptionDraft({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(accountId ? { 'x-account-id': accountId } : {}),
       },
       body: JSON.stringify({
         topic,
@@ -72,7 +74,7 @@ export async function loadCaptionCategoryRule({ category }) {
   return payload
 }
 
-export async function analyzeThumbnailImage({ image, topic }) {
+export async function analyzeThumbnailImage({ image, topic, accountId }) {
   const formData = new FormData()
   formData.append('image', image)
   if (topic) {
@@ -82,6 +84,7 @@ export async function analyzeThumbnailImage({ image, topic }) {
   const response = await apiFetch('/api/tools/thumbnail/analyze', {
     method: 'POST',
     body: formData,
+    headers: accountId ? { 'x-account-id': accountId } : {},
     timeoutMs: 60000,
   })
   const payload = await parseApiResponse(response)
@@ -93,11 +96,12 @@ export async function analyzeThumbnailImage({ image, topic }) {
   return payload
 }
 
-export async function generateThumbnailTitles({ topic, imageAnalysis }) {
+export async function generateThumbnailTitles({ topic, imageAnalysis, accountId }) {
   const response = await apiFetch('/api/tools/thumbnail/titles', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+        ...(accountId ? { 'x-account-id': accountId } : {}),
     },
     body: JSON.stringify({
       topic,
