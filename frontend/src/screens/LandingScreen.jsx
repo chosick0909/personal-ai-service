@@ -80,15 +80,25 @@ function Icon({ name, size = 24, color = 'currentColor', strokeWidth = 2 }) {
   )
 }
 
-const BEFORE = ['잘 된 영상을 봐도 뭐가 먹힌 건지 모르겠어요', '대본 한 편 쓰는 데 하루가 걸려요', '첫 3초에 뭘 말할지 막막해요']
+const BEFORE = [
+  ['잘 된 영상을 봐도 뭐가 먹힌 건지 모르겠어요', -2],
+  ['대본 한 편 쓰는 데 하루가 걸려요', 1.5],
+  ['첫 3초에 뭘 말할지 막막해요', -1],
+]
 
 const AFTER = ['왜 터졌는지 문장마다 짚어줘요', '바로 찍을 대본 3개가 한 번에 나와요', '터진 공식으로 내 이야기를 새로 써요']
 
 const FEATURES = [
-  ['search', '왜 터졌는지 한눈에', '훅·구조·시청 심리를 문장마다 뜯어 공식으로 정리해요.'],
   ['layers', '바로 찍는 대본 3개', '방향이 다른 세 가지 안 중 마음에 드는 걸 골라요.'],
   ['chat', '채팅으로 고치는 코파일럿', '"훅만 더 세게" 한마디면 바뀐 부분만 보여줘요.'],
   ['bulb', '주제만 있어도 기획', '주제만 적어도 세 가지 방향의 대본이 나와요.'],
+]
+
+const FORMULA = [
+  ['0~3초', '훅', '"하지 마세요"로 멈춰 세우기'],
+  ['3~15초', '공감', '나도 그랬던 순간 꺼내기'],
+  ['15~25초', '반전', '의외의 이유 하나'],
+  ['마지막', 'CTA', '저장할 이유 주기'],
 ]
 
 const STEPS = [
@@ -102,6 +112,13 @@ const STUDIO_FEATURES = [
   ['link', '링크로 후킹 분석', '해외 영상도 원문·한국어 해석과 잘 된 이유까지'],
   ['scissors', '자막·컷편집', '자동 자막에, 지울 구간은 미리 보고 확정'],
   ['review', '영상·캡션 피드백', '올리기 전에 고칠 곳을 구간별로 짚어줘요'],
+]
+
+const STUDIO_STICKERS = [
+  ['계정 추천', '#8A5BFF', -3],
+  ['링크 분석', '#FFFFFF', 4],
+  ['자막·컷편집', '#5A1FE0', -3],
+  ['영상 피드백', '#E5D8FF', 3],
 ]
 
 const HERO_POINTS = ['히트 공식 분석', 'A/B/C 대본 3개', '채팅으로 수정']
@@ -129,7 +146,7 @@ export default function LandingScreen() {
       <div
         style={{
           background:
-            'radial-gradient(52% 70% at 82% 38%, rgba(122,77,255,0.34) 0%, rgba(122,77,255,0) 70%), radial-gradient(40% 50% at 8% 0%, rgba(155,123,255,0.12) 0%, rgba(155,123,255,0) 70%), #111017',
+            'radial-gradient(52% 60% at 82% 40%, rgba(122,77,255,0.38) 0%, rgba(122,77,255,0) 70%), linear-gradient(180deg, #111017 0%, #15122A 55%, #2E1677 100%)',
         }}
       >
         <header className="relative z-[3] mx-auto flex max-w-[1160px] flex-wrap items-center justify-between gap-4 px-6 py-[22px]">
@@ -163,14 +180,14 @@ export default function LandingScreen() {
           ) : (
             <a
               href="/login"
-              style={{ height: 40, padding: '0 18px', display: 'inline-flex', alignItems: 'center', borderRadius: 999, border: '1px solid rgba(255,255,255,0.28)', color: '#FFFFFF', fontSize: 14, fontWeight: 700 }}
+              style={{ height: 40, padding: '0 18px', display: 'inline-flex', alignItems: 'center', borderRadius: 999, background: '#7A4DFF', color: '#FFFFFF', fontSize: 14, fontWeight: 700 }}
             >
               로그인
             </a>
           )}
         </header>
 
-        <section className="mx-auto grid max-w-[1160px] items-center gap-16 px-6 pb-24 pt-10 lg:grid-cols-[1.1fr_0.9fr] md:pb-32 md:pt-16">
+        <section className="mx-auto grid max-w-[1160px] items-center gap-16 px-6 pb-28 pt-10 md:pt-16 lg:grid-cols-[1.1fr_0.9fr] lg:pb-36">
           <div className="text-center lg:text-left">
             <p
               className="m-0 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13px] font-bold"
@@ -180,11 +197,22 @@ export default function LandingScreen() {
               성공 기획 AI 플랫폼
             </p>
             <h1 style={{ margin: '24px 0 0', fontSize: 'clamp(40px, 5.4vw, 72px)', lineHeight: 1.15, fontWeight: 900, letterSpacing: '-0.05em', color: '#FFFFFF' }}>
-              히트 공식 하나로
+              히트 공식
+              하나로
               <br />
-              <span style={{ color: '#A98BFF' }}>내 대본</span>까지 완성!
+              <span
+                  style={{
+                    background: 'linear-gradient(90deg, #C9B6FF 0%, #8C63FF 100%)',
+                    WebkitBackgroundClip: 'text',
+                    backgroundClip: 'text',
+                    color: 'transparent',
+                  }}
+                >
+                  내 대본
+                </span>
+              까지 완성!
             </h1>
-            <p style={{ margin: '24px 0 0', fontSize: 'clamp(17px, 1.6vw, 20px)', lineHeight: 1.7, color: '#BDB7D0' }}>
+            <p style={{ margin: '28px 0 0', fontSize: 'clamp(17px, 1.6vw, 20px)', lineHeight: 1.7, color: '#BDB7D0' }}>
               잘 된 영상이 왜 터졌는지 공식을 뽑아,
               <br />
               내 이야기로 바로 찍을 대본 3개를 만들어 드려요.
@@ -192,8 +220,8 @@ export default function LandingScreen() {
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start">
               <a
                 href={startHref}
-                className="inline-flex h-14 items-center justify-center whitespace-nowrap gap-2 rounded-xl px-7 text-[17px] font-extrabold"
-                style={{ background: '#7A4DFF', color: '#FFFFFF', boxShadow: '0 12px 32px rgba(122,77,255,0.4)' }}
+                className="inline-flex h-14 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-7 text-[17px] font-extrabold"
+                style={{ background: 'linear-gradient(90deg, #8D5CFF 0%, #6A2BF5 100%)', color: '#FFFFFF', boxShadow: '0 14px 36px rgba(122,77,255,0.45)' }}
               >
                 무료로 대본 만들기
                 <svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -203,7 +231,7 @@ export default function LandingScreen() {
               <a
                 href="/recommend"
                 className="inline-flex h-14 items-center justify-center whitespace-nowrap rounded-xl px-7 text-[17px] font-bold"
-                style={{ border: '1px solid rgba(255,255,255,0.22)', background: 'rgba(255,255,255,0.04)', color: '#FFFFFF' }}
+                style={{ border: '1px solid rgba(255,255,255,0.22)', background: 'rgba(255,255,255,0.05)', color: '#FFFFFF' }}
               >
                 내 콘텐츠 방향 추천받기
               </a>
@@ -230,15 +258,15 @@ export default function LandingScreen() {
 
           <div className="relative mx-auto flex w-full max-w-[420px] flex-col lg:block">
             <div
-              className="relative z-10 -mb-4 self-start lg:absolute lg:-left-12 lg:-top-8 lg:mb-0"
-              style={{ padding: '12px 16px', borderRadius: 14, background: '#FFFFFF', color: '#24183F', textAlign: 'left', boxShadow: '0 16px 40px rgba(10,0,40,0.45)' }}
+              className="relative z-10 -mb-4 self-start lg:absolute lg:-left-14 lg:-top-8 lg:mb-0"
+              style={{ padding: '12px 16px', borderRadius: 14, background: '#FFFFFF', color: '#24183F', textAlign: 'left', transform: 'rotate(-6deg)', boxShadow: '0 16px 40px rgba(10,0,40,0.45)' }}
             >
               <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#6A2BF5' }}>히트 공식</p>
               <p style={{ margin: '3px 0 0', fontSize: 15, fontWeight: 800 }}>훅: '하지 마세요'로 멈춰 세우기</p>
             </div>
             <div
               className="mx-auto"
-              style={{ width: 'min(100%, 340px)', borderRadius: 36, background: '#0B0A10', border: '1px solid #33304A', padding: 12, boxShadow: '0 40px 90px rgba(5,0,25,0.65)' }}
+              style={{ width: 'min(100%, 340px)', borderRadius: 36, background: '#0B0A10', border: '1px solid #3B3360', padding: 12, boxShadow: '0 40px 90px rgba(5,0,25,0.65)' }}
             >
               <div className="flex flex-col gap-3 text-left" style={{ borderRadius: 26, background: '#17151F', padding: '20px 16px' }}>
                 <div className="flex items-center justify-between">
@@ -266,8 +294,8 @@ export default function LandingScreen() {
               </div>
             </div>
             <div
-              className="relative z-10 -mt-4 self-end lg:absolute lg:-right-8 lg:-bottom-8 lg:mt-0"
-              style={{ padding: '12px 16px', borderRadius: 14, background: '#7A4DFF', color: '#FFFFFF', textAlign: 'left', boxShadow: '0 16px 40px rgba(10,0,40,0.45)' }}
+              className="relative z-10 -mt-4 self-end lg:absolute lg:-bottom-8 lg:-right-8 lg:mt-0"
+              style={{ padding: '12px 16px', borderRadius: 14, background: '#7A4DFF', color: '#FFFFFF', textAlign: 'left', transform: 'rotate(5deg)', boxShadow: '0 16px 40px rgba(10,0,40,0.45)' }}
             >
               <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#E5D8FF' }}>채팅으로 수정</p>
               <p style={{ margin: '3px 0 0', fontSize: 15, fontWeight: 800 }}>"훅만 더 짧게 해줘"</p>
@@ -276,42 +304,55 @@ export default function LandingScreen() {
         </section>
       </div>
 
-      <section className="px-6 py-24 md:py-28" style={{ background: '#16151D' }}>
+      <section className="relative px-6 py-24 md:py-28" style={{ background: '#16151D' }}>
         <div className="mx-auto max-w-[1160px]">
           <Eyebrow>Why HookAI</Eyebrow>
           <h2 style={{ margin: '12px 0 0', fontSize: 'clamp(30px, 3.8vw, 46px)', lineHeight: 1.25, fontWeight: 900, letterSpacing: '-0.045em' }}>
             잘 된 영상은 많은데,
             <br />
-            내 대본은 왜 안 나올까요?
+            내 대본은 <span style={{ color: '#A98BFF' }}>왜 안 나올까요?</span>
           </h2>
-          <div className="mt-12 grid gap-5 md:grid-cols-2">
-            <div className="rounded-3xl p-7 md:p-9" style={{ background: '#1D1C25', border: '1px solid #2C2A37' }}>
-              <p className="m-0 inline-block rounded-full px-3 py-1 text-[13px] font-bold" style={{ background: '#2C2A37', color: '#A7A2B8' }}>
-                혼자 쓸 때
-              </p>
-              <ul className="m-0 mt-6 flex list-none flex-col gap-4 p-0">
-                {BEFORE.map((item) => (
-                  <li key={item} className="flex items-center gap-3 text-[17px] font-semibold" style={{ color: '#A7A2B8' }}>
-                    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full" style={{ background: '#2C2A37' }}>
-                      <Icon name="cross" size={16} color="#77718A" strokeWidth={2.4} />
-                    </span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
+          <div className="mt-12 grid items-center gap-6 md:grid-cols-[1fr_auto_1fr]">
+            <div className="flex flex-col gap-4 py-2">
+              {BEFORE.map(([item, deg], index) => (
+                <p
+                  key={item}
+                  className={`relative m-0 max-w-[420px] rounded-2xl px-5 py-4 text-[16px] font-semibold ${index % 2 ? 'self-end' : 'self-start'}`}
+                  style={{ background: '#24232D', border: '1px solid #33313F', color: '#C3BED2', transform: `rotate(${deg}deg)` }}
+                >
+                  "{item}"
+                  <span
+                    aria-hidden="true"
+                    className={`absolute -bottom-[7px] h-3.5 w-3.5 rotate-45 ${index % 2 ? 'right-8' : 'left-8'}`}
+                    style={{ background: '#24232D', borderRight: '1px solid #33313F', borderBottom: '1px solid #33313F' }}
+                  />
+                </p>
+              ))}
             </div>
             <div
-              className="rounded-3xl p-7 md:p-9"
-              style={{ background: 'linear-gradient(135deg, #2D1C6E 0%, #1F1548 100%)', border: '1px solid rgba(155,123,255,0.4)' }}
+              aria-hidden="true"
+              className="mx-auto flex h-14 w-14 rotate-90 items-center justify-center rounded-full md:rotate-0"
+              style={{ background: '#7A4DFF', boxShadow: '0 0 0 8px rgba(122,77,255,0.18)' }}
             >
-              <p className="m-0 inline-block rounded-full px-3 py-1 text-[13px] font-bold" style={{ background: '#7A4DFF', color: '#FFFFFF' }}>
-                훅AI로 쓸 때
+              <svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 10h11M11 5.5 15.5 10 11 14.5" />
+              </svg>
+            </div>
+            <div
+              className="relative rounded-3xl p-7 md:p-9"
+              style={{ background: 'linear-gradient(135deg, #3A22A0 0%, #241460 100%)', border: '1px solid rgba(155,123,255,0.45)', boxShadow: '0 24px 60px rgba(60,20,160,0.35)' }}
+            >
+              <p
+                className="absolute -top-4 right-6 m-0 rounded-full px-3.5 py-1.5 text-[13px] font-extrabold"
+                style={{ background: '#FFFFFF', color: '#4A1FB8', transform: 'rotate(4deg)' }}
+              >
+                훅AI로 쓰면
               </p>
-              <ul className="m-0 mt-6 flex list-none flex-col gap-4 p-0">
+              <ul className="m-0 flex list-none flex-col gap-4 p-0">
                 {AFTER.map((item) => (
                   <li key={item} className="flex items-center gap-3 text-[17px] font-bold" style={{ color: '#FFFFFF' }}>
-                    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full" style={{ background: 'rgba(155,123,255,0.25)' }}>
-                      <Icon name="check" size={16} color="#C9B6FF" strokeWidth={2.6} />
+                    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full" style={{ background: 'rgba(229,216,255,0.2)' }}>
+                      <Icon name="check" size={16} color="#E5D8FF" strokeWidth={2.6} />
                     </span>
                     {item}
                   </li>
@@ -320,37 +361,74 @@ export default function LandingScreen() {
             </div>
           </div>
 
-          <div className="mt-24 grid gap-5 sm:grid-cols-2">
+          <div className="mt-24 grid gap-5 md:grid-cols-2 md:grid-rows-3">
+            <div
+              className="relative overflow-hidden rounded-3xl p-7 md:row-span-3 md:p-9"
+              style={{ background: 'linear-gradient(160deg, #8A5BFF 0%, #6A2BF5 55%, #4A1FB8 100%)' }}
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: 'rgba(255,255,255,0.18)' }}>
+                <Icon name="search" size={24} color="#FFFFFF" />
+              </span>
+              <h3 style={{ margin: '20px 0 0', fontSize: 28, fontWeight: 900, letterSpacing: '-0.035em' }}>왜 터졌는지 한눈에</h3>
+              <p style={{ margin: '8px 0 0', fontSize: 16, lineHeight: 1.6, color: '#E5D8FF' }}>훅·구조·시청 심리를 문장마다 뜯어 공식으로 정리해요.</p>
+              <ol className="m-0 mt-8 flex list-none flex-col gap-2.5 p-0">
+                {FORMULA.map(([time, label, desc]) => (
+                  <li
+                    key={label}
+                    className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3"
+                    style={{ color: '#1E1B2E', boxShadow: '0 10px 24px rgba(30,0,90,0.25)' }}
+                  >
+                    <span className="w-[58px] flex-none text-[12px] font-bold" style={{ color: '#8A84A0' }}>{time}</span>
+                    <span className="flex-none rounded-md px-2 py-0.5 text-[12px] font-extrabold" style={{ background: '#EFE8FF', color: '#6A2BF5' }}>{label}</span>
+                    <span className="min-w-0 text-[14px] font-bold">{desc}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
             {FEATURES.map(([icon, title, desc]) => (
-              <div key={title} className="rounded-3xl p-7" style={{ background: '#1D1C25', border: '1px solid #2C2A37' }}>
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: 'rgba(122,77,255,0.18)' }}>
+              <div key={title} className="flex items-start gap-5 rounded-3xl p-7" style={{ background: '#1D1C25', border: '1px solid #2C2A37' }}>
+                <span className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl" style={{ background: 'rgba(122,77,255,0.18)' }}>
                   <Icon name={icon} size={24} color="#B49BFF" />
                 </span>
-                <h3 style={{ margin: '20px 0 0', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>{title}</h3>
-                <p style={{ margin: '8px 0 0', fontSize: 16, lineHeight: 1.6, color: '#A7A2B8' }}>{desc}</p>
+                <div className="min-w-0">
+                  <h3 style={{ margin: 0, fontSize: 21, fontWeight: 800, letterSpacing: '-0.03em' }}>{title}</h3>
+                  <p style={{ margin: '6px 0 0', fontSize: 16, lineHeight: 1.6, color: '#A7A2B8' }}>{desc}</p>
+                </div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="px-6 py-24 md:py-28" style={{ background: '#F4F0FF', color: '#1E1B2E' }}>
+      <section
+        className="px-6 py-24 md:py-28"
+        style={{
+          color: '#1E1B2E',
+          backgroundColor: '#F4F0FF',
+        }}
+      >
         <div className="mx-auto max-w-[1160px]">
           <Eyebrow light>How it works</Eyebrow>
           <h2 style={{ margin: '12px 0 0', fontSize: 'clamp(30px, 3.8vw, 46px)', lineHeight: 1.25, fontWeight: 900, letterSpacing: '-0.045em' }}>
-            넣고, 고르고, 다듬으면 끝
+            넣고, 고르고, <span style={{ color: '#6A2BF5' }}>다듬으면 끝</span>
           </h2>
           <ol className="m-0 mt-12 grid list-none gap-5 p-0 md:grid-cols-3">
             {STEPS.map(([title, desc], index) => (
-              <li key={title} className="rounded-3xl bg-white p-7" style={{ border: '1px solid #E4DAFF' }}>
-                <div className="flex items-center gap-3">
-                  <span className="text-[14px] font-extrabold tracking-[0.08em]" style={{ color: '#6A2BF5' }}>
-                    STEP {index + 1}
-                  </span>
-                  <span aria-hidden="true" className="h-px flex-1" style={{ background: '#E4DAFF' }} />
-                </div>
-                <h3 style={{ margin: '18px 0 0', fontSize: 24, fontWeight: 900, letterSpacing: '-0.04em' }}>{title}</h3>
-                <p style={{ margin: '8px 0 0', fontSize: 16, lineHeight: 1.6, color: '#5A5670' }}>{desc}</p>
+              <li
+                key={title}
+                className="rounded-3xl p-7"
+                style={{
+                  background: index === 2 ? '#6A2BF5' : '#FFFFFF',
+                  color: index === 2 ? '#FFFFFF' : '#1E1B2E',
+                  border: index === 2 ? 'none' : '1px solid #E4DAFF',
+                  boxShadow: '0 16px 40px rgba(90,40,200,0.12)',
+                }}
+              >
+                <span className="text-[14px] font-extrabold tracking-[0.08em]" style={{ color: index === 2 ? '#E5D8FF' : '#6A2BF5' }}>
+                  STEP {index + 1}
+                </span>
+                <h3 style={{ margin: '18px 0 0', fontSize: 26, fontWeight: 900, letterSpacing: '-0.04em' }}>{title}</h3>
+                <p style={{ margin: '8px 0 0', fontSize: 16, lineHeight: 1.6, color: index === 2 ? '#E5D8FF' : '#5A5670' }}>{desc}</p>
               </li>
             ))}
           </ol>
@@ -369,12 +447,29 @@ export default function LandingScreen() {
             <h2 style={{ margin: '16px 0 0', fontSize: 'clamp(30px, 3.8vw, 46px)', lineHeight: 1.25, fontWeight: 900, letterSpacing: '-0.045em' }}>
               찍기 전부터
               <br />
-              올리기 전까지
+              <span style={{ color: '#6A2BF5' }}>올리기 전까지</span>
             </h2>
             <p style={{ margin: '16px 0 0', fontSize: 17, lineHeight: 1.7, color: '#5A5670' }}>
               계정 추천부터 자막·컷편집, 올리기 전 피드백까지 한곳에서 끝내요.
             </p>
-            <a href="/creatorstudio" className="mt-6 inline-flex items-center gap-2 text-[16px] font-extrabold" style={{ color: '#6A2BF5' }}>
+            <div aria-hidden="true" className="mt-8 flex flex-wrap gap-2.5">
+              {STUDIO_STICKERS.map(([label, bg, deg]) => (
+                <span
+                  key={label}
+                  className="rounded-xl px-4 py-2 text-[16px] font-black"
+                  style={{
+                    background: bg,
+                    color: bg === '#FFFFFF' || bg === '#E5D8FF' ? '#3F088C' : '#FFFFFF',
+                    border: bg === '#FFFFFF' ? '2px solid #6A2BF5' : 'none',
+                    transform: `rotate(${deg}deg)`,
+                    boxShadow: '0 10px 22px rgba(90,40,200,0.18)',
+                  }}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+            <a href="/creatorstudio" className="mt-8 inline-flex items-center gap-2 text-[16px] font-extrabold" style={{ color: '#6A2BF5' }}>
               크리에이터스튜디오 보기
               <svg aria-hidden="true" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 10h11M11 5.5 15.5 10 11 14.5" />
@@ -383,9 +478,13 @@ export default function LandingScreen() {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {STUDIO_FEATURES.map(([icon, title, desc]) => (
-              <div key={title} className="rounded-3xl p-6" style={{ background: '#F7F4FF', border: '1px solid #ECE4FF' }}>
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white" style={{ border: '1px solid #E4DAFF' }}>
-                  <Icon name={icon} size={22} color="#6A2BF5" />
+              <div
+                key={title}
+                className="rounded-3xl p-6"
+                style={{ background: '#F7F4FF', border: '1px solid #ECE4FF' }}
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: 'linear-gradient(135deg, #8D5CFF 0%, #6A2BF5 100%)' }}>
+                  <Icon name={icon} size={22} color="#FFFFFF" />
                 </span>
                 <h3 style={{ margin: '16px 0 0', fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em' }}>{title}</h3>
                 <p style={{ margin: '6px 0 0', fontSize: 15, lineHeight: 1.6, color: '#5A5670' }}>{desc}</p>
@@ -395,12 +494,13 @@ export default function LandingScreen() {
         </div>
       </section>
 
-      <section className="px-6 pb-24 md:pb-28" style={{ background: '#FFFFFF' }}>
+      <section className="px-6 pb-24 pt-8 md:pb-28" style={{ background: 'linear-gradient(180deg, #FFFFFF 0%, #EFE8FF 100%)' }}>
+        <div className="relative mx-auto max-w-[1160px]">
         <div
-          className="mx-auto flex max-w-[1160px] flex-col gap-8 rounded-[28px] px-7 py-12 md:flex-row md:items-center md:justify-between md:px-14 md:py-14"
-          style={{ background: 'linear-gradient(120deg, #8558FF 0%, #6A2BF5 50%, #4A1FB8 100%)' }}
+          className="relative flex flex-col gap-8 overflow-hidden rounded-[28px] px-7 py-14 md:flex-row md:items-center md:justify-between md:px-14 md:py-16"
+          style={{ background: 'linear-gradient(120deg, #8558FF 0%, #6A2BF5 50%, #4A1FB8 100%)', boxShadow: '0 30px 70px rgba(90,40,200,0.3)' }}
         >
-          <div>
+          <div className="relative">
             <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#E5D8FF' }}>숏폼 대본 플랫폼 훅AI</p>
             <h2 style={{ margin: '10px 0 0', fontSize: 'clamp(28px, 3.4vw, 42px)', lineHeight: 1.3, fontWeight: 900, letterSpacing: '-0.045em', color: '#FFFFFF' }}>
               릴스 하나 넣으면,
@@ -408,7 +508,7 @@ export default function LandingScreen() {
               오늘 찍을 대본 3개 완성
             </h2>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row md:flex-col lg:flex-row [&_a]:whitespace-nowrap">
+          <div className="relative flex flex-col gap-3 sm:flex-row md:flex-col lg:flex-row [&_a]:whitespace-nowrap">
             <a
               href={startHref}
               className="inline-flex h-14 items-center justify-center rounded-xl px-7 text-[17px] font-extrabold"
@@ -424,6 +524,7 @@ export default function LandingScreen() {
               내 콘텐츠 방향 추천받기
             </a>
           </div>
+        </div>
         </div>
       </section>
 
