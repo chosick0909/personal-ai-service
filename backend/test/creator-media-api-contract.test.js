@@ -22,4 +22,12 @@ test('actual save and reopen preserve server diagnosis, reject client replacemen
 test('owner isolation remains enforced',async()=>{row=initial();await assert.rejects(()=>invoke('get','/media-projects/:id',{},'33333333-3333-4333-8333-333333333333'),e=>e.code==='MEDIA_NOT_FOUND')})
 test('stale save remains rejected',async()=>{row=initial();await assert.rejects(()=>invoke('patch','/media-projects/:id/edit-manifest',{revision:1,manifest:row.manifest}),e=>e.code==='EDIT_CONFLICT')})
 
+test('subtitle style and original word timestamps survive actual save and GET routes',async()=>{
+ row=initial();row.manifest.words=[{word:'Hello',start:0,end:2}]
+ const manifest={...structuredClone(row.manifest),subtitleStyle:{preset:'box',burnIn:true},subtitles:[{id:'left',start:0,end:1,text:'Hello'},{id:'right',start:1,end:2,text:'world'}]}
+ const saved=await invoke('patch','/media-projects/:id/edit-manifest',{revision:0,manifest})
+ assert.deepEqual(saved.manifest.subtitleStyle,{preset:'box',burnIn:true});assert.deepEqual(saved.manifest.words,row.manifest.words)
+ const reopened=await invoke('get','/media-projects/:id');assert.deepEqual(reopened.manifest.subtitleStyle,saved.manifest.subtitleStyle);assert.equal(reopened.manifest.subtitles.length,2)
+})
+
 }

@@ -1,3 +1,16 @@
+# 현재 작업 — 2026-10-21
+
+- 활성 격리 작업본: `/Users/seojiyeong/.local/hookai-copilot-navigation-release-20261021`. 원래 Desktop/HookAI의 미커밋 작업을 덮어쓰지 않는다.
+- 대본/코파일럿·직접 릴스·이동/통합 UI 변경은 `02e0bda`로 `origin/codex/creator-lecture`에 푸시됐다. Claude 메인페이지를 보존한다.
+- 추가 요청한 단어 경계 자동 자막, 사용자가 고르는 단어/분할 시간, 참고 릴스 3종 근사 스타일, 스타일 MP4 내보내기도 로컬 구현·검증 완료했다. 상세: `docs/creator-subtitles-20261021.md`.
+- 말투·형식·분량은 생성 지침이다. 가짜 사실·요청 누락·잘린/빈 응답·저장/소유권·stale 적용 등 치명적 검사는 유지한다. 자동 검사와 실제 사용자/블라인드 품질평가는 구분한다.
+- 전체 자동 테스트 433/433, 기본 backend 380/380, 변경 frontend lint 및 빌드, 실제 FFmpeg/자막 화면/기존 App 흐름 검증 완료. 실제 운영 로그인·저장·새 Linux 이미지 실행은 배포 후 확인해야 한다.
+- 2026-10-21 04시대: Railway가 신규 빌드를 전체 workspace에 중단했다고 공식 공지했고, API도 배포 요청을 거부한다. 운영 배포 성공을 주장하지 않는다. 최종 커밋을 확정한 뒤 복구 자동화 대상을 갱신한다.
+- DB/권한/이용권/모델/환경변수 변경 없음. GitHub/Railway CLI 배포는 사용자 승인됨. 정확한 최종 SHA로만 배포하며 작업 트리를 railway up으로 업로드하지 않는다.
+- 최신 검증/배포 보고서: `/Users/seojiyeong/Desktop/HookAI-codex-review/creator-subtitles-20261021/`와 `/Users/seojiyeong/Desktop/HookAI-codex-review/script-duration-unified-20261021/`.
+
+---
+
 # 현재 로컬 작업 상태 — 2026-09-30
 
 이 파일은 이번 코파일럿 수정의 인수인계 요약이다. 운영 배포 소스를 증명하는 문서가 아니다.

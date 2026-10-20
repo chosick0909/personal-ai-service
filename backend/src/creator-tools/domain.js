@@ -116,7 +116,13 @@ export function validateManifest(input, original, duration) {
     const length = clips.reduce((sum, clip) => sum + clip.end - clip.start, 0)
     if (new Set(clips.map(c => c.id)).size !== clips.length || length < 0.5 || length > 300) fail('INVALID_CLIPS', '중복 ID 없이 총 0.5초~5분의 편집을 구성해주세요.')
   }
-  return { ...(original.hookDiagnosis ? { hookDiagnosis: original.hookDiagnosis } : {}), cuts, subtitles, words: original.words || [], ...(clips ? { clips } : {}) }
+  let subtitleStyle
+  if (input.subtitleStyle !== undefined) {
+    const style = input.subtitleStyle
+    if (!style || !['outline','box','compact'].includes(style.preset) || typeof style.burnIn !== 'boolean') fail('INVALID_SUBTITLE_STYLE', '자막 스타일을 다시 선택해주세요.')
+    subtitleStyle = { preset: style.preset, burnIn: style.burnIn }
+  } else subtitleStyle = original.subtitleStyle
+  return { ...(subtitleStyle ? { subtitleStyle } : {}), ...(original.hookDiagnosis ? { hookDiagnosis: original.hookDiagnosis } : {}), cuts, subtitles, words: original.words || [], ...(clips ? { clips } : {}) }
 }
 export function keepRanges(duration, cuts) {
   let cursor = 0
