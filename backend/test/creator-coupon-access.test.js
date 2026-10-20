@@ -57,6 +57,24 @@ if (!mock.module) {
       assert.equal(response.status, 403, JSON.stringify(overrides))
     }
   })
+  test('legacy paid grants without a coupon link retain valid unlimited or dated access', async () => {
+    for (const ends_at of [null, '2099-01-01']) {
+      rows = [{...valid, coupon_id:null, plan_type:'paid', ends_at}]
+      const response = await request('/creator-tools/access')
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), {allowed:true, endsAt:ends_at})
+    }
+  })
+  test('paid grants still require ownership, active status and a valid period', async () => {
+    for (const overrides of [{ends_at:'2000-01-01'}, {status:'revoked'}, {starts_at:'2099-01-01'}, {user_id:'other'}, {ends_at:'invalid'}]) {
+      rows = [{...valid, coupon_id:null, plan_type:'paid', ...overrides}]
+      assert.equal((await request('/creator-tools/access')).status, 403)
+    }
+    for (const plan_type of ['open_beta','student','challenge']) {
+      rows = [{...valid, coupon_id:null, plan_type}]
+      assert.equal((await request('/creator-tools/access')).status, 403)
+    }
+  })
   test('all existing Studio endpoints, including reads, replay and preference changes, reject expired access', async () => {
     rows = [{...valid, ends_at: '2000-01-01'}]
     for (const [method, path] of [
