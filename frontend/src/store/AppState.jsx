@@ -3569,7 +3569,7 @@ export function AppStateProvider({ children }) {
       syncHistory(activeReferenceIdRef.current, {
         chatMessages: next,
         draftMessage: explicitMessage ? draftMessage : '',
-        editTarget,
+        editTarget: 'all',
         copilotMemory: nextCopilotMemory,
         previousAdvice: requestPreviousAdvice,
       })
@@ -3596,12 +3596,14 @@ export function AppStateProvider({ children }) {
         },
         explicitReplyContext,
       })
+      // Chat scope comes from the request and conversation. A restored legacy
+      // selector value must not lock future messages to one script section.
       const response = await generateChatReply({
         accountId: requestAccountId,
         referenceId: referenceData?.id,
         scriptId: activeScriptId,
         currentVersionId: versions[0]?.id,
-        editTarget,
+        editTarget: 'all',
         selectedLabel: selectedScript?.label,
         selectedVariantId: selectedVariantContext.selectedVariantId,
         selectedVariantKey: selectedVariantContext.selectedVariantKey,

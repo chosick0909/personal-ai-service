@@ -263,3 +263,8 @@
 .ct-reel-footer a { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
 @media(max-width:600px) { .ct-reel-grid { grid-template-columns:1fr; } .ct-reel-frame { height:580px; } }
 .ct-reel-viral { display:inline-flex; align-items:center; gap:6px; margin-top:12px; font-size:12px; }
+
+/* Cross-workspace shortcuts remain visible in both desktop and mobile headers. */
+.ct-live a.ct-workspace-link { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:42px; padding:9px 13px; border:1px solid var(--ct-accent); border-radius:10px; background:var(--ct-soft); color:var(--ct-accent); font-size:13px; font-weight:700; white-space:nowrap; }
+.ct-live a.ct-workspace-link:hover { background:var(--ct-accent); color:var(--ct-bg); }
+.ct-live .ct-studio-sidebar a.ct-sidebar-workspace-link { width:100%; justify-content:flex-start; margin:0 0 12px; }

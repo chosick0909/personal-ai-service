@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ArrowUpRight, Sparkles } from 'lucide-react'
 import { useAppState } from '../store/AppState'
 
 function IconDots() {
@@ -680,6 +681,12 @@ export default function Sidebar({ onRequestClose = () => {} }) {
 
         <div className="px-6 pt-4 text-sm font-semibold uppercase tracking-[0.05em] text-[#8E97A6]">도구</div>
         <div className="px-3 pt-2">
+          <a href="/creatorstudio" aria-label="크리에이터스튜디오로 이동"
+            className="mb-2 flex min-h-12 items-center gap-2.5 rounded-xl border border-[#9F7AEA]/60 bg-[#7C3AED]/20 px-3 py-3 text-sm font-semibold text-[#D8B4FE]! transition hover:border-[#C4B5FD] hover:bg-[#7C3AED]/35 hover:text-white! focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C4B5FD]">
+            <Sparkles size={18} className="shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">크리에이터스튜디오</span>
+            <ArrowUpRight size={16} className="shrink-0" aria-hidden="true" />
+          </a>
           <Row onClick={() => { toolHistory.select(null); setActiveToolPage('caption') }} active={activeToolPage === 'caption'}>
             <IconChatBubble />
             캡션 생성기

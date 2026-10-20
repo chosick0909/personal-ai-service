@@ -356,8 +356,6 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     chatMessages,
     draftMessage,
     setDraftMessage,
-    editTarget,
-    setEditTarget,
     sendChatMessage,
     isChatLoading,
     isFeedbackLoading,
@@ -389,12 +387,6 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
     !isApplyingFeedback &&
     !isApplyingSuggestion &&
     chatMessages.length === 0
-  const editTargetOptions = [
-    ['all', '전체'],
-    ['hook', 'HOOK'],
-    ['body', 'BODY'],
-    ['cta', 'CTA'],
-  ]
   const replyAdvice = useMemo(() => {
     if (!replyTargetMessage || replyTargetMessage.role === 'user') {
       return null
@@ -572,26 +564,6 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
               수정 요청 한도 도달
             </div>
           ) : null}
-          <div className="mb-3 flex gap-1 overflow-x-auto rounded-full border border-[#2F3543] bg-[#10151D] p-1">
-            {editTargetOptions.map(([value, label]) => {
-              const isActive = editTarget === value
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setEditTarget(value)}
-                  className={`min-h-[30px] shrink-0 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold leading-none transition ${
-                    isActive
-                      ? 'btn-solid-contrast'
-                      : 'text-[#9CA3AF] hover:bg-[#1B202A] hover:text-[#E5E7EB]'
-                  }`}
-                  disabled={isSendDisabled}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
           {replyTargetMessage ? (
             <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2F3543] bg-[#10151D] px-3 py-2 text-xs text-[#AEB6C5]">
               <span className="min-w-0 truncate">
@@ -613,7 +585,8 @@ export default function ChatPanel({ embedded = false, fixedHeight = null }) {
             onKeyDown={handleDraftKeyDown}
             rows={2}
             className="max-h-[96px] min-h-[52px] w-full resize-none bg-transparent text-sm leading-6 text-[#E5E7EB] outline-none placeholder:text-[#6B7280]"
-            placeholder="예: HOOK을 더 공격적으로 바꿔줘 / CTA를 상담 유도형으로 바꿔줘"
+            aria-label="코파일럿에게 요청하기"
+            placeholder="어떻게 바꾸고 싶은지 편하게 말씀해주세요."
             disabled={isSubmitDisabled}
           />
           <div className="mt-3 flex items-center justify-end">
