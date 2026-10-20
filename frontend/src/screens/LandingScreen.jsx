@@ -114,12 +114,7 @@ const STUDIO_FEATURES = [
   ['review', '영상·캡션 피드백', '올리기 전에 고칠 곳을 구간별로 짚어줘요'],
 ]
 
-const STUDIO_STICKERS = [
-  ['계정 추천', '#8A5BFF', -3],
-  ['링크 분석', '#FFFFFF', 4],
-  ['자막·컷편집', '#5A1FE0', -3],
-  ['영상 피드백', '#E5D8FF', 3],
-]
+const STUDIO_STICKERS = ['계정 추천', '링크 분석', '자막·컷편집', '영상 피드백']
 
 const HERO_POINTS = ['히트 공식 분석', 'A/B/C 대본 3개', '채팅으로 수정']
 
@@ -453,18 +448,8 @@ export default function LandingScreen() {
               계정 추천부터 자막·컷편집, 올리기 전 피드백까지 한곳에서 끝내요.
             </p>
             <div aria-hidden="true" className="mt-8 flex flex-wrap gap-2.5">
-              {STUDIO_STICKERS.map(([label, bg, deg]) => (
-                <span
-                  key={label}
-                  className="rounded-xl px-4 py-2 text-[16px] font-black"
-                  style={{
-                    background: bg,
-                    color: bg === '#FFFFFF' || bg === '#E5D8FF' ? '#3F088C' : '#FFFFFF',
-                    border: bg === '#FFFFFF' ? '2px solid #6A2BF5' : 'none',
-                    transform: `rotate(${deg}deg)`,
-                    boxShadow: '0 10px 22px rgba(90,40,200,0.18)',
-                  }}
-                >
+              {STUDIO_STICKERS.map((label) => (
+                <span key={label} className="rounded-xl px-4 py-2 text-[16px] font-extrabold" style={{ background: '#16151D', color: '#FFFFFF' }}>
                   {label}
                 </span>
               ))}
