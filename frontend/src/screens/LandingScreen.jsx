@@ -86,10 +86,10 @@ const BEFORE = [
   ['첫 3초에 뭘 말할지 막막해요', -1],
 ]
 
-const AFTER = ['왜 터졌는지 문장마다 짚어줘요', '바로 찍을 대본 3개가 한 번에 나와요', '터진 공식으로 내 이야기를 새로 써요']
+const AFTER = ['왜 터졌는지 문장마다 짚어줘요', '바로 찍을 기획안 3개가 한 번에 나와요', '터진 공식으로 내 이야기를 새로 써요']
 
 const FEATURES = [
-  ['layers', '바로 찍는 대본 3개', '방향이 다른 세 가지 안 중 마음에 드는 걸 골라요.'],
+  ['layers', '바로 나오는 기획안 3개', '방향이 다른 세 가지 안 중 마음에 드는 걸 골라요.'],
   ['chat', '채팅으로 고치는 코파일럿', '"훅만 더 세게" 한마디면 바뀐 부분만 보여줘요.'],
   ['bulb', '주제만 있어도 기획', '주제만 적어도 세 가지 방향의 대본이 나와요.'],
 ]
@@ -210,7 +210,7 @@ export default function LandingScreen() {
             <p style={{ margin: '28px 0 0', fontSize: 'clamp(17px, 1.6vw, 20px)', lineHeight: 1.7, color: '#BDB7D0' }}>
               잘 된 영상이 왜 터졌는지 공식을 뽑아,
               <br />
-              내 이야기로 바로 찍을 대본 3개를 만들어 드려요.
+              내 이야기로 바로 찍을 기획안 3개를 만들어 드려요.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start">
               <a
@@ -490,7 +490,7 @@ export default function LandingScreen() {
             <h2 style={{ margin: '10px 0 0', fontSize: 'clamp(28px, 3.4vw, 42px)', lineHeight: 1.3, fontWeight: 900, letterSpacing: '-0.045em', color: '#FFFFFF' }}>
               릴스 하나 넣으면,
               <br />
-              오늘 찍을 대본 3개 완성
+              오늘 촬영할 기획안 3개 완성
             </h2>
           </div>
           <div className="relative flex flex-col gap-3 sm:flex-row md:flex-col lg:flex-row [&_a]:whitespace-nowrap">
