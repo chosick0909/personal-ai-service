@@ -1,5 +1,8 @@
 # 캡션·썸네일 제목 최근 내역 (2026-10-20)
 
+## 현재 배포 상태
+2026-10-20 지정 Chrome chosick0909@gmail.com / xdoquufpbaiuatyocyli main PRODUCTION에서 테이블 부재 및 FK UUID 타입 확인 후 단일 마이그레이션을 트랜잭션으로 적용했다. RLS=true, anon/authenticated SELECT=false, service_role INSERT=true 확인. 운영 코드 배포 진행 중. 아래는 이전 준비/검증 기록이다.
+
 ## 구현 상태
 로컬 구현 및 아래 검증 완료. 2026-10-20 사용자 커밋·푸시·배포 승인 후 별도 기능 브랜치 codex/tool-history-20261020에 6552a3d로 커밋·푸시했다. 운영 DB 적용·기능 배포는 아직 수행하지 않음. 지정 Chrome의 Supabase 로그인은 이후 인증된 상태를 확인했으나 다른 Chrome 작업으로 화면이 전환되어 SQL 실행을 보류했다. 운영 스키마 조회 결과와 테이블 생성은 아직 확인하지 못했다. 권한 수정 ac428ec은 별도로 운영 배포 완료했다.
 작업본: `/Users/seojiyeong/.local/hookai-creator-access-20261020`, 기준 `1faa4bfbfeb5569b284f58c375a47eed26d06e63`.

@@ -21,3 +21,5 @@
 
 ## 운영 배포 확인
 접근 복구 커밋: ac428ecac15ea6927b1d9b079342e2883ced8ec0. backend a199fd28-e1a1-4089-99dc-619ea6a2a53a, creator-discovery bbfec651-b093-447b-9784-cf02c959b8b6, creator-media 2587344e-1a73-4745-8053-e88334f6876c 모두 SUCCESS 확인(2026-10-20 15:08 KST). frontend는 변경 없음으로 SKIPPED. 이후 Claude의 ae49057 메인페이지 변경은 별도로 유지한다.
+
+추가 운영 읽기 확인: 지정 Chrome에서 해당 계정의 활성 지급1건, 쿠폰 연결0건, 직접 paid 지급1건을 집계 확인했다. 이메일·UUID 원문은 보고서에 기록하지 않았다.
