@@ -177,7 +177,7 @@ export default function LandingScreen() {
               style={{ border: '1px solid rgba(122,77,255,0.5)', background: 'rgba(122,77,255,0.14)', color: '#CBB9FF' }}
             >
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: '#9B7BFF' }} />
-              성공 기획 AI
+              성공 기획 AI 플랫폼
             </p>
             <h1 style={{ margin: '24px 0 0', fontSize: 'clamp(40px, 5.4vw, 72px)', lineHeight: 1.15, fontWeight: 900, letterSpacing: '-0.05em', color: '#FFFFFF' }}>
               히트 공식 하나로
