@@ -2,7 +2,7 @@ import { setPostAuthRedirectPath } from '../lib/authRedirect'
 import { useAppState } from '../store/AppState'
 
 export default function LandingScreen() {
-  const { isLoggedIn, currentUser, logout } = useAppState()
+  const { isLoggedIn, logout } = useAppState()
 
   return (
     <main
@@ -13,29 +13,24 @@ export default function LandingScreen() {
           'radial-gradient(ellipse 76% 64% at 14% 10%, rgba(250,249,246,0.10) 0%, rgba(250,249,246,0.045) 28%, rgba(250,249,246,0) 62%), radial-gradient(ellipse 62% 54% at 88% 86%, rgba(148,163,184,0.09) 0%, rgba(148,163,184,0.035) 32%, rgba(148,163,184,0) 66%), linear-gradient(180deg, #141820 0%, #0D1118 48%, #11151D 100%)',
       }}
     >
-      {isLoggedIn ? (
-        <div className="absolute right-6 top-6 z-20 flex items-center gap-3">
-          <div className="hidden max-w-[220px] truncate text-sm text-[#AEB6C5] md:block">
-            {currentUser?.email || '로그인됨'}
-          </div>
-          <button
-            type="button"
+      <header className="absolute inset-x-0 top-0 z-20 flex flex-wrap items-center justify-between gap-x-5 gap-y-4 bg-transparent px-5 py-5 !text-white md:px-10 md:py-7">
+        <a href="/" aria-label="HookAI 홈" className="text-xl font-bold tracking-tight !text-white">HookAI</a>
+        <nav aria-label="주요 메뉴" className="order-3 flex w-full items-center justify-center gap-6 text-sm font-semibold sm:order-none sm:w-auto md:gap-10 md:text-base">
+          <a href="/analyze" className="!text-white underline-offset-8 transition hover:underline focus-visible:underline">대본작업실</a>
+          <a href="/creatorstudio" className="!text-white underline-offset-8 transition hover:underline focus-visible:underline">크리에이터스튜디오</a>
+        </nav>
+        {isLoggedIn ? (
+          <button type="button" className="rounded-full border border-white/40 bg-transparent px-4 py-2 text-xs font-semibold !text-white hover:bg-white/10"
             onClick={async () => {
-              try {
-                await logout()
-                window.location.assign('/')
-              } catch (error) {
-                window.alert(error.message || '로그아웃에 실패했습니다.')
-              }
-            }}
-            className="rounded-full border border-[#3A414F] bg-[#111827] px-3 py-1.5 text-xs font-semibold text-[#E5E7EB] transition hover:bg-[#1F2937]"
-          >
-            로그아웃
-          </button>
-        </div>
-      ) : null}
+              try { await logout(); window.location.assign('/') }
+              catch (error) { window.alert(error.message || '로그아웃에 실패했습니다.') }
+            }}>로그아웃</button>
+        ) : (
+          <a href="/login" className="rounded-full border border-white/40 bg-transparent px-4 py-2 text-xs font-semibold !text-white hover:bg-white/10">로그인</a>
+        )}
+      </header>
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-16">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 pb-16 pt-36 sm:pt-24">
         <section className="relative flex min-h-[620px] w-full flex-col items-center justify-center px-6 py-16 text-center md:px-12">
           <div className="relative z-10">
             <div className="inline-flex h-10 items-center justify-center rounded-full border border-[#4B5563] bg-[#111827]/70 px-6 text-sm font-semibold text-[#D1D5DB] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:h-12 md:text-base">

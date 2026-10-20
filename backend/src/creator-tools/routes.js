@@ -1,12 +1,13 @@
 import { Router } from 'express'
 import { randomUUID } from 'node:crypto'
 import { asyncHandler } from '../lib/errors.js'
-import { assertEntitlementAccess, assertUsageAllowed } from '../lib/entitlements.js'
+import { assertUsageAllowed } from '../lib/entitlements.js'
 import { KINDS, MAX_BYTES, featureEnabled, fail, normalizeBrief, normalizeInstagramUrl, stableHash, textInput, username, uuid, validateManifest, mediaUploadDisposition, mediaUploadPurpose } from './domain.js'
 import { database, query, ownedJob, ownedMedia, createJob, publicJob, BUCKET, OUTPUT_BUCKET, signedDownload } from './store.js'
 import { enqueue } from './queue.js'
 import { completeReviewedReferenceJob } from './reference-immediate.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from './categories.js'
+import { assertCreatorCoupon } from './access.js'
 
 export function createCreatorRouter() {
   const router = Router()
@@ -14,7 +15,17 @@ export function createCreatorRouter() {
     && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(process.env.CLIENT_ORIGIN || '')
   const staffPreview = () => process.env.CREATOR_TOOLS_BYPASS_ENTITLEMENT === 'true'
   const bypassEntitlement = () => localPreview() || staffPreview()
-  const assertCreatorAccess = (req) => bypassEntitlement() ? Promise.resolve() : assertEntitlementAccess({ userId: req.auth.userId })
+  // The historical bypass flags only preserve existing usage accounting.
+  // They must never bypass the coupon access policy.
+  const assertCreatorAccess = (req) => req.creatorCoupon
+    ? Promise.resolve(req.creatorCoupon) : assertCreatorCoupon(database(), req.auth?.userId)
+  router.use(['/creator-tools', '/discovery', '/media-projects', '/reference-videos/import-link'], asyncHandler(async (req, res, next) => {
+    req.creatorCoupon = await assertCreatorAccess(req)
+    next()
+  }))
+  router.get('/creator-tools/access', (req, res) => {
+    res.json({ allowed: true, endsAt: req.creatorCoupon.ends_at })
+  })
   const referenceUsage = (req) => bypassEntitlement() ? Promise.resolve(null)
     : assertUsageAllowed({ userId: req.auth.userId, eventType: 'reference_analysis' })
   const enabled = (req, kind) => {

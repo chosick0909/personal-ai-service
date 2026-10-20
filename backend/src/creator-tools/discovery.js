@@ -110,7 +110,7 @@ export async function discoverAccounts(ctx, { catalogOnly = false } = {}) {
       reasons: strings(rank.reasons).slice(0, 3).length ? strings(rank.reasons).slice(0, 3) : [`${input.category} 카테고리 상위 공개 검색 결과에서 확인된 계정입니다.`],
       ...planning, contentTopics:contentTopics || [], relaxedConditions,
       faceVisibility: rank.faceVisibility || 'unknown', contentFormats: strings(rank.contentFormats), contentLanguage: rank.language || 'unknown',
-      exampleMedia: (row.profile.exampleMedia || []).slice(0, 3).map(({ permalink, caption, timestamp, likes, comments }) => ({ permalink, caption, timestamp, likes, comments })), metricsAsOf: row.verified_at,
+      exampleMedia: (row.profile.exampleMedia || []).slice(0, 3).map(({ permalink, caption, timestamp, likes, comments, views, contentType }) => ({ permalink, caption, timestamp, likes, comments, views, contentType })), metricsAsOf: row.verified_at,
       engagementAvailable: Number.isFinite(row.profile.engagementScore),
       lastActiveAt: row.last_active_at, source: row.source, followers: row.profile.followers, postsCount: row.profile.postsCount,
       maxViews: row.profile.maxViews, viralMedia: row.profile.viralMedia, accountType: 'individual_creator',

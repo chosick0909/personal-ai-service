@@ -21,6 +21,7 @@ import {
 } from './lib/authRedirect'
 import logoWebp from './Logo.webp'
 import LandingScreen from './screens/LandingScreen'
+import CreatorAccessGate from './components/CreatorAccessGate'
 import { FABRIC_DARK_BACKGROUND } from './styles/fabricBackground'
 import { AppStateProvider, useAppState } from './store/AppState'
 import { isCreatorStudioPath } from './lib/creatorRoutes'
@@ -3566,8 +3567,7 @@ function StudioShell() {
     refreshEntitlement,
     logout,
   } = useAppState()
-  const isCreatorStaffPreview = activeToolPage === 'creator-tools'
-    && import.meta.env.VITE_CREATOR_TOOLS_BYPASS_ENTITLEMENT === 'true'
+  const isCreatorStudio = activeToolPage === 'creator-tools'
   const forcedEntitlementRefreshKeyRef = useRef('')
   useEffect(() => {
     if (isAuthReady && !isLoggedIn && isCreatorStudioPath(window.location.pathname)) {
@@ -3600,7 +3600,7 @@ function StudioShell() {
     void refreshEntitlement({ silent: true, forceRefresh: true })
   }, [entitlementStatus, entitlementStatus?.entitlement?.id, isAuthReady, isEntitlementReady, isLoggedIn, refreshEntitlement])
 
-  if (!isAuthReady || (!isCreatorStaffPreview && (!isEntitlementReady || (isLoggedIn && !entitlementStatus)))) {
+  if (!isAuthReady || (!isCreatorStudio && (!isEntitlementReady || (isLoggedIn && !entitlementStatus)))) {
     return (
       <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
         <div className="rounded-[24px] border border-[#2F3543] bg-[#121722] px-6 py-5 text-sm text-[#AEB6C5] shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
@@ -3614,7 +3614,7 @@ function StudioShell() {
     return <LoginScreen />
   }
 
-  if (!isCreatorStaffPreview && entitlementStatus?.error && !entitlementStatus?.hasAccess) {
+  if (!isCreatorStudio && entitlementStatus?.error && !entitlementStatus?.hasAccess) {
     const rawErrorText = String(entitlementStatus.error || '')
     const cleanedErrorText = rawErrorText
       .replace(/^\[[^\]]+\]\s*/, '')
@@ -3699,13 +3699,13 @@ function StudioShell() {
     )
   }
 
-  if (!isCreatorStaffPreview && !entitlementStatus?.hasAccess) {
+  if (!isCreatorStudio && !entitlementStatus?.hasAccess) {
     window.location.replace('/purchase')
     return null
   }
 
   if (activeToolPage === 'creator-tools') {
-    return <Suspense fallback={<div>도구 불러오는 중…</div>}><CreatorTools /></Suspense>
+    return <CreatorAccessGate><Suspense fallback={<div>도구 불러오는 중…</div>}><CreatorTools /></Suspense></CreatorAccessGate>
   }
 
   return (
