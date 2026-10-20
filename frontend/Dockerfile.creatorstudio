@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/package.json
 RUN npm ci --workspace frontend
+COPY shared ./shared
 COPY frontend ./frontend
 # Public browser configuration only. Never pass service-role or provider keys here.
 ARG VITE_SUPABASE_URL

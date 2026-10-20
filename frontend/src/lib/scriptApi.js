@@ -1,3 +1,4 @@
+import { formatScriptText, formatScriptSections } from './scriptText'
 import { apiFetch, createApiError, parseApiResponse } from './api'
 
 export async function createScriptSelection({
@@ -126,21 +127,6 @@ async function loadBrowserJsPDF() {
   } catch (error) {
     throw createPdfExportError('PDF 생성 모듈을 사용할 수 없습니다. 새로고침 후 다시 시도해주세요.', error)
   }
-}
-
-function normalizePdfSections(sections = {}) {
-  if (Array.isArray(sections)) {
-    return sections.map((section) => [
-      section.label || section.title || '',
-      section.value || section.content || '',
-    ])
-  }
-
-  return [
-    ['HOOK', sections.hook],
-    ['BODY', sections.body],
-    ['CTA', sections.cta],
-  ]
 }
 
 const PDF_FONT_PATH = 'fonts/NanumGothic-Regular.ttf'
@@ -324,25 +310,11 @@ export async function downloadScriptPdf({ title, sections }) {
     })
     y += 12
 
-    normalizePdfSections(sections).forEach(([label, value]) => {
-      const normalizedValue = sanitizePdfText(value || '-')
-      const valueLines = pdf.splitTextToSize(normalizedValue, contentWidth)
-      ensureSpace(34)
-
-      writeLines([sanitizePdfText(label || 'SECTION').toUpperCase()], {
-        fontSize: 10,
-        lineHeight: 16,
-        color: '#555555',
-      })
-      pdf.setDrawColor('#DDDDDD')
-      pdf.line(margin, y, pageWidth - margin, y)
-      y += 18
-      writeLines(valueLines, {
-        fontSize: 12,
-        lineHeight: 18,
-        color: '#111111',
-      })
-      y += 20
+    const fullText = Array.isArray(sections)
+      ? formatScriptText(sections.map((section) => section.value || section.content || '').join('\n'))
+      : formatScriptSections(sections)
+    writeLines(pdf.splitTextToSize(sanitizePdfText(fullText || '-'), contentWidth), {
+      fontSize: 12, lineHeight: 18, color: '#111111',
     })
 
     const filename = `${normalizedTitle.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'script'}.pdf`

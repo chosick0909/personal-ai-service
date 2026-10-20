@@ -1,3 +1,4 @@
+import { scopedCopilotClient } from './copilot/execution.js'
 import { getAccountProfile } from './account-profile.js'
 import { AppError } from './errors.js'
 import { getOpenAIClient, getOpenAIModels, hasOpenAIConfig } from './openai.js'
@@ -302,7 +303,9 @@ async function extractLlmPreferences({ userInput, assistantOutput }) {
     return []
   }
 
-  const openai = getOpenAIClient()
+  // Preference extraction is optional; raw dialogue below is still saved.
+  // A slow enrichment call must not hold a completed editing answer open.
+  const openai = scopedCopilotClient(getOpenAIClient(), { callBudgetMs: 3000 })
   const { chatModel } = getOpenAIModels()
 
   const response = await openai.chat.completions.create({

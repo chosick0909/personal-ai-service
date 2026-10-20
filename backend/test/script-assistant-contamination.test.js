@@ -454,7 +454,7 @@ test('explicit editTarget drives generation shape and fallback still parses Kore
   assert.equal(normalizeEditTarget('all', '스토리처럼 감정선 넣어서 바꿔줘'), 'all')
   assert.equal(normalizeEditTarget('all', '바디를 스토리처럼 바꿔줘'), 'body')
   assert.match(buildEditOutputInstruction(['cta']), /CTA 하나만 생성/)
-  assert.match(buildEditOutputInstruction(['hook', 'body', 'cta']), /HOOK, BODY, CTA 전체/)
+  assert.match(buildEditOutputInstruction(['hook', 'body', 'cta']), /하나의 연속된 대본/)
 })
 
 test('copilot intent classifier keeps advice requests out of edit flow', () => {
@@ -969,7 +969,7 @@ test('narrative full edits must keep hook body cta sectioning', () => {
 
   assert.match(sectioning, /반드시 HOOK\/BODY\/CTA로 나눈다/)
   assert.match(sectioning, /BODY 하나만 반환하지 말고/)
-  assert.match(prompt, /생성 대상: HOOK, BODY, CTA 전체/)
+  assert.match(prompt, /하나의 연속된 대본/)
   assert.match(prompt, /스토리\/감정선 전체 수정 분리 규칙/)
   assert.match(prompt, /BODY 하나만 반환하지 말고/)
   assert.ok(prompt.indexOf('생성 대상: HOOK, BODY, CTA 전체') < prompt.indexOf('스토리/감정선 전체 수정 분리 규칙'))
@@ -2307,23 +2307,24 @@ test('current explicit hook request overrides hook keep memory constraint', () =
 
 test('duration compress intent extracts target seconds and builds char range', () => {
   const intent = classifyCopilotIntentByRule('45초 안에 말하게 해줘', 'all')
+  const longDraft = { ...currentDraft, body: currentDraft.body.repeat(4) }
   const plan = buildEditPlan({
     userRequest: '45초 안에 말하게 해줘',
-    currentSections: currentDraft,
+    currentSections: longDraft,
     intentResult: intent,
     editTarget: 'all',
   })
 
   assert.equal(extractTargetDurationSeconds('45초 안에 말하게 해줘'), 45)
-  assert.deepEqual(buildDurationCharRange(30), { min: 150, max: 195 })
+  assert.deepEqual(buildDurationCharRange(30), { min: 113, max: 126 })
   assert.equal(intent.operationType, COPILOT_OPERATION_TYPES.DURATION_COMPRESS)
   assert.equal(intent.targetDurationSeconds, 45)
   assert.equal(plan.operationType, COPILOT_OPERATION_TYPES.DURATION_COMPRESS)
   assert.equal(plan.qaMode, COPILOT_QA_MODES.DURATION_COMPRESS)
-  assert.deepEqual(plan.targetCharRange, { min: 225, max: 293 })
+  assert.deepEqual(plan.targetCharRange, { min: 171, max: 194 })
 })
 
-test('duration compress QA flags overly long compressed drafts', () => {
+test('duration is measured but never rejects or retries an otherwise valid script', () => {
   const result = runFeedbackFallbackRuleCheck({
     originalSections: currentDraft,
     candidateSections: currentDraft,
@@ -2335,12 +2336,13 @@ test('duration compress QA flags overly long compressed drafts', () => {
     targetCharRange: buildDurationCharRange(10),
   })
 
-  assert.equal(result.ok, false)
-  assert.equal(result.shouldRepair, true)
-  assert.ok(result.issues.some((issue) => issue.type === 'duration_range_miss'))
+  assert.equal(result.ok, true)
+  assert.equal(result.shouldRepair, false)
+  assert.ok(result.duration.estimatedSeconds > result.duration.targetSeconds)
+  assert.equal(result.issueTypes.some(type=>type.startsWith('duration_')),false)
 })
 
-test('duration compress QA flags sentence fragments caused by over-compression', () => {
+test('sentence rhythm is writing guidance rather than a regex-based repair gate', () => {
   const result = runFeedbackFallbackRuleCheck({
     originalSections: currentDraft,
     candidateSections: {
@@ -2356,9 +2358,9 @@ test('duration compress QA flags sentence fragments caused by over-compression',
     targetCharRange: buildDurationCharRange(30),
   })
 
-  assert.equal(result.ok, false)
-  assert.equal(result.shouldRepair, true)
-  assert.ok(result.issues.some((issue) => issue.type === 'incomplete_compressed_sentence'))
+  assert.equal(result.ok, true)
+  assert.equal(result.shouldRepair, false)
+  assert.equal(result.issues.some((issue) => issue.type === 'incomplete_compressed_sentence'),false)
 })
 
 test('duration compress user-facing message hides internal terms', () => {
@@ -2629,4 +2631,62 @@ test('fallback rule check blocks meta instruction phrases from script text', () 
 
   assert.equal(result.ok, false)
   assert.ok(result.issues.some((issue) => issue.type === 'meta_instruction_leakage'))
+})
+
+test('duration direction follows actual length, including neutral control messages', () => {
+  const short = { hook: '청소가 막막하죠.', body: '높은 선반부터 먼지를 털어보세요. 마지막에 바닥을 닦으세요.', cta: '저장해두세요.' }
+  const request = '현재 대본을 45초 분량으로 조절해줘'
+  const plan = buildEditPlan({ userRequest: request, currentSections: short, targetDurationSeconds: 45,
+    intentResult: { operationType: 'duration_compress', targetDurationSeconds: 45 } })
+  assert.equal(plan.operationType, 'duration_expand')
+  assert.equal(plan.qaMode, 'duration_expand')
+  assert.equal(plan.revisionStyle, 'elaborate_existing_information')
+  assert.equal(plan.carryOverStrategy.preserveSectionLength, false)
+  assert.ok(plan.operations.every(op => op.type !== 'duration_compress'))
+  assert.doesNotMatch(plan.mustChange.join(' '), /삭제 중심|압축/)
+  assert.ok(Object.values(plan.sectionInstructions).every(op => op.action === 'expand'))
+  const same = runFeedbackFallbackRuleCheck({ originalSections: short, candidateSections: short,
+    qaMode: 'duration_expand', targetDurationSeconds: 45, editPlan: plan })
+  assert.equal(same.shouldRepair, true)
+  assert.ok(same.issueTypes.includes('requested_change_missing'))
+  assert.equal(same.issueTypes.some(type=>type.startsWith('duration_')),false)
+})
+test('duration expansion keeps locked sections and fact constraints', () => {
+  const plan = buildEditPlan({userRequest: '훅은 그대로 두고 60초 분량으로 늘려줘', currentSections: currentDraft, targetDurationSeconds: 60})
+  assert.equal(plan.operationType, 'duration_expand')
+  assert.ok(plan.preserveSections.includes('hook'))
+  assert.equal(plan.sectionInstructions.hook.action, 'keep')
+  assert.match(plan.avoid.join(' '), /없는 기능|없는 수치/)
+})
+
+test('semantic lengthening without seconds derives a target from current content', () => {
+  const plan=buildEditPlan({userRequest:'더 충분히 설명해줘',currentSections:currentDraft,intentResult:{operationType:'duration_expand'}})
+  assert.equal(plan.operationType,'duration_expand')
+  assert.equal(plan.durationTargetInferred,true)
+  assert.ok(plan.targetDurationSeconds>plan.currentSpeech.estimatedSeconds)
+})
+
+test('failed duration candidate cannot bypass whole-script verification through fragment fallback',()=>{
+ const candidate={...currentDraft,body:currentDraft.body+' 원래 정보의 이유를 더 풀어 설명해요.'}
+ const result=buildPartialSafeFeedbackApplyFallback({originalSections:currentDraft,candidateSources:[{sections:candidate}],qaMode:'duration_expand',targetDurationSeconds:60})
+ assert.equal(result.success,false)
+ assert.deepEqual(result.sections,currentDraft)
+ assert.deepEqual(result.changedSections,[])
+})
+
+test('a total duration contract does not inherit incidental partial-edit scope',()=>{
+ for(const request of ['체험 옵션이나 구매 혜택을 만들지 말고 현재 내용으로 20초 분량으로 조절해줘','기존 정보로 20초 분량으로 조절해줘']){
+  const plan=buildEditPlan({currentSections:currentDraft,userRequest:request,targetDurationSeconds:20})
+  assert.deepEqual(plan.targetSections,['hook','body','cta'])
+  assert.deepEqual(plan.preserveSections,[])
+ }
+ const locked=buildEditPlan({currentSections:currentDraft,userRequest:'훅은 그대로 두고 60초로 늘려줘',targetDurationSeconds:60})
+ assert.ok(locked.preserveSections.includes('hook'))
+})
+
+test('preserve_meaning is not an exact-text lock for a whole-script edit',()=>{
+ const semanticInstruction={intent:'edit_script',confidence:0.95,topicChange:{requested:false,oldSubject:null,oldSubjects:[],newSubject:null,confidence:0,evidence:null},operations:[{type:'partial_rewrite',target:'all',goal:'필요한 정보만 설명',evidence:'핵심 내용만 설명해줘',confidence:0.95}],locks:[{target:'hook',lockType:'preserve_meaning',evidence:'주제 의미 유지'}],userFacingNeed:'modify_script'}
+ const plan=buildEditPlan({currentSections:currentDraft,userRequest:'핵심 내용만 설명해줘',intentResult:{semanticInstruction}})
+ assert.deepEqual(plan.targetSections,['hook','body','cta'])
+ assert.equal(plan.preserveSections.includes('hook'),false)
 })

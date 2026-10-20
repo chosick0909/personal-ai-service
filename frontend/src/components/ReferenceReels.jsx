@@ -1,50 +1,98 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ExternalLink, Play } from 'lucide-react'
 import { referenceReels } from '../lib/referenceReels'
-import { referenceContentHref } from '../lib/referenceContentLink'
+import { creatorRequest } from '../lib/creatorApi'
 
-function Reel({ media, username, index }) {
-  const container = useRef(null)
-  const [visible, setVisible] = useState(false)
-  const [status, setStatus] = useState('loading')
+// Bound metadata lookups across all account cards, including offscreen cards.
+let active = 0
+const queue = []
+function lookup(task) {
+  return new Promise((resolve, reject) => {
+    queue.push({ task, resolve, reject })
+    drain()
+  })
+}
+function drain() {
+  while (active < 2 && queue.length) {
+    const item = queue.shift()
+    active++
+    Promise.resolve().then(item.task).then(item.resolve, item.reject).finally(() => { active--; drain() })
+  }
+}
+
+function Reel({ media, username, index, onFailed }) {
+  const video = useRef(null)
+  const [ready, setReady] = useState(false)
+  const fail = useCallback(() => onFailed(media.href), [onFailed, media.href])
   useEffect(() => {
-    if (!window.IntersectionObserver) { setVisible(true); return }
+    const timer = setTimeout(fail, 12000)
+    const element = video.current
+    const loaded = () => { clearTimeout(timer); setReady(true) }
+    element.addEventListener('loadeddata', loaded)
+    return () => { clearTimeout(timer); element.removeEventListener('loadeddata', loaded) }
+  }, [fail])
+  useEffect(() => {
+    if (!ready) return
+    const element = video.current
+    if (!window.IntersectionObserver) { element.play().catch(() => {}); return () => element.pause() }
     const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) { setVisible(true); observer.disconnect() }
-    }, { rootMargin: '200px' })
-    observer.observe(container.current)
-    return () => observer.disconnect()
-  }, [])
-  useEffect(() => {
-    if (!visible || status !== 'loading') return
-    const timer = setTimeout(() => setStatus('delayed'), 15000)
-    return () => clearTimeout(timer)
-  }, [visible, status])
-  return <article className="ct-reel-card" ref={container}>
+      if (entries.some(entry => entry.isIntersecting)) element.play().catch(() => {})
+      else element.pause()
+    }, { threshold: 0.5 })
+    observer.observe(element)
+    return () => { observer.disconnect(); element.pause() }
+  }, [ready])
+  return <article className="ct-reel-card" hidden={!ready}>
     <div className="ct-reel-frame">
-      {visible && <iframe src={media.embedUrl} title={`@${username} 릴스 ${index + 1}`}
-        loading="lazy" allow="encrypted-media; fullscreen; picture-in-picture" allowFullScreen
-        referrerPolicy="strict-origin-when-cross-origin"
-        onLoad={() => setStatus('loaded')} onError={() => setStatus('delayed')} />}
-      {status === 'loading' && <div className="ct-reel-loading" role="status"><Play size={28} /><span>{visible ? '릴스 불러오는 중…' : '릴스 미리보기'}</span></div>}
+      <video ref={video} src={media.url} controls muted loop playsInline preload="auto"
+        aria-label={`@${username} 릴스 ${index + 1}`} onError={fail} />
     </div>
-    <div className="ct-reel-footer">
-      {media.caption && <p className="ct-reel-caption">{media.caption}</p>}
-      <div><span>{media.views !== null ? `조회 ${media.views.toLocaleString('ko-KR')}회 · 수집 시점` : `릴스 ${index + 1}`}</span>
-        <a href={media.href} target="_blank" rel="noopener noreferrer" aria-label={`@${username} 릴스 ${index + 1} Instagram에서 열기`}>원문 열기 <ExternalLink size={13} /></a></div>
-      {status === 'delayed' && <p className="ct-reel-help">불러오기가 지연되고 있어요. 원문 열기로도 확인할 수 있습니다.</p>}
-    </div>
+    <div className="ct-reel-footer"><div>
+      <span>{media.views !== null ? `조회 ${media.views.toLocaleString('ko-KR')}회 · 수집 시점` : `릴스 ${index + 1}`}</span>
+      <a href={media.href} target="_blank" rel="noopener noreferrer">원문 열기 <ExternalLink size={13} /></a>
+    </div></div>
   </article>
 }
 
 export default function ReferenceReels({ account }) {
-  const reels = referenceReels(account)
-  const viralHref = referenceContentHref(account.viralMedia?.permalink)
-  if (!reels.length) return null
-  return <section className="ct-reel-section" aria-label={`@${account.username} 참고 릴스`}>
-    <div className="ct-reel-heading"><h3>릴스로 먼저 살펴보기</h3><span>영상을 눌러 여기서 재생하세요</span></div>
-    <div className="ct-reel-grid">{reels.map((media, index) => <Reel key={media.href} media={media} username={account.username} index={index} />)}</div>
-    {viralHref && !reels.some(media => media.href === viralHref) && <a className="ct-reel-viral" href={viralHref} target="_blank" rel="noopener noreferrer">50만+ 조회 콘텐츠도 살펴보기 <ExternalLink size={13} /></a>}
-    <p className="ct-reel-help">게시자의 공개·퍼가기 설정이나 Instagram 로그인 상태에 따라 재생이 제한될 수 있습니다. 재생되지 않으면 원문 열기를 눌러주세요.</p>
+  const identity = JSON.stringify([account.username, referenceReels(account)])
+  return <ReferenceReelList key={identity} account={account} identity={identity} />
+}
+
+function ReferenceReelList({ account, identity }) {
+  const container = useRef(null)
+  const [visible, setVisible] = useState(() => typeof window !== 'undefined' && !window.IntersectionObserver)
+  const [results, setResults] = useState([])
+  const [pending, setPending] = useState(true)
+  const key = identity
+  useEffect(() => {
+    if (!window.IntersectionObserver) return
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { setVisible(true); observer.disconnect() }
+    }, { rootMargin: '100px' })
+    observer.observe(container.current)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (!visible) return
+    const controller = new AbortController()
+    const [username, reels] = JSON.parse(key)
+    Promise.all(reels.map(media => lookup(async () => {
+      if (controller.signal.aborted) return
+      try {
+        const result = await creatorRequest('/discovery/reference-playback', {
+          method: 'POST', body: { username, permalink: media.href }, signal: controller.signal,
+        })
+        if (!controller.signal.aborted && result.media?.url) setResults(previous => [...previous, { ...media, url: result.media.url }])
+      } catch { /* Unavailable media is omitted, never replaced by a post embed. */ }
+    }))).finally(() => { if (!controller.signal.aborted) setPending(false) })
+    return () => controller.abort()
+  }, [visible, key])
+  const failed = useCallback(href => setResults(previous => previous.filter(item => item.href !== href)), [])
+  if (!pending && !results.length) return null
+  return <section ref={container} className="ct-reel-section" aria-label={`@${account.username} 참고 릴스`}>
+    {(pending || results.length > 0) && <div className="ct-reel-heading"><h3>릴스로 먼저 살펴보기</h3><span>화면 안에서 재생 · 소리는 플레이어에서 켜주세요</span></div>}
+    {pending && <p className="ct-reel-pending" role="status"><Play size={16} /> 재생 가능한 릴스 확인 중…</p>}
+    <div className="ct-reel-grid">{results.map((media, index) => <Reel key={media.href} media={media} username={account.username} index={index} onFailed={failed} />)}</div>
   </section>
 }

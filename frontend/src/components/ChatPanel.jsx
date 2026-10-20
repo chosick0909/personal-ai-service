@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppState } from '../store/AppState'
+import { formatScriptSections } from '../lib/scriptText'
 
 const FEEDBACK_VERDICT_UI = {
   ready: {
@@ -172,8 +173,6 @@ function MessageBubble({
   const isFeedbackReady = feedbackVerdict?.status === 'ready'
   const proposedSections = message.proposedSections
   const actionableAdvice = message.actionableAdvice
-  const changedSections = Array.isArray(message.changedSections) ? message.changedSections : []
-  const editTarget = typeof message.editTarget === 'string' ? message.editTarget : 'all'
   const isFeedbackApplied = Boolean(feedback?.applied)
   const isSuggestionApplied = Boolean(message.suggestionApplied)
   const canReply =
@@ -187,25 +186,7 @@ function MessageBubble({
     : isApplyingFeedback
       ? '반영 중...'
       : feedbackVerdictUi.buttonLabel
-  const sectionLabels = [
-    ['hook', 'HOOK'],
-    ['body', 'BODY'],
-    ['cta', 'CTA'],
-  ]
-  const visibleSectionKeys =
-    changedSections.length > 0
-      ? changedSections
-      : ['hook', 'body', 'cta'].includes(editTarget)
-        ? [editTarget]
-        : sectionLabels.map(([key]) => key)
-  const visibleSections = sectionLabels.filter(([key]) => visibleSectionKeys.includes(key))
-  const applyLabel = isSuggestionApplied
-    ? '수정 적용 완료'
-    : isApplyingSuggestion
-      ? '수정 반영 중...'
-      : visibleSections.length === 1
-        ? `${visibleSections[0][1]} 수정 적용`
-        : '이 수정 적용'
+  const applyLabel = isSuggestionApplied ? '수정 적용 완료' : isApplyingSuggestion ? '수정 반영 중...' : '이 수정 적용'
 
   return (
     <div
@@ -268,16 +249,9 @@ function MessageBubble({
                   {isFeedbackReady ? '선택적으로 다듬을 수 있는 부분' : '피드백 반영 미리보기'}
                 </div>
                 <div className="min-w-0 max-w-full space-y-2 overflow-hidden rounded-[18px] border border-[#2F3543] bg-[#10151D] p-3">
-                  {sectionLabels.map(([key, label]) => (
-                    <section key={key} className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8E97A6]">
-                        {label}
-                      </div>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-[#E5E7EB]">
-                        {feedbackProposedSections[key] || '-'}
-                      </p>
-                    </section>
-                  ))}
+                  <p className="whitespace-pre-wrap break-words text-sm leading-7 text-[#E5E7EB]">
+                    {formatScriptSections(feedbackProposedSections)}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -296,16 +270,9 @@ function MessageBubble({
             {proposedSections ? (
               <div className="mt-3 min-w-0 space-y-3">
                 <div className="min-w-0 max-w-full space-y-2 overflow-hidden rounded-[18px] border border-[#2F3543] bg-[#10151D] p-3">
-                  {visibleSections.map(([key, label]) => (
-                    <section key={key} className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8E97A6]">
-                        {label}
-                      </div>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-[#E5E7EB]">
-                        {proposedSections[key] || '-'}
-                      </p>
-                    </section>
-                  ))}
+                  <p className="whitespace-pre-wrap break-words text-sm leading-7 text-[#E5E7EB]">
+                    {formatScriptSections(proposedSections)}
+                  </p>
                 </div>
                 <button
                   type="button"

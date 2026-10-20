@@ -58,6 +58,11 @@ function normalizeChatMessages(messages) {
     : []
 }
 
+function normalizeEditorSnapshot(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return { hook: typeof value.hook === 'string' ? value.hook : '', body: typeof value.body === 'string' ? value.body : '', cta: typeof value.cta === 'string' ? value.cta : '' }
+}
+
 function normalizeVariantSession(session = {}) {
   if (!session || typeof session !== 'object') {
     return null
@@ -66,6 +71,7 @@ function normalizeVariantSession(session = {}) {
   return {
     selectedScriptId: typeof session.selectedScriptId === 'string' ? session.selectedScriptId : null,
     activeScriptId: typeof session.activeScriptId === 'string' ? session.activeScriptId : null,
+    editorSections: normalizeEditorSnapshot(session.editorSections),
     editorContent: typeof session.editorContent === 'string' ? session.editorContent : '',
     versions: Array.isArray(session.versions) ? session.versions : [],
     feedback: session.feedback && typeof session.feedback === 'object' ? session.feedback : null,
@@ -125,6 +131,7 @@ export function normalizeHistoryCacheItem(item = {}) {
     thumbnailUrl: item.thumbnailUrl || item.thumbnail_url || null,
     selectedScriptId: typeof item.selectedScriptId === 'string' ? item.selectedScriptId : null,
     activeScriptId: typeof item.activeScriptId === 'string' ? item.activeScriptId : null,
+    editorSections: normalizeEditorSnapshot(item.editorSections),
     editorContent: typeof item.editorContent === 'string' ? item.editorContent : '',
     versions: Array.isArray(item.versions) ? item.versions : [],
     feedback: item.feedback && typeof item.feedback === 'object' ? item.feedback : null,
@@ -176,6 +183,7 @@ export function mergeHistoryItem(serverItem, localItem) {
     selectedScriptId: normalizedLocal.selectedScriptId || normalizedServer.selectedScriptId,
     activeScriptId: normalizedLocal.activeScriptId || normalizedServer.activeScriptId,
     editorContent: normalizedLocal.editorContent || normalizedServer.editorContent,
+    editorSections: normalizedLocal.editorSections || normalizedServer.editorSections,
     transcript: normalizedLocal.transcript || normalizedServer.transcript || '',
     versions: normalizedLocal.versions?.length ? normalizedLocal.versions : normalizedServer.versions,
     feedback: normalizedLocal.feedback || normalizedServer.feedback,

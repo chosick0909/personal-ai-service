@@ -8,6 +8,8 @@ import { enqueue } from './queue.js'
 import { completeReviewedReferenceJob } from './reference-immediate.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from './categories.js'
 import { assertCreatorCoupon } from './access.js'
+import { catalogQualityEligible, instagramPostUrl } from './reference-quality.js'
+import { referencePlayback } from './reference-playback.js'
 
 export function createCreatorRouter() {
   const router = Router()
@@ -31,6 +33,23 @@ export function createCreatorRouter() {
   const enabled = (req, kind) => {
     if (!featureEnabled(kind, req.auth.userId)) fail('FEATURE_DISABLED', '아직 공개되지 않은 기능입니다.', 404)
   }
+  router.post('/discovery/reference-playback', asyncHandler(async (req, res) => {
+    enabled(req, 'reference-accounts')
+    const name = username(req.body?.username)
+    const href = instagramPostUrl(req.body?.permalink)
+    if (!href) fail('INVALID_REFERENCE', '릴스 주소를 확인해주세요.', 400)
+    const row = await query(database().from('creator_reference_catalog').select('*')
+      .eq('username', name).eq('active', true).eq('professional', true).maybeSingle())
+    const samePost = value => {
+      const url = instagramPostUrl(value)
+      return url && new URL(url).pathname.split('/')[2] === new URL(href).pathname.split('/')[2]
+    }
+    const allowed = Array.isArray(row?.profile?.categories) && row.profile.categories.some(category => catalogQualityEligible(row, category))
+      && [...(row.profile.exampleMedia || []), row.profile.viralMedia].some(media => samePost(media?.permalink))
+    if (!allowed) fail('REFERENCE_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+    const media = await referencePlayback.resolve(href)
+    res.set('Cache-Control', 'private, no-store').json({ media })
+  }))
   const accountId = async (req, db) => {
     // The selected account in the request body is the freshest UI state. A
     // legacy/stale local-storage header must not override an explicit account.

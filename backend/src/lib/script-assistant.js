@@ -1,3 +1,8 @@
+import { scopedCopilotClient } from './copilot/execution.js'
+import { numericClaims } from './numeric-claims.js'
+import { SPOKEN_SCRIPT_WRITING_RULES } from './spoken-script.js'
+import { durationWritingGuidance } from './script-duration-guidance.js'
+import { estimateScriptSeconds, spokenCharacterCount, durationCharacterRange, MIN_SCRIPT_SECONDS, MAX_SCRIPT_SECONDS } from '../../../shared/script-duration.mjs'
 import { COPILOT_CONVERSATION_RULES, conversationModelMessages, conversationSummaryRequest, advanceConversationSummary } from './copilot/conversation-context.js'
 import { AppError } from './errors.js'
 import { logAIError } from './ai-error-logger.js'
@@ -19,6 +24,26 @@ import {
   semanticInstructionFromModelOutput,
 } from './copilot/semantic-schema.js'
 
+const CONTINUOUS_SCRIPT_CONTRACT = '연속 대본 계약: 전체 대본의 의미·사실·요청·가독성을 판단한다. hook/body/cta는 내부 저장 위치다. 필드마다 문장을 의무로 넣거나 CTA와 BODY의 길이를 비교하지 않는다. 핵심을 보존한 문장 통합·내용 이동·부연 축약을 허용한다. 명시적 잠금은 그대로 지킨다.'
+const CRITICAL_MODEL_ISSUES = new Set([
+  'requested_material_missing', 'requested_change_missing', 'user_requirement_missing', 'request_not_followed',
+  'section_lock_violation', 'section_instruction_violation', 'memory_constraint_violated',
+  'unsupported_number', 'unsupported_fact', 'unsupported_claim', 'unsupported_effect', 'unsupported_feature',
+  'unsupported_experience', 'copied_experience', 'invented_context', 'invented_option', 'fabricated_experience',
+  'fabricated_claim', 'factual_error', 'meaning_contradiction', 'meaning_drift', 'topic_drift', 'content_loss',
+  'reference_contamination', 'mixed_subject_contamination', 'old_subject_leakage', 'new_subject_missing',
+  'instruction_leakage', 'meta_instruction_leakage', 'forbidden_phrase_leakage', 'format_placeholder_leakage',
+  'empty_or_invalid_section',
+])
+
+function readCopilotModelResult(response) {
+  const choice = response?.choices?.[0]
+  if (choice?.finish_reason && choice.finish_reason !== 'stop') {
+    throw new AppError('수정 응답이 끝까지 수신되지 않았습니다.', {code:'INCOMPLETE_MODEL_RESPONSE',statusCode:502})
+  }
+  return parseModelJson(choice?.message?.content || '')
+}
+
 function requireClients() {
   if (!hasSupabaseAdminConfig()) {
     throw new AppError('Supabase admin client is not configured', {
@@ -36,7 +61,7 @@ function requireClients() {
 
   return {
     supabaseAdmin: getSupabaseAdmin(),
-    openai: getOpenAIClient(),
+    openai: scopedCopilotClient(getOpenAIClient()),
     models: getOpenAIModels(),
   }
 }
@@ -230,6 +255,7 @@ const COPILOT_OPERATION_TYPES = {
   TOPIC_REFRAME: 'topic_reframe',
   INSERT_MATERIAL: 'insert_material',
   DURATION_COMPRESS: 'duration_compress',
+  DURATION_EXPAND: 'duration_expand',
   // Public semantic name for filling an example pattern/placeholder into the current script.
   FORMAT_FILL: 'format_fill',
   // Backward-compatible operation name kept for existing prompts/routes.
@@ -245,10 +271,11 @@ const COPILOT_QA_MODES = {
   REFRAME_TOPIC: 'reframe_topic',
   INSERT_MATERIAL: 'insert_material',
   DURATION_COMPRESS: 'duration_compress',
+  DURATION_EXPAND: 'duration_expand',
 }
-const MIN_DURATION_COMPRESS_SECONDS = 10
-const DURATION_CHAR_RATE_MIN = 5
-const DURATION_CHAR_RATE_MAX = 6.5
+function isDurationOperation(value) {
+  return value === 'duration_compress' || value === 'duration_expand'
+}
 const PREVIOUS_ADVICE_MAX_AGE_MS = 1000 * 60 * 10
 const PREVIOUS_ADVICE_MAX_TURNS = 5
 const COPILOT_MEMORY_ARRAY_KEYS = [
@@ -2048,37 +2075,6 @@ function tokenizeForRequestMatch(value = '') {
   )
 }
 
-function findIncompleteCompressedSentences(sections = {}) {
-  const normalized = normalizeSections(sections)
-  const issues = []
-  const fragmentPattern =
-    /(?:부터요|다음에|톡톡|순서만\s*딱|오해부터|꺼내서|올리고|넣고|두고|하고|해서|라서|니까|하면|때)$/u
-  const weakStandalonePattern = /^(?:오해|간|순서|톡톡|잠깐|바로|그다음|다음|먼저)(?:부터요|부터|만|에)?[.!?。]?$/u
-  const completeEndingPattern =
-    /(?:다|요|죠|니다|습니다|해요|돼요|세요|게요|예요|이에요|까요|세요|보세요|주세요|됩니다|합니다)[.!?。]?$/u
-
-  for (const section of SECTION_KEYS) {
-    const text = normalized[section]
-    const chunks = text
-      .split(/[\n]+|(?<=[.!?。])\s+/g)
-      .map((item) => item.trim().replace(/[.!?。]+$/u, ''))
-      .filter(Boolean)
-
-    for (const chunk of chunks) {
-      const compact = chunk.replace(/\s+/g, '')
-      if (!compact) continue
-      const tooFragmented =
-        weakStandalonePattern.test(chunk) ||
-        fragmentPattern.test(chunk) ||
-        (compact.length <= 8 && !completeEndingPattern.test(chunk))
-      if (tooFragmented) {
-        issues.push({ section, text: chunk })
-      }
-    }
-  }
-
-  return issues.slice(0, 5)
-}
 
 export function normalizeTargetDurationSeconds(value) {
   if (value === null || value === undefined || value === '') {
@@ -2091,7 +2087,7 @@ export function normalizeTargetDurationSeconds(value) {
   }
 
   const seconds = Math.floor(numeric)
-  return seconds >= MIN_DURATION_COMPRESS_SECONDS ? seconds : null
+  return seconds >= MIN_SCRIPT_SECONDS && seconds <= MAX_SCRIPT_SECONDS ? seconds : null
 }
 
 export function extractTargetDurationSeconds(request = '') {
@@ -2101,8 +2097,8 @@ export function extractTargetDurationSeconds(request = '') {
   }
 
   const patterns = [
-    /(\d{1,3})\s*초\s*(?:안에|이내|로|까지)?\s*(?:말하게|압축|줄여|줄이|맞춰|정리|만들)/i,
-    /(?:압축|줄여|줄이|맞춰|정리|말하게).{0,16}?(\d{1,3})\s*초/i,
+    /(\d{1,3})\s*초\s*(?:안에|이내|로|까지)?\s*(?:말하게|압축|줄여|줄이|맞춰|정리|만들|늘려|늘리|확장|조절)/i,
+    /(?:압축|줄여|줄이|맞춰|정리|말하게|늘려|늘리|확장|조절).{0,16}?(\d{1,3})\s*초/i,
     /(\d{1,3})\s*초\s*(?:분량|짜리)/i,
   ]
 
@@ -2122,14 +2118,11 @@ export function buildDurationCharRange(targetDurationSeconds) {
     return null
   }
 
-  return {
-    min: Math.round(seconds * DURATION_CHAR_RATE_MIN),
-    max: Math.round(seconds * DURATION_CHAR_RATE_MAX),
-  }
+  return durationCharacterRange(seconds)
 }
 
 function countSpeechCharacters(value = '') {
-  return String(value || '').replace(/\s+/g, '').length
+  return spokenCharacterCount(value)
 }
 
 function countSectionSpeechCharacters(sections = {}) {
@@ -2138,11 +2131,7 @@ function countSectionSpeechCharacters(sections = {}) {
 }
 
 function estimateSpeechSecondsFromSections(sections = {}) {
-  const count = countSectionSpeechCharacters(sections)
-  if (!count) {
-    return 0
-  }
-  return Math.max(1, Math.round(count / DURATION_CHAR_RATE_MIN))
+  return estimateScriptSeconds(normalizeSections(sections))
 }
 
 function extractRequestedMaterials(request = '', newSubject = '') {
@@ -2393,7 +2382,7 @@ function buildResolvedEditOperations({
                   : `${SECTION_LABELS[section]} 표현 개선`,
           instruction:
             operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
-              ? `${SECTION_LABELS[section]}는 목표 초수에 맞춰 삭제 중심으로 압축하되 완결 문장으로 유지한다.`
+              ? `${SECTION_LABELS[section]}는 목표 초수에 맞춰 같은 뜻의 문장을 합치고 중복을 줄이되 완결 문장으로 유지한다.`
               : operationType === COPILOT_OPERATION_TYPES.FORMAT_APPLY
                 ? `${SECTION_LABELS[section]}는 예시 포맷의 의도만 반영하고 raw 지시문이나 placeholder는 대본에 복사하지 않는다.`
               : `${SECTION_LABELS[section]}는 현재 사용자 요청 "${request.slice(0, 80)}"의 핵심 변경점을 반영한다.`,
@@ -2540,30 +2529,40 @@ export function buildEditPlan({
   )
   const primarySemanticOperation = validatedSemanticInstruction.operations?.[0] || {}
   const structuredEditInstruction = semanticInstructionToLegacyInstruction(validatedSemanticInstruction)
-  const durationTarget =
+  let durationTarget =
     normalizeTargetDurationSeconds(targetDurationSeconds) ||
     normalizeTargetDurationSeconds(intentResult.targetDurationSeconds) ||
     normalizeTargetDurationSeconds(structuredEditInstruction.targetDurationSeconds) ||
     (!usesValidatedSemanticSource ? extractTargetDurationSeconds(request) : null)
+  const semanticDurationOperation = [primarySemanticOperation.type, intentResult.operationType, structuredEditInstruction.operationType].find(isDurationOperation)
+  const durationTargetInferred = !durationTarget && Boolean(semanticDurationOperation)
+  if (durationTargetInferred) {
+    const currentSeconds = estimateSpeechSecondsFromSections(sections)
+    if (currentSeconds > 0) durationTarget = Math.max(MIN_SCRIPT_SECONDS, Math.min(MAX_SCRIPT_SECONDS,
+      Math.round(currentSeconds * (semanticDurationOperation === COPILOT_OPERATION_TYPES.DURATION_EXPAND ? 1.3 : 0.75))))
+  }
   const semanticTarget = SECTION_KEYS.includes(primarySemanticOperation.target)
     ? primarySemanticOperation.target
     : ''
   const semanticTargetSections = semanticOperationTargetSections(validatedSemanticInstruction.operations || [])
-  const isDurationCompress =
+  const semanticDurationTargets = semanticOperationTargetSections(
+    (validatedSemanticInstruction.operations || []).filter(operation => isDurationOperation(operation.type)),
+  )
+  const isDurationAdjust =
     Boolean(durationTarget) ||
-    intentResult.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
-    structuredEditInstruction.operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+    isDurationOperation(intentResult.operationType) ||
+    isDurationOperation(structuredEditInstruction.operationType)
   const previousAdviceTarget = isApplyingPreviousAdvice
     ? previousAdviceTargetToEditTarget(normalizedPreviousAdvice, intentResult.editTarget || editTarget || 'all')
     : ''
-  const normalizedTarget = isDurationCompress
+  const normalizedTarget = isDurationAdjust
     ? 'all'
     : normalizeEditTarget(
         previousAdviceTarget || semanticTarget || intentResult.editTarget || editTarget,
         usesValidatedSemanticSource ? '' : request,
       )
   const semanticPreserveSections = validatedSemanticInstruction.locks
-    .filter((lock) => SECTION_KEYS.includes(lock.target))
+    .filter((lock) => SECTION_KEYS.includes(lock.target) && ['keep_exact','do_not_touch'].includes(lock.lockType))
     .map((lock) => lock.target)
   const explicitPreserveSections = uniqueCompactList(
     [
@@ -2573,13 +2572,21 @@ export function buildEditPlan({
     3,
   )
   const explicitPreserveSet = new Set(explicitPreserveSections)
-  let targetSections = isApplyingPreviousAdvice
+  // A total duration contract must not inherit the scope of an unrelated
+  // partial-edit operation. Explicit duration scope and real locks still apply.
+  let targetSections = isDurationAdjust
+    ? semanticDurationTargets.length ? semanticDurationTargets : SECTION_KEYS
+    : isApplyingPreviousAdvice
     ? previousAdviceOperationTargetSections(normalizedPreviousAdvice).length
       ? previousAdviceOperationTargetSections(normalizedPreviousAdvice)
       : previousAdviceTargetSections(normalizedPreviousAdvice, normalizedTarget)
     : semanticTargetSections.length
       ? semanticTargetSections
       : getTargetSections(normalizedTarget)
+  // A one-sentence whole-script record has only one real editable span.
+  // 'First/last sentence' must bind to that text, not an empty storage slot.
+  if (!sections.hook && !sections.cta && sections.body && !explicitPreserveSet.size &&
+      targetSections.length === 1 && targetSections[0] !== 'body') targetSections = ['body']
   if (explicitPreserveSet.size) {
     const filteredTargets = targetSections.filter((key) => !explicitPreserveSet.has(key))
     targetSections = filteredTargets.length ? filteredTargets : SECTION_KEYS.filter((key) => !explicitPreserveSet.has(key))
@@ -2625,8 +2632,10 @@ export function buildEditPlan({
           (operation) => !(SECTION_KEYS.includes(operation.target) && explicitPreserveSet.has(operation.target)),
         )
       : []
-  const operationType = isDurationCompress
-    ? COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+  const isExpanding = Boolean(durationTarget && durationTarget > estimateSpeechSecondsFromSections(sections))
+  const durationOperation = isExpanding ? COPILOT_OPERATION_TYPES.DURATION_EXPAND : COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+  const operationType = isDurationAdjust
+    ? durationOperation
     : isApplyingPreviousAdvice && !structuredOperationType && !detectedNewSubject && !requestedMaterials.length
       ? COPILOT_OPERATION_TYPES.PARTIAL_REWRITE
     : structuredOperationType ||
@@ -2639,7 +2648,7 @@ export function buildEditPlan({
     structuredOperationType !== COPILOT_OPERATION_TYPES.PARTIAL_REWRITE &&
     structuredOperationType !== COPILOT_OPERATION_TYPES.UNKNOWN
   ) {
-    targetSections = isDurationCompress
+    targetSections = isDurationAdjust
       ? SECTION_KEYS
       : getTargetSections(
           normalizeEditTarget(
@@ -2655,8 +2664,13 @@ export function buildEditPlan({
     preserveSections = SECTION_KEYS.filter((key) => !targetSet.has(key))
   }
   const resolvedOperations = buildResolvedEditOperations({
-    semanticOperations: validatedSemanticInstruction.operations || [],
-    previousOperations: applicablePreviousOperations,
+    semanticOperations: isDurationAdjust
+      ? [{ type: durationOperation, target: 'all', goal: isExpanding
+          ? `목표 ${durationTarget}초까지 기존 정보의 이유·방법·연결을 구체화한다. 새로운 사실이나 경험을 만들지 않는다.`
+          : `목표 ${durationTarget}초까지 중복과 부연을 줄이고 핵심과 완결 문장을 보존한다.` },
+        ...(validatedSemanticInstruction.operations || []).filter((operation) => !isDurationOperation(operation.type))]
+      : validatedSemanticInstruction.operations || [],
+    previousOperations: isDurationAdjust ? [] : applicablePreviousOperations,
     operationType,
     targetSections,
     request,
@@ -2672,7 +2686,9 @@ export function buildEditPlan({
         : 'partial'
       : ''
   const qaMode =
-    operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
+    operationType === COPILOT_OPERATION_TYPES.DURATION_EXPAND
+      ? COPILOT_QA_MODES.DURATION_EXPAND
+      : operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS
       ? COPILOT_QA_MODES.DURATION_COMPRESS
       : operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
       ? COPILOT_QA_MODES.REFRAME_TOPIC
@@ -2810,21 +2826,25 @@ export function buildEditPlan({
     preserve.push('현재 주제, 상품/서비스, 소재, CTA 의도')
     avoid.push('말투 요청을 새 주제나 새 상품으로 해석하기')
   }
+  if (operationType === COPILOT_OPERATION_TYPES.DURATION_EXPAND) {
+    strategy.push(`${durationTarget}초 기준 기존 정보의 설명과 연결 보강`)
+    preserve.push('현재 주제, 사용자 제공 사실, 대화에서 확정한 제약, 핵심 메시지와 행동 의도')
+    change.push(`약 ${durationTarget}초, 공백·문장부호 제외 ${targetCharRange?.min}-${targetCharRange?.max}자에 맞춰 기존 정보의 이유·방법·조건을 구체화한다. 도입이나 CTA만 억지로 늘리지 않는다.`)
+    avoid.push('없는 기능·옵션·수치·성과·후기·1인칭 경험 추가', '같은 내용 반복이나 의미 없는 군더더기로 분량 채우기')
+  }
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
-    strategy.push(`${durationTarget || '목표'}초 기준 완결 문장 압축 + HOOK/BODY/CTA 구조 유지`)
-    preserve.push('현재 주제, 상품/서비스, 타겟, 핵심 메시지, CTA 의도')
+    strategy.push(`${durationTarget || '목표'}초를 목표로 핵심 의미 중심 재구성`)
+    preserve.push('현재 주제와 사용자 제공 사실, 사용자가 필수로 지정한 항목과 잠금')
     change.push(
       `목표 분량 ${durationTarget || '-'}초${
         targetCharRange ? `, 공백 제외 약 ${targetCharRange.min}-${targetCharRange.max}자` : ''
       }에 맞게 중복 설명과 부연 설명을 줄이되 각 문장은 자연스럽게 완결한다`,
     )
     avoid.push(
-      '새 내용 추가',
+      '새로운 사실·별개 주제 추가',
       '없는 수치/후기/사례/효과/권위 생성',
       '핵심 메시지를 과도하게 삭제하기',
-      'CTA를 없애거나 행동 유도 의도를 바꾸기',
       '조사/접속어/서술어가 빠진 파편 문장',
-      '"오해부터요", "톡톡", "다음에"처럼 맥락 없이 끊긴 문장',
     )
   }
 
@@ -2965,6 +2985,7 @@ export function buildEditPlan({
     revisionStyle,
     sectionInstructions,
     targetDurationSeconds: durationTarget,
+    durationTargetInferred,
     targetCharRange,
     newSubject: detectedNewSubject,
     oldSubjectToRemove,
@@ -2987,7 +3008,7 @@ export function buildEditPlan({
       preserveReferenceStructure: true,
       preserveTone: true,
       preserveCtaStyle: true,
-      preserveSectionLength: operationType !== COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
+      preserveSectionLength: !isDurationOperation(operationType) && operationType !== COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
     },
     preserveFromOriginal,
     discardFromOriginal,
@@ -3071,7 +3092,7 @@ function formatEditPlanForPrompt(editPlan = null) {
     editPlan.sectionInstructions ? `- 섹션별 지시: ${JSON.stringify(editPlan.sectionInstructions)}` : '',
     editPlan.operations?.length ? `- 섹션별 작업 목록: ${JSON.stringify(editPlan.operations)}` : '',
     editPlan.targetDurationSeconds
-      ? `- 목표 압축 시간: ${editPlan.targetDurationSeconds}초${
+      ? `- 목표 발화 시간: ${editPlan.targetDurationSeconds}초${
           editPlan.targetCharRange ? ` (공백 제외 약 ${editPlan.targetCharRange.min}-${editPlan.targetCharRange.max}자)` : ''
         }`
       : '',
@@ -3143,9 +3164,10 @@ function formatEditPlanForPrompt(editPlan = null) {
       '- format_apply에서 n/숫자 placeholder는 문맥상 자연스러운 실제 숫자 표현으로 바꾼다. 숫자를 확정할 근거가 약하면 과장하지 말고 보수적인 짧은 숫자를 사용한다.',
       '- tone_adjust이면 주제/상품/소재를 바꾸지 말고 요청한 말투/어미만 조정한다. "존댓말", "반말", "해요체" 같은 말은 상품명이나 주제가 아니다.',
     '- framing_rewrite이면 주제/상품/소재를 바꾸지 말고 문제 제기, 공감, 해소감, 해결 흐름 같은 전개 방식만 조정한다. "해소되는 느낌", "공감되는 관점" 같은 말은 상품명이나 주제가 아니다.',
-    '- duration_compress이면 새 대본 생성이 아니라 압축이다. 새 내용/수치/후기/사례/효과/권위를 만들지 않고 HOOK/BODY/CTA와 CTA 의도를 유지한다.',
+    '- duration_expand이면 기존에 주어진 사실과 대화의 제약을 유지한 채 이유·방법·조건과 문장 연결을 구체화하여 목표 초수에 맞춘다. 새 사실·옵션·사례·수치·경험·성과는 만들지 않는다. 반복이나 군더더기로 채우지 않는다.',
+    '- 분량을 줄일 때는 사용자가 필수로 지정한 조건을 지키고 핵심을 우선한다. 부연과 반복, 별도 도입과 마무리는 통합하거나 덜어낼 수 있다. 새 사실·경험·성과를 만들지 않는다.',
     '- duration_compress에서는 목표 글자 수를 참고하되, 정확한 글자 수보다 자연스러운 문장과 핵심 메시지 보존을 우선한다.',
-    '- duration_compress에서는 문맥 연결에 필요한 최소한의 조사/서술어/이유는 남긴다. "오해부터요", "톡톡", "다음에"처럼 잘린 파편 문장으로 만들지 않는다.',
+    '- 짧게 쓸 때도 처음 듣는 사람이 문맥으로 뜻을 이해할 수 있게 필요한 말과 연결을 남긴다.',
     '- 계획에 없는 새 소재나 수치를 만들지 않는다.',
   ]
     .filter(Boolean)
@@ -3163,7 +3185,7 @@ export function shouldUseHeavyQualityGateForCopilot({
     ? targetSections
     : getTargetSections(normalizeEditTarget(editTarget, text))
     if (
-      operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
+      isDurationOperation(operationType) ||
       operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ||
       operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL ||
       operationType === COPILOT_OPERATION_TYPES.FORMAT_APPLY
@@ -3290,7 +3312,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
       responseMode: 'edit_only',
       editTarget: 'all',
       confidence: 0.92,
-      reason: '사용자가 목표 초수에 맞춘 대본 압축을 요청함',
+      reason: '사용자가 목표 초수에 맞춘 대본 분량 조절을 요청함',
       operationType: COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
       targetDurationSeconds,
       newSubject: '',
@@ -3340,7 +3362,7 @@ function classifyCopilotIntentByRule(request = '', editTarget = '', options = {}
   const hasStructuredEditInstruction =
     operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME ||
       operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL ||
-      operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ||
+      isDurationOperation(operationType) ||
       operationType === COPILOT_OPERATION_TYPES.FORMAT_APPLY ||
       operationType === COPILOT_OPERATION_TYPES.TONE_ADJUST ||
     operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE ||
@@ -3510,7 +3532,7 @@ function buildEditOutputInstruction(targetSections = SECTION_KEYS) {
   }
 
   return [
-    '생성 대상: HOOK, BODY, CTA 전체',
+    '하나의 연속된 대본을 작성한다. hook/body/cta는 기존 저장 호환 필드이며 각각 채워야 하는 글쓰기 조건이 아니다. 내용은 body 하나에 담고 hook/cta는 빈 문자열로 반환해도 된다. 명시적으로 잠긴 필드만 원문 그대로 둔다. 도입·행동 유도·섹션별 길이 비율을 요청 없이 추가하지 않는다.',
     '출력 JSON 형식: {"message":"","sections":{"hook":"","body":"","cta":""}}',
   ].join('\n')
 }
@@ -3540,7 +3562,7 @@ function applyEditScope(previousSections = {}, proposedSections = {}, targetSect
   const targetSet = new Set(targetSections)
 
   return SECTION_KEYS.reduce((next, key) => {
-    next[key] = targetSet.has(key) ? proposed[key] || previous[key] : previous[key]
+    next[key] = targetSet.has(key) && typeof proposedSections[key] === 'string' ? proposed[key] : previous[key]
     return next
   }, {})
 }
@@ -3548,12 +3570,12 @@ function applyEditScope(previousSections = {}, proposedSections = {}, targetSect
 function extractProposedSections(parsed = {}, targetSections = SECTION_KEYS) {
   if (targetSections.length === 1) {
     const target = targetSections[0]
-    return {
-      [target]: stripSectionSurfaceLabel(parsed.section || parsed.sections?.[target] || '', target),
-    }
+    const value = parsed.section ?? parsed.sections?.[target]
+    return typeof value === 'string' ? { [target]: stripSectionSurfaceLabel(value, target) } : {}
   }
 
-  return normalizeSections(parsed.sections)
+  return Object.fromEntries(SECTION_KEYS.filter(key => typeof parsed.sections?.[key] === 'string')
+    .map(key => [key, stripSectionSurfaceLabel(parsed.sections[key], key)]))
 }
 
 export function createSectionDiff(previousSections = {}, nextSections = {}) {
@@ -3571,20 +3593,24 @@ export function createSectionDiff(previousSections = {}, nextSections = {}) {
   }, {})
 }
 
-export function validateScriptFlow(sections = {}) {
+export function validateScriptFlow(sections = {}, { continuous = false } = {}) {
   const normalized = normalizeSections(sections)
   const issues = []
 
-  if (!normalized.hook) issues.push('HOOK이 비어 있습니다.')
-  if (!normalized.body) issues.push('BODY가 비어 있습니다.')
-  if (!normalized.cta) issues.push('CTA가 비어 있습니다.')
+  if (!continuous) {
+    if (!normalized.hook) issues.push('HOOK이 비어 있습니다.')
+    if (!normalized.body) issues.push('BODY가 비어 있습니다.')
+    if (!normalized.cta) issues.push('CTA가 비어 있습니다.')
+  } else if (!SECTION_KEYS.some(key => normalized[key])) {
+    issues.push('대본 전체가 비어 있습니다.')
+  }
   if (normalized.hook && normalized.body && normalized.hook === normalized.body) {
     issues.push('HOOK과 BODY가 동일합니다.')
   }
   if (normalized.body && normalized.cta && normalized.body === normalized.cta) {
     issues.push('BODY와 CTA가 동일합니다.')
   }
-  if (normalized.cta && normalized.body && normalized.cta.length > normalized.body.length) {
+  if (!continuous && normalized.cta && normalized.body && normalized.cta.length > normalized.body.length) {
     issues.push('CTA가 BODY보다 길어 흐름이 CTA로 과도하게 쏠릴 수 있습니다.')
   }
 
@@ -3678,6 +3704,9 @@ function buildCopilotIntentTemplateMessage({
     return `좋아요. 요청하신 내용을 ${targetLabel}에 자연스럽게 넣었어요. 다른 섹션은 흐름이 흔들리지 않도록 최대한 유지했습니다.`
   }
 
+    if (operationType === COPILOT_OPERATION_TYPES.DURATION_EXPAND) {
+      return `현재 대본의 핵심과 사실을 유지하며 약 ${editPlan?.targetDurationSeconds || '목표'}초 분량으로 설명을 보강했어요. 미리 확인한 뒤 적용해주세요.`
+    }
     if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
       const seconds = editPlan?.targetDurationSeconds
       return `좋아요. 현재 대본의 핵심과 CTA는 유지하면서${seconds ? ` ${seconds}초 안에 말할 수 있게` : ''} 압축했어요. 중복 설명과 부연만 덜어내서 더 짧게 읽히도록 정리했습니다.`
@@ -3720,14 +3749,18 @@ export function sanitizeUserFacingCopilotMessage(message, context = {}) {
 }
 
 function collectNumbersFromText(value = '') {
-  return new Set(String(value || '').match(/\d+(?:[.,]\d+)?\s*(?:만|억|천|원|만원|개|명|회|번|배|%|퍼센트|kg|킬로|개월|일|시간|분)?/g) || [])
+  return numericClaims(value)
 }
 
 function findUnexpectedNumbers(candidateSections = {}, allowedText = '') {
   const allowed = collectNumbersFromText(allowedText)
   const candidate = collectNumbersFromText(Object.values(normalizeSections(candidateSections)).join('\n'))
 
-  return [...candidate].filter((item) => !allowed.has(item))
+  // Counts may be a formatting choice or a proposed action, not a claim about
+  // personal experience/results. Their meaning is checked by semantic QA.
+  // Keep deterministic protection for measured quantities such as money,
+  // percentages, time, body measurements and audience/result figures.
+  return [...candidate].filter((item) => !allowed.has(item) && !/^(?:items|times):/.test(item))
 }
 
 function textIncludesLoosePhrase(text = '', phrase = '') {
@@ -3759,8 +3792,11 @@ function resolvePrimaryGoal({ operationType, request = '', newSubject = '', requ
     if (operationType === COPILOT_OPERATION_TYPES.FORMAT_APPLY) {
       return '예시 포맷 적용 + placeholder 정리'
     }
+    if (operationType === COPILOT_OPERATION_TYPES.DURATION_EXPAND) {
+      return `${targetDurationSeconds || '목표'}초 기준 기존 정보 설명·연결 보강`
+    }
     if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
-      return targetDurationSeconds ? `${targetDurationSeconds}초 기준 삭제 중심 압축` : '목표 시간 기준 삭제 중심 압축'
+      return targetDurationSeconds ? `${targetDurationSeconds}초 기준 의미를 유지한 문장 통합·압축` : '목표 시간 기준 의미를 유지한 문장 통합·압축'
     }
   if (operationType === COPILOT_OPERATION_TYPES.FRAMING_REWRITE) {
     return '문제 상황에서 해소감으로 이어지는 전개 정리'
@@ -3775,7 +3811,8 @@ function resolvePrimaryGoal({ operationType, request = '', newSubject = '', requ
 }
 
 function resolveRevisionStyle({ operationType, request = '' } = {}) {
-    if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) return 'delete_only'
+    if (operationType === COPILOT_OPERATION_TYPES.DURATION_EXPAND) return 'elaborate_existing_information'
+    if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) return 'condense_existing_information'
     if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) return 'reframe_subject'
     if (operationType === COPILOT_OPERATION_TYPES.INSERT_MATERIAL) return 'insert_material'
     if (operationType === COPILOT_OPERATION_TYPES.FORMAT_APPLY) return 'apply_format'
@@ -3803,10 +3840,12 @@ function buildSectionInstructions({ operationType, targetSections = SECTION_KEYS
       continue
     }
 
-    if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
+    if (operationType === COPILOT_OPERATION_TYPES.DURATION_EXPAND) {
+      instructions[section] = { action: 'expand', reason: '새 사실 없이 기존 정보의 설명과 연결을 보강하여 목표 분량에 맞춤' }
+    } else if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
       instructions[section] = {
         action: 'compress',
-        reason: '목표 초수에 맞춘 삭제 중심 압축 대상',
+        reason: '목표 초수에 맞춘 의미를 유지한 문장 통합·압축 대상',
       }
     } else if (operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME) {
       instructions[section] = {
@@ -3909,14 +3948,19 @@ function buildPlanGuardrails({
     mustAvoid.push('전개/감정 효과 요청을 새 주제/상품으로 해석하기')
   }
 
+  if (operationType === COPILOT_OPERATION_TYPES.DURATION_EXPAND) {
+    mustKeep.push('사용자 제공 사실·대화의 제약·핵심 메시지·행동 의도')
+    mustChange.push(`약 ${targetDurationSeconds || '목표'}초가 되도록 기존 정보의 이유·방법·조건·연결을 보강`)
+    mustAvoid.push('새로운 기능·옵션·수치·성과·경험 날조', '같은 내용 반복', '분량만 채우는 군더더기')
+  }
   if (operationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS) {
-    mustKeep.push('HOOK/BODY/CTA 구조', 'CTA 의도', '핵심 메시지')
+    mustKeep.push('핵심 의미', '사용자가 필수로 지정한 정보와 잠금')
     mustChange.push(
       targetDurationSeconds
         ? `${targetDurationSeconds}초 기준으로 중복/부연 설명을 줄이고 완결 문장으로 압축`
         : '목표 초수 기준으로 중복/부연 설명을 줄이고 완결 문장으로 압축',
     )
-    mustAvoid.push('새 내용 추가', 'CTA 삭제', '서술어가 빠진 파편 문장', '맥락 없이 끊긴 단어형 문장')
+    mustAvoid.push('새로운 사실·별개 주제 추가', '핵심 의미나 사용자 필수 조건 누락')
   }
 
   if (/광고\s*같지\s*않게|광고\s*같|판매\s*같|상업적|구매\s*압박|세일즈/i.test(request)) {
@@ -4044,7 +4088,7 @@ export function runFeedbackFallbackRuleCheck({
     : getTargetSections(normalizeEditTarget(editTarget, request))
   const targetSet = new Set(targetSections)
   const issues = []
-  const flowValidation = validateScriptFlow(candidate)
+  const flowValidation = validateScriptFlow(candidate, { continuous: true })
 
   for (const issue of flowValidation.issues) {
     issues.push(
@@ -4053,9 +4097,15 @@ export function runFeedbackFallbackRuleCheck({
         severity: 'high',
         section: 'all',
         reason: issue,
-        suggestion: 'HOOK/BODY/CTA가 모두 채워진 수정본만 적용한다.',
+        suggestion: '내용이 비어 있거나 중복되지 않은 하나의 완결된 대본으로 작성한다.',
       }),
     )
+  }
+
+  if (editPlan && SECTION_KEYS.every(key => candidate[key] === original[key])) {
+    issues.push(createQaIssue({ type: 'requested_change_missing', severity: 'medium', section: 'all',
+      reason: '수정 요청에 대해 원문과 동일한 대본을 반환했다.',
+      suggestion: '현재 요청과 앞선 대화에서 확정한 조건을 실제 문장에 반영한 수정안을 작성한다. 바꿨다는 설명만 반환하지 않는다.' }))
   }
 
   for (const key of SECTION_KEYS) {
@@ -4261,50 +4311,8 @@ export function runFeedbackFallbackRuleCheck({
     }
   }
 
-  if (qaMode === COPILOT_QA_MODES.DURATION_COMPRESS) {
-    const incompleteSentences = findIncompleteCompressedSentences(candidate)
-    for (const item of incompleteSentences) {
-      issues.push(
-        createQaIssue({
-          type: 'incomplete_compressed_sentence',
-          severity: 'medium',
-          section: item.section,
-          text: item.text,
-          reason: '시간 압축 과정에서 문장이 너무 잘려 맥락이나 서술어가 부족하다.',
-          suggestion: '글자 수를 크게 늘리지 말고, 짧아도 자연스럽게 완결된 문장으로 다시 잇는다.',
-        }),
-      )
-    }
-
-    const range = targetCharRange || buildDurationCharRange(targetDurationSeconds || extractTargetDurationSeconds(request))
-    if (range) {
-      const characterCount = countSectionSpeechCharacters(candidate)
-      if (characterCount > Math.round(range.max * 1.2)) {
-        issues.push(
-          createQaIssue({
-            type: 'duration_range_miss',
-            severity: 'medium',
-            section: 'all',
-            text: `${characterCount}자`,
-            reason: `목표 초수에 비해 압축본이 아직 길다. 목표는 공백 제외 약 ${range.min}-${range.max}자다.`,
-            suggestion: '중복 설명과 부연 설명을 더 줄이되 HOOK/BODY/CTA와 CTA 의도는 유지한다.',
-          }),
-        )
-      }
-      if (characterCount < Math.round(range.min * 0.65)) {
-        issues.push(
-          createQaIssue({
-            type: 'core_message_loss',
-            severity: 'medium',
-            section: 'all',
-            text: `${characterCount}자`,
-            reason: '목표보다 지나치게 짧아 핵심 메시지가 손실됐을 가능성이 있다.',
-            suggestion: '핵심 메시지와 CTA 의도를 유지할 만큼만 문장을 보강한다.',
-          }),
-        )
-      }
-    }
-  }
+  // Duration and sentence rhythm are writing guidance, not repair gates.
+  // Keep the measured seconds as diagnostics for the user and the next edit.
 
   const issueTypes = issues.map((issue) => issue.type)
 
@@ -4313,6 +4321,8 @@ export function runFeedbackFallbackRuleCheck({
     shouldRepair: qaShouldRepair(issues),
     issues,
     issueTypes,
+    duration: { targetSeconds: normalizeTargetDurationSeconds(targetDurationSeconds || editPlan?.targetDurationSeconds),
+      estimatedSeconds: estimateScriptSeconds(candidate), originalSeconds: estimateScriptSeconds(original) },
   }
 }
 
@@ -4335,6 +4345,13 @@ export function buildPartialSafeFeedbackApplyFallback({
   targetCharRange = null,
 } = {}) {
   const original = normalizeSections(originalSections)
+  // A failed whole-script semantic check cannot be bypassed by splicing
+  // fragments. Duration itself is guidance; facts and explicit requests still
+  // apply to the resulting whole script.
+  if (isDurationOperation(qaMode)) {
+    return { success: false, sections: original, changedSections: [], fallbackType: 'original',
+      issueTypes: ['duration_candidate_not_verified'], issues: [] }
+  }
   const targetSections = Array.isArray(plannedTargetSections) && plannedTargetSections.length
     ? plannedTargetSections.filter((section) => SECTION_KEYS.includes(section))
     : getTargetSections(normalizeEditTarget(editTarget, request))
@@ -4601,6 +4618,9 @@ export async function classifyCopilotIntent({
             '당신은 HookAI 코파일럿 입력 의도 분류기다. 출력은 JSON만 반환한다.',
             COPILOT_CONVERSATION_RULES,
             '이번 발화를 단어 하나로 분류하지 말고 앞선 대화와 현재 에디터를 함께 해석한다.',
+            '제품은 하나의 연속 대본을 채팅으로 수정한다. HOOK/BODY/CTA는 내부 저장 필드다. 사용자가 특정 문장·구간만 수정하라고 명시한 경우에만 그 범위로 제한한다. 어떤 내용이 기존 BODY에 있다는 이유로 BODY만 대상으로 추정하거나 앞뒤 필드를 자동 잠그지 않는다.',
+            '무엇만 설명하라는 내용 범위 제한은 전체 대본의 주제를 그 내용으로 좁히라는 요청일 수 있다. 다른 내용을 그대로 두라는 잠금으로 바꾸지 않는다. 반면 특정 첫 문장이나 마무리를 그대로 두라는 명시적 요청은 정확히 보존한다.',
+            'keep_exact와 do_not_touch는 사용자 원문이나 앞선 대화에서 실제로 명시한 보존 지시에만 쓴다. 보통 유지하면 좋겠다는 추정은 잠금이 아니다. preserve_meaning은 의미 보존이며 원문 문구·필드 위치 고정이 아니다.',
             '정정이나 선택·복원 요청의 대상과 실제 수행할 내용을 resolvedRequest에 자립적인 문장으로 적는다. 사용자 요청에 없는 변경은 추가하지 않는다.',
             '명확한 수정 요청만 edit_request로 반환한다. 수정 미리보기 생성과 에디터 저장은 다르며 자동 적용하지 않는다.',
             '수정 요청이면 editTarget, operationType, newSubject, requestedMaterials를 같은 해석에 맞춰 작성한다.',
@@ -4608,7 +4628,8 @@ export async function classifyCopilotIntent({
             conversationSummaryRequest(conversationContext),
             '사용자 메시지가 대본 수정을 원하는지, 피드백을 원하는지, 질문/인사/불명확한 요청인지 분류한다.',
             '대본을 직접 수정하지 않는다. 수정이 필요할 때도 intent만 반환한다.',
-              '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입, duration_compress=목표 초수에 맞춘 삭제 중심 압축, format_apply=예시 포맷/형식/placeholder 적용, framing_rewrite=주제 유지 후 전개/감정 흐름 조정.',
+              '수정 요청이면 operationType도 분류한다: edit_partial=기존 주제 유지 일부 개선, topic_reframe=새 주제로 재구성, insert_material=특정 소재 삽입, duration_compress=목표 초수에 맞춘 압축, duration_expand=기존 정보 설명 보강으로 분량 늘리기, format_apply=예시 포맷/형식/placeholder 적용, framing_rewrite=주제 유지 후 전개/감정 흐름 조정.',
+            '초수 없이 분량을 늘리거나 줄이라고 하면 duration_expand 또는 duration_compress로 분류하되 targetDurationSeconds는 null로 둔다. 현재 분량과 비교한 목표는 서버가 계산한다.',
             '사용자가 "30초로 압축", "45초 안에 말하게", "N초로 줄여줘"처럼 목표 초수를 말하면 duration_compress이고 targetDurationSeconds를 추출한다.',
             '사용자가 "주제를 ~로", "~소재로 다시", "상품을 ~로", "A 말고 B로"처럼 새 주제/소재/상품 변경을 명시하면 topic_reframe이고 newSubject를 추출한다.',
             '중요: 사용자가 "주제/소재/상품/제품/아이템" 또는 "A 말고 B"를 말하지 않은 단순 "~로 바꿔줘"는 기본적으로 선택된 초안 내부 내용 수정으로 본다.',
@@ -4646,7 +4667,7 @@ export async function classifyCopilotIntent({
             `이전 실행 가능한 조언: ${JSON.stringify(normalizedPreviousAdvice)}`,
             '',
             'JSON 형식:',
-              '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|duration_compress|format_apply|framing_rewrite|null","targetDurationSeconds":null,"newSubject":"","requestedMaterials":[],"resolvedRequest":"","historySummary":"","shouldModifyScript":false,"reply":"","reason":""}',
+              '{"intent":"greeting|edit_request|feedback_request|advise_script|explain_script|compare_versions|brainstorm_options|question|clarification","editTarget":"all|hook|body|cta|null","operationType":"edit_partial|topic_reframe|insert_material|duration_compress|duration_expand|format_apply|framing_rewrite|null","targetDurationSeconds":null,"newSubject":"","requestedMaterials":[],"resolvedRequest":"","historySummary":"","shouldModifyScript":false,"reply":"","reason":""}',
           ].join('\n'),
         },
       ],
@@ -4657,7 +4678,7 @@ export async function classifyCopilotIntent({
     })
 
     if (['length', 'content_filter'].includes(response.choices[0]?.finish_reason)) throw new Error('Incomplete copilot intent')
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const parsed = readCopilotModelResult(response)
     const allowedIntents = new Set([
       'greeting',
       'edit_request',
@@ -4691,6 +4712,7 @@ export async function classifyCopilotIntent({
         COPILOT_OPERATION_TYPES.TOPIC_REFRAME,
         COPILOT_OPERATION_TYPES.INSERT_MATERIAL,
         COPILOT_OPERATION_TYPES.DURATION_COMPRESS,
+        COPILOT_OPERATION_TYPES.DURATION_EXPAND,
         COPILOT_OPERATION_TYPES.FORMAT_APPLY,
         COPILOT_OPERATION_TYPES.TONE_ADJUST,
       COPILOT_OPERATION_TYPES.FRAMING_REWRITE,
@@ -4702,9 +4724,7 @@ export async function classifyCopilotIntent({
         : fallbackMaterials.length
           ? COPILOT_OPERATION_TYPES.INSERT_MATERIAL
           : COPILOT_OPERATION_TYPES.EDIT_PARTIAL
-    if (parsedOperationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS && !parsedTargetDurationSeconds) {
-      parsedOperationType = COPILOT_OPERATION_TYPES.EDIT_PARTIAL
-    }
+
 
     return {
       intent,
@@ -4715,7 +4735,7 @@ export async function classifyCopilotIntent({
             userMessage: resolvedRequest, regexSignals: parseRegexSignals(normalizedMessage),
           })) : null,
       conversationSummary: advanceConversationSummary(conversationContext, parsed.historySummary),
-      editTarget: parsedOperationType === COPILOT_OPERATION_TYPES.DURATION_COMPRESS ? 'all' : target,
+      editTarget: isDurationOperation(parsedOperationType) ? 'all' : target,
       shouldModifyScript: intent === 'edit_request' && Boolean(parsed.shouldModifyScript),
       operationType: intent === 'edit_request' ? parsedOperationType : null,
       targetDurationSeconds: intent === 'edit_request'
@@ -5195,18 +5215,19 @@ function buildRefineUserPrompt({
   narrativePatternContext = '',
   targetSections = SECTION_KEYS,
   responseMode = 'edit_only',
+  continuous = false,
 }) {
   const normalizedSections = normalizeSections(sections)
   const normalizedRequest = String(request || '').trim()
-  const narrativeSectioningInstruction = buildNarrativeSectioningInstruction({
+  const narrativeSectioningInstruction = continuous ? '' : buildNarrativeSectioningInstruction({
     request: normalizedRequest,
     targetSections,
     narrativePatternContext,
   })
 
   return (
-    `${buildCopilotEvaluationRubric()}\n\n` +
-    `${buildCopilotEditPlaybook(targetSections)}\n\n` +
+    `${continuous ? CONTINUOUS_SCRIPT_CONTRACT : buildCopilotEvaluationRubric()}\n\n` +
+    `${continuous ? '' : buildCopilotEditPlaybook(targetSections)}\n\n` +
     `${buildCopilotResponseModeRule(responseMode)}\n\n` +
     `${buildDraftBlock(normalizedSections)}\n\n` +
     `${buildEditScopeInstruction(targetSections)}\n\n` +
@@ -5219,11 +5240,7 @@ function buildRefineUserPrompt({
     `핵심 인사이트:\n${formatGuideList(guides?.insights || [])}\n\n` +
     `바로 써먹을 체크포인트:\n${formatGuideList(guides?.checkpoints || [])}\n\n` +
     `사용자 요청: ${normalizedRequest}\n\n` +
-    '톤 개선 지침:\n' +
-    '- 공통: 대화체, 짧은 문장, 추상 표현 금지\n' +
-    '- HOOK: 평범한 질문형 금지, 첫 문장 긴장감\n' +
-    '- BODY: 교과서 문장 금지, 상황/경험형 전개\n' +
-    '- CTA: 이유가 있는 행동 유도, 뻔한 부탁형 금지\n\n' +
+    '말로 읽었을 때 자연스럽고 주제에 맞는 하나의 대본으로 작성한다. 저장 필드를 채우기 위해 새 내용·경험·행동 유도를 만들지 않는다.\n\n' +
     'message 작성 지침:\n' +
     '- "요청을 반영해 정리했습니다" 같은 일반 요약 금지\n' +
     '- 평가 기준표를 근거로 약한 점을 짧게 진단한 뒤, 어떤 섹션을 어떤 식으로 바꿨는지 1~2문장으로 구체적으로 작성\n' +
@@ -5375,7 +5392,6 @@ async function generateCopilotNaturalResponse({
             '응답 규칙: 대화 맥락에서 사용자가 요청한 답변을 구체적으로 완성한다. 대본 평가를 요청한 경우에만 평가 기준을 사용한다.',
             '응답 규칙: 확인 문구만 말하지 않는다. 대안이나 문장 예시를 답변할 수 있지만 에디터 적용은 하지 않는다.',
             '요청에 필요한 답을 이번 응답에서 완성한다. 이전 AI 답변의 오류를 인정할 수 있으며, 사용자의 정정을 바탕으로 대안을 제시한다.',
-            '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
@@ -5408,7 +5424,7 @@ async function generateCopilotNaturalResponse({
       copilotIntent: intentResult.intent,
     })
     if (['length', 'content_filter'].includes(response.choices[0]?.finish_reason)) throw new Error('Incomplete copilot response')
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const parsed = readCopilotModelResult(response)
     const message = typeof parsed?.message === 'string' ? parsed.message.trim() : ''
     if (!message) throw new Error('Missing copilot response message')
     const actionableAdvice = normalizePreviousAdvice({
@@ -5590,31 +5606,24 @@ export async function refineScriptWithAI({
             buildContextPriority(),
             COPILOT_CONVERSATION_RULES,
             buildReferenceContaminationGuard(),
-            buildCopilotEvaluationRubric(),
+            CONTINUOUS_SCRIPT_CONTRACT,
             buildCopilotMentorToneGuide(),
-            buildCopilotEditPlaybook(targetSections),
+
             buildCopilotResponseModeRule(intentResult.responseMode),
             buildEditOutputInstruction(targetSections),
             '부분 수정 규칙: 사용자가 특정 섹션만 요청하면 그 섹션만 수정한다. 요청받지 않은 섹션은 원문 그대로 반환한다.',
             '부분 수정 규칙: BODY만 요청하면 HOOK과 CTA는 절대 바꾸지 않는다. HOOK만 요청하면 BODY와 CTA는 절대 바꾸지 않는다. CTA만 요청하면 HOOK과 BODY는 절대 바꾸지 않는다.',
+            CONTINUOUS_SCRIPT_CONTRACT,
+            SPOKEN_SCRIPT_WRITING_RULES,
+            durationWritingGuidance(editPlan?.targetDurationSeconds, normalizedSections),
             '문체 규칙: 설명형/교과서형 문장을 피하고 실제 사람이 말하듯 자연스럽게 쓴다. 문장은 짧게 끊고 리듬감을 만든다.',
-            'HOOK 규칙: 첫 문장에서 긴장감, 반전, 궁금증을 만든다. "~하시나요?" 같은 평범한 질문은 금지한다.',
             hookTemplateContext
               ? 'hook_templates 규칙: 검색된 hook_template은 HOOK 수정 시 참고하는 후킹 구조 자료다. COPILOT_EDIT_PLAYBOOK을 대체하지 않으며, 템플릿 원문, 예시 문장, 특유의 시작 표현을 복사하지 않는다.'
               : null,
             narrativePatternContext
               ? 'narrative_patterns 규칙: 검색된 narrative_pattern은 사용자가 명시적으로 요청한 서사/감정선 보강에만 사용한다. 현재 초안에 없는 실패, 손실, 고객 사례, 수강생 성과, 매출, 가족/지인 발언, 전문가 권위는 절대 만들지 않는다.'
               : null,
-            narrativePatternContext && targetSections.length === SECTION_KEYS.length
-              ? '스토리형 전체 수정 규칙: 서사/감정선을 살려도 최종 출력은 반드시 HOOK/BODY/CTA 전체 JSON으로 나눈다. 긴 스토리 전체를 BODY 하나에 몰아넣지 않는다.'
-              : null,
-            'BODY 규칙: 상황으로 시작하고 한 문장씩 끊어 전개한다. "많은 사람들이 ~ 하지만" 같은 문장을 금지한다.',
-            'CTA 규칙: 행동 이유(손해/이득/궁금증)를 포함해 짧고 강하게 마무리한다. "좋아요/팔로우 부탁" 문구는 금지한다.',
-            '연결성 규칙: HOOK에서 던진 문제를 BODY 첫 문장에서 이어받고, CTA는 BODY 결론을 행동으로 전환한다.',
-            '구조 보존 규칙: 선택 초안에 문장 단위 구조 설계도가 있으면 문장 역할 순서, 길이감, 심리 트리거, CTA 위치를 유지한 채 요청받은 표현만 바꾼다.',
-            '구조 보존 규칙: 더 좋게 고치더라도 레퍼런스 구조에서 완전히 멀어지는 새 대본으로 재창작하지 않는다.',
             '아래 핵심 인사이트/체크포인트는 현재 초안의 주제와 충돌하지 않는 경우에만 구조 참고로 사용한다.',
-            '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             'message 규칙: "요청을 반영했습니다", "다시 정리했습니다"처럼 뭉뚱그린 말은 금지한다. 기준표에 따른 짧은 진단과 무엇을 어떤 식으로 바꿨는지 구체적으로 말한다.',
             'message 예시: "HOOK은 첫 1초 긴장감이 약해서 문제를 더 앞에 세웠습니다. BODY는 전후 변화가 보이게 풀었습니다." 실제로 바꾼 섹션만 언급한다.',
             buildCharacterBoundary(accountId),
@@ -5641,6 +5650,7 @@ export async function refineScriptWithAI({
             narrativePatternContext,
             targetSections,
             responseMode: intentResult.responseMode,
+            continuous: true,
           }),
         },
       ],
@@ -5654,12 +5664,12 @@ export async function refineScriptWithAI({
       matchedNarrativePatternKeys,
     })
 
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const parsed = readCopilotModelResult(response)
     const proposedSections = extractProposedSections(parsed, targetSections)
     const nextSections = applyEditScope(normalizedSections, proposedSections, targetSections)
     const sectionDiff = createSectionDiff(normalizedSections, nextSections)
     const changedSections = SECTION_KEYS.filter((key) => sectionDiff[key])
-    const flowValidation = validateScriptFlow(nextSections)
+    const flowValidation = validateScriptFlow(nextSections, { continuous: true })
     logPromptAssembly({
       stage: 'script-refine-result',
       referenceId,
@@ -5778,7 +5788,6 @@ export async function generateScriptFeedback({
             'issues에는 실제 수정으로 해결해야 할 핵심 문제를 섹션명과 함께 1~4개로 적는다. 예: "HOOK: 첫 문장에 타겟 고민이 늦게 나온다."',
             'recommendations에는 issues를 해결하기 위한 구체적인 수정 방향을 1~4개로 적는다.',
             'suggestedSections는 issues/recommendations에서 말한 문제를 실제로 해결한 결과여야 한다. 진단과 수정본이 따로 놀면 실패다.',
-            '말투 규칙: 항상 존댓말(하십시오체/해요체)만 사용한다. 반말, 친구 말투, 명령형 반말 어미는 금지한다.',
             buildCharacterBoundary(accountId),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext
@@ -5808,7 +5817,7 @@ export async function generateScriptFeedback({
       selectedLabel: selectedLabel || '',
     })
 
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const parsed = readCopilotModelResult(response)
     const structureDiagnosis = buildStructureDiagnosis(reference, {
       selectedLabel,
       selectedVariantId,
@@ -5936,8 +5945,11 @@ export async function validateRefinedScriptQuality({
           role: 'system',
           content: [
             COPILOT_CONVERSATION_RULES,
+            CONTINUOUS_SCRIPT_CONTRACT,
+            '말투·어휘 취향·구어체 점수는 검토하거나 실패 조건으로 쓰지 않는다. 말투는 작성 단계에서 반영한다. 사실 오류·요청 누락·실제 의미 모순·명시적 잠금 위반만 해당 유형으로 검토한다.',
             '당신은 숏폼 대본 수정본의 내부 QA 검사자다. 수정자가 아니다.',
             '대본을 다시 작성하지 마라. 반드시 검사 결과 JSON만 반환한다.',
+            `이슈 유형은 이 중 실제 문제가 있는 것만 사용한다: ${[...CRITICAL_MODEL_ISSUES].join(', ')}. 스타일·구간 길이·후킹 점수·분량 차이는 이 유형으로 위장하지 않는다.`,
             '검사 기준은 qaMode에 따라 달라진다. 사용자 명시 요청을 기존 대본 보존 규칙보다 우선한다.',
             'preserve_topic: 기존 주제/사실/섹션 흐름 보존을 강하게 검사한다.',
             'reframe_topic: 기존 주제와 달라졌다는 이유로 실패 처리하지 말고, 새 주제가 명확히 반영됐는지와 기존 주제에 어중간하게 끌려가지 않았는지를 검사한다.',
@@ -5945,7 +5957,13 @@ export async function validateRefinedScriptQuality({
             'reframe_topic full에서는 HOOK/BODY/CTA가 모두 새 주제 기준으로 자연스럽게 이어지는지 검사한다.',
             'reframe_topic partial에서는 targetSections만 새 주제 기준으로 바뀌고 preserveSections는 원문 그대로 유지됐는지 검사한다.',
             'insert_material: 요청 소재가 targetSections에 실제로 들어갔는지, preserveSections가 불필요하게 바뀌지 않았는지 검사한다.',
-            'duration_compress: 새 대본 생성이 아니라 압축인지 검사한다. 목표 글자 범위 근처인지, HOOK/BODY/CTA와 CTA 의도/핵심 메시지가 유지됐는지, 새 사실/수치/후기/효과가 생기지 않았는지 검사한다.',
+            'duration_expand: 기존 사실과 대화의 제약을 유지하면서 이유·방법·조건과 연결을 보강했는지 검사한다. 새로운 기능·수치·후기·사례·경험·효과 날조나 같은 내용 반복을 허용하지 않는다.',
+            '수량 비교 규칙: 절차 번호·이미 존재하는 항목 개수를 숫자로 적는 것, 같은 수량의 한글/숫자 표기·단위 변환은 새 사실이 아니다. 값·단위·가리키는 대상이 달라진 수치 주장인지 확인한다.',
+            '일상적인 행동 제안의 개수·반복 횟수와, 화자의 실제 사용 경험·성과·제품 스펙에 대한 수치 주장을 구분한다. 제안 자체를 허위 경험으로 보지 말고, 실제 경험이나 결과라고 주장하는데 근거가 없는 경우를 지적한다.',
+            '분량과 문장 길이는 생성 지침이다. 예상 시간·글자 수·문장 수 차이를 실패 이유나 다른 유형의 이슈로 바꿔 지적하지 않는다. 같은 뜻의 의역·문장 통합·풀어 설명하기는 새 사실이 아니다.',
+            '분량은 기록만 하며 모델은 duration_* 이슈를 반환하지 않는다. 실제 사실 오류·필수 요청 누락·의미 모순이 있으면 해당 문제만 지적한다.',
+            'duration_compress: 새 사실·수치·후기·효과 날조나 사용자 필수 요청 누락이 없는지 본다. 필드별 길이·배치·종결 형태는 실패 기준이 아니다.',
+            'duration_compress는 원문을 글자 그대로 삭제하는 작업이 아니다. 핵심·사실·요청 항목을 보존한 의역과 문장 통합을 허용한다.',
             'duration_compress에서는 짧아도 문장이 완결되어야 한다. 조사/접속어/서술어가 빠진 파편 문장, "오해부터요", "톡톡", "다음에"처럼 맥락 없이 끊긴 문장은 incomplete_compressed_sentence다.',
             'structured edit plan에 forbiddenSurfacePhrases가 있으면 해당 표현은 대본에 절대 남으면 안 된다.',
             'structured edit plan의 sectionInstructions, mustKeep, mustChange, mustAvoid를 검사한다.',
@@ -5959,11 +5977,11 @@ export async function validateRefinedScriptQuality({
             '강한 세션 제약을 어기면 memory_constraint_violated다.',
             'allowComparisonWithOldSubject=false이면 oldSubjectToRemove는 대본에 남으면 안 된다. 비교/대비 표현으로도 쓰지 않는다.',
             'instruction_leakage, forbidden_phrase_leakage, old_subject_leakage, mixed_subject_contamination을 검사한다.',
-            '공통 기준: 사용자 요청 반영, 피드백 진단 반영, 섹션 잠금, 자연스러운 한국어, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
+            '공통 기준: 사용자 요청 반영, 사실·의미 보존, 명시적 잠금, 레퍼런스 소재 오염, 허위 수치/권위/후기.',
             'severity 기준: high는 반드시 repair, medium은 repair, low는 로그만 남기고 통과 가능하다.',
-            'high 예: 섹션 잠금 위반, 피드백 핵심 미반영, 레퍼런스 상품명/상황/비유 오염, 허위 수치/고객 사례/전문가 권위 생성, 빈 섹션.',
-            'medium 예: 어색한 한국어, 현재 주제와 맞지 않는 비유, 문장 연결 부자연스러움.',
-            'low 예: 약간 딱딱함, 더 짧게 다듬을 여지.',
+            'high 예: 명시적 잠금 위반, 요청 핵심 누락, 레퍼런스 상품명/상황 오염, 허위 수치/고객 사례/전문가 권위 생성, 대본 전체가 비어 있음.',
+            '실패 조건은 실제 요청 미반영·허위 사실·명시적 잠금 위반·주제 오염·의미 모순이다. 후킹 강도·구간 비율·표현 취향·설명 방식·말투·분량 차이는 실패 조건이 아니며 이슈에 포함하지 않는다.',
+            'low 예: 약간 딱딱함, 다른 어휘 선호, 이미 뜻이 분명한 문장을 더 자세하거나 매끈하게 다듬을 여지. 문맥으로 즉시 이해되는 생략과 일상 표현은 통과다.',
             buildReferenceContaminationGuard(),
             characterSystemPrompt ? `캐릭터 고정 규칙:\n${characterSystemPrompt}` : null,
             personalizationContext ? `개인화 메모리:\n${personalizationContext}` : null,
@@ -5983,16 +6001,15 @@ export async function validateRefinedScriptQuality({
             `기존 소재 비교 허용: ${allowComparisonWithOldSubject ? '예' : '아니오'}`,
             `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
-            `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
-            `목표 글자 범위(공백 제외): ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '-'}`,
+            isDurationOperation(qaMode) ? '시간·글자 수는 생성 지침이고 실패 조건이 아니다. 수치 차이를 다른 이슈로 지적하지 말고 요청·사실·명시적 잠금만 검토한다.' : '',
             editPlan ? `[structured edit plan]\n${JSON.stringify({
-              primaryGoal: editPlan.primaryGoal || '',
+              primaryGoal: isDurationOperation(qaMode) ? '기존 핵심 정보와 사용자 제약을 유지하는 분량 조절' : editPlan.primaryGoal || '',
               revisionStyle: editPlan.revisionStyle || '',
               reframeScope: editPlan.reframeScope || '',
-              sectionInstructions: editPlan.sectionInstructions || {},
-              operations: editPlan.operations || editPlan.resolvedOperations || [],
+              sectionInstructions: isDurationOperation(qaMode) ? Object.fromEntries(Object.entries(editPlan.sectionInstructions || {}).filter(([,item])=>item.action==='keep')) : editPlan.sectionInstructions || {},
+              operations: (editPlan.operations || editPlan.resolvedOperations || []).filter(operation=>!isDurationOperation(qaMode)||!isDurationOperation(operation.type)),
               mustKeep: editPlan.mustKeep || [],
-              mustChange: editPlan.mustChange || [],
+              mustChange: isDurationOperation(qaMode) ? [] : editPlan.mustChange || [],
               mustAvoid: editPlan.mustAvoid || [],
               preserveFromOriginal: editPlan.preserveFromOriginal || [],
               discardFromOriginal: editPlan.discardFromOriginal || [],
@@ -6020,10 +6037,10 @@ export async function validateRefinedScriptQuality({
             referenceContext,
             '',
             '[룰 기반 선검사 이슈]',
-            ruleCheck.issues.length ? JSON.stringify(ruleCheck.issues) : '없음',
+            ruleCheck.issues.filter(issue=>!issue.type.startsWith('duration_')).length ? JSON.stringify(ruleCheck.issues.filter(issue=>!issue.type.startsWith('duration_'))) : '없음',
             '',
             'JSON 형식으로만 답하세요:',
-            '{"ok":true,"shouldRepair":false,"issues":[{"type":"unnatural_korean","severity":"medium","section":"body","text":"","reason":"","suggestion":""}]}',
+            '{"ok":true,"shouldRepair":false,"issues":[{"type":"requested_material_missing","severity":"medium","section":"body","text":"","reason":"","suggestion":""}]}',
           ].join('\n'),
         },
       ],
@@ -6035,14 +6052,26 @@ export async function validateRefinedScriptQuality({
       selectedLabel: selectedLabel || '',
     })
 
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
-    const llmIssues = normalizeQaIssues(parsed.issues)
+    const parsed = readCopilotModelResult(response)
+    if (!Array.isArray(parsed?.issues)) throw new Error('Invalid critical-review response')
+    // The model reviews meaning and scope; measured timing belongs to the
+    // deterministic check above. Do not let an estimated character count
+    // override the actual duration contract or duplicate its failures.
+    const exactLocks = new Set([
+      ...preserveSections,
+      ...Object.entries(editPlan?.sectionInstructions || {}).filter(([,value])=>value.action==='keep').map(([key])=>key),
+    ])
+    const llmIssues = normalizeQaIssues(parsed.issues).filter(issue => CRITICAL_MODEL_ISSUES.has(issue.type))
+      .filter(issue => !(['section_lock_violation','section_instruction_violation'].includes(issue.type)
+        && exactLocks.has(issue.section) && original[issue.section] === proposed[issue.section]))
     const issues = [...ruleCheck.issues, ...llmIssues]
     const shouldRepair = qaShouldRepair(issues)
 
     return {
       ok: !shouldRepair,
       shouldRepair,
+      semanticReviewed: true,
+      guidanceDiagnostics: normalizeQaIssues(parsed.issues).filter(issue => !CRITICAL_MODEL_ISSUES.has(issue.type)),
       issues,
       issueTypes: issues.map((issue) => issue.type),
     }
@@ -6053,7 +6082,9 @@ export async function validateRefinedScriptQuality({
       model: copilotModel,
     })
 
-    return ruleCheck
+    const unavailable = createQaIssue({type:'quality_review_unavailable',severity:'high',section:'all',reason:'필수 요청과 사실의 검토를 완료하지 못했다.'})
+    return { ...ruleCheck, ok:false, shouldRepair:true, semanticReviewed:false,
+      issues:[...ruleCheck.issues,unavailable],issueTypes:[...ruleCheck.issueTypes,unavailable.type] }
   }
 }
 
@@ -6086,6 +6117,8 @@ export async function repairRefinedScriptWithQaIssues({
   editPlan = null,
   copilotMemory = {},
   conversationContext = null,
+  durationRetryRemaining = 2,
+  repairAttempt = 0,
 }) {
   const original = normalizeSections(originalSections)
   const proposed = normalizeSections(proposedSections)
@@ -6106,13 +6139,7 @@ export async function repairRefinedScriptWithQaIssues({
   )
   const restoredLockedSections = applyEditScope(original, proposed, targetSections)
 
-  if (!issueSections.size) {
-    return {
-      success: true,
-      sections: restoredLockedSections,
-      message: '잠긴 섹션 변경을 원문으로 되돌렸습니다.',
-    }
-  }
+  if (!issueSections.size) targetSections.forEach(section => issueSections.add(section))
 
   const { supabaseAdmin, openai, models } = requireClients()
   const reference = await loadReferenceContext(supabaseAdmin, accountId, referenceId)
@@ -6124,7 +6151,7 @@ export async function repairRefinedScriptWithQaIssues({
     selectedAngle,
   })
   const copilotModel = models.copilotModel || models.chatModel
-  const repairTargets = [...issueSections]
+  const repairTargets = repairAttempt > 0 || isDurationOperation(qaMode) ? targetSections : [...issueSections]
 
   try {
     const response = await openai.chat.completions.create({
@@ -6135,8 +6162,10 @@ export async function repairRefinedScriptWithQaIssues({
           role: 'system',
           content: [
             COPILOT_CONVERSATION_RULES,
-            '당신은 숏폼 대본을 최종으로 다듬는 편집자다. 문제가 확인된 섹션만 최소 수정한다.',
-            '문제가 없는 섹션은 수정본 그대로 유지한다.',
+            repairAttempt > 0
+              ? '직전 수정의 국소 보정으로 요청을 충족하지 못했다. 원문 의미와 사용자 요청·대화의 확정 조건을 기준으로 수정 가능 범위 전체를 새로 구성한다. 실패한 표현이나 내부 구간 배치를 답안처럼 보존하지 않는다.'
+              : '당신은 숏폼 대본 편집자다. 사용자 요청을 실제로 반영한 수정 대본을 작성한다.',
+            repairAttempt > 0 ? '사용자가 잠근 범위만 그대로 두고 나머지는 요청을 충족하도록 다시 쓴다.' : '문제가 없는 내용은 불필요하게 바꾸지 않는다.',
             '잠긴 섹션은 원문 그대로 유지한다.',
             editPlan?.sectionInstructions
               ? 'structured edit plan의 sectionInstructions를 따른다. action=keep인 섹션은 원문 그대로 유지한다.'
@@ -6172,10 +6201,15 @@ export async function repairRefinedScriptWithQaIssues({
             qaMode === COPILOT_QA_MODES.INSERT_MATERIAL
               ? `이번 작업은 요청 소재 누락/삽입 위치 문제를 다듬는 작업이다. 요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`
               : null,
-            qaMode === COPILOT_QA_MODES.DURATION_COMPRESS
+            qaMode === COPILOT_QA_MODES.DURATION_EXPAND
+              ? `이번 작업은 약 ${targetDurationSeconds}초로 늘리는 작업이다. 기존 정보의 설명과 연결을 보강한다. 현재 대화에서 확정된 제약을 지키며 새 사실·경험·수치·옵션을 만들거나 반복으로 채우지 않는다.`
+              : qaMode === COPILOT_QA_MODES.DURATION_COMPRESS
               ? `이번 작업은 목표 ${targetDurationSeconds || '지정'}초에 맞춘 압축 결과를 다듬는 작업이다. 새 내용은 만들지 말고 공백 제외 목표 범위 ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '안'}에 가깝게 줄이되, 문장은 짧아도 자연스럽게 완결한다.`
               : null,
             '없는 사실, 허위 수치, 허위 후기, 허위 고객 사례, 허위 전문가 권위, 레퍼런스 소재를 만들지 않는다.',
+            CONTINUOUS_SCRIPT_CONTRACT,
+            SPOKEN_SCRIPT_WRITING_RULES,
+            durationWritingGuidance(targetDurationSeconds, original, proposed),
             '한국어가 어색한 문장은 실제 사람이 말하는 자연스러운 표현으로만 고친다.',
             '사용자에게 보여줄 message에는 QA, 품질 검사, 위험 요소, issue, repair, fallback, 내부 검사 같은 시스템/개발 용어를 절대 쓰지 않는다.',
             qaMode === COPILOT_QA_MODES.DURATION_COMPRESS
@@ -6203,7 +6237,7 @@ export async function repairRefinedScriptWithQaIssues({
             `기존 소재 비교 허용: ${allowComparisonWithOldSubject ? '예' : '아니오'}`,
             `요청 소재: ${uniqueCompactList(requestedMaterials, 8).join(', ') || '-'}`,
             `유지 섹션: ${uniqueCompactList(preserveSections, 3).join(', ') || '-'}`,
-            `목표 압축 시간: ${targetDurationSeconds || '-'}초`,
+            `목표 발화 시간: ${targetDurationSeconds || '-'}초`,
             `목표 글자 범위(공백 제외): ${targetCharRange ? `${targetCharRange.min}-${targetCharRange.max}자` : '-'}`,
             editPlan ? `[structured edit plan]\n${JSON.stringify({
               primaryGoal: editPlan.primaryGoal || '',
@@ -6256,10 +6290,10 @@ export async function repairRefinedScriptWithQaIssues({
       repairTargets,
     })
 
-    const parsed = parseModelJson(response.choices[0]?.message?.content || '')
+    const parsed = readCopilotModelResult(response)
     const repairedPartial = extractProposedSections(parsed, repairTargets)
     const repaired = applyEditScope(restoredLockedSections, repairedPartial, repairTargets)
-    const postCheck = runFeedbackFallbackRuleCheck({
+    let postCheck = runFeedbackFallbackRuleCheck({
       originalSections: original,
       candidateSections: repaired,
       editTarget,
@@ -6278,6 +6312,33 @@ export async function repairRefinedScriptWithQaIssues({
       copilotMemory,
     })
 
+    // Only a critical failure starts repair. Check the actual rewritten facts
+    // and user requirements; stylistic scores and timing never restart it.
+    if (!postCheck.shouldRepair) {
+      postCheck = await validateRefinedScriptQuality({
+        accountId, referenceId, selectedLabel, selectedVariantId, selectedVariantKey, selectedVariantIndex, selectedAngle,
+        originalSections: original, proposedSections: repaired, request, editTarget, feedback,
+        characterSystemPrompt, personalizationContext, qaMode, newSubject, requestedMaterials, oldSubjectToRemove,
+        forbiddenSurfacePhrases, allowComparisonWithOldSubject, targetSections, preserveSections,
+        targetDurationSeconds, targetCharRange, editPlan, copilotMemory, conversationContext,
+      })
+      if (postCheck.semanticReviewed === false && !postCheck.issueTypes.includes('quality_review_unavailable')) {
+        postCheck = { ...postCheck, ok: false, shouldRepair: true,
+          issues: [...postCheck.issues, createQaIssue({type:'quality_review_unavailable',severity:'high',section:'all',reason:'수정 후 의미 검토를 완료하지 못했다.'})],
+          issueTypes: [...postCheck.issueTypes, 'quality_review_unavailable'] }
+      }
+    }
+    if (durationRetryRemaining > 0 && postCheck.shouldRepair &&
+        !postCheck.issueTypes.includes('quality_review_unavailable')) {
+      const retry = await repairRefinedScriptWithQaIssues({
+        accountId, referenceId, selectedLabel, selectedVariantId, selectedVariantKey, selectedVariantIndex, selectedAngle,
+        originalSections: original, proposedSections: repaired, request, editTarget, feedback, qaIssues: postCheck.issues,
+        characterSystemPrompt, personalizationContext, qaMode, newSubject, requestedMaterials, oldSubjectToRemove,
+        forbiddenSurfacePhrases, allowComparisonWithOldSubject, targetSections: plannedTargetSections, preserveSections,
+        targetDurationSeconds, targetCharRange, editPlan, copilotMemory, conversationContext, durationRetryRemaining: durationRetryRemaining - 1, repairAttempt: repairAttempt + 1,
+      })
+      return { ...retry, durationRetried: true }
+    }
     return {
       success: !postCheck.shouldRepair,
       sections: repaired,
@@ -6301,6 +6362,8 @@ export async function repairRefinedScriptWithQaIssues({
 }
 
 export const __scriptAssistantTest = {
+  applyEditScope,
+  extractProposedSections,
   buildNaturalResponseUserPrompt,
   buildContextPriority,
   buildDraftBlock,

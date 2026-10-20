@@ -1,3 +1,4 @@
+import { SPOKEN_SCRIPT_WRITING_RULES } from './spoken-script.js'
 import { AppError } from './errors.js'
 import { buildCacheKey, cacheConfig, getCacheJson, hashText, setCacheJson } from './cache.js'
 import { createHash } from 'node:crypto'
@@ -55,16 +56,7 @@ const DEFAULT_ANALYSIS_AUDIO_MAX_SECONDS = Number.parseInt(
   10,
 )
 const CURRENT_CONTENT_YEAR = String(process.env.CURRENT_CONTENT_YEAR || '2026').trim() || '2026'
-const VARIATION_NATURAL_VOICE_RULES = [
-  '말투 규칙(절대 준수): 실제 릴스에서 말하는 자연스러운 말투로 쓰되, 한 초안 안에서 높임 수준을 섞지 않는다.',
-  '레퍼런스/계정 톤이 존댓말이면 HOOK부터 CTA까지 존댓말로, 반말이면 HOOK부터 CTA까지 반말로 끝까지 유지한다.',
-  'CTA만 갑자기 다른 높임으로 바꾸지 않는다. 존댓말 CTA면 요청/약속까지 존댓말, 반말 CTA면 요청/약속까지 반말로 맞춘다.',
-  '하십시오체/보고서체/강의안체를 금지한다. "~합니다", "~드립니다", "~제공합니다"로 문장을 끝내지 않는다.',
-  '번역투와 어색한 조합을 금지한다. "개인용 환경", "특수한 고민 해결법", "압축 제공", "직접적으로 공유", "완전히 버리겠습니다" 같은 표현을 쓰지 않는다.',
-  '추상 명사보다 실제 상황을 쓴다. "정보를 제공한다"가 아니라 "무엇을 어떻게 하면 달라지는지"로 쓴다.',
-  '없는 지역명/상품명/원인/상황을 지어내지 않는다. 계정 설정이나 이번 릴스 주제에 있는 소재만 구체화한다.',
-  'HOOK/BODY/CTA는 각각 읽었을 때 바로 이해되는 자연스러운 한국어여야 한다.',
-].join('\n')
+const VARIATION_NATURAL_VOICE_RULES = SPOKEN_SCRIPT_WRITING_RULES
 
 const AWKWARD_KOREAN_PATTERN =
   /(개인용\s*환경|특수한\s*[^\n]{0,12}고민|압축\s*제공|직접적으로\s*공유|완전히\s*버리겠습니다|반사되는\s*게\s*두려|대전\s*얼굴|난\s*때문에|다시\s*그늘|자료를\s*관리|이\s*자료로|수많은\s*제품과\s*방법|것이\s*아니라\s*스스로|관리하는\s*루틴을\s*더\s*이상\s*좋아하지)/i
@@ -5346,7 +5338,7 @@ export async function analyzeReferenceVideo({
             'A/B/C 계약: 같은 blueprint를 타되 A=원본형, B=대화형, C=후킹형으로만 차이를 둔다. 첫 문장 시작어 차이는 레퍼런스 문장틀 안에서만 만든다.',
             '말머리 금지: 레퍼런스 첫 HOOK에 인사/호명/말걸기 역할이 없으면 “안녕하세요”, “잠깐만요”, “혹시요”, “잠깐,” 같은 시작어를 절대 추가하지 않는다.',
             '대화형 정의: B안 대화형은 새 오프닝을 붙이는 것이 아니라, 같은 문장 역할 안에서 말투와 호흡만 자연스럽게 치환하는 것이다.',
-            '문체 계약: 촌스럽고 교과서적인 설명체를 피하고, 실제 사람이 말하듯 짧고 리듬 있게 쓴다.',
+            '문체 계약: 각 문장 역할이 현재 주제에서 전달할 사실·행동·상태를 먼저 정하고 실제 사람이 말하는 문장으로 옮긴다. 원문의 표현을 억지로 직역하지 않는다.',
             VARIATION_NATURAL_VOICE_RULES,
             '구간 규칙: HOOK은 일반 질문이 아니라 긴장/반전/궁금증으로 시작한다. BODY는 상황과 발견처럼 전개한다. CTA는 좋아요/팔로우가 아니라 지금 행동할 이유를 짧게 준다.',
             buildAccountIdentityLeakGuardPrompt(categoryGuard),

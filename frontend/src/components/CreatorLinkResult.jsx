@@ -1,9 +1,11 @@
-import { Copy } from 'lucide-react'
+import { Copy, ArrowRight } from 'lucide-react'
 import { hasKoreanTranslation } from '../lib/referenceTranslation'
+import { koreanTranscriptForWriter } from '../lib/creatorWriterHandoff'
 
-export default function CreatorLinkResult({ job, onCopy, copyNotice }) {
+export default function CreatorLinkResult({ job, onCopy, copyNotice, onAnalyzeInWriter, writerBusy = false }) {
   const result = job?.result
   if (job?.kind !== 'import-link' || !result?.originalTranscript) return null
+  const writerTranscript = koreanTranscriptForWriter(result)
   const pending = ['queued', 'running'].includes(job.status) && result.analysisStatus === 'pending'
   const unavailable = result.analysisStatus === 'unavailable' ||
     (result.analysisStatus === 'pending' && !pending)
@@ -14,6 +16,13 @@ export default function CreatorLinkResult({ job, onCopy, copyNotice }) {
       <article><header><h3>원문</h3><button type="button" aria-label="원문 복사" onClick={() => onCopy(result.originalTranscript, '원문')}><Copy size={16}/>복사</button></header><p>{result.originalTranscript}</p></article>
       {hasKoreanTranslation(result) && <article><header><h3>한국어 해석</h3><button type="button" aria-label="한국어 해석 복사" onClick={() => onCopy(result.translatedTranscript, '한국어 해석')}><Copy size={16}/>복사</button></header><p>{result.translatedTranscript}</p></article>}
     </div>
+    {onAnalyzeInWriter && <div className="ct-writer-handoff">
+      <button type="button" className="ct-primary ct-analyze-in-writer" disabled={!writerTranscript || writerBusy}
+        onClick={() => onAnalyzeInWriter(writerTranscript)}>
+        대본작업실에서 분석하기 <ArrowRight size={17}/>
+      </button>
+      <p className="ct-muted">{writerBusy ? '진행 중인 작업실 분석이 끝난 후 이어갈 수 있어요.' : writerTranscript ? '한국어 대본을 작업실에 미리 채워드려요. 내 주제를 입력하고 분석을 시작하세요.' : '한국어 대본이 준비되면 작업실로 이어갈 수 있어요.'}</p>
+    </div>}
     {pending && <div className="ct-analysis-pending" role="status" aria-live="polite">
       <span className="ct-analysis-spinner" aria-hidden="true" />
       <div><strong>훅AI가 대본의 후킹 포인트를 분석 중이에요</strong><p className="ct-muted">대본을 먼저 읽어보세요. 분석이 끝나면 아래에 이어서 보여드릴게요.</p></div>

@@ -11,7 +11,7 @@ export function referenceReels(account) {
         || /^(video|reel|reels)$/i.test(media.contentType || '')
       if (!isReel) return []
       seen.add(href)
-      return [{ href, embedUrl: `${href}embed/`, caption: typeof media.caption === 'string' ? media.caption.trim() : '',
+      return [{ href, caption: typeof media.caption === 'string' ? media.caption.trim() : '',
         views: Number.isFinite(media.views) && media.views >= 0 ? media.views : null }]
     }).slice(0, 3)
 }

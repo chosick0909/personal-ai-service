@@ -9,7 +9,7 @@ import {
   validateTopicVariationSet,
 } from '../src/lib/topic-script-validation.js'
 
-const validVariations = [
+const longVariations = [
   {
     hook: '청소 순서를 매번 바꾸면 같은 공간을 다시 닦느라 저녁 시간이 계속 새고 있습니다.',
     body: '이 청소 시간 낭비는 손이 느려서가 아니라 이미 끝낸 구역으로 되돌아가기 때문에 생깁니다. 먼저 현관에서 방 안쪽으로 이동 방향을 고정하면 지나간 바닥을 다시 밟지 않아 두 번 닦는 일을 피할 수 있습니다. 그다음 마른 먼지를 위에서 아래로 털어야 마지막에 바닥 한 번으로 떨어진 먼지를 모두 정리할 수 있습니다. 물건은 방마다 치우지 말고 빈 바구니 하나에 먼저 모아두면 닦는 흐름이 중간에 끊기지 않습니다. 세제는 시작 전에 필요한 양만 꺼내 같은 자리에 두면 도구를 찾으러 이동하는 시간을 줄일 수 있습니다. 오염이 심한 곳은 세제를 먼저 뿌려두고 다른 구역을 닦는 동안 기다리면 힘을 덜 들이고 제거할 수 있습니다. 마지막에는 사용한 도구를 현관 쪽에서 한 번에 씻어두면 다음 청소도 같은 순서로 바로 시작할 수 있습니다.',
@@ -25,6 +25,18 @@ const validVariations = [
     body: '현관에서 느끼는 막막함은 청소할 곳이 많아서라기보다 시작 위치와 종료 기준이 없어서 커집니다. 먼저 신발을 정리하고 현관 바닥의 큰 먼지만 제거하면 집 안으로 먼지가 더 퍼지는 것을 막을 수 있습니다. 이어서 빈 바구니를 들고 거실까지 이동하며 제자리를 잃은 물건만 담으면 닦을 공간이 빠르게 확보됩니다. 거실에서는 높은 가구부터 낮은 가구 순서로 먼지를 털어야 떨어진 먼지를 바닥에서 한 번에 모을 수 있습니다. 바닥은 가장 안쪽에서 현관 방향으로 닦으면 청소한 구역을 다시 밟지 않고 그대로 끝낼 수 있습니다. 시간이 부족한 날에는 현관과 거실까지만 종료 범위로 정하면 중간에 포기하지 않고 눈에 보이는 변화를 만들 수 있습니다. 사용한 천과 바구니를 현관 가까운 자리에 돌려두면 다음에도 같은 장면에서 바로 청소를 시작할 수 있습니다.',
     cta: '퇴근 후 막막할 때 다시 볼 수 있도록 이 동선을 저장해두세요.',
   },
+]
+
+const validVariations = [
+  { hook: '청소 순서를 바꾸면 끝낸 곳을 다시 닦는 헛수고가 생겨요.',
+    body: '청소는 높은 곳부터 시작하세요. 선반 먼지를 먼저 털고 마지막에 바닥을 닦으면 떨어진 먼지를 함께 모을 수 있어요. 물건은 빈 바구니에 먼저 담아 닦을 자리를 비우세요. 바구니 정리는 닦기를 끝낸 뒤 하면 흐름이 덜 끊겨요. 방 안쪽에서 문 쪽으로 이동하면 닦은 곳을 다시 밟지 않아요.',
+    cta: '다음 청소 전에 이 순서를 확인하도록 저장해두세요.' },
+  { hook: '청소의 핵심은 오래 닦는 시간보다 먼지를 모으는 순서예요.',
+    body: '청소 순서가 없으면 닦은 바닥에 선반 먼지가 다시 떨어져요. 먼저 마른 천으로 높은 선반부터 닦아 먼지를 아래로 모으세요. 그다음 바닥 먼지를 제거한 뒤 물걸레를 쓰면 먼지가 물에 번지는 일을 피할 수 있어요. 물건은 임시 바구니에 담아두고 닦기를 끝낸 뒤 정리하세요.',
+    cta: '내 청소 방식과 비교해보고 이 순서를 저장해두세요.' },
+  { hook: '퇴근 후 현관에서 먼지를 보면 어디부터 청소할지 막막하죠.',
+    body: '현관에서 시작하기 어렵다면 오늘 닦을 곳부터 좁혀보세요. 먼저 바구니에 흩어진 물건을 담아 바닥을 비우세요. 물건 정리는 닦기를 마친 뒤 하면 흐름이 덜 끊겨요. 그다음 높은 선반부터 먼지를 털고 마지막에 바닥을 닦으세요. 안쪽에서 문 쪽으로 움직이면 끝낸 자리를 다시 밟지 않아요.',
+    cta: '퇴근 후 다시 볼 수 있도록 이 청소 순서를 저장해두세요.' },
 ]
 
 test('broad topic asks for missing context before creating a job', () => {
@@ -57,38 +69,62 @@ test('topic variation rejects greetings and internal metadata', () => {
   assert.ok(result.issues.some((item) => item.includes('내부 규칙명')))
 })
 
-test('topic variation rejects generic advice posing as action information', () => {
+test('concrete method detail is a writing instruction and diagnostic', () => {
   const result = validateTopicVariation({
     hook: '청소를 열심히 해도 시간이 계속 새고 있습니다.',
     body: '기준을 정하고 순서를 나누세요. 상황에 맞게 적절히 활용하세요.',
     cta: '저장해두세요.',
   }, 0)
-  assert.equal(result.ok, false)
-  assert.ok(result.issues.some((item) => item.includes('실행 방법')))
+  assert.equal(result.ok, true)
+  assert.ok(countConcreteActionMethods('기준을 정하고 순서를 나누세요. 상황에 맞게 적절히 활용하세요.') < 2)
 })
 
 test('topic-only generation keeps three distinct concepts', () => {
   assert.deepEqual(TOPIC_VARIATION_CONFIGS.map((item) => item.label), ['손실 회피형', '통념 반박형', '공감 스토리형'])
 })
 
-test('duration and concrete action metrics follow the 60 to 90 second contract', () => {
+test('duration and concrete action metrics follow the 30 to 50 second contract', () => {
   const duration = estimateTopicSpeechSeconds(validVariations[0])
-  assert.ok(duration >= 60 && duration <= 90, `duration=${duration}`)
+  assert.ok(duration >= 30 && duration <= 50, `duration=${duration}`)
   assert.ok(countConcreteActionMethods(validVariations[0].body) >= 3)
 })
 
-test('topic variation set rejects hooks that all use the same question grammar', () => {
+test('question grammar does not reject otherwise distinct scripts', () => {
   const result = validateTopicVariationSet(validVariations.map((variation, index) => ({
     ...variation,
     hook: ['청소 시간이 계속 새고 있나요?', '청소는 오래 해야 한다고 믿고 있나요?', '퇴근 후 현관에서 막히나요?'][index],
   })))
-  assert.equal(result.ok, false)
-  assert.ok(result.issuesByIndex.flat().some((item) => item.includes('질문형 문법')))
+  assert.equal(result.ok, true)
+  assert.equal(result.issuesByIndex.flat().some((item) => item.includes('질문형 문법')),false)
 })
 
-test('topic variation set accepts long scripts with distinct causal entry points', () => {
+test('topic variation set accepts short scripts with distinct causal entry points', () => {
   const result = validateTopicVariationSet(validVariations)
   assert.equal(result.ok, true, JSON.stringify(result.issuesByIndex))
-  assert.ok(result.metricsByIndex.every((item) => item.estimatedSeconds >= 60 && item.estimatedSeconds <= 90))
-  assert.ok(result.metricsByIndex.every((item) => item.concreteMethodCount >= 3))
+  assert.ok(result.metricsByIndex.every((item) => item.estimatedSeconds >= 30 && item.estimatedSeconds <= 50))
+  assert.ok(result.metricsByIndex.every((item) => item.concreteMethodCount >= 2))
+})
+
+test('duration remains a visible estimate without a rejection gate', () => {
+  const result = validateTopicVariationSet(longVariations)
+  assert.equal(result.ok, true)
+  assert.ok(result.metricsByIndex.every(item=>item.estimatedSeconds>50))
+  assert.equal(result.issuesByIndex.flat().some(issue=>issue.includes('초')),false)
+})
+
+test('ordinary item counts are not interpreted as currency claims', () => {
+  const ordinary = {...validVariations[0], hook:'청소 3원칙을 놓치면 닦은 곳을 다시 닦게 돼요.'}
+  assert.equal(validateTopicVariation(ordinary).issues.some(issue=>issue.includes('수치 또는 성과')),false)
+  const unsupported = {...validVariations[0], cta:'이 도구는 300원으로 구입할 수 있으니 확인해보세요.'}
+  assert.equal(validateTopicVariation(unsupported).issues.some(issue=>issue.includes('수치 또는 성과')),true)
+})
+test('pronouns can connect meaning without forcing repeated nouns', () => {
+  const connected={...validVariations[0], hook:'끝낸 일을 다시 하는 헛수고가 생겨요.'}
+  assert.equal(validateTopicVariation(connected).issues.some(issue=>issue.includes('이어받')),false)
+})
+
+test('actionable CTA does not need a preset response verb',()=>{
+ const result=validateTopicVariation({...validVariations[0],cta:'다음 청소는 높은 선반부터 닦고 문 쪽에서 끝내세요.'})
+ assert.equal(result.issues.some(i=>i.includes('CTA가')),false)
+ assert.equal(result.metrics.ctaActionSignal,false)
 })

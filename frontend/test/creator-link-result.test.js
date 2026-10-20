@@ -44,3 +44,12 @@ test('actual link result rendering: transcript first, progress, final result, fa
     })
   } finally { await server.close() }
 })
+
+test('writer handoff selects Korean text without generating anything', async()=>{
+  const {koreanTranscriptForWriter}=await import('../src/lib/creatorWriterHandoff.js')
+  const translated={sourceLanguage:'ja',originalTranscript:'日本語の原文',translatedTranscript:'한국어 해석'}
+  assert.equal(koreanTranscriptForWriter(translated),'한국어 해석')
+  assert.equal(koreanTranscriptForWriter({...translated,sourceLanguage:'ko',originalTranscript:'이미 한국어 원문'}),'이미 한국어 원문')
+  assert.equal(koreanTranscriptForWriter({...translated,translatedTranscript:''}),'')
+  assert.equal(koreanTranscriptForWriter(null),'')
+})

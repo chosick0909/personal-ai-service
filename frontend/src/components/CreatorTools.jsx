@@ -75,7 +75,7 @@ export default function CreatorTools() {
   return <CreatorWorkspace key={`${currentUser?.id || 'guest'}:${currentAccount?.id || 'none'}`} />
 }
 function CreatorWorkspace() {
-  const { currentUser, currentAccount, accounts, selectAccount } = useAppState()
+  const { currentUser, currentAccount, accounts, selectAccount, openStudioTranscriptInWriter, isAnalyzing } = useAppState()
   const [theme, setTheme] = useState(() => safeGetStorageItem('hookai-tools-theme') || 'dark')
   const [caption, setCaption] = useState('')
   const submitting = useRef(false)
@@ -331,7 +331,7 @@ function CreatorWorkspace() {
     {active(job) && !(job.kind === 'import-link' && job.result?.originalTranscript) && <div role="status" className="ct-progress"><span className="ct-pulse" />{stages[job.stage] || '작업 처리 중'}<small>시작 {new Date(job.createdAt).toLocaleTimeString('ko-KR')}</small></div>}
     {job?.status === 'completed' && job.kind === 'reference-accounts' && <AccountResults result={job.result} preferences={preferences} onPreference={preference} />}
     {job?.status === 'completed' && job.kind === 'trend-keywords' && <KeywordResults result={job.result} />}
-    <CreatorLinkResult job={job} onCopy={copyTranscript} copyNotice={copyNotice} />
+    <CreatorLinkResult job={job} onCopy={copyTranscript} copyNotice={copyNotice} onAnalyzeInWriter={openStudioTranscriptInWriter} writerBusy={isAnalyzing} />
     {mode === 'import-link' && linkInputMode === 'url' && <p className="ct-muted ct-link-support-note">현재 Instagram 공개 개별 영상 링크만 지원합니다. 국내·해외 언어를 감지해 한국어로 번역합니다. 다른 플랫폼, 비공개·삭제·로그인 필요 영상은 파일 업로드를 사용해주세요.</p>}
     {mode === 'import-link' && <button className="ct-link-upload-switch" type="button" onClick={() => changeLinkInputMode(isLinkFile ? 'url' : 'file')}>{isLinkFile ? 'Instagram 링크로 전환' : '파일 업로드로 전환'}</button>}
     {job?.result?.feedback && <FeedbackResults result={job.result.feedback} media={media} onRefresh={async()=>{try{setMedia(await creatorRequest(`/media-projects/${media.id}`))}catch(e){setError(e.message)}}}/>}

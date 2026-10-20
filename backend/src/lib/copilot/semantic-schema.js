@@ -6,6 +6,7 @@ const OPERATION_TYPES = [
   'edit_partial',
   'insert_material',
   'duration_compress',
+  'duration_expand',
   'format_apply',
   'cta_reframe',
 ]

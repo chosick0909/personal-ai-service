@@ -270,7 +270,7 @@ function serializeEditorSections(sections = {}) {
 }
 
 function deserializeEditorContent(content = '') {
-  const parts = content.split(/\n\s*\n/)
+  const parts = content.split('\n\n')
   return createEditorSections({
     hook: parts[0] || '',
     body: parts[1] || '',
@@ -746,6 +746,7 @@ export function AppStateProvider({ children }) {
       [
         'activeScriptId',
         'editorContent',
+        'editorSections',
         'versions',
         'feedback',
         'appliedFeedbackContext',
@@ -781,6 +782,7 @@ export function AppStateProvider({ children }) {
           activeScriptId: hasOwn('activeScriptId')
             ? patch.activeScriptId
             : previousSession.activeScriptId || (canUseTopLevelFallback ? item.activeScriptId : null) || null,
+          editorSections: hasOwn('editorSections') ? patch.editorSections : hasOwn('editorContent') ? null : previousSession.editorSections || (canUseTopLevelFallback ? item.editorSections : null) || null,
           editorContent: hasOwn('editorContent')
             ? patch.editorContent
             : previousSession.editorContent || (canUseTopLevelFallback ? item.editorContent : '') || '',
@@ -2158,8 +2160,7 @@ export function AppStateProvider({ children }) {
           : 'ready',
       }
       if (analysis.reference?.status === 'failed') {
-        clearTopicGenerationAttempt(clientGenerationId)
-        throw new Error(analysis.reference?.errorMessage || '주제 기반 대본 생성에 실패했습니다. 다시 시도해주세요.')
+        throw new Error(analysis.reference?.errorMessage || '영상 분석에 실패했습니다. 다시 시도해주세요.')
       }
       if (!isProcessingLikeReferenceStatus(completedReference.status)) {
         void refreshEntitlement({ referenceId: completedReference.id, silent: true })
@@ -2620,6 +2621,7 @@ export function AppStateProvider({ children }) {
       syncHistory(activeReferenceIdRef.current, {
         selectedScriptId: currentVariantScriptId,
         activeScriptId,
+        editorSections: createEditorSections(editorSections),
         editorContent: serializeEditorSections(editorSections),
         versions,
         feedback,
@@ -2644,7 +2646,8 @@ export function AppStateProvider({ children }) {
       const restoredEditorContent = targetVariantSession?.editorContent ||
         (useTopLevelSelectedSession ? activeHistoryItem?.editorContent : '') ||
         ''
-      const restoredEditorSections = restoredEditorContent
+      const restoredSectionSnapshot = targetVariantSession?.editorSections || (useTopLevelSelectedSession ? activeHistoryItem?.editorSections : null)
+      const restoredEditorSections = restoredSectionSnapshot ? createEditorSections(restoredSectionSnapshot) : restoredEditorContent
         ? deserializeEditorContent(restoredEditorContent)
         : createEditorSections(nextScript.sections)
       const restoredVersions = Array.isArray(targetVariantSession?.versions) && targetVariantSession.versions.length
@@ -2717,6 +2720,7 @@ export function AppStateProvider({ children }) {
       syncHistory(activeReferenceIdRef.current, {
         selectedScriptId: scriptId,
         activeScriptId: restoredActiveScriptId,
+        editorSections: createEditorSections(restoredEditorSections),
         editorContent: serializeEditorSections(restoredEditorSections),
         versions: restoredVersions,
         feedback: restoredFeedback,
@@ -2781,6 +2785,7 @@ export function AppStateProvider({ children }) {
       syncHistory(activeReferenceIdRef.current, {
         selectedScriptId: nextScript.id,
         activeScriptId: created.script?.id || null,
+        editorSections: createEditorSections(nextScript.sections),
         editorContent: serializeEditorSections(nextScript.sections),
         versions: initialVersions,
         feedback: null,
@@ -2829,6 +2834,7 @@ export function AppStateProvider({ children }) {
     syncHistory(activeReferenceIdRef.current, {
       selectedScriptId: selectedScriptId || selectedScript?.id || null,
       activeScriptId,
+      editorSections: createEditorSections(editorSections),
       editorContent: serializeEditorSections(editorSections),
       versions,
       feedback,
@@ -2892,6 +2898,26 @@ export function AppStateProvider({ children }) {
     setCurrentStep('upload')
   }
 
+  const openStudioTranscriptInWriter = (text) => {
+    const transcript = typeof text === 'string' ? text.trim() : ''
+    if (!transcript) return
+    if (isAnalyzing) {
+      showToast('진행 중인 대본 분석이 끝난 후 다시 눌러주세요.', 'error')
+      return
+    }
+    syncHistory(activeReferenceIdRef.current, {
+      editorSections: createEditorSections(editorSections),
+      editorContent: serializeEditorSections(editorSections),
+      lastStep: currentStep === 'editor' ? 'editor' : 'result',
+    })
+    startNewProject()
+    setReferenceScriptText(transcript)
+    setUploadTopic('')
+    setUploadTitle('')
+    setUploadInputModeHint('script')
+    window.history.replaceState(null, '', '/analyze#upload')
+  }
+
   const clearUploadInputModeHint = () => {
     setUploadInputModeHint('')
   }
@@ -2950,7 +2976,7 @@ export function AppStateProvider({ children }) {
         restoredSelectedScriptId &&
           (baseItem.activeScriptId || baseItem.editorContent || baseItem.lastStep === 'editor'),
       )
-      const restoredEditorSections = baseItem.editorContent
+      const restoredEditorSections = baseItem.editorSections ? createEditorSections(baseItem.editorSections) : baseItem.editorContent
         ? deserializeEditorContent(baseItem.editorContent)
         : createEditorSections(restoredSelectedScript?.sections)
       activeReferenceIdRef.current = baseItem.id
@@ -3027,6 +3053,7 @@ export function AppStateProvider({ children }) {
                 selectedScriptId: baseItem.selectedScriptId || entry.selectedScriptId || null,
                 activeScriptId: baseItem.activeScriptId || entry.activeScriptId || null,
                 editorContent: baseItem.editorContent || entry.editorContent || '',
+                editorSections: baseItem.editorSections || null,
                 versions: Array.isArray(baseItem.versions) && baseItem.versions.length
                   ? baseItem.versions
                   : entry.versions,
@@ -3137,6 +3164,7 @@ export function AppStateProvider({ children }) {
           activeScriptId,
           versions: next,
           editorContent: serializedContent,
+          editorSections: createEditorSections(editorSections),
         })
         return next
       })
@@ -3473,6 +3501,7 @@ export function AppStateProvider({ children }) {
         syncHistory(activeReferenceIdRef.current, {
           activeScriptId,
           editorContent: serializedContent,
+          editorSections: createEditorSections(nextSections),
           versions: next,
           feedback: appliedFeedback,
           appliedFeedbackContext: nextAppliedFeedbackContext,
@@ -3775,14 +3804,14 @@ export function AppStateProvider({ children }) {
     }
   }
 
-  const requestDurationCompress = async (targetSeconds) => {
+  const requestDurationAdjust = async (targetSeconds) => {
     const seconds = Number(targetSeconds)
     if (!Number.isFinite(seconds)) {
       return
     }
 
     await sendChatMessage({
-      message: `${Math.floor(seconds)}초로 압축해줘`,
+      message: `현재 대본을 ${Math.floor(seconds)}초 분량으로 조절해줘`,
       targetDurationSeconds: Math.floor(seconds),
     })
   }
@@ -3840,6 +3869,7 @@ export function AppStateProvider({ children }) {
       setViewTransition('to-editor')
       syncHistory(activeReferenceIdRef.current, {
         editorContent: serializedContent,
+        editorSections: createEditorSections(nextSections),
         pendingSuggestion: null,
         previousAdvice: null,
         lastStep: 'editor',
@@ -3889,6 +3919,7 @@ export function AppStateProvider({ children }) {
         syncHistory(activeReferenceIdRef.current, {
           activeScriptId,
           editorContent: serializedContent,
+          editorSections: createEditorSections(nextSections),
           versions: next,
           pendingSuggestion: null,
           previousAdvice: null,
@@ -3962,11 +3993,12 @@ export function AppStateProvider({ children }) {
         return
       }
 
-      setEditorSections(deserializeEditorContent(version.content))
+      setEditorSections(version.sections ? createEditorSections(version.sections) : deserializeEditorContent(version.content))
       setIsVersionModalOpen(false)
       syncHistory(activeReferenceIdRef.current, {
         activeScriptId,
         editorContent: version.content,
+        editorSections: version.sections || deserializeEditorContent(version.content),
         lastStep: 'editor',
       })
       showToast('버전 복원 완료')
@@ -3997,7 +4029,7 @@ export function AppStateProvider({ children }) {
       showToast('PDF 다운로드를 시작했습니다')
     } catch (error) {
       const message = error.message || 'PDF 다운로드에 실패했습니다.'
-      const fallbackMessage = `${message}\n\nPDF가 계속 실패하면 에디터의 Hook, Body, CTA 텍스트를 먼저 복사해서 보관해주세요.`
+      const fallbackMessage = `${message}\n\nPDF가 계속 실패하면 에디터의 대본 텍스트를 먼저 복사해서 보관해주세요.`
       showToast('PDF 내보내기에 실패했습니다. 텍스트 복사를 이용해주세요.', 'error')
       setChatMessages((current) => [
         ...current,
@@ -4012,6 +4044,16 @@ export function AppStateProvider({ children }) {
     }
   }
 
+  const updateEditorSections = (sections) => {
+    const next = createEditorSections(sections)
+    setEditorSections(next)
+    syncHistory(activeReferenceIdRef.current, {
+      editorSections: createEditorSections(next),
+      editorContent: serializeEditorSections(next),
+      lastStep: currentStep === 'editor' ? 'editor' : 'result',
+    })
+  }
+
   const updateEditorSection = (section, value) => {
     setEditorSections((current) => {
       const next = {
@@ -4020,6 +4062,7 @@ export function AppStateProvider({ children }) {
       }
 
       syncHistory(activeReferenceIdRef.current, {
+        editorSections: createEditorSections(next),
         editorContent: serializeEditorSections(next),
         lastStep: currentStep === 'editor' ? 'editor' : 'result',
       })
@@ -4111,6 +4154,7 @@ export function AppStateProvider({ children }) {
       isResultEntering,
       goBackToUpload,
       goToScriptAnalysisMode,
+      openStudioTranscriptInWriter,
       goBackToResults,
       clearScriptSelection,
       setActiveToolPage,
@@ -4144,12 +4188,13 @@ export function AppStateProvider({ children }) {
       requestFeedback,
       applyFeedback,
       sendChatMessage,
-      requestDurationCompress,
+      requestDurationAdjust,
       applySuggestion,
       restoreVersion,
       openVersionHistory,
       exportCurrentScriptPdf,
       updateEditorSection,
+      updateEditorSections,
       setDraftMessage: updateDraftMessage,
       setEditTarget: updateEditTarget,
       setUploadTopic,

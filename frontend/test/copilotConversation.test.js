@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { Buffer } from 'node:buffer'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { buildCopilotConversationContext, sameCopilotEditorSnapshot } from '../src/lib/copilotConversation.js'
@@ -39,4 +40,11 @@ test('different users and scripts cannot reuse a saved summary', () => {
   const result = buildCopilotConversationContext({ ...scope, chatMessages: messages })
   assert.equal(result.summary, null)
   assert.equal(result.recentTurns.length, 2)
+})
+
+test('continuous editor section snapshots survive cache normalization per variant',()=>{
+  const sections={hook:'도입입니다.',body:'첫 설명입니다.\n둘째 설명입니다.',cta:''}
+  const item=normalizeHistoryCacheItem(JSON.parse(JSON.stringify({id:'reference-one',editorSections:sections,editorContent:Object.values(sections).join('\n\n'),variantSessions:{'script-1':{selectedScriptId:'script-1',editorSections:sections,editorContent:Object.values(sections).join('\n\n')}}})))
+  assert.deepEqual(item.editorSections,sections)
+  assert.deepEqual(item.variantSessions['script-1'].editorSections,sections)
 })

@@ -1,43 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppState } from '../store/AppState'
-
-function countCharacters(text = '') {
-  return text.length
-}
-
-function estimateSpeechSeconds(text = '') {
-  const normalizedLength = text.replace(/\s+/g, '').length
-  if (!normalizedLength) {
-    return 0
-  }
-  return Math.max(1, Math.round(normalizedLength / 5))
-}
-
-function formatSectionMeta(text = '') {
-  const characters = countCharacters(text)
-  const seconds = estimateSpeechSeconds(text)
-  return `${characters.toLocaleString()} 글자 · 약 ${seconds}초`
-}
+import { formatScriptSections, reconcileScriptSections, estimateScriptSeconds } from '../lib/scriptText'
+import { MIN_SCRIPT_SECONDS, MAX_SCRIPT_SECONDS } from '../../../shared/script-duration.mjs'
 
 function getFeedbackVerdictLabel(feedback) {
   return feedback?.verdict?.label || ''
-}
-
-function SectionEditor({ label, value, onChange, tone, placeholder }) {
-  return (
-    <label className={`grid gap-3 rounded-[18px] border border-[#2F3543] bg-[#111722] px-4 py-4 ${tone}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">{label}</span>
-        <span className="text-xs opacity-80">{formatSectionMeta(value)}</span>
-      </div>
-      <textarea
-        value={value}
-        onChange={onChange}
-        className="min-h-[124px] w-full resize-y rounded-[12px] bg-transparent px-1 py-1 text-sm leading-7 text-[#E5E7EB] outline-none"
-        placeholder={placeholder}
-      />
-    </label>
-  )
 }
 
 function SectionSkeleton({ label, tone, minHeight = 'min-h-[124px]' }) {
@@ -63,7 +30,7 @@ export default function Editor({ embedded = false }) {
     isEditorPreparing,
     isSavingVersion,
     isPdfExporting,
-    updateEditorSection,
+    updateEditorSections,
     openVersionHistory,
     saveVersion,
     requestFeedback,
@@ -74,18 +41,25 @@ export default function Editor({ embedded = false }) {
     exportCurrentScriptPdf,
     copilotRemaining,
     setDraftMessage,
-    requestDurationCompress,
+    requestDurationAdjust,
   } = useAppState()
   const totalLength =
     editorSections.hook.length + editorSections.body.length + editorSections.cta.length
-  const totalSpeechSeconds = estimateSpeechSeconds(
-    `${editorSections.hook} ${editorSections.body} ${editorSections.cta}`.trim(),
-  )
-  const chatRemainingLabel = Number.isFinite(copilotRemaining.chat) ? `${copilotRemaining.chat}회` : '무제한'
+  const totalSpeechSeconds = Math.round(estimateScriptSeconds(
+    editorSections,
+  ))
   const feedbackRemainingLabel = Number.isFinite(copilotRemaining.feedback) ? `${copilotRemaining.feedback}회` : '무제한'
   const isFeedbackLimitReached = Number.isFinite(copilotRemaining.feedback) && copilotRemaining.feedback <= 0
   const isFeedbackButtonDisabled = isFeedbackLoading || isFeedbackLimitReached
   const [isScriptCopied, setIsScriptCopied] = useState(false)
+  const sectionSignature = JSON.stringify(editorSections)
+  const [editorDraft, setEditorDraft] = useState(null)
+  const editorText = editorDraft?.signature === sectionSignature ? editorDraft.text : formatScriptSections(editorSections)
+  const editScript = (text) => {
+    const next = reconcileScriptSections(editorSections, editorText, text)
+    setEditorDraft({ signature: JSON.stringify(next), text })
+    updateEditorSections(next)
+  }
   const [durationTargetInput, setDurationTargetInput] = useState('')
   const copiedTimerRef = useRef(null)
   const parsedDurationTarget = Number(durationTargetInput)
@@ -93,20 +67,15 @@ export default function Editor({ embedded = false }) {
   const isDurationTargetFilled = durationTargetInput.trim().length > 0
   const isDurationTargetValid =
     Number.isInteger(normalizedDurationTarget) &&
-    normalizedDurationTarget >= 10 &&
-    normalizedDurationTarget < totalSpeechSeconds
-  const durationButtonLabel = isDurationTargetValid
-    ? `${normalizedDurationTarget}초로 압축`
-    : '압축 제안 받기'
+    normalizedDurationTarget >= MIN_SCRIPT_SECONDS &&
+    normalizedDurationTarget <= MAX_SCRIPT_SECONDS &&
+    normalizedDurationTarget !== totalSpeechSeconds
+  const durationButtonLabel = isDurationTargetValid ? `${normalizedDurationTarget}초로 ${normalizedDurationTarget > totalSpeechSeconds ? '늘리기' : '줄이기'}` : '분량 조절 제안 받기'
   const durationHint = !isDurationTargetFilled
-    ? '현재 대본보다 짧은 시간만 입력할 수 있어요.'
-    : !Number.isInteger(normalizedDurationTarget)
-      ? '숫자만 입력해주세요.'
-      : normalizedDurationTarget < 10
-        ? '10초 이상 입력해주세요.'
-        : normalizedDurationTarget >= totalSpeechSeconds
-          ? '현재 대본보다 짧은 시간만 입력할 수 있어요.'
-          : '압축 결과는 코파일럿 제안으로 먼저 보여드려요.'
+    ? '목표 시간을 입력하면 분량을 늘리거나 줄여드려요.'
+    : !isDurationTargetValid
+      ? `현재와 다른 ${MIN_SCRIPT_SECONDS}~${MAX_SCRIPT_SECONDS}초를 입력해주세요.`
+      : '조절한 대본을 미리 확인한 뒤 적용할 수 있어요.'
   const feedbackVerdictLabel = getFeedbackVerdictLabel(feedback)
   const isCurrentFeedbackStale = Boolean(feedback?.applied || feedback?.staleAfterApply)
 
@@ -119,13 +88,7 @@ export default function Editor({ embedded = false }) {
   }, [])
 
   const copyCurrentScriptText = async () => {
-    const text = [
-      editorSections.hook,
-      '',
-      editorSections.body,
-      '',
-      editorSections.cta,
-    ].join('\n').trim()
+    const text = formatScriptSections(editorSections)
 
     if (!text) {
       return
@@ -175,11 +138,11 @@ export default function Editor({ embedded = false }) {
     }, 1400)
   }
 
-  const submitDurationCompress = async () => {
+  const submitDurationAdjust = async () => {
     if (!isDurationTargetValid || isChatLoading || isEditorPreparing) {
       return
     }
-    await requestDurationCompress(normalizedDurationTarget)
+    await requestDurationAdjust(normalizedDurationTarget)
   }
 
   return (
@@ -197,7 +160,7 @@ export default function Editor({ embedded = false }) {
                 {selectedScript?.label || '선택한 초안'} 편집
               </h1>
               <p className="mt-3 text-base leading-8 text-[#8E97A6]">
-                HOOK, BODY, CTA 구조를 다듬고 저장 내역과 AI 피드백을 함께 관리합니다.
+                대본을 자유롭게 다듬고 저장 내역과 AI 피드백을 함께 관리합니다.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -223,36 +186,13 @@ export default function Editor({ embedded = false }) {
 
         <div className={`${embedded ? '' : 'mt-6'} rounded-[32px] border border-[#2F3543] bg-[#0F131B] p-6 ${embedded ? '' : 'shadow-[0_20px_60px_rgba(0,0,0,0.25)]'}`}>
           <div className="grid gap-4">
-            {isEditorPreparing ? (
-              <>
-                <SectionSkeleton label="Hook" tone="text-[#FCA5A5]" />
-                <SectionSkeleton label="Body" tone="text-[#93C5FD]" />
-                <SectionSkeleton label="CTA" tone="text-[#86EFAC]" />
-              </>
-            ) : (
-              <>
-                <SectionEditor
-                  label="Hook"
-                  value={editorSections.hook}
-                  onChange={(event) => updateEditorSection('hook', event.target.value)}
-                  tone="text-[#FCA5A5]"
-                  placeholder="첫 1초를 잡는 훅 문장을 다듬으세요."
-                />
-                <SectionEditor
-                  label="Body"
-                  value={editorSections.body}
-                  onChange={(event) => updateEditorSection('body', event.target.value)}
-                  tone="text-[#93C5FD]"
-                  placeholder="핵심 설명과 전개를 정리하세요."
-                />
-                <SectionEditor
-                  label="CTA"
-                  value={editorSections.cta}
-                  onChange={(event) => updateEditorSection('cta', event.target.value)}
-                  tone="text-[#86EFAC]"
-                  placeholder="행동 유도 문장을 정리하세요."
-                />
-              </>
+            {isEditorPreparing ? <SectionSkeleton label="대본" tone="text-[#CBD5E1]" minHeight="min-h-[360px]" /> : (
+              <label className="grid gap-3 rounded-[18px] border border-[#2F3543] bg-[#111722] px-4 py-4">
+                <span className="text-xs font-semibold text-[#CBD5E1]">대본</span>
+                <textarea aria-label="대본" value={editorText} onChange={(event) => editScript(event.target.value)} onBlur={() => setEditorDraft(null)}
+                  className="min-h-[420px] w-full resize-y bg-transparent text-sm leading-7 text-[#E5E7EB] outline-none"
+                  placeholder="대본을 자유롭게 작성하세요." />
+              </label>
             )}
           </div>
 
@@ -285,8 +225,8 @@ export default function Editor({ embedded = false }) {
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                 <div className="rounded-[18px] border border-[#2A303B] bg-[#0F141D] px-4 py-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold text-[#CBD5E1]">시간 압축</span>
-                    <span className="text-[11px] text-[#7C8798]">최소 10초</span>
+                    <span className="text-xs font-semibold text-[#CBD5E1]">분량 조절</span>
+                    <span className="text-[11px] text-[#7C8798]">늘리기 · 줄이기</span>
                   </div>
                   <div className="flex flex-wrap items-start gap-2">
                     <div className="grid gap-1">
@@ -296,12 +236,12 @@ export default function Editor({ embedded = false }) {
                           type="number"
                           inputMode="numeric"
                           min="10"
-                          max={Math.max(10, totalSpeechSeconds - 1)}
+                          max={MAX_SCRIPT_SECONDS}
                           value={durationTargetInput}
                           onChange={(event) => setDurationTargetInput(event.target.value.replace(/\D/g, ''))}
                           className="h-7 w-16 rounded-full border border-[#3A414F] bg-[#0F141D] px-2 text-center text-sm font-semibold text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1]"
                           placeholder="N"
-                          aria-label="압축 목표 초수"
+                          aria-label="목표 초수"
                         />
                         초
                       </label>
@@ -309,7 +249,7 @@ export default function Editor({ embedded = false }) {
                     </div>
                     <button
                       type="button"
-                      onClick={submitDurationCompress}
+                      onClick={submitDurationAdjust}
                       disabled={!isDurationTargetValid || isChatLoading || isEditorPreparing}
                       className="h-10 rounded-full border border-[#3A414F] bg-[#F8F5EF] px-4 text-xs font-semibold text-[#111827] transition hover:bg-white disabled:cursor-not-allowed disabled:bg-[#1B202A] disabled:text-[#6B7280]"
                     >

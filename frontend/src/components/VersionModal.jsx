@@ -1,25 +1,8 @@
 import { useAppState } from '../store/AppState'
+import { formatScriptText } from '../lib/scriptText'
 
 function formatDate(value) {
   return new Date(value).toLocaleString('ko-KR')
-}
-
-function splitSections(content = '') {
-  const parts = content.split(/\n\s*\n/)
-  return {
-    hook: parts[0] || '',
-    body: parts[1] || '',
-    cta: parts.slice(2).join('\n\n') || '',
-  }
-}
-
-function SectionStrip({ label, value, tone }) {
-  return (
-    <div className={`rounded-2xl border px-4 py-4 ${tone}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.22em]">{label}</div>
-      <div className="mt-2 line-clamp-2 text-sm leading-6 text-[#E5E7EB]">{value || '-'}</div>
-    </div>
-  )
 }
 
 export default function VersionModal() {
@@ -67,7 +50,6 @@ export default function VersionModal() {
         <div className="grid max-h-[calc(90vh-101px)] gap-4 overflow-y-auto bg-[#0B0E14] px-6 py-5">
           {versions.length ? (
             versions.map((version, index) => {
-              const sections = splitSections(version.content)
               const isLatest = index === 0
               return (
                 <article
@@ -104,22 +86,8 @@ export default function VersionModal() {
                     </button>
                   </div>
 
-                  <div className="mt-4 grid gap-3">
-                    <SectionStrip
-                      label="Hook"
-                      value={sections.hook}
-                      tone="border-[#4B2D33] bg-[#171014] text-[#FCA5A5]"
-                    />
-                    <SectionStrip
-                      label="Body"
-                      value={sections.body}
-                      tone="border-[#2A3D59] bg-[#101722] text-[#93C5FD]"
-                    />
-                    <SectionStrip
-                      label="CTA"
-                      value={sections.cta}
-                      tone="border-[#2B4A35] bg-[#101A14] text-[#86EFAC]"
-                    />
+                  <div className="mt-4 whitespace-pre-wrap rounded-2xl border border-[#2F3543] bg-[#111722] px-4 py-4 text-sm leading-7 text-[#E5E7EB]">
+                    {formatScriptText(version.content)}
                   </div>
                 </article>
               )

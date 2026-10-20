@@ -247,24 +247,33 @@
 @keyframes ct-analysis-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .ct-analysis-spinner { animation:none; } }
 
-/* Real Instagram post players, kept separate from the account's text analysis. */
+/* Native reel players: show only decoded video; no cross-origin post frames. */
 .ct-reel-section { margin:20px 0 26px; min-width:0; }
 .ct-reel-heading { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 16px; margin-bottom:14px; }
 .ct-reel-heading h3 { margin:0; font-size:16px; }
 .ct-reel-heading>span,.ct-reel-help { color:var(--ct-muted,#727381); font-size:12px!important; line-height:1.6; }
 .ct-reel-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,326px),1fr)); gap:16px; }
 .ct-reel-card { min-width:0; overflow:hidden; border:1px solid var(--ct-line,#dedee5); border-radius:16px; background:var(--ct-panel,#fff); }
-.ct-reel-frame { position:relative; height:620px; background:#fff; }
-.ct-reel-frame iframe { display:block; width:100%; height:100%; border:0; }
+.ct-reel-frame { position:relative; aspect-ratio:9/16; background:#000; }
+.ct-reel-frame video { display:block; width:100%; height:100%; object-fit:contain; }
+.ct-reel-card[hidden] { display:none; }
+.ct-reel-pending { display:flex; align-items:center; gap:8px; color:var(--ct-muted); font-size:13px!important; }
 .ct-reel-loading { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:#f5f4f7; color:#6d667e; font-size:13px; pointer-events:none; }
 .ct-reel-footer { padding:14px; }
 .ct-account .ct-reel-caption { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; margin:0 0 10px; font-size:13px; }
 .ct-reel-footer>div { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--ct-muted,#727381); }
 .ct-reel-footer a { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
-@media(max-width:600px) { .ct-reel-grid { grid-template-columns:1fr; } .ct-reel-frame { height:580px; } }
+@media(max-width:600px) { .ct-reel-grid { grid-template-columns:1fr; } }
 .ct-reel-viral { display:inline-flex; align-items:center; gap:6px; margin-top:12px; font-size:12px; }
 
 /* Cross-workspace shortcuts remain visible in both desktop and mobile headers. */
 .ct-live a.ct-workspace-link { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:42px; padding:9px 13px; border:1px solid var(--ct-accent); border-radius:10px; background:var(--ct-soft); color:var(--ct-accent); font-size:13px; font-weight:700; white-space:nowrap; }
 .ct-live a.ct-workspace-link:hover { background:var(--ct-accent); color:var(--ct-bg); }
 .ct-live .ct-studio-sidebar a.ct-sidebar-workspace-link { width:100%; justify-content:flex-start; margin:0 0 12px; }
+
+.ct-writer-handoff { display:flex; flex-wrap:wrap; align-items:center; gap:12px 18px; margin:18px 0 24px; }
+.ct-live .ct-writer-handoff .ct-analyze-in-writer { display:inline-flex; align-items:center; gap:10px; background:#8b5cf6; color:#fff; border:1px solid #a78bfa; }
+.ct-live .ct-writer-handoff .ct-analyze-in-writer:hover { background:#7c3aed; }
+.ct-writer-handoff .ct-muted { margin:0; font-size:12px; }
+
+.ct-live .ct-analyze-in-writer:disabled { opacity:.5; cursor:not-allowed; }

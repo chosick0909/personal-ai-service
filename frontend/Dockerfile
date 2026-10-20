@@ -3,6 +3,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY shared ./shared
 COPY frontend/package.json ./frontend/package.json
 RUN npm ci --workspace frontend
 

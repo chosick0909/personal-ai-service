@@ -1,29 +1,4 @@
-import { useState } from 'react'
-
-function SectionPreview({ label, value, tone, sizeClass = '', expandable = false }) {
-  const [isExpanded, setIsExpanded] = useState(false)
-
-  return (
-    <div className={`flex flex-col rounded-2xl border px-4 py-3 ${tone} ${sizeClass}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">{label}</div>
-      <div className={`mt-2 text-sm leading-6 text-[#E5E7EB] ${expandable && !isExpanded ? 'line-clamp-4' : ''}`}>
-        {value || '-'}
-      </div>
-      {expandable && value ? (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            setIsExpanded((current) => !current)
-          }}
-          className="mt-2 self-start text-xs font-semibold text-[#BFDBFE] transition hover:text-white"
-        >
-          {isExpanded ? '접기' : '전체 보기'}
-        </button>
-      ) : null}
-    </div>
-  )
-}
+import { formatScriptSections } from '../lib/scriptText'
 
 const FALLBACK_ANGLE_BY_LABEL = {
   A안: '원본형',
@@ -103,26 +78,8 @@ export default function ScriptCard({ script, onSelect, isSelected = false, hasSe
         </div>
       </div>
 
-      <div className="mt-5 grid flex-1 content-start gap-3">
-        <SectionPreview
-          label="Hook"
-          value={script.hook}
-          tone="border-[#4A3338] bg-[#181316] text-[#FCA5A5]"
-          sizeClass="min-h-[188px]"
-        />
-        <SectionPreview
-          label="Body"
-          value={script.body}
-          tone="border-[#31435A] bg-[#141A23] text-[#93C5FD]"
-          sizeClass="min-h-[222px]"
-          expandable={Number.isFinite(script.estimatedDurationSeconds)}
-        />
-        <SectionPreview
-          label="CTA"
-          value={script.cta}
-          tone="border-[#314A3D] bg-[#131A16] text-[#86EFAC]"
-          sizeClass="min-h-[168px]"
-        />
+      <div className="mt-5 flex-1 whitespace-pre-wrap rounded-2xl border border-[#2F3543] bg-[#111722] px-4 py-4 text-sm leading-7 text-[#E5E7EB]">
+        {formatScriptSections(script.sections || script) || '-'}
       </div>
 
       <button

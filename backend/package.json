@@ -7,7 +7,7 @@
     "worker:creator": "node src/creator-tools/worker.js",
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "backfill:writing-playbook": "node scripts/backfill-writing-playbook-embeddings.js",
     "summarize-ai-usage": "node scripts/summarize-ai-usage.js",
     "summarize-product-metrics": "node scripts/summarize-product-metrics.js",

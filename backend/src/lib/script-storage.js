@@ -64,6 +64,7 @@ function mapVersion(version) {
     source: version.version_type,
     title: version.title,
     content: version.content,
+    sections: version.metadata?.sections ? normalizeSections(version.metadata.sections) : null,
     score: version.score,
     createdAt: version.created_at,
   }
@@ -286,7 +287,7 @@ export async function createScriptFromSelection({
         sections: normalizedSections,
       },
     })
-    .select('id, version_number, version_type, title, content, score, created_at')
+    .select('id, version_number, version_type, title, content, score, created_at, metadata')
     .single()
 
   if (versionError) {
@@ -318,7 +319,7 @@ export async function listScriptVersions(accountId, scriptId) {
   await getOwnedScriptOrThrow(supabaseAdmin, accountId, scriptId)
   const { data, error } = await supabaseAdmin
     .from('script_versions')
-    .select('id, version_number, version_type, title, content, score, created_at')
+    .select('id, version_number, version_type, title, content, score, created_at, metadata')
     .eq('account_id', accountId)
     .eq('script_id', scriptId)
     .order('version_number', { ascending: false })
@@ -357,7 +358,7 @@ export async function saveScriptVersion({
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const { data: latestVersionRows, error: latestVersionError } = await supabaseAdmin
       .from('script_versions')
-      .select('id, version_number, version_type, title, content, score, created_at')
+      .select('id, version_number, version_type, title, content, score, created_at, metadata')
       .eq('account_id', accountId)
       .eq('script_id', scriptId)
       .order('version_number', { ascending: false })
@@ -402,7 +403,7 @@ export async function saveScriptVersion({
           sections: normalizedSections,
         },
       })
-      .select('id, version_number, version_type, title, content, score, created_at')
+      .select('id, version_number, version_type, title, content, score, created_at, metadata')
       .single()
 
     version = insertResult.data
@@ -471,7 +472,7 @@ export async function restoreScriptVersion({
 
   const { data: version, error: versionError } = await supabaseAdmin
     .from('script_versions')
-    .select('id, content, score, title')
+    .select('id, content, score, title, metadata')
     .eq('account_id', accountId)
     .eq('script_id', scriptId)
     .eq('id', versionId)
@@ -511,6 +512,7 @@ export async function restoreScriptVersion({
 
   return {
     content: version.content,
+    sections: version.metadata?.sections ? normalizeSections(version.metadata.sections) : null,
     score: version.score,
   }
 }
