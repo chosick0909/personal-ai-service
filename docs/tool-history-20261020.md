@@ -54,3 +54,7 @@ npm --prefix frontend run build
 Claude 메인페이지 디자인 `66f7c22`를 pull --ff-only로 반영했고 해당 두 파일은 변경하지 않았다. 통합 후 build, HTTP/프론트 회귀, 실제 컴포넌트 재열기 검사를 다시 통과했다. 이 기능 브랜치를 운영에 병합하기 전 원격 최신 상태를 다시 가져와야 한다.
 
 2026-10-20 추가 원격 변경 ae49057 (Claude의 메인페이지 재구성)을 별도 기능 브랜치에 정상 병합했다. 이 홈페이지 파일은 수정하지 않고 원격 내용을 그대로 보존했다.
+
+추가 병합 후 검증: frontend production build 성공, HTTP/프론트 테스트 31/31 통과, 브라우저 저장·재열기·계정 전환·저장 실패 재시도 4개 흐름 통과.
+
+사용자가 Chrome 없이 배포하도록 추가 지시했다. Chrome 조작은 종료했다. GitHub/Railway CLI 지정 계정 인증 정상, Supabase CLI는 Access token not provided로 확인됐다. Supabase 표준 로그인 완료 후 연결 프로젝트 확인 및 단일 마이그레이션 적용을 재개한다. 다른 로컬 비밀 파일/브라우저 세션 토큰으로 우회하지 않는다.
