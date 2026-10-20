@@ -80,20 +80,20 @@ function Icon({ name, size = 24, color = 'currentColor', strokeWidth = 2 }) {
   )
 }
 
-const BEFORE = ['잘 된 릴스를 봐도 내 걸로 못 바꿔요', '대본 한 편 쓰는 데 하루가 걸려요', '첫 3초에 뭘 말할지 막막해요']
+const BEFORE = ['잘 된 영상을 봐도 뭐가 먹힌 건지 모르겠어요', '대본 한 편 쓰는 데 하루가 걸려요', '첫 3초에 뭘 말할지 막막해요']
 
-const AFTER = ['왜 터졌는지 문장마다 짚어줘요', '바로 찍을 대본 3개가 한 번에 나와요', '잘 된 훅 구조를 내 주제에 맞게 옮겨요']
+const AFTER = ['왜 터졌는지 문장마다 짚어줘요', '바로 찍을 대본 3개가 한 번에 나와요', '터진 공식으로 내 이야기를 새로 써요']
 
 const FEATURES = [
-  ['search', '왜 터졌는지 한눈에', '훅·구조·시청 심리를 레퍼런스 문장마다 분석해요.'],
-  ['layers', '바로 찍는 대본 3개', '원본형·대화형·후킹형 중 마음에 드는 걸 골라요.'],
+  ['search', '왜 터졌는지 한눈에', '훅·구조·시청 심리를 문장마다 뜯어 공식으로 정리해요.'],
+  ['layers', '바로 찍는 대본 3개', '방향이 다른 세 가지 안 중 마음에 드는 걸 골라요.'],
   ['chat', '채팅으로 고치는 코파일럿', '"훅만 더 세게" 한마디면 바뀐 부분만 보여줘요.'],
-  ['bulb', '레퍼런스 없이도 기획', '주제만 적어도 세 가지 방향의 대본이 나와요.'],
+  ['bulb', '주제만 있어도 기획', '주제만 적어도 세 가지 방향의 대본이 나와요.'],
 ]
 
 const STEPS = [
-  ['레퍼런스 넣기', '릴스 영상을 올리거나 대본을 붙여넣기만 하세요.'],
-  ['분석 확인하기', '훅·구조·심리, 잘 된 이유를 먼저 보여드려요.'],
+  ['영상 넣기', '눈여겨본 릴스 영상이나 대본을 올리기만 하세요.'],
+  ['공식 확인하기', '훅·구조·심리, 터진 이유를 공식으로 보여드려요.'],
   ['골라서 다듬기', 'A/B/C 중 고르고, 채팅으로 수정을 요청하세요.'],
 ]
 
@@ -104,7 +104,7 @@ const STUDIO_FEATURES = [
   ['review', '영상·캡션 피드백', '올리기 전에 고칠 곳을 구간별로 짚어줘요'],
 ]
 
-const HERO_POINTS = ['레퍼런스 분석', 'A/B/C 대본 3개', '채팅으로 수정']
+const HERO_POINTS = ['히트 공식 분석', 'A/B/C 대본 3개', '채팅으로 수정']
 
 function Eyebrow({ children, light }) {
   return (
@@ -177,17 +177,17 @@ export default function LandingScreen() {
               style={{ border: '1px solid rgba(122,77,255,0.5)', background: 'rgba(122,77,255,0.14)', color: '#CBB9FF' }}
             >
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: '#9B7BFF' }} />
-              레퍼런스 기반 숏폼 대본 AI
+              성공 기획 AI
             </p>
             <h1 style={{ margin: '24px 0 0', fontSize: 'clamp(40px, 5.4vw, 72px)', lineHeight: 1.15, fontWeight: 900, letterSpacing: '-0.05em', color: '#FFFFFF' }}>
-              잘 된 릴스 하나로
+              히트 공식 하나로
               <br />
               <span style={{ color: '#A98BFF' }}>내 대본</span>까지 완성!
             </h1>
             <p style={{ margin: '24px 0 0', fontSize: 'clamp(17px, 1.6vw, 20px)', lineHeight: 1.7, color: '#BDB7D0' }}>
-              레퍼런스를 넣으면 왜 터졌는지 분석하고,
+              잘 된 영상이 왜 터졌는지 공식을 뽑아,
               <br />
-              바로 찍을 수 있는 대본 3개를 만들어 드려요.
+              내 이야기로 바로 찍을 대본 3개를 만들어 드려요.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start">
               <a
@@ -233,8 +233,8 @@ export default function LandingScreen() {
               className="relative z-10 -mb-4 self-start lg:absolute lg:-left-12 lg:-top-8 lg:mb-0"
               style={{ padding: '12px 16px', borderRadius: 14, background: '#FFFFFF', color: '#24183F', textAlign: 'left', boxShadow: '0 16px 40px rgba(10,0,40,0.45)' }}
             >
-              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#6A2BF5' }}>레퍼런스 분석</p>
-              <p style={{ margin: '3px 0 0', fontSize: 15, fontWeight: 800 }}>훅: 자주 받는 질문으로 공감</p>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#6A2BF5' }}>히트 공식</p>
+              <p style={{ margin: '3px 0 0', fontSize: 15, fontWeight: 800 }}>훅: '하지 마세요'로 멈춰 세우기</p>
             </div>
             <div
               className="mx-auto"
@@ -245,23 +245,23 @@ export default function LandingScreen() {
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#FFFFFF' }}>
                     C안 <span style={{ color: '#9C93B8', fontWeight: 600 }}>후킹형</span>
                   </p>
-                  <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#B9A2FF' }}>60초</p>
+                  <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#B9A2FF' }}>30초</p>
                 </div>
                 <div style={{ borderRadius: 12, background: '#2A1640', padding: '12px 14px' }}>
                   <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: '#F2A7C3' }}>HOOK</p>
                   <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, fontWeight: 600, color: '#FFFFFF' }}>
-                    거울 봤을 때 '번들'만 보이면, 토너에서 이미 끝난 거예요.
+                    토너, 화장솜으로 닦고 계시죠? 오늘부터 그거 하지 마세요.
                   </p>
                 </div>
                 <div style={{ borderRadius: 12, background: '#1E1B33', padding: '12px 14px' }}>
                   <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: '#A9B8FF' }}>BODY</p>
                   <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: '#D5D0E6' }}>
-                    세안 직후, 얇게 세 번. 광은 많이 바른 게 아니라 잘 쌓은 결과예요.
+                    반은 화장솜이 다 먹어요. 손바닥에 덜어서 세 번만 꾹꾹 눌러주세요. 내일 아침 화장 먹는 게 달라요.
                   </p>
                 </div>
                 <div style={{ borderRadius: 12, background: '#182624', padding: '12px 14px' }}>
                   <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: '#9FE0C2' }}>CTA</p>
-                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: '#D5D0E6' }}>저장해두고 내일 아침에 바로 해보세요.</p>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: '#D5D0E6' }}>까먹기 전에 저장! 해보고 댓글로 후기 알려주세요.</p>
                 </div>
               </div>
             </div>
@@ -280,7 +280,7 @@ export default function LandingScreen() {
         <div className="mx-auto max-w-[1160px]">
           <Eyebrow>Why HookAI</Eyebrow>
           <h2 style={{ margin: '12px 0 0', fontSize: 'clamp(30px, 3.8vw, 46px)', lineHeight: 1.25, fontWeight: 900, letterSpacing: '-0.045em' }}>
-            레퍼런스는 많은데,
+            잘 된 영상은 많은데,
             <br />
             내 대본은 왜 안 나올까요?
           </h2>
