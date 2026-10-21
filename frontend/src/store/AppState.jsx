@@ -1,3 +1,4 @@
+import { normalizeSupportingMaterials } from '../../../shared/supporting-materials.mjs'
 /* eslint-disable react-hooks/exhaustive-deps, react-refresh/only-export-components */
 import {
   createContext,
@@ -2143,6 +2144,7 @@ export function AppStateProvider({ children }) {
       )
 
       const analysis = await analyzeReferenceVideo({
+        supportingMaterials: normalizeSupportingMaterials(options.supportingMaterials || []),
         file,
         accountId: requestAccountId,
         topic: normalizedTopic,
@@ -2379,6 +2381,7 @@ export function AppStateProvider({ children }) {
     let keepAnalyzingAfterAccepted = false
     try {
       const analysis = await analyzeReferenceScriptText({
+        supportingMaterials: normalizeSupportingMaterials(options.supportingMaterials || []),
         scriptText: normalizedScriptText,
         accountId: requestAccountId,
         topic: normalizedTopic,
@@ -2487,7 +2490,7 @@ export function AppStateProvider({ children }) {
     const clarifications = options.clarifications && typeof options.clarifications === 'object'
       ? options.clarifications
       : {}
-    const clarificationKey = JSON.stringify(clarifications)
+    const clarificationKey = JSON.stringify({ ...clarifications, ...(options.supportingMaterials?.length ? { supportingMaterials: normalizeSupportingMaterials(options.supportingMaterials) } : {}) })
     const previousAttempt = readTopicGenerationAttempt()
     const canReusePreviousAttempt =
       previousAttempt?.accountId === requestAccountId &&
@@ -2548,6 +2551,7 @@ export function AppStateProvider({ children }) {
     let keepAnalyzingAfterAccepted = false
     try {
       const analysis = await generateScriptsFromTopic({
+        supportingMaterials: normalizeSupportingMaterials(options.supportingMaterials || []),
         topic: normalizedTopic,
         title: normalizedTitle,
         accountId: requestAccountId,

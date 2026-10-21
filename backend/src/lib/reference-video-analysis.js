@@ -1,3 +1,4 @@
+import { normalizeSupportingMaterials, formatSupportingMaterials } from '../../../shared/supporting-materials.mjs'
 import { SPOKEN_SCRIPT_WRITING_RULES } from './spoken-script.js'
 import { AppError } from './errors.js'
 import { buildCacheKey, cacheConfig, getCacheJson, hashText, setCacheJson } from './cache.js'
@@ -169,6 +170,7 @@ function buildAnalysisReuseCacheKey({
   title,
   originalFilename,
   fileFingerprint,
+  supportingMaterialsDigest = '',
   characterSystemPrompt,
 }) {
   const fileHash = String(fileFingerprint || '').trim() || hashText('')
@@ -181,6 +183,7 @@ function buildAnalysisReuseCacheKey({
     fileHash,
     promptVersion: ANALYSIS_PROMPT_VERSION,
     promptHash,
+    ...(supportingMaterialsDigest ? { supportingMaterialsDigest } : {}),
   })
 }
 
@@ -465,8 +468,10 @@ async function createProcessingReferenceVideo({
   mimeType,
   idempotencyKey,
   analysisFingerprint,
+  topicBrief = null,
 }) {
   const basePayload = {
+    ...(topicBrief ? { topic_brief: topicBrief } : {}),
     project_id: projectId || null,
     title,
     topic,
@@ -4582,6 +4587,7 @@ function canReuseCachedAnalysis({ cachedAnalysis, isTextReference, scriptText = 
 export async function analyzeReferenceVideo({
   file,
   scriptText = '',
+  supportingMaterials = [],
   topic,
   title,
   accountId,
@@ -4593,6 +4599,9 @@ export async function analyzeReferenceVideo({
   onProcessingCreated = null,
   onAnalysisPreviewReady = null,
 }) {
+  const materials = normalizeSupportingMaterials(supportingMaterials)
+  const materialsPrompt = formatSupportingMaterials(materials)
+  const supportingMaterialsDigest = materials.length ? hashText(JSON.stringify(materials)) : ''
   const normalizedScriptText = String(scriptText || '').trim()
   const isTextReference = Boolean(normalizedScriptText)
 
@@ -4642,10 +4651,10 @@ export async function analyzeReferenceVideo({
     ? hashText(normalizedScriptText)
     : await computeUploadedFileFingerprint(file)
   const analysisFingerprint = hashText(
-    `${isTextReference ? 'script-text' : 'video'}:${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}`,
+    `${isTextReference ? 'script-text' : 'video'}:${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}${supportingMaterialsDigest ? ':' + supportingMaterialsDigest : ''}`,
   )
-  const topicBrief = buildTopicBrief(normalizedTopic)
-  const topicFocusPrompt = buildTopicFocusPrompt(normalizedTopic, normalizedTitle, topicBrief)
+  const topicBrief = { ...buildTopicBrief(normalizedTopic), ...(materials.length ? { supportingMaterials: materials } : {}) }
+  const topicFocusPrompt = [buildTopicFocusPrompt(normalizedTopic, normalizedTitle, topicBrief), materialsPrompt].filter(Boolean).join('\n\n')
   const analysisReuseCacheKey = buildAnalysisReuseCacheKey({
     accountId,
     topic: normalizedTopic,
@@ -4653,6 +4662,7 @@ export async function analyzeReferenceVideo({
     originalFilename: normalizedOriginalName,
     fileFingerprint,
     characterSystemPrompt,
+    supportingMaterialsDigest,
   })
   const inFlightKey = [accountId, normalizedIdempotencyKey || analysisFingerprint].join(':')
   if (ANALYZE_IN_FLIGHT.has(inFlightKey)) {
@@ -4721,6 +4731,7 @@ export async function analyzeReferenceVideo({
     mimeType: sourceMimeType,
     idempotencyKey: normalizedIdempotencyKey,
     analysisFingerprint,
+    topicBrief: materials.length ? topicBrief : null,
   })
   ANALYZE_IN_FLIGHT.set(inFlightKey, processingReference.id)
   if (typeof onProcessingCreated === 'function') {

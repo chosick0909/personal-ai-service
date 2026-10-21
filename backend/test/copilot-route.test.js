@@ -34,6 +34,20 @@ if (typeof mock.module !== 'function') {
  const changed={...original,body:'높은 선반의 먼지를 먼저 털어보세요. 아래로 떨어진 먼지까지 모을 수 있도록 바닥은 마지막에 닦으면 돼요.'}
  const intent={intent:'edit_request',shouldModifyScript:true,editTarget:'all',operationType:'edit_partial',resolvedRequest:'기존 청소 순서를 더 쉽게 설명해줘'}
  async function request(sections=original,message='청소 순서를 더 쉽게 설명해줘'){return fetch(`http://127.0.0.1:${server.address().port}/api/scripts/copilot`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,sections})})}
+ test('authenticated attachment endpoint reads a general text document without consuming analysis usage',async()=>{
+  usage=[]
+  const form=new FormData();form.append('files',new Blob(['일정: 11월 3일 오후 2시\n준비물: 필기구'],{type:'text/plain'}),'안내.txt')
+  form.append('readingContext','온라인 워크숍 소개')
+  const response=await fetch(`http://127.0.0.1:${server.address().port}/api/reference-videos/supporting-materials`,{method:'POST',body:form})
+  const payload=await response.json()
+  assert.equal(response.status,200,JSON.stringify(payload))
+  assert.equal(payload.items[0].status,'ready')
+  assert.equal(payload.items[0].content,'일정: 11월 3일 오후 2시\n준비물: 필기구')
+  assert.equal(usage.length,0)
+  const invalid=new FormData();invalid.append('files',new Blob(['bad']),'실행.exe')
+  const rejected=await fetch(`http://127.0.0.1:${server.address().port}/api/reference-videos/supporting-materials`,{method:'POST',body:invalid})
+  assert.equal(rejected.status,400)
+ })
  test('unchanged initial answer is rewritten through the actual route and charged once only after a changed proposal',async()=>{
   usage=[];memory=[];calls=[];responses=[intent,{message:'기존 내용을 유지했어요.',sections:original},{issues:[]},{message:'닦는 순서와 이유를 풀어 썼어요.',sections:changed},{issues:[]}]
   const response=await request(),payload=await response.json()

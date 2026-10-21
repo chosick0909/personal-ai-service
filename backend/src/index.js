@@ -1,3 +1,4 @@
+import { extractSupportingMaterials, readSupportingMaterials } from './lib/supporting-materials.js'
 import { scriptEditingView } from '../../shared/script-edit-scope.mjs'
 import { copilotHandler } from './lib/copilot/execution.js'
 import dotenv from 'dotenv'
@@ -300,6 +301,7 @@ const uploadPdf = multer({
     fileSize: 100 * 1024 * 1024,
   },
 })
+const uploadMaterials = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 5, fields: 1, fieldSize: 4096 } })
 const uploadImage = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -356,6 +358,12 @@ function logReferenceUploadStage(req, stage, extra = {}) {
 const askRateLimiter = createRateLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'ask' })
 const refineRateLimiter = createRateLimiter({ windowMs: 60_000, max: 40, keyPrefix: 'refine' })
 const feedbackRateLimiter = createRateLimiter({ windowMs: 60_000, max: 40, keyPrefix: 'feedback' })
+const supportingMaterialsRateLimiter = createRateLimiter({
+  windowMs: 10 * 60_000,
+  max: 12,
+  keyPrefix: 'supporting-materials',
+  keyResolver: req => req.auth?.userId ? { key: String(req.auth.userId), type: 'user' } : getDefaultRateLimitIdentity(req),
+})
 const analyzeRateLimiter = createRateLimiter({
   windowMs: 10 * 60_000,
   max: 8,
@@ -993,6 +1001,15 @@ app.delete(
   }),
 )
 
+app.post('/api/reference-videos/supporting-materials', supportingMaterialsRateLimiter, (req, res, next) => uploadMaterials.array('files', 5)(req, res, error => next(error ? new AppError('참고자료는 최대 5개, 파일당 10MB까지 첨부할 수 있어요.', { code: 'INVALID_SUPPORTING_FILES', statusCode: 400, exposeMessage: true }) : undefined)), asyncHandler(async (req, res) => {
+  await assertUsageAllowed({ userId: req.auth?.userId, eventType: 'reference_analysis' })
+  const controller = new AbortController()
+  const disconnect = () => { if (!res.writableEnded) controller.abort() }
+  res.once('close', disconnect)
+  try { res.json({ items: await extractSupportingMaterials(req.files, { userId: req.auth?.userId, signal: controller.signal, readingContext: req.body?.readingContext }) }) }
+  finally { res.removeListener('close', disconnect) }
+}))
+
 app.post(
   '/api/reference-videos/analyze',
   analyzeRateLimiter,
@@ -1057,6 +1074,7 @@ app.post(
       referenceId,
       file: req.file,
       topic: req.body?.topic,
+      supportingMaterials: readSupportingMaterials(req.body?.supportingMaterials),
       title: req.body?.title,
       projectId: req.body?.projectId || null,
       idempotencyKey: req.headers['x-idempotency-key'] || req.body?.idempotencyKey || '',
@@ -1195,6 +1213,7 @@ app.post(
       accountId: account.id,
       scriptText,
       topic: req.body?.topic,
+      supportingMaterials: readSupportingMaterials(req.body?.supportingMaterials),
       title: req.body?.title || '대본 레퍼런스',
       projectId: req.body?.projectId || null,
       idempotencyKey: req.headers['x-idempotency-key'] || req.body?.idempotencyKey || '',
@@ -1323,6 +1342,7 @@ app.post(
     const generationPromise = generateTopicOnlyScripts({
       accountId: account.id,
       topic,
+      supportingMaterials: readSupportingMaterials(req.body?.supportingMaterials),
       title: req.body?.title || '',
       projectId: req.body?.projectId || null,
       clientGenerationId,

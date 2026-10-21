@@ -1,3 +1,4 @@
+import { formatSupportingMaterials } from '../../../shared/supporting-materials.mjs'
 import { scopedCopilotClient } from './copilot/execution.js'
 import { numericClaims } from './numeric-claims.js'
 import { SPOKEN_SCRIPT_WRITING_RULES } from './spoken-script.js'
@@ -4777,28 +4778,17 @@ export async function classifyCopilotIntent({
 }
 
 async function loadReferenceContext(supabaseAdmin, accountId, referenceId) {
-  const { data, error } = await supabaseAdmin
-    .from('reference_videos')
-    .select(
-      'id, title, topic, structure_analysis, hook_analysis, psychology_analysis, frame_notes, ai_feedback, variations',
-    )
-    .eq('id', referenceId)
-    .eq('account_id', accountId)
-    .single()
-
+  const baseColumns = 'id, title, topic, structure_analysis, hook_analysis, psychology_analysis, frame_notes, ai_feedback, variations'
+  const query = columns => supabaseAdmin.from('reference_videos').select(columns).eq('id', referenceId).eq('account_id', accountId).single()
+  let { data, error } = await query(`${baseColumns}, topic_brief`)
+  // Older schemas may not have the optional topic brief column.
+  if (error && ['42703', 'PGRST204'].includes(error.code)) ({ data, error } = await query(baseColumns))
   if (error) {
     const statusCode = error.code === 'PGRST116' ? 404 : 500
-
-    throw new AppError(
-      statusCode === 404 ? 'Reference analysis not found' : 'Failed to load reference analysis',
-      {
-        code: statusCode === 404 ? 'REFERENCE_NOT_FOUND' : 'REFERENCE_FETCH_FAILED',
-        statusCode,
-        cause: error,
-      },
-    )
+    throw new AppError(statusCode === 404 ? 'Reference analysis not found' : 'Failed to load reference analysis', {
+      code: statusCode === 404 ? 'REFERENCE_NOT_FOUND' : 'REFERENCE_FETCH_FAILED', statusCode, cause: error,
+    })
   }
-
   return data
 }
 
@@ -4967,6 +4957,7 @@ function buildReferenceStructureContext(reference, selectedLabel = '') {
     `기존 AI 피드백: ${compactReferenceSignal(reference.ai_feedback) || '-'}`,
     variationBlueprintContext,
     '레퍼런스 전사: 제외됨(refine/feedback 단계에서는 reference transcript 전체를 포함하지 않음)',
+    formatSupportingMaterials(reference.topic_brief?.supportingMaterials || reference.topic_brief?.inputBrief?.supportingMaterials || []),
   ]
     .filter(Boolean)
     .join('\n')

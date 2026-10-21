@@ -1,3 +1,4 @@
+import { normalizeSupportingMaterials, formatSupportingMaterials, SUPPORTING_MATERIAL_GUIDANCE } from '../../../shared/supporting-materials.mjs'
 import { SPOKEN_SCRIPT_WRITING_RULES, groundedSpeechIssues } from './spoken-script.js'
 import { durationWritingGuidance } from './script-duration-guidance.js'
 import { TOPIC_DURATION } from '../../../shared/script-duration.mjs'
@@ -243,7 +244,7 @@ function normalizeOutline(value = {}, index = 0) {
   return { key: config.key, label: config.label, beats }
 }
 
-function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, riskLevel }) {
+function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, riskLevel, supportingMaterials = [] }) {
   const contentBriefRaw = parsed.contentBrief || parsed.topicBrief || {}
   const factPack = normalizeFactPack(parsed.factPack || {}, evidence)
   // One shared factual explanation + three short opening perspectives. Do
@@ -272,7 +273,7 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
       code: 'TOPIC_PLANNING_INCOMPLETE', statusCode: 422, exposeMessage: true,
     })
   }
-  if (factPack.coreFacts.length < MIN_FACTS || factPack.actionableMethods.length < MIN_METHODS) {
+  if (factPack.coreFacts.length < MIN_FACTS || (!supportingMaterials.length && factPack.actionableMethods.length < MIN_METHODS)) {
     throw new AppError('검증 가능한 핵심 정보와 실행 방법을 충분히 구성하지 못했습니다.', {
       code: 'TOPIC_FACT_PACK_INCOMPLETE', statusCode: 422, exposeMessage: true,
     })
@@ -285,7 +286,7 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
 
   return {
     inputQuality: readiness.inputQuality,
-    inputBrief: { topic, ...readiness.inferredContext },
+    inputBrief: { topic, ...readiness.inferredContext, ...(supportingMaterials.length ? { supportingMaterials } : {}) },
     confirmedSpeakerFacts: (Array.isArray(parsed.speakerFacts) ? parsed.speakerFacts : []).filter(item =>
       typeof item?.userQuote === 'string' && item.userQuote.trim().length >= 6 &&
       Object.values({topic,...readiness.inferredContext}).some(value=>String(value||'').includes(item.userQuote.trim())))
@@ -293,6 +294,11 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
     clarifications: readiness.clarifications,
     contentBrief,
     factPack,
+    ...(supportingMaterials.length ? { referenceKnowledge: {
+      understanding: normalizeText(parsed.referenceKnowledge?.understanding, 1200),
+      selectedFacts: normalizeList(parsed.referenceKnowledge?.selectedFacts, 8, 700),
+      narrativeFocus: normalizeText(parsed.referenceKnowledge?.narrativeFocus, 700),
+    } } : {}),
     riskLevel,
     grounding: evidence,
     durationTarget: { minimumSeconds: TOPIC_DURATION.min, maximumSeconds: TOPIC_DURATION.targetMax, recommendedMaximumSeconds: TOPIC_DURATION.recommendedMax },
@@ -300,8 +306,10 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
   }
 }
 
-function buildPlanningPrompt({ topic, readiness, accountContext, categoryPrompt, hookTemplates, narrativePatterns, evidence, riskLevel }) {
+function buildPlanningPrompt({ topic, readiness, accountContext, categoryPrompt, hookTemplates, narrativePatterns, evidence, riskLevel, supportingMaterials = [] }) {
   return `주제: ${topic}\n사용자 맥락: ${JSON.stringify(readiness.inferredContext)}
+${formatSupportingMaterials(supportingMaterials)}
+${supportingMaterials.length ? '참고자료를 읽고 이해한 뒤 referenceKnowledge를 작성한다: understanding은 대상 자체의 특징과 청자의 상황 사이 관계를 이해한 메모, selectedFacts는 이번 전달 목적을 뒷받침하는 정보만 선택(보통 0~3개), narrativeFocus는 청자에게 전할 하나의 메시지다. 문서나 비교표의 존재를 설명하는 보고서가 아니라 대상의 기능·속성·조건을 직접 설명하는 지식으로 적는다. 자료에 없는 효능이나 기능은 추론하지 않는다. factPack과 sharedFlow도 이 선택을 중심으로 설계한다. actionableMethods는 청자에게 실제 행동 방법을 가르치는 목적일 때만 사용하며, 소개·설명·세일즈를 구매 체크리스트나 기능 확인법으로 바꿔 필드를 채우지 않는다. 방법 설명이 목적이 아니면 actionableMethods는 빈 배열이어도 된다. 자료 전체를 재구성하거나 자료의 불확실성을 설명하는 내용을 주제로 삼지 않는다. 사용자가 모든 항목을 넣으라고 명시했을 때만 빠짐없이 구성한다. referenceKnowledge는 {"understanding":"","selectedFacts":[],"narrativeFocus":""} 형식으로 최상위 JSON에 포함한다.' : ''}
 계정 참고: ${accountContext || '없음'}
 카테고리 참고: ${categoryPrompt}
 확인된 외부 근거: ${JSON.stringify(evidence.evidenceNotes || [])}
@@ -316,6 +324,9 @@ JSON만 반환한다:
 }
 
 function buildVariationPrompt({ planning, outline, config, writingRules, targetSeconds = 38 }) {
+  const { supportingMaterials = [], ...writerBrief } = planning.inputBrief || planning.contentBrief
+  const understoodReference = planning.referenceKnowledge?.understanding && planning.referenceKnowledge?.selectedFacts?.length
+    ? planning.referenceKnowledge : null
   const meaningOutline = (outline.beats || []).map(beat => ({
     meaning: beat.goal, nextBecause: beat.bridgeToNext,
     factIds: beat.factIds, methodIds: beat.methodIds,
@@ -323,17 +334,20 @@ function buildVariationPrompt({ planning, outline, config, writingRules, targetS
   return `${SPOKEN_SCRIPT_WRITING_RULES}\n${durationWritingGuidance(targetSeconds)}
 
 [최우선: 사용자가 실제로 전달하려는 내용]
-${JSON.stringify(planning.inputBrief || planning.contentBrief)}
+${JSON.stringify(writerBrief)}
 [이번 대본의 전달 목적]
 ${planning.contentBrief.communicationGoal || planning.contentBrief.desiredOutcome}
+${supportingMaterials.length ? SUPPORTING_MATERIAL_GUIDANCE : ''}
 [말하는 사람의 역할]
 ${planning.confirmedSpeakerFacts?.length ? `사용자가 제공한 화자 사실만 활용한다: ${JSON.stringify(planning.confirmedSpeakerFacts)}` : '이 화자는 자기 경험담의 주인공이 아니라, 주어진 정보를 청자에게 안내하는 진행자다. 청자가 처할 수 있는 상황을 보여주고 방법을 제안하는 현재형 설명으로 쓴다.'}
 [기획자가 정리한 설명 제안 — 그 자체가 검증 근거는 아님]
-${JSON.stringify(planning.factPack)}
+${JSON.stringify(understoodReference ? { referenceKnowledge: understoodReference, cautions: planning.factPack.cautions, forbiddenClaims: planning.factPack.forbiddenClaims } : planning.factPack)}
 [사실의 근거: 사용자 입력과 확인한 외부 자료]
-${JSON.stringify({user:planning.inputBrief,evidence:planning.grounding?.evidenceNotes || []})}
+${JSON.stringify({user:writerBrief,reference:understoodReference || (supportingMaterials.length ? planning.factPack.coreFacts : []),evidence:planning.grounding?.evidenceNotes || []})}
+${supportingMaterials.length ? '참고자료에서 선택한 기능·조건·수치는 사용자가 확인해 제공한 정보다. 이를 정보의 내용 자체로 설명한다. source의 존재나 외부 검증 상태를 발화문으로 설명할 필요는 없다. 제품의 선택 이유와 청자의 상황을 연결하되 알려지지 않은 기능을 덧붙이지 않는다.' : ''}
 [이 안의 설명 순서 — 표현을 베끼지 않는 의미 메모]
 ${JSON.stringify(meaningOutline)}
+${planning.inputBrief?.supportingMaterials?.length ? '첨부자료와 기획 메모는 필수 항목 목록이 아니다. 목적에 가장 도움이 되는 정보에 집중해 흐름을 다시 구성해도 된다. 자료 확인의 한계를 발화문으로 옮기는 대신, 정확히 아는 내용 안에서 시청자가 이해할 설명을 완성한다.' : ''}
 [참고 원칙 — 현재 요청과 충돌하면 현재 요청 우선]
 ${writingRules || '없음'}
 
@@ -408,7 +422,7 @@ async function evaluateVariations({ openai, model, planning, variations, hardVal
       },
       {
         role: 'user',
-        content: `사용자가 입력한 주제와 요구사항(평가의 기준):\n${JSON.stringify(planning.inputBrief || {topic:planning.contentBrief.topic,...planning.clarifications})}\n\n외부에서 확인한 근거(있는 경우에만):\n${JSON.stringify(planning.grounding?.evidenceNotes || [])}\n\n기획자가 만든 표현·역할명·비유를 정답으로 취급하지 말고 처음 듣는 시청자의 입장에서 판단한다.\n\n대본:\n${JSON.stringify(variations)}\n\n코드 검증 결과:\n${JSON.stringify(hardValidation.issuesByIndex)}\n\n각 안을 1~5점으로 평가한다.\n- relevance: 주제·타깃·사용자 필수 요청 충족. 표현 취향이나 설명의 자세함은 점수를 내리는 이유가 아니다. 사용자가 명시한 필수 항목·항목 수·제외 조건을 하나씩 대조한다. 숫자만 맞고 필요한 항목이 빠졌다면 3점 이하로 평가하고 빠진 요구를 issues에 적는다.\n- coherence: HOOK→BODY→CTA와 문장 사이 인과 연결. 같은 단어 반복 여부가 아니라 지시어를 포함한 실제 뜻의 연결을 본다. CTA는 본문 결론에서 이어지는 실행·반응인지 판단하고, 저장·댓글 같은 특정 동사가 있어야 통과하는 것은 아니다.\n- specificity: 실행 정보가 무엇을·어떻게·왜/언제까지 설명하는지\n- factualSafety: 없는 1인칭 경험·성과·제품 기능, 근거 없는 발생 빈도·행동 원인·결과 수치·건강·금전 효과 보장이 없는지. 기획자가 적은 정보팩 자체를 근거로 인정하지 않는다. 일상적인 방법 제안이나 비교 팁은 그 자체로 허위 사실로 보지 않는다.\n- naturalness: 참고 점수만 기록하며 합격 여부·재작성 조건에 사용하지 않는다. 말투의 문제는 issues나 speechIssues에 넣지 않는다\n- conceptMatches: A는 구체적 손실·회피 기준, B는 흔한 믿음과 새 기준의 대조, C는 타깃의 구체 상황·막힘에서 해결로 이어지는 관점을 의미로 확인한다. 특정 시작 단어나 표현 유무로 판정하지 않는다. 맞지 않으면 conceptIssue에 실제 문장을 인용해 이유를 적는다.\n- 코드 검증 이슈가 있으면 반드시 issues에 포함한다.\n점수와 별개로 criticalIssues를 먼저 판정한다. 다음 중 실제 문제가 있으면 점수가 높아도 반드시 criticalIssues에 넣는다: unsupported_fact(없는 경험·제품 기능·수치 등 사실), unsupported_effect(근거 없는 위험한 효과 보장), copied_experience(제공되지 않은 1인칭 경험·과거 행동을 실제 화자 사실처럼 서술), invented_context(주어진 상황과 모순), requested_requirement_missing(명시적 사용자 조건·필수 항목 누락), meaning_contradiction(실제 의미 모순). quote에는 문제가 되는 실제 대본 구절을, 누락은 requirement에 사용자 필수 요구를 인용하고 reason을 적는다. 일상적 방법 제안·가정한 상황·기준을 제안하는 말투 자체를 허위 경험으로 보지 않는다. 사용자 입력에 없는 과거 사용·행동·결과를 말하는 실제 경험담과 구분한다. 비판을 점수나 일반 issues에만 적고 criticalIssues를 비워두지 않는다. criticalIssues는 문제가 없으면 빈 배열이다.\nJSON만 반환한다: {"evaluations":[{"key":"A","criticalIssues":[],"scores":{"relevance":0,"coherence":0,"specificity":0,"factualSafety":0,"naturalness":0},"issues":[],"speechIssues":[],"conceptMatches":true},{"key":"B","criticalIssues":[],"scores":{},"issues":[],"speechIssues":[],"conceptMatches":true},{"key":"C","criticalIssues":[],"scores":{},"issues":[],"speechIssues":[],"conceptMatches":true}]}\n}`,
+        content: `${planning.inputBrief?.supportingMaterials?.length ? '첨부자료의 정보는 사용자가 확인해 제공한 사실 근거다. 외부 출처가 없거나 대본에서 출처를 반복하지 않았다는 이유만으로 unsupported_fact로 판정하지 않는다. 자료 전체가 필수 항목 목록은 아니며, 사용자 명시 조건에 필요한 부분만 선택할 수 있다. 자료에 없는 주장·화자 경험·기능을 새로 만들어낸 경우는 기존 기준대로 판정한다.\n' : ''}사용자가 입력한 주제와 요구사항(평가의 기준):\n${JSON.stringify(planning.inputBrief || {topic:planning.contentBrief.topic,...planning.clarifications})}\n\n외부에서 확인한 근거(있는 경우에만):\n${JSON.stringify(planning.grounding?.evidenceNotes || [])}\n\n기획자가 만든 표현·역할명·비유를 정답으로 취급하지 말고 처음 듣는 시청자의 입장에서 판단한다.\n\n대본:\n${JSON.stringify(variations)}\n\n코드 검증 결과:\n${JSON.stringify(hardValidation.issuesByIndex)}\n\n각 안을 1~5점으로 평가한다.\n- relevance: 주제·타깃·사용자 필수 요청 충족. 표현 취향이나 설명의 자세함은 점수를 내리는 이유가 아니다. 사용자가 명시한 필수 항목·항목 수·제외 조건을 하나씩 대조한다. 숫자만 맞고 필요한 항목이 빠졌다면 3점 이하로 평가하고 빠진 요구를 issues에 적는다.\n- coherence: HOOK→BODY→CTA와 문장 사이 인과 연결. 같은 단어 반복 여부가 아니라 지시어를 포함한 실제 뜻의 연결을 본다. CTA는 본문 결론에서 이어지는 실행·반응인지 판단하고, 저장·댓글 같은 특정 동사가 있어야 통과하는 것은 아니다.\n- specificity: 실행 정보가 무엇을·어떻게·왜/언제까지 설명하는지\n- factualSafety: 없는 1인칭 경험·성과·제품 기능, 근거 없는 발생 빈도·행동 원인·결과 수치·건강·금전 효과 보장이 없는지. 기획자가 적은 정보팩 자체를 근거로 인정하지 않는다. 일상적인 방법 제안이나 비교 팁은 그 자체로 허위 사실로 보지 않는다.\n- naturalness: 참고 점수만 기록하며 합격 여부·재작성 조건에 사용하지 않는다. 말투의 문제는 issues나 speechIssues에 넣지 않는다\n- conceptMatches: A는 구체적 손실·회피 기준, B는 흔한 믿음과 새 기준의 대조, C는 타깃의 구체 상황·막힘에서 해결로 이어지는 관점을 의미로 확인한다. 특정 시작 단어나 표현 유무로 판정하지 않는다. 맞지 않으면 conceptIssue에 실제 문장을 인용해 이유를 적는다.\n- 코드 검증 이슈가 있으면 반드시 issues에 포함한다.\n점수와 별개로 criticalIssues를 먼저 판정한다. 다음 중 실제 문제가 있으면 점수가 높아도 반드시 criticalIssues에 넣는다: unsupported_fact(없는 경험·제품 기능·수치 등 사실), unsupported_effect(근거 없는 위험한 효과 보장), copied_experience(제공되지 않은 1인칭 경험·과거 행동을 실제 화자 사실처럼 서술), invented_context(주어진 상황과 모순), requested_requirement_missing(명시적 사용자 조건·필수 항목 누락), meaning_contradiction(실제 의미 모순). quote에는 문제가 되는 실제 대본 구절을, 누락은 requirement에 사용자 필수 요구를 인용하고 reason을 적는다. 일상적 방법 제안·가정한 상황·기준을 제안하는 말투 자체를 허위 경험으로 보지 않는다. 사용자 입력에 없는 과거 사용·행동·결과를 말하는 실제 경험담과 구분한다. 비판을 점수나 일반 issues에만 적고 criticalIssues를 비워두지 않는다. criticalIssues는 문제가 없으면 빈 배열이다.\nJSON만 반환한다: {"evaluations":[{"key":"A","criticalIssues":[],"scores":{"relevance":0,"coherence":0,"specificity":0,"factualSafety":0,"naturalness":0},"issues":[],"speechIssues":[],"conceptMatches":true},{"key":"B","criticalIssues":[],"scores":{},"issues":[],"speechIssues":[],"conceptMatches":true},{"key":"C","criticalIssues":[],"scores":{},"issues":[],"speechIssues":[],"conceptMatches":true}]}\n}`,
       },
     ],
   })
@@ -473,6 +487,7 @@ export function preflightTopicOnlyScripts({ topic, accountSettings = {}, clarifi
 export async function generateTopicOnlyScripts({
   accountId,
   topic,
+  supportingMaterials = [],
   title = '',
   projectId = null,
   clientGenerationId = '',
@@ -484,6 +499,7 @@ export async function generateTopicOnlyScripts({
   onAccepted = null,
 }) {
   if (!hasSupabaseAdminConfig()) throw new AppError('Supabase admin client is not configured', { code: 'SUPABASE_NOT_CONFIGURED', statusCode: 500 })
+  supportingMaterials = normalizeSupportingMaterials(supportingMaterials)
   const normalizedTopic = normalizeText(topic, 500)
   if (normalizedTopic.length < 2) throw new AppError('릴스 주제를 2자 이상 입력해주세요.', { code: 'TOPIC_TOO_SHORT', statusCode: 400 })
 
@@ -520,6 +536,7 @@ export async function generateTopicOnlyScripts({
     id: referenceId,
     account_id: accountId,
     ...buildReferencePayload({ topic: normalizedTopic, title, projectId, clientGenerationId: normalizedIdempotencyKey, readiness }),
+    topic_brief: { ...buildReferencePayload({ topic: normalizedTopic, title, projectId, readiness }).topic_brief, ...(supportingMaterials.length ? { supportingMaterials } : {}) },
   }).select('*').single()
   if (createError) {
     if (createError.code === '23505' && normalizedIdempotencyKey) {
@@ -570,13 +587,14 @@ export async function generateTopicOnlyScripts({
             narrativePatterns: formatNarrativePatternsForPrompt(narrativeResult.patterns || [], 2),
             evidence,
             riskLevel,
+            supportingMaterials,
           }),
         },
       ],
     })
     logAIUsage('topic-script-planning', planningResponse, { model: variationModel, accountId, referenceId, ...usageContext })
     const planning = normalizePlanningResult(readModelResult(planningResponse), {
-      topic: normalizedTopic, readiness, evidence, riskLevel,
+      topic: normalizedTopic, readiness, evidence, riskLevel, supportingMaterials,
     })
     const rules = await collectWritingRules(planning)
     const writingRules = formatWritingPlaybookRulesForPrompt(rules)
@@ -634,6 +652,7 @@ export async function generateTopicOnlyScripts({
 
     const topicBrief = {
       ...planning,
+      ...(supportingMaterials.length ? { supportingMaterials } : {}),
       estimatedDurationSeconds: hardValidation.metricsByIndex.map((item) => item.estimatedSeconds),
       qualityScores: evaluations,
       qualityGatePassed: qualityPassed,

@@ -10,18 +10,18 @@ if (typeof mock.module !== 'function') {
   })
 } else {
   const path = name => new URL('../src/lib/' + name, import.meta.url).href
-  let failPreview = false, seq = 0
+  let failPreview = false, seq = 0, storedRow = {}
   const noop = async () => ({})
   const db = { rpc: noop, from() {
     let payload = null
     const q = {
-      insert(value) { payload = value; return q }, update(value) { payload = value; return q },
+      insert(value) { payload = value; storedRow = { ...value }; return q }, update(value) { payload = value; storedRow = { ...storedRow, ...value }; return q },
       select() { return q }, eq() { return q }, in() { return q }, gte() { return q },
       order() { return q }, limit() { return q },
       async maybeSingle() { return { data: { id: 'preview-ref', processing_status: 'processing', ...payload }, error: null } },
       async single() { return failPreview && payload?.current_stage === 'draft-generation'
         ? { data: null, error: { message: 'synthetic preview persistence failure' } }
-        : { data: { id: 'preview-ref', ...payload }, error: null } },
+        : { data: { id: 'preview-ref', ...storedRow, ...payload }, error: null } },
       then(resolve) { return Promise.resolve({ data: [], error: null }).then(resolve) },
     }
     return q
@@ -55,6 +55,19 @@ if (typeof mock.module !== 'function') {
     assert.deepEqual(preview.variations, [])
     assert.equal(preview.transcript_quality.reliable, true)
     assert.equal(Object.hasOwn(preview, 'data'), false)
+  })
+
+  test('reference preview retains attachment facts and separates changed-material fingerprints', async () => {
+    failPreview = false
+    const previews = []
+    for (const content of ['행사는 11월 3일입니다.', '행사는 11월 4일입니다.']) {
+      await assert.rejects(analyzeReferenceVideo({ accountId: 'synthetic-' + ++seq, scriptText,
+        supportingMaterials: [{ name: '행사.txt', content }],
+        onAnalysisPreviewReady(value) { previews.push(structuredClone(value)); throw stop } }), error => error === stop || error.cause === stop)
+    }
+    assert.equal(previews[0].topic_brief.supportingMaterials[0].content, '행사는 11월 3일입니다.')
+    assert.equal(previews[1].topic_brief.supportingMaterials[0].content, '행사는 11월 4일입니다.')
+    assert.notEqual(previews[0].analysis_fingerprint, previews[1].analysis_fingerprint)
   })
 
   test('failed preview persistence cannot publish a successful empty analysis', async () => {

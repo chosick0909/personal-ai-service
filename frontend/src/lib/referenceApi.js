@@ -1,3 +1,4 @@
+import { normalizeSupportingMaterials } from '../../../shared/supporting-materials.mjs'
 import { apiFetch, createApiError, parseApiResponse } from './api'
 
 function splitVariationSections(variation = '') {
@@ -297,10 +298,12 @@ export async function analyzeReferenceVideo({
   projectId,
   referenceId,
   clientUploadId,
+  supportingMaterials = [],
   signal,
 }) {
   const formData = new FormData()
   formData.append('video', file)
+  formData.append('supportingMaterials', JSON.stringify(normalizeSupportingMaterials(supportingMaterials)))
   formData.append('asyncProcessing', '1')
   if (referenceId) {
     formData.append('referenceId', String(referenceId))
@@ -350,6 +353,7 @@ export async function analyzeReferenceScriptText({
   accountId,
   projectId,
   clientUploadId,
+  supportingMaterials = [],
   signal,
 }) {
   const response = await apiFetch('/api/reference-videos/analyze-text', {
@@ -360,6 +364,7 @@ export async function analyzeReferenceScriptText({
     },
     timeoutMs: 8 * 60 * 1000,
     body: JSON.stringify({
+      supportingMaterials: normalizeSupportingMaterials(supportingMaterials),
       scriptText,
       accountId,
       projectId: projectId || null,
@@ -385,6 +390,7 @@ export async function generateScriptsFromTopic({
   projectId,
   clientGenerationId,
   clarifications,
+  supportingMaterials = [],
   signal,
 }) {
   const response = await apiFetch('/api/reference-videos/generate-topic', {
@@ -395,6 +401,7 @@ export async function generateScriptsFromTopic({
     },
     timeoutMs: 8 * 60 * 1000,
     body: JSON.stringify({
+      supportingMaterials: normalizeSupportingMaterials(supportingMaterials),
       topic: String(topic || '').trim(),
       title: String(title || '').trim(),
       accountId,
@@ -721,4 +728,14 @@ export async function generateChatReply({
     diff: payload.diff || null,
     flowValidation: payload.flowValidation,
   }
+}
+
+export async function readSupportingFiles(files, { signal, readingContext = '' } = {}) {
+  const body = new FormData()
+  files.forEach(file => body.append('files', file))
+  if (readingContext) body.append('readingContext', String(readingContext).slice(0, 1000))
+  const response = await apiFetch('/api/reference-videos/supporting-materials', { method: 'POST', body, signal, timeoutMs: 6 * 60 * 1000 })
+  const payload = await parseApiResponse(response)
+  if (!response.ok) throw createApiError(response, payload, '참고자료를 읽지 못했습니다.')
+  return payload.items
 }

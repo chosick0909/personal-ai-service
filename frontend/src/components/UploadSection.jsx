@@ -1,3 +1,4 @@
+import SupportingMaterials from './SupportingMaterials'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { preflightScriptsFromTopic } from '../lib/referenceApi'
 import { useAppState } from '../store/AppState'
@@ -81,6 +82,9 @@ export default function UploadSection() {
     currentAccount,
     ensureTopicAccount,
   } = useAppState()
+  const [supportingMaterials, setSupportingMaterials] = useState([])
+  const [isReadingMaterials, setIsReadingMaterials] = useState(false)
+  const materialsBlocked = isReadingMaterials || supportingMaterials.some(item => item.status !== 'ready')
   const [generationMode, setGenerationMode] = useState('reference')
   const [inputMode, setInputMode] = useState('video')
   const [dragActive, setDragActive] = useState(false)
@@ -303,7 +307,7 @@ export default function UploadSection() {
   }, [analyzeErrorType, localUploadError])
 
   const handleFile = async (file) => {
-    if (!file || isAnalyzing) {
+    if (!file || isAnalyzing || materialsBlocked) {
       return
     }
 
@@ -314,11 +318,11 @@ export default function UploadSection() {
     }
 
     setLocalUploadError('')
-    await analyzeReference(file, { topic: uploadTopic })
+    await analyzeReference(file, { topic: uploadTopic, supportingMaterials })
   }
 
   const handleScriptAnalyze = async () => {
-    if (isAnalyzing) {
+    if (isAnalyzing || materialsBlocked) {
       return
     }
     const normalized = referenceScriptText.trim()
@@ -327,11 +331,11 @@ export default function UploadSection() {
       return
     }
     setLocalUploadError('')
-    await analyzeReferenceScript(normalized, { topic: uploadTopic })
+    await analyzeReferenceScript(normalized, { topic: uploadTopic, supportingMaterials })
   }
 
   const handleTopicGenerate = async () => {
-    if (isAnalyzing || isTopicPreflighting) return
+    if (isAnalyzing || isTopicPreflighting || materialsBlocked) return
     const normalizedTopic = uploadTopic.trim()
     if (normalizedTopic.length < 2) {
       setLocalUploadError('기획할 릴스 주제를 2자 이상 입력해주세요.')
@@ -374,6 +378,7 @@ export default function UploadSection() {
       setClarificationTopic('')
       await generateTopicScripts(normalizedTopic, {
         title: uploadTitle,
+        supportingMaterials,
         clarifications: topicClarifications,
         accountId: topicAccount.id,
       })
@@ -480,6 +485,7 @@ export default function UploadSection() {
                 ? '타깃·카테고리·말투·상품·CTA는 계정 사전세팅에서 불러옵니다.'
                 : '계정 사전세팅은 그대로 참고하고, 이번 영상에서 다룰 소주제가 있으면 여기에 적어주세요.'}
             </p>
+            <SupportingMaterials items={supportingMaterials} onChange={setSupportingMaterials} onBusyChange={setIsReadingMaterials} accountId={currentAccount?.id} topic={uploadTopic} disabled={isTopicPreflighting} />
           </div>
         ) : null}
 
@@ -584,7 +590,7 @@ export default function UploadSection() {
                   <button
                     type="button"
                     onClick={handleTopicGenerate}
-                    disabled={isTopicPreflighting}
+                    disabled={isTopicPreflighting || materialsBlocked}
                     className="btn-solid-contrast h-12 rounded-full px-7 text-sm font-semibold transition hover:bg-white disabled:cursor-wait disabled:opacity-60"
                   >
                     {isTopicPreflighting
@@ -751,7 +757,7 @@ export default function UploadSection() {
               {inputMode === 'script' && currentStep !== 'analyzing' ? (
                 <button
                   type="button"
-                  disabled={isAnalyzing}
+                  disabled={isAnalyzing || materialsBlocked}
                   onClick={handleScriptAnalyze}
                   className="btn-solid-contrast inline-flex h-11 min-w-[132px] items-center justify-center rounded-full px-5 text-xs font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:h-14 md:min-w-[180px] md:px-6 md:text-base"
                 >
@@ -760,7 +766,7 @@ export default function UploadSection() {
               ) : (
                 <button
                   type="button"
-                  disabled={isAnalyzing}
+                  disabled={isAnalyzing || materialsBlocked}
                   onClick={() => fileInputRef.current?.click()}
                   className="btn-solid-contrast inline-flex h-11 min-w-[116px] items-center justify-center rounded-full px-5 text-xs font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition hover:bg-[#E5E7EB] disabled:cursor-not-allowed disabled:opacity-70 md:h-14 md:min-w-[150px] md:px-6 md:text-base"
                 >
