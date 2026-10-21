@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
 # Public reel metadata only; no cookies, account login or media download.
-RUN apk add --no-cache python3 py3-pip && python3 -m venv /opt/reel-extractor \
+RUN apk add --no-cache python3 py3-pip tesseract-ocr tesseract-ocr-data-eng tesseract-ocr-data-kor && python3 -m venv /opt/reel-extractor \
     && /opt/reel-extractor/bin/pip install --no-cache-dir yt-dlp==2026.8.19
 ENV PATH="/opt/reel-extractor/bin:${PATH}"
 

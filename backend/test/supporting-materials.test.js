@@ -2,9 +2,20 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { extractSupportingMaterials } from '../src/lib/supporting-materials.js'
 import { validateMaterialSelection, normalizeSupportingMaterials, formatSupportingMaterials } from '../../shared/supporting-materials.mjs'
-import { imageReadingRegions, prepareSupportingImage } from '../src/lib/supporting-image-inputs.js'
+import { imageReadingRegions, prepareSupportingImage, recognizeSupportingImageText } from '../src/lib/supporting-image-inputs.js'
 const file = (name, bytes) => ({ originalname: name, size: bytes.length, buffer: bytes })
 const response = { status: 'completed', output_text: JSON.stringify({ readable: true, content: '합성 행사 안내: 11월 3일 오후 2시, 온라인 진행. 준비물은 필기구.', warnings: [] }) }
+test('independent OCR preserves glyphs and uses bounded, cancellable native processing', async () => {
+  const signal = new AbortController().signal
+  const calls=[]
+  const text=await recognizeSupportingImageText('/tmp/a file;not-shell.png',signal,async (...args)=>{calls.push(args);return {stdout:'  합성 8중 패턴 · 12.5L\n  '}})
+  assert.equal(text,'합성 8중 패턴 · 12.5L')
+  assert.equal(calls[0][0],'tesseract')
+  assert.equal(calls[0][1][0],'/tmp/a file;not-shell.png')
+  assert.equal(calls[0][2].signal,signal)
+  assert.ok(calls[0][2].timeout<=20000)
+  await assert.rejects(recognizeSupportingImageText('/tmp/x',signal,async()=>{throw new Error('OCR unavailable')}),/OCR unavailable/)
+})
 function clientReturning(value = response) { const calls = []; return { calls, responses: { async create(body) { calls.push(body); return value } } } }
 
 test('file type, per-file, aggregate size and normalized context limits are enforced', () => {

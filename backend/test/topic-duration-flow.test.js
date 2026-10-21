@@ -11,7 +11,7 @@ if(typeof mock.module!=='function') {
  const client={chat:{completions:{async create(request){calls.push(request);let data
   const system=request.messages[0].content
   if(system.includes('콘텐츠 전략가')) {data=planningFixture();if(request.messages[1].content.includes('MATERIAL_CONTEXT_SENTINEL'))data.referenceKnowledge={understanding:'행사 안내 참고자료를 이해했다.',selectedFacts:['SELECTED_CONTEXT_SENTINEL: 행사 일시는 11월 3일 오후 2시.'],narrativeFocus:'일정을 자연스럽게 설명한다.'}}
-  else if(system.includes('품질 심사자'))data={evaluations:['A','B','C'].map(key=>({key,criticalIssues:mode==='critical'?[{type:'unsupported_fact',quote:'없는 사실',reason:'합성 허위 경험'}]:[],conceptMatches:true,scores:{relevance:5,coherence:5,specificity:5,factualSafety:mode==='critical'?1:5,naturalness:mode==='style'?1:5},issues:[]}))}
+  else if(system.includes('품질 심사자'))data={evaluations:['A','B','C'].map(key=>({key,sourceClaims:[],criticalIssues:mode==='critical'?[{type:'unsupported_fact',quote:'없는 사실',reason:'합성 허위 경험'}]:[],conceptMatches:true,scores:{relevance:5,coherence:5,specificity:5,factualSafety:mode==='critical'?1:5,naturalness:mode==='style'?1:5},issues:[]}))}
   else {const i=['A','B','C'].findIndex(key=>request.messages[1].content.includes(key+'안 '+({A:'손실 회피형',B:'통념 반박형',C:'공감 스토리형'}[key])));data=structuredClone(shortDrafts[Math.max(i,0)]);if(mode==='long'||(mode==='repair'&&!system.includes('재작성')))data.body=data.body.repeat(3)}
   return {choices:[{message:{content:JSON.stringify(data)},finish_reason:mode==='cut'?'length':'stop'}]}
  }}}}
@@ -41,6 +41,12 @@ if(typeof mock.module!=='function') {
   assert.equal(planning.factPack.actionableMethods.length,0)
   fixture.factPack.coreFacts=[]
   assert.throws(()=>helpers.normalizePlanningResult(fixture,args),{code:'TOPIC_FACT_PACK_INCOMPLETE'})
+ })
+ test('an unsupported source attribute cannot hide in diagnostic notes with an empty critical list',async()=>{
+  const {__topicScriptGenerationTest:helpers}=await import('../src/lib/topic-script-generation.js')
+  const reviewer={chat:{completions:{async create(){return {choices:[{message:{content:JSON.stringify({evaluations:['A','B','C'].map(key=>({key,criticalIssues:[],sourceClaims:[{quote:'새로운 제품 속성',supported:false,reason:'자료에는 이 속성이 없음'}],scores:{factualSafety:5},issues:[],conceptMatches:true}))})},finish_reason:'stop'}]}}}}}
+  const result=await helpers.evaluateVariations({openai:reviewer,model:'stub',planning:{inputBrief:{supportingMaterials:[{name:'자료.txt',content:'제공된 기능'}]},grounding:{}},variations:shortDrafts,hardValidation:{issuesByIndex:[[],[],[]]}})
+  assert.ok(result.every(item=>!item.pass&&item.criticalIssues.some(issue=>issue.type==='unsupported_fact')))
  })
  test('attachment planning resolves account defaults against current topic without replacing explicit answers',async()=>{
   const {__topicScriptGenerationTest:helpers}=await import('../src/lib/topic-script-generation.js')

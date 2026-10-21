@@ -396,7 +396,7 @@ async function collectWritingRules(planning) {
   return Array.from(unique.values()).slice(0, 8)
 }
 
-function normalizeEvaluation(parsed = {}, variations = []) {
+function normalizeEvaluation(parsed = {}, variations = [], requireSourceClaims = false) {
   const items = Array.isArray(parsed.evaluations) ? parsed.evaluations : []
   return TOPIC_VARIATION_CONFIGS.map((config, index) => {
     const item = items[index] || {}
@@ -413,7 +413,14 @@ function normalizeEvaluation(parsed = {}, variations = []) {
     const criticalKinds = new Set(['unsupported_fact','unsupported_effect','copied_experience','invented_context','requested_requirement_missing','meaning_contradiction'])
     const criticalReviewValid = Array.isArray(item.criticalIssues) && item.criticalIssues.every(issue=>
       issue && criticalKinds.has(issue.type) && typeof issue.reason === 'string' && issue.reason.trim())
-    const criticalIssues = criticalReviewValid ? item.criticalIssues : [{type:'critical_review_invalid',reason:'치명 문제 판정 형식이 올바르지 않음'}]
+    const criticalIssues = criticalReviewValid ? [...item.criticalIssues] : [{type:'critical_review_invalid',reason:'치명 문제 판정 형식이 올바르지 않음'}]
+    if (requireSourceClaims) {
+      if (!Array.isArray(item.sourceClaims)) criticalIssues.push({type:'critical_review_invalid',reason:'첨부 사실 대조가 누락됨'})
+      else for (const claim of item.sourceClaims) {
+        if (typeof claim?.quote !== 'string' || typeof claim?.supported !== 'boolean' || typeof claim?.reason !== 'string') criticalIssues.push({type:'critical_review_invalid',reason:'첨부 사실 대조 형식이 올바르지 않음'})
+        else if (!claim.supported) criticalIssues.push({type:'unsupported_fact',quote:claim.quote,reason:claim.reason || '제공자료가 이 제품 속성을 뒷받침하지 않음'})
+      }
+    }
     const conceptMatches = item?.conceptMatches === true
     const pass = criticalIssues.length === 0
     return { key: config.key, pass, scores, conceptMatches, speechIssues, criticalIssues,
@@ -424,13 +431,14 @@ function normalizeEvaluation(parsed = {}, variations = []) {
 }
 
 async function evaluateVariations({ openai, model, planning, variations, hardValidation, accountId, referenceId, usageContext }) {
+  const hasMaterials = Boolean(planning.inputBrief?.supportingMaterials?.length)
   const response = await openai.chat.completions.create({
     model,
     response_format: { type: 'json_object' },
     messages: [
       {
         role: 'system',
-        content: '당신은 숏폼 정보 대본 품질 심사자다. 사용자가 명시한 필수 요구의 충족과 사실 안전성을 검사한다. 후킹 방식·설명 스타일·구체성 점수·A/B/C의 기획 관점·문장 배치·길이는 참고 지표이며 재작성 사유가 아니다. 말투·어휘 취향·구어체를 실패 기준으로 사용하거나 말투 개선을 issues에 넣지 않는다. JSON만 반환한다.',
+        content: '당신은 숏폼 정보 대본 품질 심사자다. 사용자가 명시한 필수 요구의 충족과 사실 안전성을 검사한다. 후킹 방식·설명 스타일·구체성 점수·A/B/C의 기획 관점·문장 배치·길이는 참고 지표이며 재작성 사유가 아니다. 말투·어휘 취향·구어체를 실패 기준으로 사용하거나 말투 개선을 issues에 넣지 않는다. JSON만 반환한다.' + (hasMaterials ? ' 각 evaluations 항목에 sourceClaims 배열도 반드시 반환한다. 대본의 제품·행사에 대한 구체적 속성(기능·수치·사용 방식·원리·비교 성능·행사 조건)을 빠짐없이 분리하여 {"quote":"실제 대본 구절","supported":true,"reason":"제공자료가 직접 뒷받침하는 내용"} 형식으로 대조한다. 직접 근거가 없거나 수치·부품에서 다른 속성을 추론했으면 supported=false로 기록한다. 이 대조는 점수나 일반 issues와 독립적인 판정이다. 평범한 행동 제안·가정·일상적 편의 기대는 새로운 제품 속성을 주장하지 않으면 이 배열에 넣지 않는다. 대상 속성이 없는 대본만 빈 배열이다.' : ''),
       },
       {
         role: 'user',
@@ -439,7 +447,7 @@ async function evaluateVariations({ openai, model, planning, variations, hardVal
     ],
   })
   logAIUsage('topic-script-quality-evaluation', response, { model, accountId, referenceId, ...usageContext })
-  const evaluations = normalizeEvaluation(readModelResult(response), variations)
+  const evaluations = normalizeEvaluation(readModelResult(response), variations, hasMaterials)
   if (evaluations.some(item=>item.criticalIssues.some(issue=>issue.type==='critical_review_invalid'))) {
     throw new AppError('필수 사실 검토의 응답 형식이 올바르지 않습니다.',{code:'INVALID_CRITICAL_REVIEW',statusCode:502})
   }
