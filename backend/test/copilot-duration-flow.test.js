@@ -57,12 +57,12 @@ if(typeof mock.module!=='function'){
   assert.equal(changed.ok,false)
   assert.ok(changed.issueTypes.includes('section_instruction_violation'))
  })
- test('copilot reviewer gets measured seconds and only its own output contract',async()=>{
+ test('copilot reviewer treats duration as guidance and uses only its review output contract',async()=>{
   calls=[];outputs=[{ok:false,shouldRepair:true,issues:[{type:'duration_out_of_range',severity:'high',section:'all',reason:'model guessed incorrectly'}]}]
   const qa=await validateRefinedScriptQuality({...args,proposedSections:original})
   assert.equal(qa.ok,true,'model timing guesses must not override a passing code measurement')
   const prompt=calls[0].messages.map(m=>m.content).join('\n')
-  assert.ok(prompt.includes('시간·글자 수는 생성 지침이고 실패 조건이 아니다'))
+  assert.match(prompt, /시간·글자 수.*작성 지침이며 실패 조건이 아니다/)
   assert.equal(prompt.includes('목표 글자 범위(공백 제외)'),false)
   assert.equal(prompt.includes('speechIssues는'),false)
  })
