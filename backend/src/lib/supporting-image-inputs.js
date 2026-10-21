@@ -9,6 +9,8 @@ import { join } from 'node:path'
 const execFile = promisify(execFileCallback)
 
 export async function recognizeSupportingImageText(path, signal, run = execFile) {
+  // The production Railpack runtime installs this through root railpack.json;
+  // backend/Dockerfile includes the matching packages for Docker builds.
   // An independent OCR engine gives the visual reader another transcription to
   // compare against the pixels; neither draft is treated as ground truth.
   const { stdout } = await run('tesseract', [path, 'stdout', '-l', 'kor+eng', '--psm', '11'], {
