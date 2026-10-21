@@ -42,6 +42,23 @@ if(typeof mock.module!=='function') {
   fixture.factPack.coreFacts=[]
   assert.throws(()=>helpers.normalizePlanningResult(fixture,args),{code:'TOPIC_FACT_PACK_INCOMPLETE'})
  })
+ test('attachment planning resolves account defaults against current topic without replacing explicit answers',async()=>{
+  const {__topicScriptGenerationTest:helpers}=await import('../src/lib/topic-script-generation.js')
+  const fixture=planningFixture()
+  Object.assign(fixture.contentBrief,{targetAudience:'마사지기 구매를 고민하는 성인',specificProblem:'제품 기능을 비교하기 어려움',desiredOutcome:'제품 정보를 이해하고 구매를 고려함'})
+  const account={targetAudience:'기존 계정 타깃',specificProblem:'기존의 무관한 고민',desiredOutcome:'기존 계정 변화'}
+  const args={topic:'마사지기 제품 소개',readiness:{inferredContext:account,clarifications:{}},evidence:{evidenceNotes:[]},riskLevel:'low',supportingMaterials:[{name:'제품.txt',content:'사용자 제공 제품 기능'}]}
+  fixture.referenceKnowledge={understanding:'제품의 기능을 이해한다',selectedFacts:[{subject:'제품',predicate:'강도 조절을 제공한다'},'사용자 제공 문자열 사실',{}]}
+  const resolved=helpers.normalizePlanningResult(fixture,args)
+  assert.deepEqual(resolved.referenceKnowledge.selectedFacts,['제품 강도 조절을 제공한다','사용자 제공 문자열 사실'])
+  assert.equal(resolved.inputBrief.specificProblem,fixture.contentBrief.specificProblem)
+  assert.equal(resolved.contentBrief.targetAudience,fixture.contentBrief.targetAudience)
+  assert.equal(JSON.stringify(resolved.inputBrief).includes('기존의 무관한 고민'),false)
+  args.readiness.clarifications={targetAudience:'이번에 직접 지정한 타깃'}
+  assert.equal(helpers.normalizePlanningResult(fixture,args).contentBrief.targetAudience,'이번에 직접 지정한 타깃')
+  args.supportingMaterials=[]
+  assert.equal(helpers.normalizePlanningResult(fixture,args).contentBrief.specificProblem,account.specificProblem)
+ })
  test('timing alone never adds a regeneration call or rejects the generated script',async()=>{mode='long';calls=[];flow.reset();const result=await flow.generateTopicOnlyScripts(input);assert.equal(result.analysis.processing_status,'completed');assert.ok(result.analysis.topic_brief.estimatedDurationSeconds.every(n=>n>60));assert.equal(result.analysis.topic_brief.repaired,false);assert.equal(calls.length,5);assert.ok(calls.filter(c=>!c.messages[0].content.includes('심사자')).some(c=>JSON.stringify(c.messages).includes('30~50초')))})
  test('planner cannot replace user context and evaluator is independent of planning language',async()=>{
   const {__topicScriptGenerationTest:helpers}=await import('../src/lib/topic-script-generation.js')

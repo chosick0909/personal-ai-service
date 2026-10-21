@@ -259,10 +259,16 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
     }))
     return normalizeOutline({beats: [...(opening ? [{section:'hook',goal:opening}] : []), ...beats]}, index)
   })
+  // Resolve attachment knowledge against this topic, not unrelated account defaults.
+  // Explicit answers remain binding; the non-attachment path keeps its contract.
+  const resolveContext = (key, maxLength) => normalizeText(readiness.clarifications?.[key], maxLength)
+    || (supportingMaterials.length ? normalizeText(contentBriefRaw[key], maxLength) : '')
+    || (!supportingMaterials.length ? readiness.inferredContext[key] : '')
+    || normalizeText(contentBriefRaw[key], maxLength)
   const contentBrief = {
-    targetAudience: readiness.inferredContext.targetAudience || normalizeText(contentBriefRaw.targetAudience, 300),
-    specificProblem: readiness.inferredContext.specificProblem || normalizeText(contentBriefRaw.specificProblem, 500),
-    desiredOutcome: readiness.inferredContext.desiredOutcome || normalizeText(contentBriefRaw.desiredOutcome, 500),
+    targetAudience: resolveContext('targetAudience', 300),
+    specificProblem: resolveContext('specificProblem', 500),
+    desiredOutcome: resolveContext('desiredOutcome', 500),
     corePromise: normalizeText(contentBriefRaw.corePromise, 500),
     communicationGoal: normalizeText(contentBriefRaw.communicationGoal, 500) || readiness.inferredContext.desiredOutcome,
     topic,
@@ -286,7 +292,7 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
 
   return {
     inputQuality: readiness.inputQuality,
-    inputBrief: { topic, ...readiness.inferredContext, ...(supportingMaterials.length ? { supportingMaterials } : {}) },
+    inputBrief: { topic, ...(supportingMaterials.length ? { targetAudience: contentBrief.targetAudience, specificProblem: contentBrief.specificProblem, desiredOutcome: contentBrief.desiredOutcome, supportingMaterials } : readiness.inferredContext) },
     confirmedSpeakerFacts: (Array.isArray(parsed.speakerFacts) ? parsed.speakerFacts : []).filter(item =>
       typeof item?.userQuote === 'string' && item.userQuote.trim().length >= 6 &&
       Object.values({topic,...readiness.inferredContext}).some(value=>String(value||'').includes(item.userQuote.trim())))
@@ -296,7 +302,12 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
     factPack,
     ...(supportingMaterials.length ? { referenceKnowledge: {
       understanding: normalizeText(parsed.referenceKnowledge?.understanding, 1200),
-      selectedFacts: normalizeList(parsed.referenceKnowledge?.selectedFacts, 8, 700),
+      selectedFacts: normalizeList((Array.isArray(parsed.referenceKnowledge?.selectedFacts) ? parsed.referenceKnowledge.selectedFacts : []).map(item => {
+        if (typeof item === 'string') return item
+        if (!item || typeof item !== 'object') return ''
+        if (typeof item.subject === 'string' && typeof item.predicate === 'string') return `${item.subject} ${item.predicate}`
+        return typeof item.claim === 'string' ? item.claim : ''
+      }), 8, 700),
       narrativeFocus: normalizeText(parsed.referenceKnowledge?.narrativeFocus, 700),
     } } : {}),
     riskLevel,
@@ -307,10 +318,11 @@ function normalizePlanningResult(parsed = {}, { topic, readiness, evidence, risk
 }
 
 function buildPlanningPrompt({ topic, readiness, accountContext, categoryPrompt, hookTemplates, narrativePatterns, evidence, riskLevel, supportingMaterials = [] }) {
-  return `주제: ${topic}\n사용자 맥락: ${JSON.stringify(readiness.inferredContext)}
+  return `${supportingMaterials.length ? `이번 주제(최우선): ${topic}\n이번 작업에서 직접 답한 조건(필수): ${JSON.stringify(readiness.clarifications || {})}\n계정에서 추정한 기본 맥락(참고): ${JSON.stringify(readiness.inferredContext)}` : `주제: ${topic}\n사용자 맥락: ${JSON.stringify(readiness.inferredContext)}`}
 ${formatSupportingMaterials(supportingMaterials)}
-${supportingMaterials.length ? '참고자료를 읽고 이해한 뒤 referenceKnowledge를 작성한다: understanding은 대상 자체의 특징과 청자의 상황 사이 관계를 이해한 메모, selectedFacts는 이번 전달 목적을 뒷받침하는 정보만 선택(보통 0~3개), narrativeFocus는 청자에게 전할 하나의 메시지다. 문서나 비교표의 존재를 설명하는 보고서가 아니라 대상의 기능·속성·조건을 직접 설명하는 지식으로 적는다. 자료에 없는 효능이나 기능은 추론하지 않는다. factPack과 sharedFlow도 이 선택을 중심으로 설계한다. actionableMethods는 청자에게 실제 행동 방법을 가르치는 목적일 때만 사용하며, 소개·설명·세일즈를 구매 체크리스트나 기능 확인법으로 바꿔 필드를 채우지 않는다. 방법 설명이 목적이 아니면 actionableMethods는 빈 배열이어도 된다. 자료 전체를 재구성하거나 자료의 불확실성을 설명하는 내용을 주제로 삼지 않는다. 사용자가 모든 항목을 넣으라고 명시했을 때만 빠짐없이 구성한다. referenceKnowledge는 {"understanding":"","selectedFacts":[],"narrativeFocus":""} 형식으로 최상위 JSON에 포함한다.' : ''}
+${supportingMaterials.length ? '참고자료를 읽고 이해한 뒤 referenceKnowledge를 작성한다: understanding은 대상 자체의 특징과 청자의 상황 사이 관계를 이해한 메모, selectedFacts는 이번 전달 목적을 뒷받침하는 정보만 선택(보통 0~3개)하고, 각 사실의 주어는 실제 대상(제품·행사·사람), 서술어는 그 대상의 기능·속성·조건으로 쓴다. 이미지·문서·표를 주어나 근거 확인 행위의 대상으로 삼지 않는다. 원문을 읽었다는 메모가 아니라, 대상에 관해 이해한 지식으로 변환한다. narrativeFocus는 청자에게 전할 하나의 메시지다. 문서나 비교표의 존재를 설명하는 보고서가 아니라 대상의 기능·속성·조건을 직접 설명하는 지식으로 적는다. 자료에 없는 효능이나 기능은 추론하지 않는다. factPack과 sharedFlow도 이 선택을 중심으로 설계한다. actionableMethods는 청자에게 실제 행동 방법을 가르치는 목적일 때만 사용하며, 소개·설명·세일즈를 구매 체크리스트나 기능 확인법으로 바꿔 필드를 채우지 않는다. 방법 설명이 목적이 아니면 actionableMethods는 빈 배열이어도 된다. 자료 전체를 재구성하거나 자료의 불확실성을 설명하는 내용을 주제로 삼지 않는다. 사용자가 모든 항목을 넣으라고 명시했을 때만 빠짐없이 구성한다. referenceKnowledge는 {"understanding":"","selectedFacts":[{"subject":"실제 대상","predicate":"그 대상의 기능·속성·조건"}],"narrativeFocus":""} 형식으로 최상위 JSON에 포함한다.' : ''}
 계정 참고: ${accountContext || '없음'}
+${supportingMaterials.length ? '이번 주제와 직접 답한 조건에서 전달 대상·상황·목적을 먼저 정하고 contentBrief에 기록한다. 계정 기본 고민·관심사·캐릭터는 이번 주제와 실제로 관련 있을 때만 보완한다. 기본값을 상품의 용도나 효과를 설명하는 근거로 삼거나 관련 없는 고민을 억지로 상품과 연결하지 않는다. 첨부자료에 없는 사용 부위·효과·진단을 계정 설정에서 가져오지 않는다. 계정 기본값을 이번에 사용자가 직접 요청한 조건으로 취급하지 않는다.' : ''}
 카테고리 참고: ${categoryPrompt}
 확인된 외부 근거: ${JSON.stringify(evidence.evidenceNotes || [])}
 참고 전개 원리(문장 복사 금지): ${hookTemplates}\n${narrativePatterns}
@@ -320,7 +332,7 @@ ${supportingMaterials.length ? '참고자료를 읽고 이해한 뒤 referenceKn
 speakerFacts에는 사용자가 직접 제공한 화자의 실제 경험·사실이 있을 때만 그 원문을 userQuote로 인용하고, 없으면 빈 배열로 둔다. 가상의 예시나 경험을 만들지 말라는 문장을 경험 근거로 삼지 않는다. corePromise는 청자가 얻는 실제 이해나 행동이다. coreFacts는 확인한 내용과 이유·조건, actionableMethods는 행동·방법·시점이다. sharedFlow는 이 정보를 전달하는 순서만 2~4개 짧은 의미 메모로 적고, 사용자 항목 여러 개를 하나에 묶어도 된다. openings는 같은 전달 목적을 다른 출발점으로 보여준다. A는 청자의 관심이나 걱정과 실제 제공 정보를 연결하고, B는 주어진 사실 안에서 비교할 기준이나 궁금증을 풀며, C는 청자가 처할 수 있는 구체적 상황에서 출발한다. 주제에 없는 잘못된 통념·원인·문제·성공 경험을 만들어 관점을 억지로 맞추지 않는다.
 위험도 ${riskLevel}. 기획 메모를 검증 근거로 취급하지 않는다. 제공되지 않은 화자 경험·성과·상품 기능·수치·빈도·발생 원인·건강/금전 효과 보장을 만들지 않는다. 확인할 수 없는 원인을 임의로 채우기보다, 사용자가 실제 해볼 행동을 짧고 분명하게 정리한다. 근거가 필요한 주장에는 확인한 근거만 쓴다. 평범한 행동 제안과 외부 검증이 필요한 사실 주장을 구분한다.
 JSON만 반환한다:
-{"contentBrief":{"corePromise":"","communicationGoal":""},"factPack":{"coreFacts":[{"id":"fact-1","claim":"","why":"","condition":""}],"actionableMethods":[{"id":"method-1","action":"","how":"","whyOrWhen":""}],"cautions":[],"forbiddenClaims":[]},"sharedFlow":[{"goal":"","bridgeToNext":"","factIds":["fact-1"],"methodIds":["method-1"]}],"openings":{"A":"","B":"","C":""},"speakerFacts":[{"userQuote":""}]}`
+{"contentBrief":{${supportingMaterials.length ? '"targetAudience":"","specificProblem":"","desiredOutcome":"",' : ''}"corePromise":"","communicationGoal":""},"factPack":{"coreFacts":[{"id":"fact-1","claim":"","why":"","condition":""}],"actionableMethods":[{"id":"method-1","action":"","how":"","whyOrWhen":""}],"cautions":[],"forbiddenClaims":[]},"sharedFlow":[{"goal":"","bridgeToNext":"","factIds":["fact-1"],"methodIds":["method-1"]}],"openings":{"A":"","B":"","C":""},"speakerFacts":[{"userQuote":""}]}`
 }
 
 function buildVariationPrompt({ planning, outline, config, writingRules, targetSeconds = 38 }) {
