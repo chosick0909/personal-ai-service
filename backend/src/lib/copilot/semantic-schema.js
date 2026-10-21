@@ -228,7 +228,12 @@ export function semanticInstructionFromModelOutput(
     legacyInstruction: {
       operationType: primaryOperation.type || 'unknown',
       newSubject: topicChange.requested ? newSubject || '' : '',
-      oldSubjectToRemove: oldSubjects,
+      // Identifying the current topic does not ask us to delete it. Explicit
+      // material removals remain meaningful even when the topic is unchanged.
+      oldSubjectToRemove: compactStrings([
+        ...(topicChange.requested ? oldSubjects : []),
+        ...compactStrings(metadata.explicitRemove, 8),
+      ], 8),
       forbiddenSurfacePhrases: compactStrings(metadata.forbiddenSurfacePhrases, 24),
       requestedMaterials: compactStrings(metadata.requestedMaterials, 8),
       salesContext: String(metadata.salesContext || '').trim(),

@@ -5151,8 +5151,8 @@ export async function analyzeReferenceVideo({
     const previewReference = await runStage(
       'save-reference-preview',
       baseContext,
-      async () =>
-        persistReferenceVideoRowWithFallback({
+      async () => {
+        const { data, error } = await persistReferenceVideoRowWithFallback({
           supabaseAdmin,
           mode: 'update',
           accountId,
@@ -5194,7 +5194,14 @@ export async function analyzeReferenceVideo({
             'source_mode',
           ],
           detail: true,
-        }),
+        })
+        if (error || !data?.id) {
+          throw new AppError('Failed to save reference analysis preview', {
+            code: 'REFERENCE_PREVIEW_SAVE_FAILED', statusCode: 500, cause: error,
+          })
+        }
+        return data
+      },
       stageHooks,
     )
     if (typeof onAnalysisPreviewReady === 'function' && previewReference) {

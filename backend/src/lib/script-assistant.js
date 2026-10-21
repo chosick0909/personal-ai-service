@@ -1996,9 +1996,12 @@ function semanticInstructionToLegacyInstruction(semanticInstruction = {}) {
         ? instruction.topicChange.newSubject || ''
         : '',
     oldSubjectToRemove:
-      operationType === COPILOT_OPERATION_TYPES.TOPIC_REFRAME
-        ? uniqueCompactList(instruction.topicChange.oldSubjects || legacy.oldSubjectToRemove || [], 8)
-        : legacy.oldSubjectToRemove || [],
+      uniqueCompactList([
+        ...(instruction.topicChange.requested
+          ? [...(instruction.topicChange.oldSubjects || []), ...(legacy.oldSubjectToRemove || [])]
+          : []),
+        ...(legacy.explicitRemove || []),
+      ], 8),
     forbiddenSurfacePhrases: legacy.forbiddenSurfacePhrases || [],
     requestedMaterials: legacy.requestedMaterials || [],
     salesContext: legacy.salesContext || '',
@@ -2611,8 +2614,9 @@ export function buildEditPlan({
   const oldSubjectToRemove = uniqueCompactList(
     [
       ...(structuredEditInstruction.oldSubjectToRemove || []),
-      ...(validatedSemanticInstruction.topicChange?.oldSubjects || []),
-      validatedSemanticInstruction.topicChange?.oldSubject || '',
+      ...(validatedSemanticInstruction.topicChange?.requested
+        ? [...(validatedSemanticInstruction.topicChange.oldSubjects || []), validatedSemanticInstruction.topicChange.oldSubject || '']
+        : []),
     ],
     8,
   )

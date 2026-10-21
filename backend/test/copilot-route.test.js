@@ -56,6 +56,24 @@ if (typeof mock.module !== 'function') {
   assert.equal(calls.length,6)
   assert.equal(responses.length,0)
  })
+ test('duration adjustment preserves an identified current topic through the actual HTTP route',async()=>{
+  usage=[];memory=[];calls=[]
+  responses=[{...intent,operationType:'duration_expand',targetDurationSeconds:60,
+    resolvedRequest:'현재 청소 대본을 주제를 유지하면서 60초로 늘려줘',
+    semanticInstruction:{intent:'edit_script',confidence:0.95,
+      topicChange:{requested:false,oldSubjects:['청소'],newSubject:null,confidence:0.95,evidence:'현재 주제'},
+      operations:[{type:'duration_expand',target:'all',goal:'기존 설명 보강',styleTarget:'',evidence:'60초로 조절',confidence:0.95}],
+      locks:[],metadata:{targetDurationSeconds:60,explicitRemove:[]}}},
+    {sections:changed,message:'닦는 순서와 이유를 풀어 썼어요.'},{issues:[]}]
+  const response=await request(original,'현재 대본을 60초 분량으로 조절해줘'),payload=await response.json()
+  assert.equal(response.status,200,JSON.stringify(payload))
+  assert.deepEqual(payload.proposedSections,changed)
+  assert.equal(payload.qualityGate.passed,true)
+  assert.equal(payload.qualityGate.repaired,false)
+  assert.equal(calls.length,3,'keeping the topic must not start futile repair cycles')
+  assert.equal(usage.length,1);assert.equal(memory.length,1)
+  assert.equal(responses.length,0)
+ })
  test('a later first-sentence edit targets actual text in body-only saved history',async()=>{
   usage=[];memory=[];calls=[]
   const source={hook:'',body:'출장 전에 신분증을 확인하세요. 예약 서류도 함께 모아두세요. 마지막으로 충전기를 챙겨요.',cta:''}

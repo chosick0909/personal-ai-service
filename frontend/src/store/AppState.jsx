@@ -12,6 +12,7 @@ import { createAccount, deleteAccountById, listAccounts, loadAccountProfile } fr
 import { supabase } from '../lib/supabase'
 import { useToolHistory } from '../hooks/useToolHistory'
 import { isCreatorStudioPath } from '../lib/creatorRoutes'
+import { consumeStudioWriterHandoff, stageStudioWriterHandoff, STUDIO_HANDOFF_PARAM } from '../lib/creatorWriterHandoff'
 import {
   analyzeReferenceScriptText,
   analyzeReferenceVideo,
@@ -552,6 +553,20 @@ export function AppStateProvider({ children }) {
   }, [currentAccount?.id, referenceData?.id, activeScriptId, selectedScriptId, versions, editorSections])
   const isCurrentAccountRequest = (accountId) =>
     Boolean(accountId) && activeAccountIdRef.current === accountId
+
+  useEffect(() => {
+    if (!isAuthReady || !currentUser?.id || !currentAccount?.id || !isAnalyzePage()) return
+    const url = new URL(window.location.href)
+    const transcript = consumeStudioWriterHandoff({ token: url.searchParams.get(STUDIO_HANDOFF_PARAM),
+      userId: currentUser.id, accountId: currentAccount.id })
+    if (!transcript) return
+    setReferenceScriptText(transcript)
+    setUploadTopic('')
+    setUploadTitle('')
+    setUploadInputModeHint('script')
+    url.searchParams.delete(STUDIO_HANDOFF_PARAM)
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [isAuthReady, currentUser?.id, currentAccount?.id])
 
   useEffect(() => {
     currentAccountRef.current = currentAccount
@@ -2910,6 +2925,14 @@ export function AppStateProvider({ children }) {
       editorContent: serializeEditorSections(editorSections),
       lastStep: currentStep === 'editor' ? 'editor' : 'result',
     })
+    const handoffUrl = stageStudioWriterHandoff({ text: transcript,
+      userId: currentUser?.id, accountId: currentAccount?.id })
+    if (handoffUrl) {
+      // The destination hydrates only after auth/account initialization. The
+      // transcript survives document navigation instead of relying on this tree.
+      window.location.assign(handoffUrl)
+      return
+    }
     startNewProject()
     setReferenceScriptText(transcript)
     setUploadTopic('')
