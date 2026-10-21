@@ -1,3 +1,4 @@
+import { resolveReferenceSourceMode } from './referenceResultState'
 import { normalizeSupportingMaterials } from '../../../shared/supporting-materials.mjs'
 import { apiFetch, createApiError, parseApiResponse } from './api'
 
@@ -174,7 +175,7 @@ export function mapReferenceAnalysisToUi(analysis) {
       status: analysis.processing_status || 'ready',
       currentStage: analysis.current_stage || '',
       projectId: analysis.project_id || null,
-      sourceMode: analysis.source_mode || 'video',
+      sourceMode: resolveReferenceSourceMode(analysis),
       topicBrief:
         analysis.topic_brief && typeof analysis.topic_brief === 'object'
           ? analysis.topic_brief
@@ -480,7 +481,7 @@ export async function listReferenceVideoHistory(accountId) {
     status: item.processing_status || 'ready',
     currentStage: item.current_stage || '',
     projectId: item.project_id || null,
-    sourceMode: item.source_mode || 'video',
+    sourceMode: resolveReferenceSourceMode(item),
     topicBrief:
       item.topic_brief && typeof item.topic_brief === 'object'
         ? item.topic_brief

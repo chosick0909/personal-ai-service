@@ -477,7 +477,7 @@ function buildReferencePayload({ topic, title, projectId, clientGenerationId, re
   const now = new Date().toISOString()
   return {
     title: normalizeText(title, 200) || `${normalizeText(topic, 120)} 기획`,
-    topic: normalizeText(topic, 500),
+    topic: String(topic || '').trim(),
     original_filename: '주제만으로 기획',
     mime_type: 'application/x-hookai-topic',
     project_id: projectId || null,
@@ -520,7 +520,7 @@ export async function generateTopicOnlyScripts({
 }) {
   if (!hasSupabaseAdminConfig()) throw new AppError('Supabase admin client is not configured', { code: 'SUPABASE_NOT_CONFIGURED', statusCode: 500 })
   supportingMaterials = normalizeSupportingMaterials(supportingMaterials)
-  const normalizedTopic = normalizeText(topic, 500)
+  const normalizedTopic = String(topic || '').trim()
   if (normalizedTopic.length < 2) throw new AppError('릴스 주제를 2자 이상 입력해주세요.', { code: 'TOPIC_TOO_SHORT', statusCode: 400 })
 
   const readiness = assessTopicReadiness({ topic: normalizedTopic, accountSettings, clarifications })

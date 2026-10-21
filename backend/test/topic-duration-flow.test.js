@@ -18,6 +18,20 @@ if(typeof mock.module!=='function') {
  const flow=await topicFlowHarness(client)
  const input={accountId:'synthetic-only',topic:'청소 순서',clarifications:{targetAudience:'퇴근 후 청소하는 직장인',specificProblem:'청소 순서가 없어 같은 곳을 다시 닦음',desiredOutcome:'동선을 정리해 청소를 끝냄'}}
  test('production generator publishes 30–50 second drafts without lengthening repair',async()=>{mode='short';calls=[];flow.reset();const result=await flow.generateTopicOnlyScripts(input);assert.equal(result.analysis.processing_status,'completed');assert.ok(result.analysis.topic_brief.estimatedDurationSeconds.every(n=>n>=30&&n<=50));assert.equal(calls.length,5);assert.equal(result.analysis.topic_brief.repaired,false)})
+ test('a full pasted draft beyond 500 characters reaches planning, review and storage without truncation',async()=>{
+  mode='short';calls=[];flow.reset()
+  const topic=('퇴근 후 청소할 때 선반의 먼지를 먼저 털고 바닥을 닦아보세요.\n').repeat(250)+'마지막 요청: 창문 청소 순서도 설명해주세요.'
+  let accepted
+  const result=await flow.generateTopicOnlyScripts({...input,topic,onAccepted:row=>{accepted=row}})
+  assert.equal(accepted.source_mode,'topic_only')
+  assert.equal(accepted.topic,topic)
+  assert.equal(result.analysis.processing_status,'completed')
+  assert.equal(result.analysis.topic_brief.inputBrief.topic,topic)
+  const planner=calls.find(call=>call.messages[0].content.includes('콘텐츠 전략가'))
+  assert.ok(planner.messages[1].content.includes(topic))
+  assert.ok(calls.some(call=>call.messages[0].content.includes('품질 심사자')&&call.messages[1].content.includes('마지막 요청: 창문 청소 순서도 설명해주세요.')))
+  assert.equal(calls.length,5)
+ })
  test('writer uses understood reference knowledge while planner, review and history keep original evidence',async()=>{
   mode='short';calls=[];flow.reset()
   const supportingMaterials=[{name:'행사 안내.pdf',mimeType:'application/pdf',content:'MATERIAL_CONTEXT_SENTINEL: 행사 일시는 11월 3일 오후 2시. 준비물은 필기구.',warnings:[]}]

@@ -272,3 +272,8 @@ test('identity leak guard prompt tells model not to treat personal influencer as
   assert.match(prompt, /직접 쓰지 않는다/)
   assert.match(prompt, /personal-influencer/)
 })
+
+ test('explicit topic retains the end of a pasted draft',()=>{
+  const topic='물건을 사용하는 곳에 두면 찾기 편해요. '.repeat(50)+'마지막에 충전선 정리를 설명해주세요.'
+  assert.equal(normalizeGenerationTopic(topic),topic.trim())
+ })

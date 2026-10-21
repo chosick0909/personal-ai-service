@@ -1275,12 +1275,6 @@ app.post(
         statusCode: 400,
       })
     }
-    if (topic.length > 500) {
-      throw new AppError('릴스 주제는 500자 이하로 입력해주세요.', {
-        code: 'TOPIC_TOO_LONG',
-        statusCode: 400,
-      })
-    }
 
     const character = await getAccountCharacterContext(account.id, {
       characterId: readRequestCharacterId(req),
@@ -1313,12 +1307,6 @@ app.post(
     if (topic.length < 2) {
       throw new AppError('릴스 주제를 2자 이상 입력해주세요.', {
         code: 'TOPIC_TOO_SHORT',
-        statusCode: 400,
-      })
-    }
-    if (topic.length > 500) {
-      throw new AppError('릴스 주제는 500자 이하로 입력해주세요.', {
-        code: 'TOPIC_TOO_LONG',
         statusCode: 400,
       })
     }

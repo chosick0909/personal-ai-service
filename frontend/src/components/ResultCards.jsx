@@ -1,3 +1,4 @@
+import { getReferenceResultState } from '../lib/referenceResultState'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ScriptCard from './ScriptCard'
 import Editor from './Editor'
@@ -5,9 +6,6 @@ import ChatPanel from './ChatPanel'
 import { useAppState } from '../store/AppState'
 
 const REFERENCE_SCRIPT_SECTION_TITLE = '레퍼런스 스크립트'
-const REFERENCE_SCRIPT_SECTION_DESCRIPTION = '업로드한 레퍼런스 영상에서 추출한 전체 스크립트입니다.'
-const MISSING_TRANSCRIPT_DRAFT_MESSAGE =
-  '음성 전사가 불안정해 초안 생성을 진행하지 못했습니다. 영상에 자막이 있다면 자막/대본을 복사해 ‘대본으로 분석’을 이용해 주세요.'
 const EDITOR_SCROLL_EVENT = 'hookai:scroll-editor'
 // Deploy touchpoint: keep the reference script heading fixed.
 
@@ -173,29 +171,21 @@ export default function ResultCards() {
   const [activeResultStep, setActiveResultStep] = useState(0)
   const [isResultStepLeaving, setIsResultStepLeaving] = useState(false)
   const resultStepTimerRef = useRef(null)
-  const isReferenceProcessing = referenceData?.status === 'processing' || referenceData?.status === 'uploading'
-  const isTopicOnly = referenceData?.sourceMode === 'topic_only'
+  const resultState = getReferenceResultState(referenceData || {}, generatedScripts)
+  const isReferenceProcessing = resultState.processing
+  const isTopicOnly = resultState.sourceMode === 'topic_only'
   const topicBrief = referenceData?.topicBrief && typeof referenceData.topicBrief === 'object'
     ? referenceData.topicBrief
     : {}
-  const hasTranscript = Boolean((referenceData?.transcript || '').trim())
-  const transcriptQualityLevel = String(referenceData?.transcriptQuality?.level || '').toLowerCase()
-  const shouldBlockDraftsForMissingTranscript =
-    !isTopicOnly &&
-    generatedScripts.length === 0 &&
-    (!hasTranscript || (!isReferenceProcessing && transcriptQualityLevel === 'low'))
-  const isDraftGenerationPending =
-    isReferenceProcessing && (isTopicOnly || hasTranscript) && generatedScripts.length === 0
+  const isDraftUnavailable = resultState.unavailable
+  const draftFailureMessage = resultState.message
+  const isDraftGenerationPending = isReferenceProcessing && generatedScripts.length === 0
   const transcriptText = useMemo(() => {
     const normalized = (referenceData?.transcript || '').trim()
-    if (normalized) {
-      return normalized
-    }
-    if (referenceData?.sourceMode === 'script_text' && isReferenceProcessing) {
-      return '붙여넣은 대본과 생성 결과를 불러오고 있습니다.'
-    }
-    return MISSING_TRANSCRIPT_DRAFT_MESSAGE
-  }, [isReferenceProcessing, referenceData?.sourceMode, referenceData?.transcript])
+    if (normalized) return normalized
+    if (isReferenceProcessing) return '입력 내용과 생성 결과를 불러오고 있습니다.'
+    return draftFailureMessage
+  }, [isReferenceProcessing, referenceData?.transcript, draftFailureMessage])
   const categoryPlaybook = referenceData?.categoryPlaybook || null
   const monetizationInsight =
     '돈 되는 릴스는 문제 상황이 구체적이고, 제품이나 서비스가 해결책으로 자연스럽게 이어져야 합니다. 전후 차이, 후기, 작은 증거가 붙고 CTA도 하나로 짧게 가야 다음 행동이 쉬워집니다. 너무 세게 파는 느낌보다 “필요하면 다음 단계로” 연결되는 흐름이 전환에 더 유리합니다.'
@@ -259,8 +249,8 @@ export default function ResultCards() {
         },
         {
           badge: 'Select Draft',
-          title: 'A/B/C 초안 선택',
-          subtitle: isDraftGenerationPending
+          title: isDraftUnavailable ? '초안 생성 미완료' : 'A/B/C 초안 선택',
+          subtitle: isDraftUnavailable ? draftFailureMessage : isDraftGenerationPending
             ? '정보 구조를 검증하며 세 가지 초안을 마무리하고 있습니다.'
             : '같은 정보를 서로 다른 감정 진입점으로 풀어낸 초안입니다.',
         },
@@ -271,7 +261,7 @@ export default function ResultCards() {
       {
         badge: 'Reference Script',
         title: REFERENCE_SCRIPT_SECTION_TITLE,
-        subtitle: REFERENCE_SCRIPT_SECTION_DESCRIPTION,
+        subtitle: resultState.sourceMode === 'video' ? '업로드한 레퍼런스 영상에서 추출한 전체 스크립트입니다.' : '분석에 사용한 레퍼런스 대본입니다.',
       },
       {
         badge: 'Key Insights',
@@ -285,15 +275,15 @@ export default function ResultCards() {
       },
       {
         badge: 'Select Draft',
-        title: shouldBlockDraftsForMissingTranscript ? '초안 생성 불가' : 'A/B/C 초안 선택',
-        subtitle: shouldBlockDraftsForMissingTranscript
-          ? MISSING_TRANSCRIPT_DRAFT_MESSAGE
+        title: isDraftUnavailable ? '초안 생성 불가' : 'A/B/C 초안 선택',
+        subtitle: isDraftUnavailable
+          ? draftFailureMessage
           : isDraftGenerationPending
             ? '읽는 동안 A/B/C 초안을 백그라운드에서 생성하고 있습니다.'
             : '원하는 스타일을 선택하여 에디터로 이동하세요.',
       },
     ]
-  }, [isDraftGenerationPending, isTopicOnly, shouldBlockDraftsForMissingTranscript])
+  }, [isDraftGenerationPending, isTopicOnly, isDraftUnavailable, draftFailureMessage, resultState.sourceMode])
   const draftStepIndex = resultSteps.length - 1
   const hasRestorableEditorSession = Boolean(selectedScript && activeScriptId)
   const isEditorMode = currentStep === 'editor' && Boolean(selectedScript)
@@ -456,18 +446,16 @@ export default function ResultCards() {
           <h1 className="mt-4 text-3xl font-bold leading-[1.2] tracking-[-0.03em] text-[#F3F4F6] md:mt-5 md:text-5xl">
             {isReferenceProcessing
               ? isTopicOnly ? '대본 기획 마무리 중' : '분석 결과 정리 중'
-              : isTopicOnly ? '주제 기반 대본 기획 완료' : '분석 완료'}
+              : isDraftUnavailable ? '대본 생성 미완료' : isTopicOnly ? '주제 기반 대본 기획 완료' : '분석 완료'}
           </h1>
           <p className="mt-3 text-sm leading-6 text-[#8E97A6] md:text-base md:leading-7">
-            {isTopicOnly
+            {isDraftUnavailable ? draftFailureMessage : isTopicOnly
               ? isDraftGenerationPending
                 ? '타깃과 핵심 정보를 먼저 정리했습니다. 세 가지 초안을 마무리하고 있습니다.'
                 : '레퍼런스 없이도 계정 설정과 주제를 바탕으로 실용 정보를 담은 세 가지 초안을 준비했습니다.'
               : isDraftGenerationPending
-              ? '전사와 핵심 인사이트를 먼저 정리했습니다. A/B/C 초안은 백그라운드에서 생성 중입니다.'
-              : shouldBlockDraftsForMissingTranscript
-              ? '레퍼런스 영상 분석은 완료했지만, 전사 텍스트가 없어 A/B/C 초안 생성은 진행하지 않았습니다.'
-              : '레퍼런스 영상을 다각도로 분석했습니다. 구조, 후킹 포인트, 심리 기제, 시각적 연출까지 세밀하게 파악했으며, 이를 바탕으로 A/B/C 세 가지 초안을 준비했습니다.'}
+              ? '입력 내용과 핵심 인사이트를 정리하고 A/B/C 초안을 생성 중입니다.'
+              : '레퍼런스의 구조와 후킹 포인트를 바탕으로 A/B/C 세 가지 초안을 준비했습니다.'}
           </p>
         </div>
 
@@ -573,15 +561,15 @@ export default function ResultCards() {
 
             {displayedResultStep === draftStepIndex ? (
               <div ref={draftSectionRef} className="mt-8">
-                {shouldBlockDraftsForMissingTranscript ? (
+                {isDraftUnavailable ? (
                   <div className="rounded-[20px] border border-[#3A414F] bg-[#121722] px-5 py-5 text-sm leading-6 text-[#D1D5DB]">
-                    <p>{MISSING_TRANSCRIPT_DRAFT_MESSAGE}</p>
+                    <p>{draftFailureMessage}</p>
                     <button
                       type="button"
-                      onClick={goToScriptAnalysisMode || goBackToUpload}
+                      onClick={resultState.transcriptionFailed ? (goToScriptAnalysisMode || goBackToUpload) : goBackToUpload}
                       className="mt-4 inline-flex h-11 items-center justify-center rounded-full border border-[#3A414F] bg-[#F8F5EF] px-5 text-sm font-semibold text-[#111827] transition hover:bg-white"
                     >
-                      대본으로 다시 분석하기
+                      {resultState.transcriptionFailed ? '대본으로 다시 분석하기' : '다시 시도하기'}
                     </button>
                   </div>
                 ) : (

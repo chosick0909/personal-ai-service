@@ -474,11 +474,13 @@ export default function UploadSection() {
                 </button>
               ) : null}
             </div>
-            <input
+            <textarea
+              aria-label="이번 릴스 주제"
+              rows={5}
               value={uploadTopic}
               onChange={(event) => setUploadTopic(event.target.value)}
-              placeholder="예: 물광토너 제품소개"
-              className="mt-2 h-10 w-full rounded-2xl border border-[#374151] bg-[#171B24] px-4 text-sm text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:h-12"
+              placeholder="주제나 참고할 대본을 자유롭게 적어주세요. 원하는 방향도 함께 알려주세요."
+              className="mt-2 min-h-[140px] w-full resize-y rounded-2xl border border-[#374151] bg-[#171B24] px-4 py-3 text-sm leading-6 text-[#F8FAFC] outline-none transition focus:border-[#CBD5E1] placeholder:text-[#6B7280] md:min-h-[160px]"
             />
             <p className="mt-1.5 text-left text-[11px] leading-4.5 text-[#8E97A6] md:mt-2 md:text-xs md:leading-5">
               {generationMode === 'topic'

@@ -1283,7 +1283,7 @@ function findReferenceSurfaceLeakage(text = '', referenceSurfaceTerms = []) {
 }
 
 function normalizeGenerationTopic(topic = '', normalizedReferenceTitle = DEFAULT_REFERENCE_TITLE) {
-  const explicitTopic = stripReferenceMetadataText(topic).slice(0, 200)
+  const explicitTopic = stripReferenceMetadataText(topic)
   if (!explicitTopic) return '일반'
 
   const referenceTitle = String(normalizedReferenceTitle || '').trim()

@@ -35,14 +35,14 @@ function readAccountContext(accountSettings = {}) {
 }
 
 function topicHasEnoughDirection(topic = '') {
-  const normalized = normalizeText(topic)
+  const normalized = String(topic || '').trim()
   if (!normalized) return false
   if (BROAD_TOPIC_PATTERN.test(normalized)) return false
   return normalized.length >= 12 || SPECIFICITY_SIGNAL_PATTERN.test(normalized)
 }
 
 export function assessTopicReadiness({ topic = '', accountSettings = {}, clarifications = {} } = {}) {
-  const normalizedTopic = normalizeText(topic)
+  const normalizedTopic = String(topic || '').trim()
   const account = readAccountContext(accountSettings)
   const answers = normalizeTopicClarifications(clarifications)
   const inferredContext = {

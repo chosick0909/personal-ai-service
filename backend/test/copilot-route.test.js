@@ -34,6 +34,17 @@ if (typeof mock.module !== 'function') {
  const changed={...original,body:'높은 선반의 먼지를 먼저 털어보세요. 아래로 떨어진 먼지까지 모을 수 있도록 바닥은 마지막에 닦으면 돼요.'}
  const intent={intent:'edit_request',shouldModifyScript:true,editTarget:'all',operationType:'edit_partial',resolvedRequest:'기존 청소 순서를 더 쉽게 설명해줘'}
  async function request(sections=original,message='청소 순서를 더 쉽게 설명해줘'){return fetch(`http://127.0.0.1:${server.address().port}/api/scripts/copilot`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,sections})})}
+ test('topic HTTP preflight and generation accept a pasted draft longer than 500 characters',async()=>{
+  const topic='책상 위 물건을 쓰는 자리별로 정리하는 대본입니다.\n'.repeat(40)+'끝에 있는 조건도 남겨주세요.'
+  const body={topic,clarifications:{targetAudience:'직장인',specificProblem:'물건을 찾기 어려움',desiredOutcome:'찾기 쉽게 정리'}}
+  for(const route of ['topic-preflight','generate-topic']){
+   calls=[];responses=[new Error('intentional stop after accepted topic task')]
+   const response=await fetch(`http://127.0.0.1:${server.address().port}/api/reference-videos/${route}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+   const payload=await response.json()
+   assert.equal(response.status,route==='topic-preflight'?200:202,JSON.stringify(payload))
+   if(route==='generate-topic') {assert.equal(payload.analysis.source_mode,'topic_only');assert.equal(payload.analysis.topic,topic)}
+  }
+ })
  test('authenticated attachment endpoint reads a general text document without consuming analysis usage',async()=>{
   usage=[]
   const form=new FormData();form.append('files',new Blob(['일정: 11월 3일 오후 2시\n준비물: 필기구'],{type:'text/plain'}),'안내.txt')
