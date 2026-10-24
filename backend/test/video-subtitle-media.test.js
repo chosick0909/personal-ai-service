@@ -9,10 +9,10 @@ import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import {probeVideo} from '../src/creator-tools/media.js'
 import {extractScreenSubtitles} from '../src/lib/video-subtitle-transcript.js'
 const execFile=promisify(execFileCallback)
-async function fixture(seconds,fn){
+async function fixture(seconds,fn,source='testsrc'){
  const dir=await mkdtemp(join(tmpdir(),'hookai-subtitle-test-')),path=join(dir,'silent.mp4')
  try{
-  await execFile(ffmpeg.path,['-nostdin','-y','-f','lavfi','-i',`color=s=64x64:r=2:d=${seconds}`,'-c:v','libx264',path])
+  await execFile(ffmpeg.path,['-nostdin','-y','-f','lavfi','-i',`${source}=s=64x64:r=2:d=${seconds}`,'-c:v','libx264',path])
   return await fn(path,dir)
  }finally{await rm(dir,{recursive:true,force:true})}
 }
@@ -23,11 +23,11 @@ test('actual silent MP4 is accepted for reference import but existing cut editin
 }))
 test('all five minutes reach the reader, bounded to two concurrent calls, and adjacent captions merge across batches',async()=>fixture(300,async(path,dir)=>{
  let calls=0,active=0,peak=0
- const result=await extractScreenSubtitles(path,dir,300,{invoke:async()=>{
-  const start=calls++*16,count=Math.min(16,600-start)
+ const result=await extractScreenSubtitles(path,dir,300,{invoke:async(_fn,{frameIds})=>{
+  calls++
   peak=Math.max(peak,++active)
   await new Promise(resolve=>setTimeout(resolve,1));active--
-  return{choices:[{finish_reason:'stop',message:{content:JSON.stringify({frames:Array.from({length:count},(_,i)=>({id:start+i,text:start+i<598?'처음부터 유지되는 자막':'마지막 자막도 보존',language:'ko'}))})}}]}
+  return{choices:[{finish_reason:'stop',message:{content:JSON.stringify({frames:frameIds.map(id=>({id,text:id<598?'처음부터 유지되는 자막':'마지막 자막도 보존',language:'ko'}))})}}]}
  }})
  assert.equal(calls,38);assert.equal(peak,2)
  assert.equal(result.quality.stats.sampledFrames,600)
@@ -41,3 +41,10 @@ test('truncated vision responses are rejected without publishing partial caption
  await assert.rejects(extractScreenSubtitles(path,dir,9,{invoke:async()=>({choices:[{finish_reason:'length',message:{content:'{}'}}]})}),{code:'SUBTITLE_RESPONSE_INCOMPLETE'})
  assert.deepEqual(await readdir(dir),['silent.mp4'])
 }))
+
+test('uniform empty video never reaches generative reader or fabricates subtitles',async()=>fixture(3,async(path,dir)=>{
+ let calls=0
+ await assert.rejects(extractScreenSubtitles(path,dir,3,{invoke:async()=>{calls++;throw new Error('must not ask model to read blank pixels')}}),{code:'REFERENCE_TEXT_NOT_FOUND'})
+ assert.equal(calls,0)
+ assert.deepEqual(await readdir(dir),['silent.mp4'])
+},'color'))

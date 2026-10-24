@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import { AppError } from './errors.js'
 import { getOpenAIClient, getOpenAIModels } from './openai.js'
@@ -95,6 +95,22 @@ export function assembleSubtitleTranscript(observations, duration) {
   }
 }
 
+// A uniform frame cannot contain legible text. Decide from pixels before asking
+// a generative model, which can otherwise invent plausible subtitles on blanks.
+export function uniformFrameIds(metadata) {
+  const uniform = new Set()
+  for (const block of metadata.split(/(?=^frame:)/m)) {
+    const id = /^frame:(\d+)/m.exec(block)?.[1]
+    const range = channel => {
+      const low = new RegExp(`^lavfi\\.signalstats\\.${channel}MIN=(\\d+)$`, 'm').exec(block)
+      const high = new RegExp(`^lavfi\\.signalstats\\.${channel}MAX=(\\d+)$`, 'm').exec(block)
+      return low && high ? Number(high[1]) - Number(low[1]) : Infinity
+    }
+    if (id !== undefined && ['Y', 'U', 'V'].every(channel => range(channel) <= 2)) uniform.add(Number(id))
+  }
+  return uniform
+}
+
 async function readBatch(frames, { signal, invoke }) {
   const response = await invoke(() => getOpenAIClient().chat.completions.create({
     model: getOpenAIModels().visionModel, store: false, response_format: { type: 'json_object' }, max_completion_tokens: 6000,
@@ -102,7 +118,7 @@ async function readBatch(frames, { signal, invoke }) {
       { type: 'text', text: `Frame id=${frame.id}, time=${frame.timestamp}s` },
       { type: 'image_url', image_url: { url: frame.dataUrl, detail: 'high' } },
     ]) }],
-  }, { signal, timeout: 60000, maxRetries: 0 }))
+  }, { signal, timeout: 60000, maxRetries: 0 }), { frameIds: frames.map(frame => frame.id) })
   const choice = response.choices?.[0]
   if (choice?.finish_reason !== 'stop' || choice?.message?.refusal) {
     throw subtitleError('SUBTITLE_RESPONSE_INCOMPLETE', '영상 자막 읽기를 완료하지 못했습니다. 다시 시도해주세요.')
@@ -119,17 +135,18 @@ export async function extractScreenSubtitles(videoPath, workspace, duration, opt
   }
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(480000)]) : AbortSignal.timeout(480000)
   signal.throwIfAborted()
-  const directory = await mkdtemp(join(workspace, 'subtitle-frames-'))
+  const directory = await mkdtemp(join(resolve(workspace), 'subtitle-frames-'))
   try {
     await execFile(process.env.CREATOR_FFMPEG_PATH || ffmpeg.path, [
-      '-nostdin', '-y', '-threads', '2', '-protocol_whitelist', 'file,pipe', '-i', videoPath,
-      '-an', '-vf', `fps=${FPS}:start_time=0,scale='min(960,iw)':-2`, '-q:v', '3', '-frames:v', String(MAX_SECONDS * FPS),
+      '-nostdin', '-y', '-threads', '2', '-protocol_whitelist', 'file,pipe', '-i', resolve(videoPath),
+      '-an', '-vf', `fps=${FPS}:start_time=0,scale='min(960,iw)':-2,signalstats,metadata=mode=print:file=subtitle-signal.txt`, '-q:v', '3', '-frames:v', String(MAX_SECONDS * FPS),
       join(directory, '%06d.jpg'),
-    ], { signal, timeout: 60000, maxBuffer: 2 * 1024 * 1024 })
+    ], { signal, timeout: 60000, maxBuffer: 2 * 1024 * 1024, cwd: directory })
     const files = (await readdir(directory)).filter(name => /^\d+\.jpg$/.test(name)).sort()
     if (!files.length || files.length < Math.floor(duration * FPS) - 1) {
       throw subtitleError('SUBTITLE_FRAMES_INCOMPLETE', '영상 전체의 자막 화면을 읽지 못했습니다.')
     }
+    const uniform = uniformFrameIds(await readFile(join(directory, 'subtitle-signal.txt'), 'utf8'))
     const observations = []
     // Two bounded batches at a time; no unbounded fan-out or automatic retries.
     for (let offset = 0; offset < files.length; offset += BATCH_SIZE * 2) {
@@ -142,7 +159,10 @@ export async function extractScreenSubtitles(videoPath, workspace, duration, opt
           dataUrl: `data:image/jpeg;base64,${(await readFile(join(directory, name))).toString('base64')}`,
         })))
         if (!frames.length) return []
-        return readBatch(frames, { signal, invoke: options.invoke || (fn => fn()) })
+        const readable = frames.filter(frame => !uniform.has(frame.id))
+        const recognized = readable.length ? await readBatch(readable, { signal, invoke: options.invoke || (fn => fn()) }) : []
+        const byId = new Map(recognized.map(frame => [frame.id, frame]))
+        return frames.map(({ dataUrl, ...frame }) => byId.get(frame.id) || { ...frame, text: '', language: 'unknown' })
       }))
       // Wait for in-flight readers before deleting their workspace on failure.
       const failed = batches.find(batch => batch.status === 'rejected')

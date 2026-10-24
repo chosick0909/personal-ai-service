@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { referenceTranscript, usableSpeech, validateSubtitleFrames, assembleSubtitleTranscript, extractScreenSubtitles } from '../src/lib/video-subtitle-transcript.js'
+import { referenceTranscript, usableSpeech, validateSubtitleFrames, assembleSubtitleTranscript, extractScreenSubtitles, uniformFrameIds } from '../src/lib/video-subtitle-transcript.js'
 
 const visual = { text:'서랍 하나부터 비워보세요.', source:'screen_subtitles' }
 test('silent references use screen subtitles without invoking speech', async () => {
@@ -67,4 +67,9 @@ test('word-by-word buildup keeps the full visible phrase without duplicating its
  ],2)
  assert.deepEqual(result.subtitles.map(x=>x.text),['물건을 한곳에 모아요','물건을 분류해요'])
  assert.equal(result.subtitles[0].end,1.5)
+})
+
+test('uniform detection requires every luminance/chroma range; chromatic text and incomplete metadata are retained',()=>{
+ const frame=(id,y,u,v)=>`frame:${id} pts:0\n`+Object.entries({Y:y,U:u,V:v}).flatMap(([channel,range])=>range===null?[]:[`lavfi.signalstats.${channel}MIN=50`,`lavfi.signalstats.${channel}MAX=${50+range}`]).join('\n')+'\n'
+ assert.deepEqual([...uniformFrameIds(frame(0,0,0,0)+frame(1,1,2,0)+frame(2,80,0,0)+frame(3,0,30,0)+frame(4,0,0,null))],[0,1])
 })
