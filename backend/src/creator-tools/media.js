@@ -1,3 +1,4 @@
+import { usableSpeech } from '../lib/video-subtitle-transcript.js'
 import { groupSubtitles } from '../../../shared/subtitle-layout.mjs'
 import { subtitleAss } from './subtitle-render.js'
 import { fileURLToPath } from 'node:url'
@@ -28,17 +29,17 @@ export function runProgram(binary, args, signal, timeout = 180000) {
   })
 }
 const inputFlags = ['-protocol_whitelist', 'file,pipe', '-format_whitelist', 'mov,matroska,webm']
-export async function probeVideo(path, signal) {
+export async function probeVideo(path, signal, { allowSilent = false } = {}) {
   const { stdout } = await runProgram(process.env.CREATOR_FFPROBE_PATH || ffprobe.path,
     ['-v', 'error', ...inputFlags, '-show_format', '-show_streams', '-of', 'json', path], signal, 15000)
   const info = JSON.parse(stdout)
   const video = info.streams?.find((s) => s.codec_type === 'video')
   const audio = info.streams?.find((s) => s.codec_type === 'audio')
   const duration = Number(info.format?.duration)
-  if (!video || !audio) fail('VIDEO_AUDIO_REQUIRED', '음성이 포함된 영상을 올려주세요.')
+  if (!video || (!audio && !allowSilent)) fail('VIDEO_AUDIO_REQUIRED', '음성이 포함된 영상을 올려주세요.')
   if (!Number.isFinite(duration) || duration <= 0 || duration > 300) fail('VIDEO_DURATION_LIMIT', '5분 이하 영상을 올려주세요.')
   if (video.width > 4096 || video.height > 4096 || video.width * video.height > 8847360) fail('VIDEO_RESOLUTION_LIMIT', '4K 이하 해상도의 영상을 올려주세요.')
-  return { duration, width: video.width, height: video.height }
+  return { duration, width: video.width, height: video.height, hasAudio: Boolean(audio) }
 }
 export async function ff(args, signal) {
   return runProgram(process.env.CREATOR_FFMPEG_PATH || ffmpeg.path, ['-nostdin', '-y', '-threads', '2', ...args], signal)
@@ -80,7 +81,7 @@ export async function transcribeFile(ctx, path, duration) {
     return [{ id: `cue-${i}`, start, end, text: s.text.trim() }]
   })
   if (!subtitles.length || !String(transcript.text || '').trim()) fail('TRANSCRIPT_EMPTY', '음성을 인식하지 못했습니다. 대본 붙여넣기를 이용해주세요.', 422)
-  return { text: transcript.text.trim(), language: transcript.language || 'unknown', words, subtitles }
+  return { text: transcript.text.trim(), language: transcript.language || 'unknown', words, subtitles, speechReliable: usableSpeech(transcript, duration) }
 }
 export async function analyzeMedia(ctx) {
   const startedAt=Date.now()

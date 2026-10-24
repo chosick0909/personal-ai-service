@@ -1,3 +1,4 @@
+import { extractScreenSubtitles, referenceTranscript } from '../lib/video-subtitle-transcript.js'
 import { join } from 'node:path'
 import { referenceAnalysisSchema, referenceAnalysisInstructions, validateReferenceAnalysis } from './reference-analysis.js'
 import { fail } from './domain.js'
@@ -110,7 +111,7 @@ function translationPassages(subtitles) {
     fail('TRANSLATION_INVALID', '번역할 원문을 확인하지 못했습니다.', 422)
   }
   let remaining = subtitles.map(row => row.text.trim()).join('\n')
-  if (remaining.length > 20000) fail('REFERENCE_LENGTH', '추출 가능한 음성 대본을 확인하지 못했습니다.', 422)
+  if (remaining.length > 20000) fail('REFERENCE_LENGTH', '추출 가능한 음성이나 화면 자막을 확인하지 못했습니다.', 422)
   const passages = []
   // Small transcripts are translated as a whole. Bound long inputs by text size,
   // independent of how Whisper happened to segment the audio. No text is dropped.
@@ -158,7 +159,7 @@ export async function translateSegments(providers, language, subtitles) {
   }
   return translated
 }
-const importDependencies = { workspace, ownedMedia, downloadStored, probeVideo, transcribeFile }
+const importDependencies = { workspace, ownedMedia, downloadStored, probeVideo, transcribeFile, extractScreenSubtitles, downloadPublicMedia }
 export async function collectImportTranscript(ctx, dependencies = importDependencies) {
   const { job, providers, stage, signal, db } = ctx
   return dependencies.workspace(async (directory) => {
@@ -171,11 +172,19 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
     } else {
       await stage('collecting_video')
       const media = await providers.brightData(job.input.url, ctx.checkpoint)
-      await downloadPublicMedia(media.videoUrl, path, signal)
+      await dependencies.downloadPublicMedia(media.videoUrl, path, signal)
     }
-    const info = await dependencies.probeVideo(path, signal)
+    const info = await dependencies.probeVideo(path, signal, { allowSilent: true })
     await stage('transcribing')
-    return { ...await dependencies.transcribeFile(ctx, path, info.duration), duration: info.duration }
+    const transcript = await referenceTranscript({
+      hasAudio: info.hasAudio !== false, duration: info.duration, signal,
+      transcribe: () => dependencies.transcribeFile(ctx, path, info.duration),
+      readSubtitles: () => dependencies.extractScreenSubtitles(path, directory, info.duration, {
+        signal, onProgress: () => stage('reading_subtitles'),
+        invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn),
+      }),
+    })
+    return { ...transcript, duration: info.duration }
   })
 }
 export async function importLink(ctx) {
@@ -190,12 +199,12 @@ export async function importLink(ctx) {
   const translatedText = translated.map((cue) => cue.text).join('\n')
   const originalText = transcript.subtitles.map((cue) => cue.text).join('\n').trim() || transcript.text.trim()
   if (originalText.length < 2 || translatedText.length < 2 || originalText.length > 20000 || translatedText.length > 20000) {
-    fail('REFERENCE_LENGTH', '추출 가능한 음성 대본을 확인하지 못했습니다.', 422)
+    fail('REFERENCE_LENGTH', '추출 가능한 음성이나 화면 자막을 확인하지 못했습니다.', 422)
   }
   // Publish only validated original/translation fields. The job remains running:
   // completion and usage are still committed once by creator_complete_job.
   const transcriptResult = await checkpoint('referenceTranscriptV1', async () => ({
-    sourceLanguage: transcript.language, originalTranscript: originalText,
+    sourceLanguage: transcript.language, transcriptSource: transcript.source || 'audio', originalTranscript: originalText,
     translatedTranscript: translatedText, extractedAt: new Date().toISOString(),
   }))
   let analysis = null

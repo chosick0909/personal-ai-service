@@ -690,7 +690,7 @@ export default function UploadSection() {
                   : '업로드 이후 구조 분석과 초안 생성을 진행 중입니다.'
                 : inputMode === 'script'
                   ? '릴스 화면에 보이는 자막이나 실제 대본을 붙여넣으면 음성 상태와 무관하게 빠르게 분석할 수 있어요.'
-                : '현재 대본 추출은 음성 전사 기준입니다. BGM이 크거나 음성이 작으면 자막/대본을 붙여넣는 방식이 더 정확합니다.'}
+                : '음성이 없거나 잘 들리지 않으면 화면 속 자막을 읽어 대본을 추출합니다. 자막이 작거나 흐리면 대본을 직접 붙여넣어주세요.'}
             </p>
             {!isAnalyzing && currentStep !== 'analyzing' && inputMode === 'script' ? (
               <div className="mt-5 w-full max-w-[620px]">

@@ -182,7 +182,7 @@ test('uploaded videos bypass link collection and enter the shared transcription 
   const result = await collectImportTranscript({
     db:{ name:'database' }, job:{ user_id:'member', input:{ projectId:'project-1' } },
     providers:{ brightData:async()=>assert.fail('uploaded files must not call the link provider') },
-    stage:async value=>stages.push(value), signal:{ aborted:false },
+    stage:async value=>stages.push(value), signal:new AbortController().signal,
   }, {
     workspace:async callback=>callback('/private/workspace'),
     ownedMedia:async (db,id,userId)=>{
@@ -217,4 +217,39 @@ test('expired uploaded originals stop before download or transcription', async (
     probeVideo:async()=>assert.fail('expired file must not be probed'),
     transcribeFile:async()=>assert.fail('expired file must not be transcribed'),
   }), { code:'MEDIA_EXPIRED' })
+})
+
+test('silent uploaded references opt in to subtitle reading, then use the existing translation and analysis path', async () => {
+  const calls=[]
+  const transcript = await collectImportTranscript({
+    db:{},job:{user_id:'synthetic',input:{projectId:'silent'}}, signal:new AbortController().signal,
+    providers:{},stage:async s=>calls.push(s),
+  },{
+    workspace:async fn=>fn('/test'),ownedMedia:async()=>({original_expires_at:'2099-01-01',original_path:'test'}),
+    downloadStored:async()=>{},probeVideo:async(_p,_s,options)=>{assert.equal(options.allowSilent,true);return{duration:6,hasAudio:false}},
+    transcribeFile:()=>assert.fail('no audio'),extractScreenSubtitles:async(_p,_dir,_dur,options)=>{
+      await options.onProgress();return{language:'ko',source:'screen_subtitles',text:'서랍부터 정리하세요.',subtitles:[{start:0,end:2,text:'서랍부터 정리하세요.'}]}
+    },
+  })
+  assert.equal(transcript.source,'screen_subtitles')
+  assert.ok(calls.includes('reading_subtitles'))
+  const result=await importLink({job:{input:{}},stage:async()=>{},checkpoint:async(key,fn)=>key==='transcript'?transcript:fn(),providers:{json:async()=>({})}})
+  assert.equal(result.originalTranscript,'서랍부터 정리하세요.')
+  assert.equal(result.translatedTranscript,result.originalTranscript)
+  assert.equal(result.transcriptSource,'screen_subtitles')
+})
+
+test('link downloads and uploaded files share the same silent-video subtitle path',async()=>{
+  const calls=[]
+  const result=await collectImportTranscript({job:{input:{url:'https://www.instagram.com/reel/synthetic/'}},
+    providers:{brightData:async url=>{calls.push('collect');return{videoUrl:'https://example.org/synthetic.mp4'}}},
+    stage:async()=>{},signal:new AbortController().signal,
+  },{
+    workspace:async fn=>fn('/test'),downloadPublicMedia:async()=>calls.push('download'),
+    probeVideo:async(_path,_signal,options)=>{assert.equal(options.allowSilent,true);return{duration:9,hasAudio:false}},
+    transcribeFile:()=>assert.fail('no audio'),extractScreenSubtitles:async()=>({text:'Start with one drawer.',language:'en',source:'screen_subtitles'}),
+  })
+  assert.deepEqual(calls,['collect','download'])
+  assert.equal(result.source,'screen_subtitles')
+  assert.equal(result.language,'en')
 })

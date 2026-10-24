@@ -1,3 +1,4 @@
+import { extractScreenSubtitles, referenceTranscript, usableSpeech } from './video-subtitle-transcript.js'
 import { normalizeSupportingMaterials, formatSupportingMaterials } from '../../../shared/supporting-materials.mjs'
 import { SPOKEN_SCRIPT_WRITING_RULES } from './spoken-script.js'
 import { AppError } from './errors.js'
@@ -172,6 +173,7 @@ function buildAnalysisReuseCacheKey({
   fileFingerprint,
   supportingMaterialsDigest = '',
   characterSystemPrompt,
+  extractionVersion = '',
 }) {
   const fileHash = String(fileFingerprint || '').trim() || hashText('')
   const promptHash = hashText(characterSystemPrompt || '')
@@ -183,6 +185,7 @@ function buildAnalysisReuseCacheKey({
     fileHash,
     promptVersion: ANALYSIS_PROMPT_VERSION,
     promptHash,
+    ...(extractionVersion ? { extractionVersion } : {}),
     ...(supportingMaterialsDigest ? { supportingMaterialsDigest } : {}),
   })
 }
@@ -1396,6 +1399,9 @@ function buildTranscriptReliabilityPrompt(transcriptQuality = {}) {
   const level = transcriptQuality?.level || 'unknown'
   const score = Number.isFinite(transcriptQuality?.score) ? transcriptQuality.score : null
   const reasons = Array.isArray(transcriptQuality?.reasons) ? transcriptQuality.reasons : []
+  if (transcriptQuality?.source === 'screen_subtitles') {
+    return '화면 자막에서 추출한 원문이다. 음성 전사가 아니며 발화·목소리·어조는 추정하지 않는다. 읽힌 자막을 구조/후킹/심리 분석의 근거로 사용한다.'
+  }
   if (transcriptQuality?.reliable) {
     return [
       `전사 신뢰도: ${level}${score === null ? '' : ` (${score}/100)`}`,
@@ -4651,7 +4657,7 @@ export async function analyzeReferenceVideo({
     ? hashText(normalizedScriptText)
     : await computeUploadedFileFingerprint(file)
   const analysisFingerprint = hashText(
-    `${isTextReference ? 'script-text' : 'video'}:${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}${supportingMaterialsDigest ? ':' + supportingMaterialsDigest : ''}`,
+    `${isTextReference ? 'script-text' : 'video:screen-subtitles-v1'}:${fileFingerprint}:${ANALYSIS_PROMPT_VERSION}${supportingMaterialsDigest ? ':' + supportingMaterialsDigest : ''}`,
   )
   const topicBrief = { ...buildTopicBrief(normalizedTopic), ...(materials.length ? { supportingMaterials: materials } : {}) }
   const topicFocusPrompt = [buildTopicFocusPrompt(normalizedTopic, normalizedTitle, topicBrief), materialsPrompt].filter(Boolean).join('\n\n')
@@ -4663,6 +4669,7 @@ export async function analyzeReferenceVideo({
     fileFingerprint,
     characterSystemPrompt,
     supportingMaterialsDigest,
+    extractionVersion: isTextReference ? '' : 'screen-subtitles-v1',
   })
   const inFlightKey = [accountId, normalizedIdempotencyKey || analysisFingerprint].join(':')
   if (ANALYZE_IN_FLIGHT.has(inFlightKey)) {
@@ -4956,35 +4963,19 @@ export async function analyzeReferenceVideo({
         async () => hasAudioStream(created.videoPath),
         stageHooks,
       )
-      const transcriptPromise = hasAudio
-        ? (async () => {
-            const audioPath = await runStage(
-              'extract-audio',
-              baseContext,
-              async () =>
-                extractAudioTrack(created.videoPath, workspace, {
-                  maxDurationSeconds: cappedAudioSeconds,
-                }),
-              stageHooks,
-            )
-
-            return runStage(
-              'transcription',
-              baseContext,
-              async () =>
-                transcribeVideoAudio(audioPath, {
-                  title: normalizedTitle,
-                  topic: normalizedTopic,
-                }),
-              stageHooks,
-            )
-          })()
-        : Promise.resolve({
-            text: '',
-            segments: [],
-            duration: null,
-            model: null,
-          })
+      const transcriptPromise = runStage('transcription', baseContext, () => referenceTranscript({
+        hasAudio, duration: Math.min(durationSeconds, cappedAudioSeconds),
+        transcribe: async () => {
+          const audioPath = await extractAudioTrack(created.videoPath, workspace, { maxDurationSeconds: cappedAudioSeconds })
+          return transcribeVideoAudio(audioPath, { title: normalizedTitle, topic: normalizedTopic })
+        },
+        reliable: (value, duration) => usableSpeech(value, duration) && scoreTranscriptReliability({
+          text: value.text, segments: value.segments, durationSeconds: value.duration || duration, hasAudio,
+        }).reliable,
+        readSubtitles: () => extractScreenSubtitles(created.videoPath, workspace, durationSeconds, {
+          onProgress: () => stageHooks.onStart('reading-subtitles', baseContext),
+        }),
+      }), stageHooks)
 
       const frameAnalysisPromise = (async () => {
         const extractedFrames = await runStage(
@@ -5010,14 +5001,15 @@ export async function analyzeReferenceVideo({
         }
       })()
 
-      const [nextTranscript, frameAnalysisBundle] = await Promise.all([
-        transcriptPromise,
-        frameAnalysisPromise,
-      ])
+      const mediaResults = await Promise.allSettled([transcriptPromise, frameAnalysisPromise])
+      const failedMedia = mediaResults.find(result => result.status === 'rejected')
+      if (failedMedia) throw failedMedia.reason
+      const [nextTranscript, frameAnalysisBundle] = mediaResults.map(result => result.value)
       transcript = nextTranscript
       frames = frameAnalysisBundle.frames
       frameAnalysis = frameAnalysisBundle.frameAnalysis
     }
+    if (transcript.source === 'screen_subtitles') transcriptCapped = false
     const normalizedTranscript = transcript.text?.trim()
     const frameSummary = [
       frameAnalysis.summary?.trim(),
@@ -5040,7 +5032,7 @@ export async function analyzeReferenceVideo({
             density: null,
           },
         }
-      : scoreTranscriptReliability({
+      : transcript.quality || scoreTranscriptReliability({
           text: normalizedTranscript || '',
           segments: transcript.segments || [],
           durationSeconds: transcript.duration || durationSeconds,

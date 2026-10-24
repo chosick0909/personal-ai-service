@@ -19,7 +19,7 @@ const tools = [
 ]
 const stages = { verifying_public_accounts: '공개 프로필·최근 게시물 확인 중', verifying_reach: '50만 이상 조회 콘텐츠 확인 중', reviewing_content: '영상 표본·캡션 분석 중', queued: '작업 대기 중', finding_accounts: '카테고리 상위 계정 검색 중', expanding_account_search: '조건에 맞는 계정을 찾도록 검색 범위 확대 중', ranking_accounts: '선택 조건 적합도 비교 중',
   expanding_keywords: '키워드 후보 구성 중', checking_official_sources: '공식 데이터 확인 중', collecting_video: '영상 가져오는 중',
-  reading_video: '영상 확인 중', transcribing: '음성·시간 정보 분석 중', translating: '한국어 번역 중',
+  reading_video: '영상 확인 중', transcribing: '음성·시간 정보 분석 중', reading_subtitles: '화면 속 자막을 읽는 중', translating: '한국어 번역 중',
   analyzing_reference: '후킹·구조 분석 중', saving_transcript: '추출 결과 저장 중', finding_safe_cuts: '침묵 구간 분석 중',
   rendering: '선택한 컷 적용 중', packaging: '내보내기 파일 준비 중', completed: '완료', failed: '실패', retrying: '다시 처리 중' }
 const checkedAt = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('ko-KR') : '확인되지 않음'
