@@ -41,7 +41,7 @@ test('only adjacent identical subtitles merge; blanks and later repeats preserve
   assert.deepEqual(result.words,[],'screen observations must not invent speech word timings')
 })
 test('no visible captions fails without fabricating narration',()=>{
-  assert.throws(()=>assembleSubtitleTranscript([{timestamp:0,text:'',language:'unknown'}],1),{code:'REFERENCE_TEXT_NOT_FOUND'})
+  assert.throws(()=>assembleSubtitleTranscript([{timestamp:0,text:'',language:'unknown'}],1),{code:'REFERENCE_TEXT_NOT_FOUND',exposeMessage:true})
 })
 test('all input frames must be accounted for, including empty ones',()=>{
   const frames=[{id:10,timestamp:5},{id:11,timestamp:5.5}]
