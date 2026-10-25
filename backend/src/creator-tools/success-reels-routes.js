@@ -74,7 +74,7 @@ export function createReelIngestRouter() {
     }
   }))
   router.post('/success-reels/captions', asyncHandler(async (req, res) => {
-    const result = await storeReelCaptions(database(), req.body, sharedRedis())
+    const result = await storeReelCaptions(database(), req.body, sharedRedis(), { readImage: url => readPublicImage(url, AbortSignal.timeout(20000)) })
     const deps = { db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) }
     if (result.filled.length) await classifyReelCategories(database(), deps.makeProviders(AbortSignal.timeout(120000)), result.filled).catch(() => {})
     for (const shortcode of result.reanalyze) await requestReelAnalysis(deps, shortcode).catch(() => {})

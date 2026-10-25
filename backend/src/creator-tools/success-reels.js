@@ -220,35 +220,55 @@ export function normalizeCaptions(body) {
   if (!Array.isArray(body?.captions) || body.captions.length > 200) fail('INVALID_CAPTIONS', '캡션 목록을 확인해주세요.')
   const seen = new Set()
   return body.captions.flatMap(item => {
-    const caption = text(item?.caption, 2000).trim(), videoUrl = playbackUrl(item?.videoUrl)
-    if (!shortcodePostedAt(item?.shortcode) || (!caption && !videoUrl) || seen.has(item.shortcode)) return []
+    const caption = text(item?.caption, 2000).trim(), videoUrl = playbackUrl(item?.videoUrl), views = count(item?.views)
+    if (!shortcodePostedAt(item?.shortcode) || (!caption && !videoUrl && !views) || seen.has(item.shortcode)) return []
     seen.add(item.shortcode)
-    return [{ shortcode: item.shortcode, caption, videoUrl }]
+    return [{ shortcode: item.shortcode, caption, videoUrl, views, likes: count(item?.likes), comments: count(item?.comments), thumbnailUrl: cdnUrl(item?.thumbnailUrl) }]
   })
 }
 // An analysis made while the caption was still empty described a captionless reel; it is redone once the caption lands.
-export async function storeReelCaptions(db, body, redis = null) {
+export async function storeReelCaptions(db, body, redis = null, { readImage = null, now = Date.now() } = {}) {
   const captions = normalizeCaptions(body)
   const reanalyze = [], filled = []
   let saved = 0
-  for (const { shortcode, caption, videoUrl } of captions) {
-    const row = await query(db.from('creator_success_reels').select('shortcode,username,caption,analysis_status').eq('shortcode', shortcode).maybeSingle())
+  for (const item of captions) {
+    const { shortcode, caption, videoUrl } = item
+    const row = await query(db.from('creator_success_reels').select('shortcode,username,caption,analysis_status,source,views,thumbnail_path,visible,posted_at').eq('shortcode', shortcode).maybeSingle())
     if (!row) continue
     saved += 1
-    if (videoUrl) await cacheVideoUrl(redis, shortcode, videoUrl)
-    if (!caption || row.caption) continue
-    const patch = { caption }
-    if (row.analysis_status === 'ready') { patch.analysis_status = 'none'; reanalyze.push(shortcode) }
-    await query(db.from('creator_success_reels').update(patch).eq('shortcode', shortcode))
-    filled.push({ shortcode, username: row.username, caption })
+    if (videoUrl) await cacheVideoUrl(redis, shortcode, videoUrl, now)
+    const patch = {}
+    // Counts read from the reel page are the real ones; link uploads start at 0 when Bright Data had none.
+    if (item.views) { patch.views = item.views; if (item.likes !== null) patch.likes = item.likes; if (item.comments !== null) patch.comments = item.comments }
+    if (!row.thumbnail_path && item.thumbnailUrl && readImage) {
+      const image = await readImage(item.thumbnailUrl).catch(() => null)
+      const [, type, data] = String(image || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/) || []
+      if (type) {
+        const path = `${shortcode}.${type.split('/')[1].replace('jpeg', 'jpg')}`
+        const { error } = await db.storage.from(THUMBNAIL_BUCKET).upload(path, Buffer.from(data, 'base64'), { contentType: type, upsert: true })
+        if (!error) patch.thumbnail_path = path
+      }
+    }
+    if (caption && !row.caption) {
+      patch.caption = caption
+      if (row.analysis_status === 'ready') { patch.analysis_status = 'none'; reanalyze.push(shortcode) }
+      filled.push({ shortcode, username: row.username, caption })
+    }
+    // A student's link that turns out to be a success reel joins the archive like a collected one.
+    if (row.source === 'upload-link' && !row.visible && (patch.views ?? row.views) >= SUCCESS_REEL_MIN_VIEWS
+      && Date.parse(row.posted_at) >= now - SUCCESS_REEL_MAX_AGE_DAYS * DAY && (patch.thumbnail_path || row.thumbnail_path)) patch.visible = true
+    if (Object.keys(patch).length) await query(db.from('creator_success_reels').update(patch).eq('shortcode', shortcode))
   }
   return { saved, reanalyze, filled }
 }
 // Listed reels still missing a caption, most watched first, for the collector to read from their pages.
+// Reel pages worth a visit: students' Instagram links first (their counts and cover come from the page), then
+// listed reels still missing a caption or a cached video link, most watched first.
 export async function reelsMissingCaptions(db, limit = 40, redis = null) {
+  const links = await query(db.from('creator_success_reels').select('shortcode,views,thumbnail_path,first_collected_at').eq('source', 'upload-link').order('first_collected_at', { ascending: false }).limit(60))
+  const out = links.filter(row => !row.views || !row.thumbnail_path).map(row => row.shortcode).slice(0, limit)
   const rows = (await query(db.from('creator_success_reels').select('shortcode,source,caption').eq('visible', true).order('views', { ascending: false }).limit(400)))
     .filter(row => !String(row.source || '').startsWith('upload-'))
-  const out = []
   for (const row of rows) {
     if (out.length >= limit) break
     const cached = row.caption && redis ? await redis.exists(`success-reel-video:${row.shortcode}`).catch(() => 1) : 0

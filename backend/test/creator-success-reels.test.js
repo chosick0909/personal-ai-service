@@ -258,7 +258,7 @@ test('captions read from reel pages are stored, and a revisit without one keeps 
   await ingestAccount(deps, body([reel('Dd8xyurzlmx', 1220000, { caption: '' })]))
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '')
   assert.deepEqual(normalizeCaptions({ captions: [{ shortcode: 'Dd8xyurzlmx', caption: ' 택배비 4,500원만 내세요 ' }, { shortcode: 'Dd8xyurzlmx', caption: 'dup' }, { shortcode: 'bad!', caption: 'x' }, { shortcode: 'DcdnugUTjcE', caption: '' }] }),
-    [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요', videoUrl: null }])
+    [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요', videoUrl: null, views: null, likes: null, comments: null, thumbnailUrl: null }])
   assert.throws(() => normalizeCaptions({ captions: 'no' }), /캡션 목록/)
   db.tables.creator_success_reels.get('Dd8xyurzlmx').analysis_status = 'ready'
   const stored = await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }, { shortcode: 'DcdnugUTjcE', caption: '없는 릴스' }] })
@@ -281,7 +281,7 @@ test('captions can carry the reel video link, which is cached until shortly befo
   assert.equal(await cacheVideoUrl(redis, 'Dd8xyurzlmx', cdn, now), true)
   assert.equal(store.get('success-reel-video:Dd8xyurzlmx'), cdn); assert.equal(sets[0], 5 * 86400, 'capped at five days')
   assert.equal(await cacheVideoUrl(redis, 'Dd8xyurzlmx', 'https://evil.example/a.mp4', now), false)
-  assert.deepEqual(normalizeCaptions({ captions: [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn }] }), [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn }])
+  assert.deepEqual(normalizeCaptions({ captions: [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn }] }), [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn, views: null, likes: null, comments: null, thumbnailUrl: null }])
   const db = fakeDb()
   db.tables.creator_success_reels.set('DcdnugUTjcE', { shortcode: 'DcdnugUTjcE', username: 'u', caption: '', analysis_status: 'none' })
   const result = await storeReelCaptions(db, { captions: [{ shortcode: 'DcdnugUTjcE', caption: '욕실 청소', videoUrl: cdn }] }, redis)
@@ -298,4 +298,17 @@ test('reel categories are re-read from captions and marked as checked', async ()
   assert.equal(db.tables.creator_success_reels.get('A').category, '살림')
   assert.ok(db.tables.creator_success_reels.get('A').category_checked_at)
   assert.equal(db.tables.creator_success_reels.get('B').category_checked_at, undefined, 'no caption, nothing to judge')
+})
+
+test('a student link read from its page gets real counts, a cover, and joins the archive when it qualifies', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('Dd8xyurzlmx', { shortcode: 'Dd8xyurzlmx', username: 'hyenim', caption: '', views: 0, likes: null, comments: null, thumbnail_path: null, source: 'upload-link', visible: false, analysis_status: 'ready', posted_at: '2026-10-01T00:00:00Z' })
+  const readImage = async () => `data:image/jpeg;base64,${Buffer.from('jpeg').toString('base64')}`
+  const result = await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '99%가 거꾸로 하는 수익화', views: 812000, likes: 12000, comments: 300, thumbnailUrl: 'https://scontent-ssn1-1.cdninstagram.com/v/t51/x.jpg' }] }, null, { readImage, now: NOW })
+  const row = db.tables.creator_success_reels.get('Dd8xyurzlmx')
+  assert.equal(row.views, 812000); assert.equal(row.likes, 12000); assert.equal(row.thumbnail_path, 'Dd8xyurzlmx.jpg'); assert.equal(row.caption, '99%가 거꾸로 하는 수익화')
+  assert.equal(row.visible, true, '500k+ within three months with a cover is listed'); assert.deepEqual(result.reanalyze, ['Dd8xyurzlmx'])
+  db.tables.creator_success_reels.set('DcdnugUTjcE', { shortcode: 'DcdnugUTjcE', username: 'x', caption: 'c', views: 0, thumbnail_path: null, source: 'upload-link', visible: false, analysis_status: 'none', posted_at: '2026-10-01T00:00:00Z' })
+  await storeReelCaptions(db, { captions: [{ shortcode: 'DcdnugUTjcE', views: 12000 }] }, null, { now: NOW })
+  assert.equal(db.tables.creator_success_reels.get('DcdnugUTjcE').views, 12000); assert.equal(db.tables.creator_success_reels.get('DcdnugUTjcE').visible, false)
 })

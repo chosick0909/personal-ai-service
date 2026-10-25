@@ -264,7 +264,7 @@ async function collect(dry, dryKeywords) {
     const media = new Map()
     for (const body of await visit(`https://www.instagram.com/reel/${code}/`, 0)) collectMedia(body, media)
     const item = media.get(code)
-    return { caption: item?.caption || '', videoUrl: item?.videoUrl || null }
+    return { caption: item?.caption || '', videoUrl: item?.videoUrl || null, views: item?.views || null, likes: item?.likes ?? null, comments: item?.comments ?? null, thumbnailUrl: item?.thumbnailUrl || null }
   }
   const queue = dry ? [] : await loadQueue()
   const queued = new Set(queue.map(row => row.username))
@@ -277,7 +277,7 @@ async function collect(dry, dryKeywords) {
     if (missing.length) {
       const captions = []
       for (const code of missing) {
-        try { const { caption, videoUrl } = await readReel(code); if (caption || videoUrl) captions.push({ shortcode: code, caption, videoUrl }) } catch (error) { if (error.blocked) throw error }
+        try { const read = await readReel(code); if (read.caption || read.videoUrl || read.views) captions.push({ shortcode: code, ...read }) } catch (error) { if (error.blocked) throw error }
         await pause(5000, 9000)
       }
       const result = captions.length ? await api(config, 'POST', '/success-reels/captions', { captions }) : { saved: 0 }

@@ -74,7 +74,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
       <span className="st-reel-date">{day(reel.postedAt)}</span>
       {hover && loadingPreview && !preview && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
       {badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}
-      <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{compactCount(reel.views)}</span>{reel.analysisRequests > 0 && <span>🔍 {reel.analysisRequests}명 분석</span>}</div>
+      <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{compactCount(reel.views)}</span></div>
       <div className="st-reel-hover">
         <button type="button" className="st-reel-analyze" disabled={busy} onClick={ready ? onOpenAnalysis : onAnalyze}>
           {busy ? <><LoaderCircle size={16} className="st-spin" />분석 중</> : ready ? <><Sparkles size={16} />분석 보기</> : <><ScanSearch size={16} />분석하기</>}</button>
