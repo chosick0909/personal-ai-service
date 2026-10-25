@@ -435,6 +435,7 @@ function fallbackFormulaRecommendation(item, topic) {
     title: `${formulaParts.modifier} ${formulaParts.keyword} ${formulaParts.predicate}`,
     reason: '혜택, 핵심 주제, 숫자형 방법이 한눈에 보이도록 구성했습니다.',
     formulaParts,
+    fallback: true,
   }
 }
 

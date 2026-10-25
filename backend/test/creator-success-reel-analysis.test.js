@@ -142,6 +142,8 @@ test('cover titles reuse the workspace thumbnail generator and its cover bluepri
   assert.deepEqual(titles.map(t => t.label), ['원본 보존형', '후킹 강화형', '3단공식 적용형'])
   assert.equal(calls[0].topic.length, 500)
   assert.deepEqual(calls[0].imageAnalysis.detectedText, ['안 사요 사요'])
+  const canned = async () => ({ recommendations: [{ type: 'A', label: '원본 보존형', title: '번들거리면 안 사요', reason: '' }, { type: 'C', label: '3단공식 적용형', title: '얇아도 커버력 좋은 베이스 루틴 5가지 방법', reason: '', fallback: true }] })
+  assert.deepEqual((await planThumbnailTitles({ generate: canned }, { topic: '선크림', cover: null })).map(t => t.text), ['번들거리면 안 사요'])
   assert.deepEqual(await planThumbnailTitles({ generate: async () => { throw new Error('down') } }, { topic: 't', cover: null }), [], 'falls back to the plan model titles')
 
   const db = { storage: { from: () => ({ download: async () => ({ data: new Blob([Buffer.from('jpg')]), error: null }) }) } }

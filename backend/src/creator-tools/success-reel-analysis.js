@@ -147,8 +147,9 @@ export async function reelCoverAnalysis({ db, analyze = analyzeThumbnailImage },
 export async function planThumbnailTitles({ generate = generateThumbnailTitles }, { topic, category, cover }) {
   try {
     const result = await generate({ topic: topic.slice(0, 500), category: category || '', imageAnalysis: cover || {} })
-    return (result.recommendations || []).map(item => ({ text: clean(item.title, 40), why: clean(item.reason, 200), label: clean(item.label, 20) }))
-      .filter(item => item.text).slice(0, 3)
+    // The generator's canned category fallback ("얇아도 커버력 좋은 베이스 루틴…") ignores the brief, so it is never shown.
+    return (result.recommendations || []).filter(item => !item.fallback)
+      .map(item => ({ text: clean(item.title, 40), why: clean(item.reason, 200), label: clean(item.label, 20) })).filter(item => item.text).slice(0, 3)
   } catch { return [] }
 }
 
@@ -277,7 +278,8 @@ export async function runReelPlan({ db, makeProviders }, planId) {
       await query(db.from('creator_success_reels').update({ analysis: { ...reel.analysis, cover } }).eq('shortcode', plan.shortcode)).catch(() => {})
     }
     const titles = await planThumbnailTitles({}, { topic: `${result.title}\n${plan.brief}`, category: reel.category, cover })
-    if (titles.length) result = { ...result, thumbnailTitles: titles }
+    // Missing slots are filled with the plan model's own cover titles.
+    if (titles.length) result = { ...result, thumbnailTitles: [...titles, ...result.thumbnailTitles.filter(t => !titles.some(x => x.text === t.text))].slice(0, 3) }
     await query(db.from('creator_reel_plans').update({ status: 'ready', plan: result, error: null, updated_at: new Date().toISOString() }).eq('id', planId))
   } catch (error) {
     await query(db.from('creator_reel_plans').update({ status: 'failed', error: error?.exposeMessage ? error.message : '기획안을 완성하지 못했습니다. 잠시 후 다시 시도해주세요.',
