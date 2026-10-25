@@ -29,6 +29,8 @@ export function PlayerModal({ reel, onClose, onAnalyze, onOpenAnalysis }) {
   const close = useRef(null)
   useEffect(() => { let alive = true; close.current?.focus(); playbackUrl(reel.shortcode).then(u => { if (!alive) return; if (u) setUrl(u); else setFailed(true) }); return () => { alive = false } }, [reel.shortcode])
   useEffect(() => { const onKey = e => { if (e.key === 'Escape') onClose() }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [onClose])
+  // The page behind stays put; only the caption column scrolls.
+  useEffect(() => { const previous = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = previous } }, [])
   const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
   return <div className="st-modal" role="dialog" aria-modal="true" aria-label={`@${reel.username} 릴스`} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
     <div className="st-player">
