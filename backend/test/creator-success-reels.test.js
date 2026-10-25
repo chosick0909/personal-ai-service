@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema } from '../src/creator-tools/success-reels.js'
+import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema, searchTerm } from '../src/creator-tools/success-reels.js'
 import { ingestTokenValid, successReelsEnabled } from '../src/creator-tools/success-reels-routes.js'
 import { keywordsForDay, SUCCESS_REEL_KEYWORDS } from '../src/creator-tools/success-reels-keywords.js'
 import { CREATOR_CATEGORIES, SUCCESS_REEL_CATEGORIES } from '../src/creator-tools/categories.js'
@@ -73,7 +73,7 @@ function fakeDb() {
     const filters = []
     let action = 'select', payload, single = false, order, range
     const run = () => {
-      const rows = [...tables[table].values()].filter(row => filters.every(([k, v]) => row[k] === v))
+      const rows = [...tables[table].values()].filter(row => filters.every(([k, v]) => k === null ? v(row) : row[k] === v))
       if (action === 'upsert') { const key = keys[table]; tables[table].set(payload[key], { ...(tables[table].get(payload[key]) || {}), ...payload }); return null }
       if (action === 'update') { rows.forEach(row => Object.assign(row, payload)); return null }
       let out = rows
@@ -85,6 +85,8 @@ function fakeDb() {
       select() { return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
       upsert(row) { action = 'upsert'; payload = row; return api }, update(row) { action = 'update'; payload = row; return api },
       order(k) { order = k; return api }, range(a, b) { range = [a, b]; return api },
+      // Supports the "field.ilike.%term%,field.ilike.%term%" form used for search.
+      or(expr) { const parts = expr.split(',').map(p => p.match(/^(\w+)\.ilike\.%(.*)%$/)); filters.push([null, row => parts.some(([, f, t]) => String(row[f] ?? '').toLowerCase().includes(t.toLowerCase()))]); return api },
       then(resolve) { resolve({ data: run(), error: null }) },
     }
     return api
@@ -150,4 +152,22 @@ test('success reels split skin from beauty and add trend-board topics without to
   assert.ok(SUCCESS_REEL_KEYWORDS.every(k => SUCCESS_REEL_CATEGORIES.includes(k.category)))
   assert.deepEqual(SUCCESS_REEL_CATEGORIES.filter(c => c !== '기타' && !SUCCESS_REEL_KEYWORDS.some(k => k.category === c)), [])
   assert.ok(!CREATOR_CATEGORIES.includes('피부'), 'other creator tools keep their own list')
+})
+
+test('search matches caption, translation, account and audio, and strips filter syntax', async () => {
+  assert.equal(searchTerm('다이소, 꿀템)(%*'), '다이소 꿀템')
+  assert.equal(searchTerm('  @ojirapper_  '), '@ojirapper_')
+  assert.equal(searchTerm('x'.repeat(80)).length, 40)
+  assert.equal(searchTerm(42), '')
+  const db = fakeDb()
+  const base = { visible: true, views: 600000, posted_at: '2026-10-01T00:00:00Z', thumbnail_path: null }
+  db.tables.creator_success_reels.set('A1aaaa', { ...base, shortcode: 'A1aaaa', username: 'ojirapper_', caption: '다이소 대란템 대결', caption_ko: null, audio: null })
+  db.tables.creator_success_reels.set('B2bbbb', { ...base, shortcode: 'B2bbbb', username: 'glowbyjess', caption: 'The one skincare step', caption_ko: '다들 건너뛰는 스킨케어 단계', audio: 'Pump It' })
+  db.tables.creator_success_reels.set('C3cccc', { ...base, shortcode: 'C3cccc', username: 'hidden', caption: '다이소 꿀템', visible: false })
+  const codes = async q => (await listSuccessReels(db, { q })).reels.map(r => r.shortcode)
+  assert.deepEqual(await codes('다이소'), ['A1aaaa'])
+  assert.deepEqual(await codes('스킨케어'), ['B2bbbb'])
+  assert.deepEqual(await codes('GLOWBY'), ['B2bbbb'])
+  assert.deepEqual(await codes('pump'), ['B2bbbb'])
+  assert.deepEqual((await codes('')).sort(), ['A1aaaa', 'B2bbbb'])
 })

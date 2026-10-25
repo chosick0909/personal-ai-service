@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ExternalLink, Play, X, Heart, MessageCircle, Music2 } from 'lucide-react'
+import { ExternalLink, Play, X, Heart, MessageCircle, Music2, Search } from 'lucide-react'
 import { creatorRequest } from '../lib/creatorApi'
 import './CreatorTools.css'
 
@@ -58,7 +58,8 @@ function Player({ reel, onClose }) {
 }
 
 export default function SuccessReels({ categories = [] }) {
-  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: 'latest' })
+  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: 'latest', q: '' })
+  const [draft, setDraft] = useState('')
   const [reels, setReels] = useState([])
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
@@ -71,6 +72,7 @@ export default function SuccessReels({ categories = [] }) {
     if (filters.category !== 'all') params.set('category', filters.category)
     if (filters.face !== 'any') params.set('face', filters.face)
     if (filters.region !== 'any') params.set('region', filters.region)
+    if (filters.q) params.set('q', filters.q)
     creatorRequest(`/creator-tools/success-reels?${params}`, { signal: controller.signal })
       .then(data => { setReels(previous => page === 0 ? data.reels : [...previous, ...data.reels]); setHasMore(data.hasMore) })
       .catch(e => { if (!controller.signal.aborted) setError(e.message) })
@@ -80,6 +82,12 @@ export default function SuccessReels({ categories = [] }) {
   const change = patch => { setFilters(previous => ({ ...previous, ...patch })); setPage(0); setLoading(true); setError('') }
   return <section className="ct-reels">
     <p className="ct-muted">최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 릴스를 매일 모읍니다. 집·일상에서 따라 만들 수 있는 계정만 골랐어요.</p>
+    <form className="ct-reels-search" role="search" onSubmit={event => { event.preventDefault(); change({ q: draft.trim().slice(0, 40) }) }}>
+      <Search size={18} aria-hidden="true" />
+      <input type="search" value={draft} maxLength={40} onChange={event => { setDraft(event.target.value); if (!event.target.value && filters.q) change({ q: '' }) }}
+        placeholder="키워드로 찾기 (예: 다이소, 여드름, 자취요리)" aria-label="성공 릴스 키워드 검색" />
+      <button type="submit">검색</button>
+    </form>
     <Chips label="분야" options={[['all', '전체'], ...categories.map(c => [c, c])]} value={filters.category} onChange={category => change({ category })} />
     <div className="ct-reels-filters">
       <Chips label="얼굴 노출" options={FACE} value={filters.face} onChange={face => change({ face })} />
@@ -87,7 +95,7 @@ export default function SuccessReels({ categories = [] }) {
       <Chips label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort })} />
     </div>
     {error && <div role="alert" className="ct-error">{error}</div>}
-    {!loading && !error && reels.length === 0 && <div className="ct-empty"><Play size={28} strokeWidth={1.4} /><strong>조건에 맞는 릴스가 아직 없어요.</strong><span className="ct-muted">매일 새로 모으고 있어요.</span></div>}
+    {!loading && !error && reels.length === 0 && <div className="ct-empty"><Play size={28} strokeWidth={1.4} /><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요.` : '조건에 맞는 릴스가 아직 없어요.'}</strong><span className="ct-muted">{filters.q ? '다른 단어로 찾거나 분야 필터를 바꿔 보세요.' : '매일 새로 모으고 있어요.'}</span></div>}
     <div className="ct-reels-grid">
       {reels.map(reel => <button type="button" className="ct-reels-card" key={reel.shortcode} onClick={() => setOpen(reel)} aria-label={`@${reel.username} 릴스 재생, 조회수 ${compactCount(reel.views)}`}>
         <div className="ct-reels-thumb">

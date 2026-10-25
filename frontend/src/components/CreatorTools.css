@@ -319,3 +319,8 @@
   .ct-reels-player { grid-template-columns:1fr; overflow-y:auto; }
   .ct-reels-video { max-height:70vh; }
 }
+.ct-reels-search { display:flex; align-items:center; gap:10px; padding:6px 6px 6px 14px; border:1px solid var(--ct-line); border-radius:12px; background:var(--ct-input); color:var(--ct-muted); }
+.ct-reels-search input { flex:1; min-width:0; border:0; background:transparent; color:var(--ct-text); font:inherit; font-size:15px; padding:8px 0; outline:none; }
+.ct-live .ct-reels-search button { min-height:38px; padding:8px 16px; border-radius:9px; background:var(--ct-accent); border-color:var(--ct-accent); color:#fff; font-weight:700; }
+.ct-reels-search:focus-within { border-color:var(--ct-accent); box-shadow:0 0 0 2px var(--ct-soft); }
+.ct-live .ct-reels-search input:focus-visible { outline:none; }
