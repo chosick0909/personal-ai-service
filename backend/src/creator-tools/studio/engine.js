@@ -78,7 +78,7 @@ const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개(짧게). 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
 - proposals: 주제 후보 3개(수강생이 주제를 못 정했거나 "제안해줘"를 원할 때). 각 후보는 title(주제 한 줄), angle(차별 관점), promise(시청자가 얻는 것), why(지금 이 분야에서 먹히는 이유; trending이 있으면 그 근거), category(분야). 후보를 낼 상황이 아니면 [].
 - topic: 주제를 확정할 수 있을 만큼 정보가 모이면 ready=true와 함께 채웁니다. title, angle, promise, facts(수강생이 실제로 준 사실만, 없으면 []), audience(누구에게), category(분야). 아직이면 ready=false와 빈 값.
-규칙: 레퍼런스(sources)가 있으면 첫 질문은 그 포맷을 살리는 데 필요한 재료를 묻습니다(예: 판정형이면 "비교할 제품이 있나요?", 경험담이면 "들려줄 경험이 있나요?"). 질문은 전체 대화에서 최대 3개. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어갑니다. facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
+규칙: 레퍼런스(sources)가 있으면 첫 질문은 그 포맷을 살리는 데 필요한 재료를 묻습니다(예: 판정형이면 "비교할 제품 이름을 알려주세요", 경험담이면 "들려줄 경험을 한 줄로 말해주세요"). 질문은 한 번에 하나씩, 필요한 만큼. 제품명·경험·수치처럼 대본에 들어갈 사실은 반드시 묻고 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어가되, 사실을 지어내지 않습니다(없는 사실은 뒤 단계에서 다시 묻습니다). facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
 
 async function trendingFor(db, category) {
   let request = db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready')
@@ -145,28 +145,31 @@ function normalizeLines(lines) {
 }
 
 // ---------- stage generation ----------
+const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 const stageSchemas = {
-  thumbnail: obj({ options: arr(obj({ text: str, why: str })), placeholders: arr(str) }),
-  hook: obj({ options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
-  script: obj({ options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
-  filming: obj({ storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str, checklist: arr(str), placeholders: arr(str) }),
-  caption: obj({ options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
+  thumbnail: obj({ questions, options: arr(obj({ text: str, why: str })), placeholders: arr(str) }),
+  hook: obj({ questions, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
+  script: obj({ questions, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
+  filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str, checklist: arr(str), placeholders: arr(str) }),
+  caption: obj({ questions, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
+// Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
+const ASK_RULE = `사실 확인 규칙: 제품명·브랜드·구체 경험·수치·가격·효능처럼 꼭 필요한 사실이 topic.facts, brief, attachments, answers 어디에도 없으면 지어내지도, [대괄호]로 비워 두지도 말고 questions에 담아 먼저 묻습니다. 질문은 꼭 필요한 것만 1~3개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요", "제품 A가 아쉬웠던 점은요?"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개(사실을 지어내지 않는 범위에서, 예: "이름 없이 1·2·3번으로 할게요"). questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. answers에 "모름/없음"으로 답한 사실은 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
 const stagePrompts = {
-  thumbnail: `'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 15자 안팎, 한눈에 읽히게.
+  thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 15자 안팎, 한눈에 읽히게.
 1안: sources.hook의 화면 훅·공식(visualHook, formula)을 topic에 적용. 2안: 같은 주제에서 손실 회피·결과 먼저·통념 반박 중 다른 장치. 3안: 혜택+키워드+숫자(예: "백탁 없이 고르는 선크림 3가지 기준").
 why는 눌러보고 싶게 만드는 이유 한 줄. topic.facts에 없는 수치·효능은 쓰지 않습니다. placeholders는 제목에 남긴 [빈칸] 목록.`,
-  hook: `'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
+  hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
 1안: sources.hook의 훅 장치(formula, type)를 topic에 적용. 2·3안: 다른 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄. 뻔한 질문("진짜 차이 알죠?")과 과장은 금지.`,
-  script: `'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
+  script: `${ASK_RULE}\n'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
 - sources.structure가 있으면 1안은 그 전개 순서·구간 역할·리듬을 그대로 topic에 적용합니다(판정형이면 판정 문형을 반복, 리스트면 번호를 약속). 2·3안은 같은 첫 문장에서 다른 전개(예: 경험담으로 설득, 3가지로 정리).
 - label은 그 안의 성격(예: "판정으로 설득", "경험담으로 설득"), why는 어떤 시청자에게 맞는지 한 줄.
 - lines: part는 hook/body/cta, spoken은 말할 문장(짧고 구어체), onScreen은 그 구간 자막, seconds는 구간 길이. 전체 길이는 sources.structure.durationSeconds와 비슷하게, 없으면 30~50초.
 - topic.facts에 없는 제품명·수치·경험은 [제품 A 이름]처럼 빈칸으로 두고 placeholders에 적습니다. 마무리 멘트는 "댓글 남겨주세요" 대신 sources의 마무리 장치나 저장·팔로우 이유를 씁니다.`,
-  filming: `'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
+  filming: `${ASK_RULE}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
 - sources.filming이 있으면 그 구도·화면 장치·자막 스타일·컷 템포를 적용합니다. storyboard: scene 번호, seconds, shot(구도·거리), action(화면 속 행동·보여줄 것), onScreen(자막), spoken(그 장면 대사; script에서 그대로).
 - location, props(준비물), camera(거치·각도), lighting, editing(컷 템포·전환·자막 스타일), checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로.`,
-  caption: `'캡션' 단계입니다. 인스타 캡션 3안을 만듭니다. 첫 줄은 썸네일·첫 문장의 약속을 이어받고, 본문은 대본의 핵심을 2~4줄로, 마무리는 저장·댓글을 부르는 이유 한 줄. hashtags는 # 없이 5~8개.
+  caption: `${ASK_RULE}\n'캡션' 단계입니다. 인스타 캡션 3안을 만듭니다. 첫 줄은 썸네일·첫 문장의 약속을 이어받고, 본문은 대본의 핵심을 2~4줄로, 마무리는 저장·댓글을 부르는 이유 한 줄. hashtags는 # 없이 5~8개.
 sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식을 따릅니다. why는 이 캡션이 맞는 이유 한 줄. 없는 사실은 쓰지 않습니다.`,
 }
 
@@ -175,6 +178,8 @@ export async function generateStage(deps, session, stage) {
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
   const context = sessionContext(session, resolved)
   const raw = await providersJson(providers, `studio-${stage}`, stagePrompts[stage], context, stageSchemas[stage])
+  const asks = (Array.isArray(raw.questions) ? raw.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: list(q.chips, 40, 3) })).filter(q => q.question).slice(0, 3)
+  if (asks.length) return { questions: asks, placeholders: [] }
   const placeholders = list(raw.placeholders, 120, 12)
   if (stage === 'thumbnail') {
     const own = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ text: clean(o.text, 40), why: clean(o.why, 200), label: '' })).filter(o => o.text)
@@ -207,6 +212,23 @@ export async function generateStage(deps, session, stage) {
   fail('STAGE_UNKNOWN', '알 수 없는 단계예요.')
 }
 
+// A student's answer to a parked question: record it as a fact, ask the next one, or resume the stage.
+export async function answerAsk(deps, session, text) {
+  const ask = session.ask
+  const current = ask.questions[ask.index]
+  const unknown = /^(없|몰라|모르|모름|스킵|skip|건너|없어)/.test(text.trim())
+  const facts = [...(session.topic?.facts || []), `${current.key}: ${unknown ? `없음(수강생이 모름) — ${text.trim()}` : text.trim()}`].slice(-30)
+  const topic = { ...(session.topic || {}), facts }
+  const next = ask.index + 1
+  if (next < ask.questions.length) {
+    await query(deps.db.from('studio_sessions').update({ topic, ask: { ...ask, index: next }, updated_at: new Date().toISOString() }).eq('id', session.id))
+    return { reply: { content: ask.questions[next].question, meta: { chips: ask.questions[next].chips, ask: ask.questions[next].key } }, resumed: false }
+  }
+  await query(deps.db.from('studio_sessions').update({ topic, ask: null, updated_at: new Date().toISOString() }).eq('id', session.id))
+  await startStage(deps, { ...session, topic, ask: null }, ask.stage, { force: true })
+  return { reply: { content: '고마워요. 받은 내용으로 바로 만들게요.', meta: { chips: [] } }, resumed: true }
+}
+
 const message = error => error?.exposeMessage ? error.message : '훅ai가 잠시 멈췄어요. 다시 시도해주세요.'
 
 // Background stage job; the session row carries the job state the screen polls.
@@ -215,9 +237,15 @@ export function runStageJob(deps, sessionId, stage) {
     const db = deps.db
     try {
       const session = await query(db.from('studio_sessions').select('*').eq('id', sessionId).single())
-      const { value, placeholders } = await generateStage(deps, session, stage)
+      const { value, placeholders, questions: asks } = await generateStage(deps, session, stage)
+      if (asks) {
+        // 훅ai needs facts first: park the stage, ask the first question in chat, wait for answers.
+        await query(db.from('studio_sessions').update({ ask: { stage, questions: asks, index: 0 }, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId))
+        await query(db.from('studio_messages').insert({ session_id: sessionId, user_id: session.user_id, role: 'hookai', stage, content: asks[0].question, meta: { chips: asks[0].chips, ask: asks[0].key } }))
+        return
+      }
       const merged = [...new Set([...(session.placeholders || []), ...placeholders])].slice(0, 20)
-      await query(db.from('studio_sessions').update({ [stage]: value, placeholders: merged, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId))
+      await query(db.from('studio_sessions').update({ [stage]: value, placeholders: merged, ask: null, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId))
     } catch (error) {
       await query(db.from('studio_sessions').update({ job_status: 'failed', job_error: message(error), updated_at: new Date().toISOString() }).eq('id', sessionId)).catch(() => {})
     }

@@ -35,6 +35,7 @@ create table public.studio_sessions (
   caption jsonb,
   memo text not null default '',
   placeholders jsonb not null default '[]'::jsonb,
+  ask jsonb,
   style_snapshot jsonb,
   job_stage text,
   job_status text not null default 'idle' check (job_status in ('idle', 'running', 'failed')),

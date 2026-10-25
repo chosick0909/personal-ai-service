@@ -28,6 +28,7 @@ import { AppStateProvider, useAppState } from './store/AppState'
 import { isCreatorStudioPath } from './lib/creatorRoutes'
 const CreatorTools = lazy(() => import('./components/CreatorTools'))
 const CreatorToolsDemo = lazy(() => import('./components/CreatorToolsDemo'))
+const CreatorStudio2 = lazy(() => import('./studio/StudioApp'))
 
 const TRAIT_LABELS = {
   logic: '논리형',
@@ -3654,7 +3655,7 @@ function StudioShell() {
     refreshEntitlement,
     logout,
   } = useAppState()
-  const isCreatorStudio = activeToolPage === 'creator-tools'
+  const isCreatorStudio = activeToolPage === 'creator-tools' || activeToolPage === 'studio'
   const forcedEntitlementRefreshKeyRef = useRef('')
   useEffect(() => {
     if (isAuthReady && !isLoggedIn && isCreatorStudioPath(window.location.pathname)) {
@@ -3791,6 +3792,10 @@ function StudioShell() {
     return null
   }
 
+  if (activeToolPage === 'studio') {
+    return <CreatorAccessGate><Suspense fallback={<div>스튜디오 불러오는 중…</div>}><CreatorStudio2 /></Suspense></CreatorAccessGate>
+  }
+
   if (activeToolPage === 'creator-tools') {
     return <CreatorAccessGate><Suspense fallback={<div>도구 불러오는 중…</div>}><CreatorTools /></Suspense></CreatorAccessGate>
   }
@@ -3872,7 +3877,7 @@ export default function App() {
     content = <SignupApp />
   } else if (pathname.startsWith('/purchase')) {
     content = <PurchaseApp />
-  } else if (isCreatorStudioPath(pathname) || pathname.startsWith('/analyze')) {
+  } else if (isCreatorStudioPath(pathname) || /^\/studio\/?$/.test(pathname) || pathname.startsWith('/analyze')) {
     content = <StudioApp />
   } else if (pathname.startsWith('/recommend')) {
     content = <RecommendApp />

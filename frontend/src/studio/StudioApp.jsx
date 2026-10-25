@@ -1,0 +1,150 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Flame, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft } from 'lucide-react'
+import hookLogo from '../Logo_1.webp'
+import { useAppState } from '../store/AppState'
+import { studio } from './api'
+import ReelsPage from './pages/ReelsPage'
+import ReferenceDetail from './pages/ReferenceDetail'
+import ReferencesPage from './pages/ReferencesPage'
+import PlansPage from './pages/PlansPage'
+import PlanStart from './pages/PlanStart'
+import PlanWizard from './pages/PlanWizard'
+import FormulasPage from './pages/FormulasPage'
+import LibraryPage from './pages/LibraryPage'
+import StylePage from './pages/StylePage'
+import EditPage from './pages/EditPage'
+import PrintView from './pages/PrintView'
+import './studio.css'
+
+import { StudioContext } from './context'
+
+const MENU = [
+  ['reels', '성공 릴스', Flame], ['references', '내 레퍼런스', FolderHeart], ['plans', '내 기획안', FileText], ['formulas', '내 공식', Wand2],
+  ['library', '공식 사전', BookOpen], ['edit', '영상 편집', Scissors], ['style', '내 말투', MessageSquareText],
+]
+const TITLES = { reels: ['성공 릴스', '매일 쌓이는 터진 릴스. 마음에 드는 걸 분석해 보세요'], reference: ['레퍼런스 분석', ''], references: ['내 레퍼런스', '분석한 릴스가 여기 모여요'],
+  plans: ['내 기획안', '진행 중인 기획안을 이어서 만들어요'], new: ['내 기획안 만들기', '어떻게 시작할지 골라주세요'], plan: ['내 기획안', ''], formulas: ['내 공식', '저장한 후킹·전개·촬영·캡션 공식'],
+  library: ['공식 사전', '터진 릴스가 쓰는 공식 모음'], edit: ['영상 편집', '컷편집·자막, 영상·캡션 피드백'], style: ['내 말투', '훅ai가 이 말투로 써드려요'], print: ['기획안 인쇄', ''] }
+
+function readRoute() {
+  const q = new URLSearchParams(window.location.search)
+  return { page: q.get('p') || 'reels', params: Object.fromEntries([...q.entries()].filter(([k]) => k !== 'p')) }
+}
+
+export default function StudioApp() {
+  const { currentUser } = useAppState()
+  const [route, setRoute] = useState(readRoute)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [features, setFeatures] = useState(null)
+  const [categories, setCategories] = useState([])
+  const [toasts, setToasts] = useState([])
+  const [tracking, setTracking] = useState({})
+  const routeRef = useRef(route)
+  useEffect(() => { routeRef.current = route }, [route])
+
+  useEffect(() => {
+    const onPop = () => setRoute(readRoute())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  useEffect(() => {
+    studio.capabilities().then(data => { setFeatures(data.features); setCategories(data.successReelCategories || []) }).catch(() => setFeatures({}))
+  }, [])
+
+  const go = useCallback((page, params = {}, { replace = false } = {}) => {
+    const q = new URLSearchParams({ p: page, ...Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) })
+    window.history[replace ? 'replaceState' : 'pushState']({}, '', `/studio?${q}`)
+    setRoute({ page, params })
+    setMenuOpen(false)
+    window.scrollTo(0, 0)
+  }, [])
+  const toast = useCallback((item) => {
+    const id = item.id || `${Date.now()}-${Math.random()}`
+    setToasts(list => [...list.filter(t => t.id !== id), { ...item, id }])
+    if (item.ttl !== 0) setTimeout(() => setToasts(list => list.filter(t => t.id !== id)), item.ttl || 6000)
+    return id
+  }, [])
+  const dismiss = useCallback(id => setToasts(list => list.filter(t => t.id !== id)), [])
+
+  // Reel analyses run on the server; this tracker polls them and opens the result when it is ready.
+  const analyze = useCallback(async (reel) => {
+    const code = reel.shortcode
+    setTracking(t => ({ ...t, [code]: { reel, status: 'running' } }))
+    toast({ id: `an:${code}`, kind: 'running', title: '분석 중…', body: `@${reel.username} · 1~2분 걸려요`, ttl: 0 })
+    try {
+      const result = await studio.analyze(code)
+      if (result.status === 'ready') { setTracking(t => { const n = { ...t }; delete n[code]; return n }); dismiss(`an:${code}`); go('reference', { ref: code }) }
+    } catch (e) {
+      setTracking(t => { const n = { ...t }; delete n[code]; return n })
+      toast({ id: `an:${code}`, kind: 'failed', title: '분석 실패', body: e.message, ttl: 8000 })
+    }
+  }, [toast, dismiss, go])
+  const running = Object.keys(tracking).join(',')
+  useEffect(() => {
+    if (!running) return undefined
+    const codes = running.split(',')
+    const timer = setInterval(() => {
+      for (const code of codes) studio.reel(code).then(data => {
+        if (data.analysisStatus === 'running') return
+        setTracking(t => { const n = { ...t }; delete n[code]; return n })
+        if (data.analysisStatus === 'ready') {
+          const r = routeRef.current
+          if (r.page === 'reels' || (r.page === 'reference' && r.params.ref === code)) { dismiss(`an:${code}`); go('reference', { ref: code }) }
+          else toast({ id: `an:${code}`, kind: 'ready', title: '분석 완료', body: `@${data.username}`, action: { label: '결과 보기', onClick: () => go('reference', { ref: code }) }, ttl: 15000 })
+        } else toast({ id: `an:${code}`, kind: 'failed', title: '분석 실패', body: data.analysisError || '잠시 후 다시 시도해주세요.', ttl: 8000 })
+      }).catch(() => {})
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [running, go, toast, dismiss])
+
+  const value = useMemo(() => ({ go, route, toast, dismiss, analyze, tracking, categories, features, user: currentUser }), [go, route, toast, dismiss, analyze, tracking, categories, features, currentUser])
+  const [title, sub] = TITLES[route.page] || TITLES.reels
+  const active = ['reference'].includes(route.page) ? 'reels' : ['plan', 'new', 'print'].includes(route.page) ? 'plans' : route.page
+
+  if (features && !features.studio2) {
+    return <main className="st" style={{ gridTemplateColumns: '1fr' }}><div className="st-content"><div className="st-empty"><strong>아직 공개되지 않은 화면이에요</strong><span>새 크리에이터 스튜디오는 준비 중이에요.</span><a className="st-btn st-btn-soft" href="/creatorstudio">크리에이터 스튜디오로 가기</a></div></div></main>
+  }
+  if (route.page === 'print') return <StudioContext.Provider value={value}><main className="st" style={{ gridTemplateColumns: '1fr' }}><PrintView sessionId={route.params.session} /></main></StudioContext.Provider>
+
+  return <StudioContext.Provider value={value}>
+    <main className="st">
+      {menuOpen && <div className="st-backdrop" onClick={() => setMenuOpen(false)} />}
+      <aside className={`st-side${menuOpen ? ' is-open' : ''}`}>
+        <div className="st-brand"><img src={hookLogo} alt="" /><div><strong>HookAI</strong><span>크리에이터 스튜디오</span></div></div>
+        {MENU.map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} className="st-nav" aria-current={active === id ? 'page' : undefined} onClick={() => go(id)}><Icon size={22} />{label}</button> })}
+        <div className="st-side-foot">
+          <a className="st-nav" href="/creatorstudio" style={{ fontSize: 15 }}><ArrowLeft size={18} />예전 스튜디오</a>
+          <div className="st-side-user">{currentUser?.email || '내 계정'}</div>
+        </div>
+      </aside>
+      <div className="st-main">
+        <header className="st-top">
+          <button type="button" className="st-icon-btn st-menu-btn" aria-label="메뉴" onClick={() => setMenuOpen(v => !v)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button>
+          <h1>{title}</h1>{sub && <span className="st-sub">{sub}</span>}
+          <div className="st-top-actions" id="st-top-actions" />
+        </header>
+        <div className="st-content">
+          {!features ? <p className="st-muted">불러오는 중…</p>
+            : route.page === 'reels' ? <ReelsPage />
+            : route.page === 'reference' ? <ReferenceDetail shortcode={route.params.ref} />
+            : route.page === 'references' ? <ReferencesPage />
+            : route.page === 'plans' ? <PlansPage />
+            : route.page === 'new' ? <PlanStart preset={route.params} />
+            : route.page === 'plan' ? <PlanWizard key={route.params.session} sessionId={route.params.session} />
+            : route.page === 'formulas' ? <FormulasPage />
+            : route.page === 'library' ? <LibraryPage />
+            : route.page === 'edit' ? <EditPage />
+            : route.page === 'style' ? <StylePage />
+            : <ReelsPage />}
+        </div>
+      </div>
+      {route.page !== 'plan' && route.page !== 'new' && <button type="button" className="st-fab" onClick={() => go('new')}><Sparkles size={22} />내 기획안 만들기</button>}
+      <div className="st-toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`st-toast st-toast-${t.kind}`}>
+        {t.kind === 'running' ? <LoaderCircle size={20} className="st-spin" /> : t.kind === 'ready' ? <CheckCircle2 size={20} /> : <TriangleAlert size={20} />}
+        <div><strong>{t.title}</strong><span>{t.body}</span></div>
+        {t.action && <button type="button" className="st-btn st-btn-sm st-btn-primary" onClick={() => { dismiss(t.id); t.action.onClick() }}>{t.action.label}</button>}
+        <button type="button" className="st-icon-btn" style={{ width: 36, height: 36, border: 0 }} aria-label="닫기" onClick={() => dismiss(t.id)}><X size={16} /></button>
+      </div>)}</div>
+    </main>
+  </StudioContext.Provider>
+}

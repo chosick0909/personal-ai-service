@@ -478,9 +478,9 @@ export function AppStateProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialState.isLoggedIn)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [currentStep, setCurrentStep] = useState(initialState.currentStep)
-  const [activeToolPage, setActiveToolPage] = useState(() => isCreatorStudioPath(window.location.pathname) ? 'creator-tools' : initialState.activeToolPage)
+  const [activeToolPage, setActiveToolPage] = useState(() => isCreatorStudioPath(window.location.pathname) ? 'creator-tools' : /^\/studio\/?$/.test(window.location.pathname) ? 'studio' : initialState.activeToolPage)
   useEffect(() => {
-    if (!activeToolPage && isCreatorStudioPath(window.location.pathname)) window.history.replaceState(null, '', '/analyze' + window.location.hash)
+    if (!activeToolPage && (isCreatorStudioPath(window.location.pathname) || /^\/studio\/?$/.test(window.location.pathname))) window.history.replaceState(null, '', '/analyze' + window.location.hash)
   }, [activeToolPage])
   const [referenceData, setReferenceData] = useState(initialState.referenceData)
   const [generatedScripts, setGeneratedScripts] = useState(initialState.generatedScripts)

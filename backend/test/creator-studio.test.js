@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
-import { resolveSources, generateStage, formulaFromSession, chat, startStage } from '../src/creator-tools/studio/engine.js'
+import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk } from '../src/creator-tools/studio/engine.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from '../src/creator-tools/studio/library.js'
 import { STORY_FORMATS } from '../src/creator-tools/success-reel-analysis.js'
 
@@ -15,14 +15,15 @@ const analysis = {
 function fakeDb() {
   const tables = { creator_success_reels: new Map([['Aaaaa1', { shortcode: 'Aaaaa1', username: 'yaksa', caption: '', views: 100, analysis, analysis_status: 'ready', category: '피부', visible: true }]]),
     studio_formulas: new Map([['f1', { id: 'f1', user_id: 'u1', kind: 'hook', title: '내 훅', spec: { type: '경고', formula: '[대상]은 [행동] 하지 마세요' } }]]),
-    studio_sessions: new Map(), studio_topics: new Map() }
+    studio_sessions: new Map(), studio_topics: new Map(), studio_messages: new Map() }
   const updates = []
   return { tables, updates, from(table) {
     const filters = []; let action = 'select', payload, single = false
     const api = { select() { return api }, eq(k, v) { filters.push(r => r[k] === v); return api }, order() { return api }, limit() { return api },
-      maybeSingle() { single = true; return api }, single() { single = true; return api }, update(p) { action = 'update'; payload = p; return api },
+      maybeSingle() { single = true; return api }, single() { single = true; return api }, update(p) { action = 'update'; payload = p; return api }, insert(p) { action = 'insert'; payload = p; return api },
       then(resolve) {
         const rows = [...tables[table].values()].filter(r => filters.every(f => f(r)))
+        if (action === 'insert') { const row = { id: `m${tables[table].size + 1}`, ...payload }; tables[table].set(row.id, row); return resolve({ data: row, error: null }) }
         if (action === 'update') { rows.forEach(r => Object.assign(r, payload)); updates.push([table, payload]); return resolve({ data: null, error: null }) }
         resolve({ data: single ? rows[0] ?? null : rows, error: null })
       } }
@@ -105,4 +106,27 @@ test('formulas are saved as structure, and the library matches analysis categori
   assert.equal(formulaFromSession(session, {}, 'caption'), null)
   for (const s of STRUCTURE_LIBRARY) assert.ok(STORY_FORMATS.includes(s.format), s.format)
   assert.equal(new Set(HOOK_LIBRARY.map(h => h.id)).size, HOOK_LIBRARY.length)
+})
+
+test('a stage that needs facts asks first, then resumes with the answers as facts', async () => {
+  const db = fakeDb()
+  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'script', topic: { title: '선크림 3개 판정', facts: [] }, hook: { options: [{ spoken: 'x' }], chosen: 0 }, job_status: 'idle', placeholders: [], ask: null })
+  let calls = 0
+  const jobs = []
+  const deps = { db, schedule: (_k, task) => { const p = task(); jobs.push(p); return p }, makeProviders: () => ({ json: async () => { calls += 1
+    return calls === 1 ? { questions: [{ key: 'products', question: '비교할 선크림 3개의 제품명을 알려주세요.', chips: ['이름 없이 1·2·3번으로'] }, { key: 'best', question: '제일 좋았던 제품과 이유는요?', chips: [] }], options: [], placeholders: [] }
+      : { questions: [], options: [{ label: '판정', why: 'w', lines: [{ part: 'hook', spoken: '안 사요.', onScreen: '', seconds: 3 }, { part: 'body', spoken: '라운드랩? 사요.', onScreen: '', seconds: 5 }] }], placeholders: [] } } }) }
+  await startStage(deps, db.tables.studio_sessions.get('s1'), 'script', { force: true }); await Promise.all(jobs)
+  const parked = db.tables.studio_sessions.get('s1')
+  assert.equal(parked.job_status, 'idle'); assert.equal(parked.script, undefined)
+  assert.equal(parked.ask.index, 0); assert.equal(parked.ask.questions.length, 2)
+  assert.equal([...db.tables.studio_messages.values()][0].content, '비교할 선크림 3개의 제품명을 알려주세요.')
+  const first = await answerAsk(deps, parked, '라운드랩, 비플레인, 닥터지')
+  assert.equal(first.resumed, false); assert.equal(first.reply.content, '제일 좋았던 제품과 이유는요?')
+  assert.deepEqual(db.tables.studio_sessions.get('s1').topic.facts, ['products: 라운드랩, 비플레인, 닥터지'])
+  const second = await answerAsk(deps, db.tables.studio_sessions.get('s1'), '라운드랩, 백탁이 없어서'); await Promise.all(jobs)
+  assert.equal(second.resumed, true)
+  const done = db.tables.studio_sessions.get('s1')
+  assert.equal(done.ask, null); assert.equal(done.script.options[0].lines[1].spoken, '라운드랩? 사요.')
+  assert.equal(done.topic.facts.length, 2)
 })

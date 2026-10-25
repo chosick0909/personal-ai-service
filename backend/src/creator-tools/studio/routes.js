@@ -7,7 +7,7 @@ import { createProviders } from '../providers.js'
 import { studio2Enabled } from './access.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage } from './persona.js'
-import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, buildStyleCard } from './engine.js'
+import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, buildStyleCard, answerAsk } from './engine.js'
 import { THUMBNAIL_BUCKET } from '../success-reels.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 
@@ -18,7 +18,7 @@ const TAGS = ['hook', 'structure', 'filming', 'caption']
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
-  topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders,
+  topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders, ask: row.ask,
   job: { status: row.job_status, stage: row.job_stage, error: row.job_error, startedAt: row.job_started_at }, createdAt: row.created_at, updatedAt: row.updated_at })
 const publicMessage = row => ({ id: row.id, role: row.role, stage: row.stage, content: row.content, meta: row.meta, createdAt: row.created_at })
 
@@ -119,6 +119,7 @@ export function registerStudioRoutes(router) {
     if (stage === 'topic') { await query(database().from('studio_sessions').update({ stage, updated_at: new Date().toISOString() }).eq('id', row.id)); return res.json({ session: publicSession({ ...row, stage }) }) }
     if (stage === 'done') { await query(database().from('studio_sessions').update({ stage, updated_at: new Date().toISOString() }).eq('id', row.id)); await addMessage(row.id, req.auth.userId, 'hookai', 'done', STAGE_OPENERS.done); return res.json({ session: publicSession({ ...row, stage }) }) }
     const force = req.body?.regenerate === true
+    if (row.ask && row.ask.stage !== stage) await query(database().from('studio_sessions').update({ ask: null }).eq('id', row.id))
     if (!row[stage] && STAGE_OPENERS[stage] && row.stage !== stage) await addMessage(row.id, req.auth.userId, 'hookai', stage, STAGE_OPENERS[stage])
     const session = await startStage(deps(), row, stage, { force })
     res.json({ session: publicSession(session) })
@@ -130,6 +131,11 @@ export function registerStudioRoutes(router) {
     if (!content) fail('MESSAGE_REQUIRED', '메시지를 적어주세요.')
     const history = await query(database().from('studio_messages').select('*').eq('session_id', row.id).order('created_at', { ascending: true }).limit(200))
     const mine = await addMessage(row.id, req.auth.userId, 'user', row.stage, content)
+    if (row.ask && row.ask.stage === row.stage) {
+      const { reply } = await answerAsk(deps(), row, content)
+      const theirs = await addMessage(row.id, req.auth.userId, 'hookai', row.stage, reply.content, reply.meta)
+      return res.json({ messages: [publicMessage(mine), publicMessage(theirs)] })
+    }
     const reply = await chat(deps(), row, history, content)
     if (row.stage === 'topic' && !reply.meta.topic && !reply.meta.proposals?.length) {
       const answers = [...(row.topic?.answers || []), { q: history.filter(m => m.role === 'hookai').at(-1)?.content || '', a: content }].slice(-6)
