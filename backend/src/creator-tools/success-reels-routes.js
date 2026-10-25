@@ -54,7 +54,8 @@ export function createReelIngestRouter() {
     const pending = catalog.map(row => row.username).filter(name => !recentNames.has(name))
     const visitCap = pending.length ? Math.min(150, Math.max(maxAccounts, pending.length + 20)) : maxAccounts
     const recheckAccounts = [...new Set([...pending, ...recheck.map(row => row.username)])]
-    res.json({ day, keywords: keywordsForDay(day), maxAccounts: visitCap, skipAccounts: [...recentNames],
+    // While many vetted accounts are still unvisited, skip keyword searches so the run goes straight to them.
+    res.json({ day, keywords: pending.length >= 20 ? [] : keywordsForDay(day), maxAccounts: visitCap, skipAccounts: [...recentNames],
       recheckAccounts, catalogPending: pending.length })
   }))
   router.post('/success-reels/runs', asyncHandler(async (_req, res) => {
