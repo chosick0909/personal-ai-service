@@ -182,3 +182,13 @@ test('a reel analysis saves as 내 공식 in the same shapes a plan produces', (
   assert.equal(formulaFromReel(reel, 'caption').title.startsWith('캡션: 안 사요 사요'), true)
   assert.equal(formulaFromReel({ shortcode: 'x', analysis: null }, 'hook'), null)
 })
+
+test('a student\'s own uploaded reel is a valid source once analyzed; unanalyzed reels are refused', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('Mine01', { shortcode: 'Mine01', username: 'up_u1', caption: '', views: 0, analysis, analysis_status: 'ready', category: '기타', visible: false, owner_user_id: 'u1' })
+  db.tables.creator_success_reels.set('Wait01', { shortcode: 'Wait01', username: 'x', caption: '', views: 1, analysis: null, analysis_status: 'running', category: '기타', visible: true })
+  const resolved = await resolveSources(db, 'u1', { hook: { kind: 'reel', id: 'Mine01' } })
+  assert.equal(resolved.hook.label, '@up_u1')
+  await assert.rejects(resolveSources(db, 'u2', { hook: { kind: 'reel', id: 'Mine01' } }), /찾을 수 없어요/)
+  await assert.rejects(resolveSources(db, 'u1', { hook: { kind: 'reel', id: 'Wait01' } }), /분석이 끝나지/)
+})

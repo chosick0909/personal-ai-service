@@ -46,8 +46,10 @@ export default function PlanStart({ preset = {} }) {
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     Promise.all([studio.references(), studio.formulas(), studio.library().catch(() => null)]).then(([r, f, l]) => {
-      setData({ refs: r.references, formulas: f.formulas, library: l })
-      if (preset.ref) { const found = r.references.find(x => x.id === preset.ref); if (found) setSources({ hook: { kind: 'reel', id: found.id, label: found.title || `@${found.username}`, thumbnailUrl: found.thumbnailUrl } }) }
+      // Only analyzed references can feed a plan; the rest stay in 내 레퍼런스 until their analysis finishes.
+      const refs = r.references.filter(x => x.analysisStatus === 'ready')
+      setData({ refs, formulas: f.formulas, library: l })
+      if (preset.ref) { const found = refs.find(x => x.id === preset.ref); if (found) setSources({ hook: { kind: 'reel', id: found.id, label: found.title || `@${found.username}`, thumbnailUrl: found.thumbnailUrl } }) }
     }).catch(() => {})
   }, [preset.ref])
   const start = async () => {

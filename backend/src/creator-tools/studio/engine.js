@@ -25,8 +25,9 @@ export async function resolveSources(db, userId, sources = {}) {
     const source = sources?.[slot]
     if (!source?.kind || !source?.id) continue
     if (source.kind === 'reel') {
-      const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,analysis,analysis_status,category').eq('shortcode', source.id).eq('visible', true).maybeSingle())
-      if (!reel || reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
+      const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,analysis,analysis_status,category,visible,owner_user_id').eq('shortcode', source.id).maybeSingle())
+      if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
+      if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
       const a = reel.analysis
       const excerpt = slot === 'hook' ? { formula: a.hook?.formula, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook, type: a.hook?.category, why: a.hook?.analysis }
         : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis }
