@@ -226,6 +226,12 @@
 .st-role-cta { background:var(--st-success-soft); color:var(--st-success); }
 .st-formula { font-size:18px; font-weight:700; line-height:1.7; }
 .st-formula mark, .st-blank { padding:1px 7px; border-radius:6px; background:var(--st-accent-soft); color:var(--st-accent-text); }
+.st-steps { margin:0; padding-left:0; list-style:none; counter-reset:step; display:grid; gap:10px; }
+.st-steps li { position:relative; padding-left:38px; font-size:16px; line-height:1.6; }
+.st-steps li::before { counter-increment:step; content:counter(step); position:absolute; left:0; top:1px; display:grid; place-items:center; width:26px; height:26px; border-radius:999px; background:var(--st-accent-soft); color:var(--st-accent-text); font-size:13px; font-weight:800; }
+.st-lines-read { margin:0; padding-left:0; list-style:none; display:grid; gap:8px; }
+.st-lines-read li { position:relative; padding-left:16px; font-size:16px; line-height:1.6; }
+.st-lines-read li::before { content:''; position:absolute; left:0; top:11px; width:6px; height:6px; border-radius:999px; background:var(--st-accent); }
 .st-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); gap:10px; }
 .st-metrics div { padding:14px; border:1px solid var(--st-line); border-radius:12px; }
 .st-metrics span { display:block; color:var(--st-muted); font-size:13px; font-weight:700; }

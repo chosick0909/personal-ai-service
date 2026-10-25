@@ -7,6 +7,16 @@ import { InstagramIcon } from './ReelsPage'
 const ROLE = { hook: '첫 문장', problem: '문제 제기', empathy: '공감', evidence: '근거', method: '방법', twist: '반전', cta: '마무리', other: '전개' }
 const TABS = [['script', '대본'], ['overview', '한눈에'], ['hook', '첫 문장'], ['structure', '전개'], ['filming', '촬영'], ['editing', '편집'], ['caption', '캡션']]
 const known = v => v && v !== '확인되지 않음'
+// Older analyses hold one long paragraph: split it into readable lines and pull out "(1) … (2) …" steps.
+function Readable({ text, steps }) {
+  if (steps?.length) return <ol className="st-steps">{steps.map((t, i) => <li key={i}>{t}</li>)}</ol>
+  const value = String(text || '')
+  const numbered = value.split(/\s*\(\d+\)\s*/).map(v => v.trim()).filter(Boolean)
+  if (numbered.length >= 3) { const [lead, ...rest] = value.includes('(1)') && !value.trim().startsWith('(1)') ? numbered : ['', ...numbered]
+    return <>{lead && <p style={{ marginBottom: 10 }}>{lead.replace(/[:：]\s*$/, '')}</p>}<ol className="st-steps">{rest.map((t, i) => <li key={i}>{t.replace(/[.。]\s*$/, '')}</li>)}</ol></> }
+  const lines = value.split(/(?<=[.다요]\.)\s+|(?<=니다\.)\s+/).map(v => v.trim()).filter(Boolean)
+  return <ul className="st-lines-read">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+}
 
 export function CopyButton({ text, label = '복사' }) {
   const [done, setDone] = useState(false)
@@ -59,12 +69,14 @@ export function AnalysisTabs({ reel, analysis, tab, setTab }) {
       <section className="st-card"><span className="st-pill">{h.category}</span><h2 style={{ marginTop: 10, fontSize: 24, lineHeight: 1.45 }}>“{h.spokenHook}”</h2></section>
       <section className="st-card"><div className="st-card-head"><h3>내 주제에 쓰는 훅 공식</h3><CopyButton text={h.formula} /></div><p className="st-formula">{String(h.formula || '').split(/(\[[^\]]+\])/).map((p, i) => /^\[/.test(p) ? <mark key={i}>{p}</mark> : p)}</p><p className="st-muted st-small" style={{ marginTop: 8 }}>[ ] 자리에 내 주제를 넣어 바로 쓸 수 있어요.</p></section>
       <section className="st-card"><KV label="말로 하는 훅">{h.spokenHook}</KV><KV label="화면 훅">{h.visualHook}</KV></section>
-      <section className="st-card"><h3 style={{ marginBottom: 8 }}>왜 붙잡나요</h3><p style={{ whiteSpace: 'pre-wrap' }}>{h.analysis}</p></section>
+      <section className="st-card"><h3 style={{ marginBottom: 8 }}>왜 붙잡나요</h3><Readable text={h.analysis} /></section>
+      {h.apply?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>내 주제로 따라 하기</h3><ol className="st-steps">{h.apply.map((t, i) => <li key={i}>{t}</li>)}</ol></section>}
     </div>}
     {tab === 'structure' && <div className="st-stack">
       <section className="st-card"><span className="st-pill">{s.category}</span><p style={{ marginTop: 10, fontSize: 17 }}>{s.description}</p></section>
       <section className="st-card"><h3 style={{ marginBottom: 12 }}>흐름</h3><ol className="st-transcript">{(s.steps || []).map((step, i) => <li key={i} style={{ alignItems: 'flex-start' }}><span className={`st-role st-role-${step.role}`}>{ROLE[step.role] || '전개'}</span><div><strong>“{step.quote}”</strong><p className="st-muted st-small">{step.purpose}</p></div></li>)}</ol></section>
-      <section className="st-card"><h3 style={{ marginBottom: 8 }}>내 영상에 적용하기</h3><p style={{ whiteSpace: 'pre-wrap' }}>{s.analysis}</p></section>
+      <section className="st-card"><h3 style={{ marginBottom: 8 }}>왜 효과적인가요</h3><Readable text={s.apply?.length ? s.analysis : s.analysis} /></section>
+      {s.apply?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>내 영상에 적용하기</h3><ol className="st-steps">{s.apply.map((t, i) => <li key={i}>{t}</li>)}</ol></section>}
     </div>}
     {tab === 'filming' && <div className="st-stack">
       <section className="st-card"><KV label="촬영 장소">{f.location}</KV><KV label="구도·앵글">{f.shotType}</KV><KV label="화면에 나오는 것">{f.onScreen}</KV></section>
