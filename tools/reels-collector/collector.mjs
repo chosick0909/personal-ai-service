@@ -335,10 +335,21 @@ async function collect(dry, dryKeywords) {
   await log(`완료: ${JSON.stringify(stats)}`)
   if (run) await api(config, 'PATCH', `/success-reels/runs/${run.id}`, { stats, error: fatal }).catch(() => {})
   if (fatal) process.exitCode = 1
+  return { fatal, more: Boolean(plan.continue) && !dry }
+}
+
+// Catch-up runs: while the server still reports short categories, rest briefly and go again (bounded per launch).
+async function collectUntilDone(dry, dryKeywords) {
+  for (let round = 1; round <= 8; round += 1) {
+    const { fatal, more } = await collect(dry, dryKeywords)
+    if (fatal || !more) return
+    await log(`아직 부족한 분야가 있어 5분 뒤 ${round + 1}회차를 시작합니다.`)
+    await sleep(5 * 60000)
+  }
 }
 
 const [command, ...args] = process.argv.slice(2)
 if (command === 'login') await login()
 else if (command === 'probe') await probe(args[0] || '피부관리', args[1] || 'ojirapper_')
-else if (command === 'collect') await collect(args[0] === '--dry', args.slice(1))
+else if (command === 'collect') await collectUntilDone(args[0] === '--dry', args.slice(1))
 else console.log('사용법: node collector.mjs login | probe [키워드] [계정] | collect [--dry 키워드...]  (--dry는 서버 심사 없이 숫자만 확인)')

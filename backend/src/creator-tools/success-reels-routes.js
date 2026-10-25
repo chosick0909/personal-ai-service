@@ -9,7 +9,7 @@ import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
 import { ingestAccount, listSuccessReels } from './success-reels.js'
 import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
-import { keywordsForDay } from './success-reels-keywords.js'
+import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
 
 export function successReelsEnabled(userId, env = process.env) {
   if (env.CREATOR_SUCCESS_REELS_ENABLED === 'true') return true
@@ -54,9 +54,17 @@ export function createReelIngestRouter() {
     const pending = catalog.map(row => row.username).filter(name => !recentNames.has(name))
     const visitCap = pending.length ? Math.min(150, Math.max(maxAccounts, pending.length + 20)) : maxAccounts
     const recheckAccounts = [...new Set([...pending, ...recheck.map(row => row.username)])]
-    // While many vetted accounts are still unvisited, skip keyword searches so the run goes straight to them.
-    res.json({ day, keywords: pending.length >= 20 ? [] : keywordsForDay(day), maxAccounts: visitCap, skipAccounts: [...recentNames],
-      recheckAccounts, catalogPending: pending.length })
+    // Catch-up: until every category holds the target number of listed reels, search every seed of the
+    // short categories and visit more accounts per run; the collector keeps looping while `continue` is true.
+    const target = Math.max(1, Number(process.env.CREATOR_REELS_TARGET_PER_CATEGORY) || 20)
+    const listed = await query(db.from('creator_success_reels').select('category').eq('visible', true).limit(5000))
+    const counts = Object.fromEntries(SUCCESS_REEL_KEYWORDS.map(k => [k.category, 0]))
+    for (const row of listed) if (row.category in counts) counts[row.category] += 1
+    const short = Object.entries(counts).filter(([, n]) => n < target).map(([category]) => category)
+    const keywords = pending.length >= 20 ? [] : short.length ? keywordsForCatchUp(day, short) : keywordsForDay(day)
+    const boosted = pending.length ? visitCap : short.length ? Math.min(400, Math.max(maxAccounts, 80 + 20 * short.length)) : maxAccounts
+    res.json({ day, keywords, maxAccounts: boosted, skipAccounts: [...recentNames], recheckAccounts, catalogPending: pending.length,
+      continue: pending.length > 0 || short.length > 0, target, short: short.map(category => ({ category, count: counts[category] })) })
   }))
   router.post('/success-reels/runs', asyncHandler(async (_req, res) => {
     const row = await query(database().from('creator_reel_ingest_runs').insert({}).select('id').single())

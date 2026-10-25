@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema, searchTerm } from '../src/creator-tools/success-reels.js'
 import { ingestTokenValid, successReelsEnabled } from '../src/creator-tools/success-reels-routes.js'
-import { keywordsForDay, SUCCESS_REEL_KEYWORDS } from '../src/creator-tools/success-reels-keywords.js'
+import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from '../src/creator-tools/success-reels-keywords.js'
 import { CREATOR_CATEGORIES, SUCCESS_REEL_CATEGORIES } from '../src/creator-tools/categories.js'
 
 const NOW = Date.parse('2026-10-25T00:00:00Z')
@@ -238,4 +238,12 @@ test('accounts vetted for 계정 추천 are listed even when the AI review would
   assert.equal(result.eligible, true)
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').visible, true)
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').category, '뷰티', 'the review still classifies the reel')
+})
+
+test('catch-up keywords search every seed of short categories and one pair elsewhere', () => {
+  const plan = keywordsForCatchUp(3, ['피부', '부업'])
+  assert.equal(plan.filter(k => k.category === '피부').length, 7)
+  assert.equal(plan.filter(k => k.category === '부업').length, 7)
+  assert.equal(plan.filter(k => k.category === '먹방').length, 2)
+  assert.equal(plan.filter(k => k.category === '피부')[0].keyword, keywordsForDay(3).find(k => k.category === '피부').keyword, 'the usual seed comes first')
 })

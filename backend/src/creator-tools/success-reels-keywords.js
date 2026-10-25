@@ -32,3 +32,14 @@ export function keywordsForDay(day) {
     { category, keyword: overseas[day % overseas.length], region: 'overseas' },
   ])
 }
+
+// Catch-up mode: every seed of a category that is still short of the target, rotated so
+// the day's usual seed comes first.
+export function keywordsForCatchUp(day, shortCategories) {
+  const short = new Set(shortCategories)
+  return SUCCESS_REEL_KEYWORDS.flatMap(({ category, domestic, overseas }) => {
+    if (!short.has(category)) return [{ category, keyword: domestic[day % domestic.length], region: 'domestic' }, { category, keyword: overseas[day % overseas.length], region: 'overseas' }]
+    const rotate = list => list.map((_, i) => list[(day + i) % list.length])
+    return [...rotate(domestic).map(keyword => ({ category, keyword, region: 'domestic' })), ...rotate(overseas).map(keyword => ({ category, keyword, region: 'overseas' }))]
+  })
+}
