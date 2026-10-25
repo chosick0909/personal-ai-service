@@ -132,6 +132,32 @@ test('a stage that needs facts asks first, then resumes with the answers as fact
   const done = db.tables.studio_sessions.get('s1')
   assert.equal(done.ask, null); assert.equal(done.script.options[0].lines[1].spoken, '라운드랩? 사요.')
   assert.equal(done.topic.facts.length, 2)
+  assert.deepEqual(done.topic.askedStages, ['script'])
+  // A later stage never asks again, even if 훅ai tries: the open points become its own call and it drafts.
+  let later = 0
+  const stubborn = { ...deps, makeProviders: () => ({ json: async (_op, instructions) => { later += 1
+    assert.ok(instructions.includes('이번에는 질문하지 않습니다'), 'the second round is told not to ask')
+    return later === 1 ? { questions: [{ key: 'audience', question: '누구에게 보여줄 영상인가요?', chips: [] }], options: [], placeholders: [] }
+      : { questions: [], options: [{ text: '캡션', hashtags: ['a'], why: 'w' }], placeholders: [] } } }) }
+  await startStage(stubborn, db.tables.studio_sessions.get('s1'), 'caption', { force: true }); await Promise.all(jobs)
+  const captioned = db.tables.studio_sessions.get('s1')
+  assert.equal(captioned.ask, null); assert.equal(later, 2); assert.equal(captioned.caption.options[0].text, '캡션')
+})
+
+test('"알아서 해주세요" ends the questions and 훅ai drafts with what it has', async () => {
+  const db = fakeDb()
+  db.tables.studio_sessions.set('s2', { id: 's2', user_id: 'u1', mode: 'topic', sources: {}, stage: 'script', topic: { title: '선크림 3개 판정', facts: [], askedStages: ['script'] }, hook: { options: [{ spoken: 'x' }], chosen: 0 }, job_status: 'idle', placeholders: [],
+    ask: { stage: 'script', index: 0, questions: [{ key: 'products', question: '제품명은요?', chips: ['알아서 해주세요'] }, { key: 'best', question: '제일 좋았던 건요?', chips: [] }] } })
+  const jobs = []
+  const deps = { db, schedule: (_k, task) => { const p = task(); jobs.push(p); return p }, makeProviders: () => ({ json: async (_op, instructions) => {
+    assert.ok(instructions.includes('이번에는 질문하지 않습니다'))
+    return { questions: [], options: [{ label: '판정', why: 'w', lines: [{ part: 'hook', spoken: '안 사요.', onScreen: '', seconds: 3 }, { part: 'body', spoken: '첫 번째 제품? 사요.', onScreen: '', seconds: 5 }] }], placeholders: [] } } }) }
+  const reply = await answerAsk(deps, db.tables.studio_sessions.get('s2'), '그냥 알아서 해줘'); await Promise.all(jobs)
+  assert.equal(reply.resumed, true, 'the second question is skipped')
+  const done = db.tables.studio_sessions.get('s2')
+  assert.equal(done.topic.delegated, true); assert.equal(done.ask, null)
+  assert.deepEqual(done.topic.facts, ['products: 훅ai 재량(수강생이 맡김) — 그냥 알아서 해줘', 'best: 훅ai 재량(수강생이 맡김)'])
+  assert.equal(done.script.options[0].lines[1].spoken, '첫 번째 제품? 사요.')
 })
 
 test('switching or restoring a script keeps the replaced version in a short history', () => {

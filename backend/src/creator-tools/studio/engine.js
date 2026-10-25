@@ -161,7 +161,10 @@ const stageSchemas = {
   caption: obj({ questions, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
 // Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
-const ASK_RULE = `사실 확인 규칙: 제품명·브랜드·구체 경험·수치·가격·효능처럼 꼭 필요한 사실이 topic.facts, brief, attachments, answers 어디에도 없으면 지어내지도, [대괄호]로 비워 두지도 말고 questions에 담아 먼저 묻습니다. 질문은 꼭 필요한 것만 1~3개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요", "제품 A가 아쉬웠던 점은요?"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개(사실을 지어내지 않는 범위에서, 예: "이름 없이 1·2·3번으로 할게요"). questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. answers에 "모름/없음"으로 답한 사실은 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
+const ASK_RULE = `사실 확인 규칙: 영상이 바로 그것에 대한 내용이라 없으면 대본이 성립하지 않는 사실(비교할 제품명·브랜드, 영상의 핵심이 되는 수치나 경험)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(타깃 표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. answers나 facts에 "모름/없음/알아서/훅ai 재량"으로 답한 사실은 절대 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
+// After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
+const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 없는 사실은 지어내지 말고 "첫 번째 제품"처럼 일반 표현으로 쓰되 [대괄호] 빈칸은 남기지 않고, 반드시 완성된 안을 냅니다.`
+
 const stagePrompts = {
   thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 15자 안팎, 한눈에 읽히게.
 1안: sources.hook의 화면 훅·공식(visualHook, formula)을 topic에 적용. 2안: 같은 주제에서 손실 회피·결과 먼저·통념 반박 중 다른 장치. 3안: 혜택+키워드+숫자(예: "백탁 없이 고르는 선크림 3가지 기준").
@@ -181,13 +184,24 @@ why는 눌러보고 싶게 만드는 이유 한 줄. topic.facts에 없는 수�
 sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식을 따르고, sources.caption.original(원문)에 이모지가 쓰였으면 같은 느낌으로 이모지를 줄마다 자연스럽게 조합해 넣습니다(원문에 이모지가 없으면 넣지 않음). why는 이 캡션이 맞는 이유 한 줄. 없는 사실은 쓰지 않습니다.`,
 }
 
+// One round of questions per plan: afterwards (or once the student delegated) every stage drafts without asking.
+export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !session.topic?.delegated
 export async function generateStage(deps, session, stage) {
   const resolved = await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
   const context = sessionContext(session, resolved)
-  const raw = await providersJson(providers, `studio-${stage}`, stagePrompts[stage], context, stageSchemas[stage])
-  const asks = (Array.isArray(raw.questions) ? raw.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: list(q.chips, 40, 3) })).filter(q => q.question).slice(0, 3)
-  if (asks.length) return { questions: asks, placeholders: [] }
+  const asking = mayAsk(session)
+  let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
+  const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...list(q.chips, 40, 2), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
+  let asks = parseAsks(raw)
+  if (asks.length && asking) return { questions: asks, placeholders: [] }
+  if (asks.length) {
+    // 훅ai asked anyway: the unanswered points become its own call, and it drafts once more.
+    const facts = [...(session.topic?.facts || []), ...asks.map(q => `${q.key}: 훅ai 재량(묻지 않고 정함)`)]
+    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}`, sessionContext({ ...session, topic: { ...(session.topic || {}), facts } }, resolved), stageSchemas[stage])
+    asks = parseAsks(raw)
+    if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
+  }
   const placeholders = list(raw.placeholders, 120, 12)
   if (stage === 'thumbnail') {
     const own = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ text: clean(o.text, 40), why: clean(o.why, 200), label: '' })).filter(o => o.text)
@@ -226,10 +240,14 @@ export async function generateStage(deps, session, stage) {
 export async function answerAsk(deps, session, text) {
   const ask = session.ask
   const current = ask.questions[ask.index]
-  const unknown = /^(없|몰라|모르|모름|스킵|skip|건너|없어)/.test(text.trim())
-  const facts = [...(session.topic?.facts || []), `${current.key}: ${unknown ? `없음(수강생이 모름) — ${text.trim()}` : text.trim()}`].slice(-30)
-  const topic = { ...(session.topic || {}), facts }
-  const next = ask.index + 1
+  const answer = text.trim()
+  const unknown = /^(없|몰라|모르|모름|스킵|skip|건너|없어)/.test(answer)
+  const delegated = /알아서|맡길|맡겨|그냥 해|그냥해|아무거나|상관없|넘어가|니가 정|네가 정|훅ai가 정/.test(answer)
+  const facts = [...(session.topic?.facts || []), `${current.key}: ${delegated ? `훅ai 재량(수강생이 맡김) — ${answer}` : unknown ? `없음(수강생이 모름) — ${answer}` : answer}`].slice(-30)
+  const topic = { ...(session.topic || {}), facts, delegated: Boolean(session.topic?.delegated || delegated) }
+  // "알아서" ends the questions: the remaining ones are 훅ai's call too.
+  const next = delegated ? ask.questions.length : ask.index + 1
+  if (delegated) for (const q of ask.questions.slice(ask.index + 1)) topic.facts = [...topic.facts, `${q.key}: 훅ai 재량(수강생이 맡김)`].slice(-30)
   if (next < ask.questions.length) {
     await query(deps.db.from('studio_sessions').update({ topic, ask: { ...ask, index: next }, updated_at: new Date().toISOString() }).eq('id', session.id))
     return { reply: { content: ask.questions[next].question, meta: { chips: ask.questions[next].chips, ask: ask.questions[next].key } }, resumed: false }
@@ -250,7 +268,8 @@ export function runStageJob(deps, sessionId, stage) {
       const { value, placeholders, questions: asks } = await generateStage(deps, session, stage)
       if (asks) {
         // 훅ai needs facts first: park the stage, ask the first question in chat, wait for answers.
-        await query(db.from('studio_sessions').update({ ask: { stage, questions: asks, index: 0 }, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId))
+        const topic = { ...(session.topic || {}), askedStages: [...(session.topic?.askedStages || []), stage] }
+        await query(db.from('studio_sessions').update({ topic, ask: { stage, questions: asks, index: 0 }, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId))
         await query(db.from('studio_messages').insert({ session_id: sessionId, user_id: session.user_id, role: 'hookai', stage, content: asks[0].question, meta: { chips: asks[0].chips, ask: asks[0].key } }))
         return
       }
