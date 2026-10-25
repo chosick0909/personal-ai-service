@@ -208,9 +208,10 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
   } finally { clearTimeout(timer) }
 }
 
-export async function requestReelAnalysis(deps, shortcode, now = Date.now()) {
+export async function requestReelAnalysis(deps, shortcode, now = Date.now(), userId = null) {
   const row = await query(deps.db.from('creator_success_reels').select('shortcode,visible,analysis_status,analysis_updated_at').eq('shortcode', shortcode).maybeSingle())
   if (!row?.visible) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+  if (userId) await query(deps.db.from('creator_reel_user_analyses').upsert({ user_id: userId, shortcode, created_at: new Date(now).toISOString() }))
   if (row.analysis_status === 'ready') return { status: 'ready' }
   const fresh = row.analysis_status === 'running' && Date.parse(row.analysis_updated_at) > now - STALE_MS
   if (!fresh) {
@@ -278,4 +279,22 @@ export async function reelDetail(db, userId, shortcode) {
     thumbnailUrl: reel.thumbnail_path ? (await query(db.storage.from('creator-reel-thumbnails').createSignedUrl(reel.thumbnail_path, 3600)))?.signedUrl || null : null,
     analysisStatus: reel.analysis_status, analysisError: reel.analysis_error, analysis: reel.analysis_status === 'ready' ? reel.analysis : null,
     plans: plans.map(p => ({ id: p.id, brief: p.brief, status: p.status, plan: p.plan, error: p.error, createdAt: p.created_at })) }
+}
+
+// 최근 작업: the student's reel analyses and plans, newest first.
+export async function reelActivity(db, userId) {
+  const [analyses, plans] = await Promise.all([
+    query(db.from('creator_reel_user_analyses').select('shortcode,created_at').eq('user_id', userId).order('created_at', { ascending: false }).range(0, 49)),
+    query(db.from('creator_reel_plans').select('id,shortcode,brief,status,plan,created_at').eq('user_id', userId).order('created_at', { ascending: false }).range(0, 49)),
+  ])
+  const codes = [...new Set([...analyses, ...plans].map(row => row.shortcode))]
+  const reels = codes.length ? await query(db.from('creator_success_reels').select('shortcode,username,analysis_status').in('shortcode', codes)) : []
+  const byCode = new Map(reels.map(row => [row.shortcode, row]))
+  const status = value => value === 'none' ? 'failed' : value
+  return [
+    ...analyses.map(row => ({ id: `analysis:${row.shortcode}`, type: 'analysis', shortcode: row.shortcode, username: byCode.get(row.shortcode)?.username || null,
+      status: status(byCode.get(row.shortcode)?.analysis_status || 'failed'), createdAt: row.created_at })),
+    ...plans.map(row => ({ id: `plan:${row.id}`, type: 'plan', planId: row.id, shortcode: row.shortcode, username: byCode.get(row.shortcode)?.username || null,
+      title: row.plan?.title || row.brief.slice(0, 40), status: row.status, createdAt: row.created_at })),
+  ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 60)
 }

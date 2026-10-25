@@ -171,9 +171,9 @@ function PlanResult({ plan, onNew }) {
   </div>
 }
 
-function PlanStudio({ shortcode, analysis, plans, onPlansChange }) {
+function PlanStudio({ shortcode, analysis, plans, initialPlanId, onPlansChange }) {
   const [brief, setBrief] = useState('')
-  const [activeId, setActiveId] = useState(plans[0]?.id || null)
+  const [activeId, setActiveId] = useState(plans.some(p => p.id === initialPlanId) ? initialPlanId : plans[0]?.id || null)
   const [composing, setComposing] = useState(!plans.length)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -223,10 +223,10 @@ function PlanStudio({ shortcode, analysis, plans, onPlansChange }) {
   </div>
 }
 
-export default function ReelDetail({ shortcode, preview, onBack, onSaved, onAnalyze }) {
+export default function ReelDetail({ shortcode, preview, initialTab = 'script', initialPlanId = null, onBack, onSaved, onAnalyze }) {
   const [detail, setDetail] = useState(null)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState('script')
+  const [tab, setTab] = useState(initialTab || 'script')
   const [plans, setPlans] = useState([])
   const top = useRef(null)
   useEffect(() => {
@@ -247,7 +247,7 @@ export default function ReelDetail({ shortcode, preview, onBack, onSaved, onAnal
     catch { setDetail(d => d && { ...d, saved: !next }) }
   }
   const body = !analysis ? null : (() => {
-    if (tab === 'plan') return <PlanStudio shortcode={shortcode} analysis={analysis} plans={plans} onPlansChange={setPlans} />
+    if (tab === 'plan') return <PlanStudio shortcode={shortcode} analysis={analysis} plans={plans} initialPlanId={initialPlanId} onPlansChange={setPlans} />
     if (tab === 'overview') return <OverviewTab analysis={analysis} reel={reel} />
     if (tab === 'hook') return <HookTab hook={analysis.hook} />
     if (tab === 'structure') return <StructureTab structure={analysis.structure} />

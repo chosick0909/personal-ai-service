@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validateReelAnalysis, validateReelPlan, copiedPhrases, requestReelAnalysis, requestReelPlan, reelAnalysisSchema, reelPlanSchema, reelVideoUrl } from '../src/creator-tools/success-reel-analysis.js'
+import { validateReelAnalysis, validateReelPlan, copiedPhrases, requestReelAnalysis, requestReelPlan, reelAnalysisSchema, reelPlanSchema, reelVideoUrl, reelActivity } from '../src/creator-tools/success-reel-analysis.js'
 
 const script = '종합비타민 약사추천 안사요 사요\n센트룸 안사요\n함량도 낮고 전부 비활성형이라 아쉽습니다\n쏜 리서치 베이직 사요'
 const analysisRaw = {
@@ -51,18 +51,20 @@ test('copied phrases from the source script are detected, short overlaps are not
 })
 
 function fakeDb(rows) {
-  const tables = { creator_success_reels: new Map(rows.map(r => [r.shortcode, r])), creator_reel_plans: new Map() }
+  const tables = { creator_success_reels: new Map(rows.map(r => [r.shortcode, r])), creator_reel_plans: new Map(), creator_reel_user_analyses: new Map() }
   const calls = []
   return { tables, calls, from(table) {
     const filters = []; let action = 'select', payload, single = false
     const api = {
       select() { return api }, eq(k, v) { filters.push(r => r[k] === v); return api }, gte(k, v) { filters.push(r => r[k] >= v); return api },
-      limit() { return api }, maybeSingle() { single = true; return api }, single() { single = true; return api },
+      limit() { return api }, order() { return api }, range() { return api }, in(k, v) { filters.push(r => v.includes(r[k])); return api }, maybeSingle() { single = true; return api }, single() { single = true; return api },
       update(p) { action = 'update'; payload = p; return api },
       insert(p) { action = 'insert'; payload = p; return api },
+      upsert(p) { action = 'upsert'; payload = p; return api },
       then(resolve) {
         calls.push([table, action])
         if (action === 'insert') { const row = { id: `plan-${tables[table].size + 1}`, status: 'running', created_at: '2026-10-25T00:00:00Z', ...payload }; tables[table].set(row.id, row); return resolve({ data: row, error: null }) }
+        if (action === 'upsert') { tables[table].set(`${payload.user_id}:${payload.shortcode}`, payload); return resolve({ data: null, error: null }) }
         const matched = [...tables[table].values()].filter(r => filters.every(f => f(r)))
         if (action === 'update') { matched.forEach(r => Object.assign(r, payload)); return resolve({ data: null, error: null }) }
         resolve({ data: single ? matched[0] ?? null : matched, error: null })
@@ -116,4 +118,16 @@ test('video links fall back to Bright Data and are cached until shortly before e
   assert.equal(paid, 1)
   const bad = { brightData: async () => ({ videoUrl: 'https://evil.example/a.mp4' }) }
   await assert.rejects(reelVideoUrl({ providers: bad, redis, playback }, 'Ccccc3', now), /영상을 불러오지/)
+})
+
+test('requesting an analysis records the student for 내가 분석한 릴스 and 최근 작업', async () => {
+  const now = Date.parse('2026-10-25T06:00:00Z')
+  const db = fakeDb([{ shortcode: 'Aaaaa1', username: 'yaksa', visible: true, analysis_status: 'ready' }])
+  const deps = { db, makeProviders: () => ({}), schedule: () => {} }
+  assert.deepEqual(await requestReelAnalysis(deps, 'Aaaaa1', now, 'u1'), { status: 'ready' })
+  assert.equal(db.tables.creator_reel_user_analyses.get('u1:Aaaaa1').shortcode, 'Aaaaa1')
+  db.tables.creator_reel_plans.set('p1', { id: 'p1', user_id: 'u1', shortcode: 'Aaaaa1', brief: '선크림 비교하고 싶어요', status: 'ready', plan: { title: '선크림 판정' }, created_at: '2026-10-25T07:00:00Z' })
+  const items = await reelActivity(db, 'u1')
+  assert.deepEqual(items.map(i => [i.type, i.status, i.username]), [['plan', 'ready', 'yaksa'], ['analysis', 'ready', 'yaksa']])
+  assert.equal(items[0].title, '선크림 판정')
 })

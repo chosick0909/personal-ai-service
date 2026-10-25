@@ -72,7 +72,7 @@ test('every day covers every category in both regions, and seeds rotate across d
 
 // Minimal in-memory stand-in for the Supabase query builder used by this module.
 function fakeDb() {
-  const tables = { creator_reel_accounts: new Map(), creator_success_reels: new Map(), creator_reel_ingest_runs: new Map() }
+  const tables = { creator_reel_accounts: new Map(), creator_success_reels: new Map(), creator_reel_ingest_runs: new Map(), creator_reel_saves: new Map(), creator_reel_user_analyses: new Map() }
   const keys = { creator_reel_accounts: 'username', creator_success_reels: 'shortcode', creator_reel_ingest_runs: 'id' }
   const uploads = new Map()
   const builder = table => {
@@ -154,6 +154,23 @@ test('rejected accounts keep their reels hidden', async () => {
   assert.equal(result.eligible, false)
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').visible, false)
   assert.equal((await listSuccessReels(db, {})).reels.length, 0)
+})
+
+test('a reel a student analyzed or saved stays listed when its account is later rejected', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('Dd8xyurzlmx', { shortcode: 'Dd8xyurzlmx', visible: true, analysis_status: 'ready', thumbnail_path: 'Dd8xyurzlmx.jpg' })
+  db.tables.creator_success_reels.set('DdTFnCDxcGN', { shortcode: 'DdTFnCDxcGN', visible: true, analysis_status: 'none', thumbnail_path: 'DdTFnCDxcGN.jpg' })
+  db.tables.creator_success_reels.set('DejMmcehxla', { shortcode: 'DejMmcehxla', visible: true, analysis_status: 'none', thumbnail_path: 'DejMmcehxla.jpg' })
+  db.tables.creator_reel_saves.set('u1:DdTFnCDxcGN', { user_id: 'u1', shortcode: 'DdTFnCDxcGN' })
+  const providers = { json: async (_op, _p, input) => ({ accountType: 'brand', accountTypeEvidence: [], ordinaryCreator: false, ordinaryCreatorEvidence: [],
+    productionLevel: 'professional', productionEvidence: [], monetizationEvidence: [], replicability: 10, replicabilityEvidence: [],
+    category: '뷰티', region: 'domestic', regionEvidence: [], language: 'ko',
+    reels: input.successReels.map(r => ({ shortcode: r.shortcode, faceVisibility: 'visible', captionKo: '' })) }) }
+  await ingestAccount({ db, providers, readImage: async () => 'data:image/jpeg;base64,AA==', now: NOW },
+    body([reel('Dd8xyurzlmx', 1220000), reel('DdTFnCDxcGN', 900000), reel('DejMmcehxla', 800000)]))
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').visible, true, 'analyzed')
+  assert.equal(db.tables.creator_success_reels.get('DdTFnCDxcGN').visible, true, 'saved')
+  assert.equal(db.tables.creator_success_reels.get('DejMmcehxla').visible, false, 'untouched reels follow the review')
 })
 
 test('success reels split skin from beauty and add trend-board topics without touching shared categories', () => {

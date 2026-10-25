@@ -8,7 +8,7 @@ import { redisConnection } from './queue.js'
 import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
 import { ingestAccount, listSuccessReels } from './success-reels.js'
-import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl } from './success-reel-analysis.js'
+import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
 import { keywordsForDay } from './success-reels-keywords.js'
 
 export function successReelsEnabled(userId, env = process.env) {
@@ -82,13 +82,17 @@ export function registerSuccessReelRoutes(router) {
   }))
   const code = value => /^[A-Za-z0-9_-]{5,40}$/.test(value) ? value : fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
   const deps = () => ({ db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) })
+  router.get('/creator-tools/success-reel-activity', asyncHandler(async (req, res) => {
+    enabled(req)
+    res.set('Cache-Control', 'private, no-store').json({ items: await reelActivity(database(), req.auth.userId) })
+  }))
   router.get('/creator-tools/success-reels/:shortcode', asyncHandler(async (req, res) => {
     enabled(req)
     res.set('Cache-Control', 'private, no-store').json(await reelDetail(database(), req.auth.userId, code(req.params.shortcode)))
   }))
   router.post('/creator-tools/success-reels/:shortcode/analysis', asyncHandler(async (req, res) => {
     enabled(req)
-    res.status(202).json(await requestReelAnalysis(deps(), code(req.params.shortcode)))
+    res.status(202).json(await requestReelAnalysis(deps(), code(req.params.shortcode), Date.now(), req.auth.userId))
   }))
   router.put('/creator-tools/success-reels/:shortcode/save', asyncHandler(async (req, res) => {
     enabled(req)

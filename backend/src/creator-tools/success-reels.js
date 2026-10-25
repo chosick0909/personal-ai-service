@@ -147,7 +147,10 @@ export async function ingestAccount(deps, body) {
   let saved = 0
   for (const reel of qualified) {
     const judged = review.reels?.find(r => r.shortcode === reel.shortcode)
-    const current = await query(db.from('creator_success_reels').select('thumbnail_path').eq('shortcode', reel.shortcode).maybeSingle())
+    const current = await query(db.from('creator_success_reels').select('thumbnail_path,visible,analysis_status').eq('shortcode', reel.shortcode).maybeSingle())
+    // A reel a student saved or analyzed stays listed even if its account is later rejected.
+    const kept = current?.visible && (current.analysis_status !== 'none'
+      || (await query(db.from('creator_reel_saves').select('shortcode').eq('shortcode', reel.shortcode).limit(1))).length > 0)
     let thumbnailPath = current?.thumbnail_path || null
     const image = images.get(reel.shortcode)
     if (!thumbnailPath && image) {
@@ -162,7 +165,7 @@ export async function ingestAccount(deps, body) {
       likes: reel.likes, comments: reel.comments, posted_at: reel.postedAt, caption: reel.caption,
       caption_ko: judged?.captionKo?.trim() || null, language: review.language, region: review.region === 'unknown' ? null : review.region,
       audio: reel.audio, category: review.category, face_visibility: judged?.faceVisibility || 'unknown', thumbnail_path: thumbnailPath,
-      source: input.source, visible: decision.eligible && Boolean(thumbnailPath), last_collected_at: new Date(now).toISOString() }, { onConflict: 'shortcode' }))
+      source: input.source, visible: Boolean(kept) || (decision.eligible && Boolean(thumbnailPath)), last_collected_at: new Date(now).toISOString() }, { onConflict: 'shortcode' }))
     saved += 1
   }
   return { username: input.username, qualified: qualified.length, saved, eligible: decision.eligible, reason: decision.reason }
@@ -189,6 +192,11 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   if (filters.saved === '1') {
     if (!savedCodes.size) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
     request = request.in('shortcode', [...savedCodes])
+  }
+  if (filters.analyzed === '1') {
+    const mine = userId ? await query(db.from('creator_reel_user_analyses').select('shortcode').eq('user_id', userId).limit(5000)) : []
+    if (!mine.length) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
+    request = request.in('shortcode', mine.map(row => row.shortcode))
   }
   const q = searchTerm(filters.q)
   if (q) request = request.or(['caption', 'caption_ko', 'username', 'audio'].map(field => `${field}.ilike.%${q}%`).join(','))

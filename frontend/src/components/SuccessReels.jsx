@@ -54,8 +54,8 @@ function Player({ reel, onClose, onAnalyze }) {
   </div>
 }
 
-export default function SuccessReels({ categories = [] }) {
-  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: 'latest', q: '', saved: false })
+export default function SuccessReels({ categories = [], open: initialOpen = null }) {
+  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: 'latest', q: '', saved: false, analyzed: false })
   const [draft, setDraft] = useState('')
   const [reels, setReels] = useState([])
   const [page, setPage] = useState(0)
@@ -64,7 +64,7 @@ export default function SuccessReels({ categories = [] }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [open, setOpen] = useState(null)
-  const [detail, setDetail] = useState(null)
+  const [detail, setDetail] = useState(initialOpen)
   const [tracking, setTracking] = useState({})
   const view = useRef({ open: null, detail: null })
   useEffect(() => { view.current = { open, detail } }, [open, detail])
@@ -77,6 +77,7 @@ export default function SuccessReels({ categories = [] }) {
     if (filters.region !== 'any') params.set('region', filters.region)
     if (filters.q) params.set('q', filters.q)
     if (filters.saved) params.set('saved', '1')
+    if (filters.analyzed) params.set('analyzed', '1')
     creatorRequest(`/creator-tools/success-reels?${params}`, { signal: controller.signal })
       .then(data => { setReels(previous => page === 0 ? data.reels : [...previous, ...data.reels]); setHasMore(data.hasMore); if (page === 0 && data.lastUpdatedAt) setLastUpdatedAt(data.lastUpdatedAt) })
       .catch(e => { if (!controller.signal.aborted) setError(e.message) })
@@ -145,7 +146,7 @@ export default function SuccessReels({ categories = [] }) {
     </div>)}</div>
 
   if (detail) return <>
-    <ReelDetail key={detail.shortcode} shortcode={detail.shortcode} preview={detail} onBack={closeDetail}
+    <ReelDetail key={detail.shortcode} shortcode={detail.shortcode} preview={detail} initialTab={detail.tab} initialPlanId={detail.planId} onBack={closeDetail}
       onSaved={(code, saved) => patchReel(code, { saved })} onAnalyze={analyze} />
     {toasts}
   </>
@@ -165,10 +166,12 @@ export default function SuccessReels({ categories = [] }) {
       <Chips label="얼굴 노출" options={FACE} value={filters.face} onChange={face => change({ face })} />
       <Chips label="지역" options={REGION} value={filters.region} onChange={region => change({ region })} />
       <Chips label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort })} />
-      <div className="ct-reels-chips"><button type="button" aria-pressed={filters.saved} onClick={() => change({ saved: !filters.saved })}><Bookmark size={14} />저장한 릴스</button></div>
+      <div className="ct-reels-chips" role="group" aria-label="내 릴스">
+        <button type="button" aria-pressed={filters.saved} onClick={() => change({ saved: !filters.saved, analyzed: false })}><Bookmark size={14} />저장한 릴스</button>
+        <button type="button" aria-pressed={filters.analyzed} onClick={() => change({ analyzed: !filters.analyzed, saved: false })}><Sparkles size={14} />내가 분석한 릴스</button></div>
     </div>
     {error && <div role="alert" className="ct-error">{error}</div>}
-    {!loading && !error && reels.length === 0 && <div className="ct-empty"><Play size={28} strokeWidth={1.4} /><strong>{filters.saved ? '저장한 릴스가 없어요.' : filters.q ? `'${filters.q}' 검색 결과가 없어요.` : '조건에 맞는 릴스가 아직 없어요.'}</strong><span className="ct-muted">{filters.saved ? '릴스에 마우스를 올려 저장해 보세요.' : filters.q ? '다른 단어로 찾거나 분야 필터를 바꿔 보세요.' : '매일 새로 모으고 있어요.'}</span></div>}
+    {!loading && !error && reels.length === 0 && <div className="ct-empty"><Play size={28} strokeWidth={1.4} /><strong>{filters.analyzed ? '아직 분석한 릴스가 없어요.' : filters.saved ? '저장한 릴스가 없어요.' : filters.q ? `'${filters.q}' 검색 결과가 없어요.` : '조건에 맞는 릴스가 아직 없어요.'}</strong><span className="ct-muted">{filters.analyzed ? '릴스에 마우스를 올려 분석하기를 눌러 보세요.' : filters.saved ? '릴스에 마우스를 올려 저장해 보세요.' : filters.q ? '다른 단어로 찾거나 분야 필터를 바꿔 보세요.' : '매일 새로 모으고 있어요.'}</span></div>}
     <div className="ct-reels-grid">
       {reels.map(reel => { const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
         return <article className="ct-reels-card" key={reel.shortcode}>
