@@ -11,7 +11,7 @@ test('exact post resolves once for concurrent requests and cache expires without
  let calls=0,now=0
  const p=createReferencePlayback({extract:async url=>{calls++;assert.equal(url,href);return good},now:()=>now})
  const values=await Promise.all([p.resolve(href),p.resolve(href)])
- assert.equal(calls,1);assert.deepEqual(values[0],{url:good.formats[0].url});assert.deepEqual(values[0],values[1])
+ assert.equal(calls,1);assert.deepEqual(values[0],{url:good.formats[0].url,caption:""});assert.deepEqual(values[0],values[1])
  await p.resolve(href);assert.equal(calls,1)
  now=300001;await p.resolve(href);assert.equal(calls,2)
 })

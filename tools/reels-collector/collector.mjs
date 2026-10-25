@@ -229,7 +229,7 @@ async function collect(dry, dryKeywords) {
     ? { keywords: (dryKeywords.length ? dryKeywords : ['피부관리', 'skincare routine']).map(keyword => ({ keyword, region: /[가-힣]/.test(keyword) ? 'domestic' : 'overseas' })), maxAccounts: 5, skipAccounts: [] }
     : await api(config, 'GET', '/success-reels/plan')
   const run = dry ? null : await api(config, 'POST', '/success-reels/runs')
-  const stats = { keywords: 0, accounts: 0, qualified: 0, saved: 0, eligible: 0, errors: 0 }
+  const stats = { keywords: 0, accounts: 0, qualified: 0, saved: 0, eligible: 0, errors: 0, captions: 0 }
   const skip = new Set(plan.skipAccounts)
   const context = await openBrowser()
   const page = context.pages()[0] || await context.newPage()
@@ -257,12 +257,30 @@ async function collect(dry, dryKeywords) {
     const dates = [...media.keys()].map(postedAt).filter(Boolean)
     return !dates.length || Math.min(...dates) >= cutoff.getTime()
   }
+  // The reels tab lists play counts without captions; the reel's own page carries the caption.
+  const readCaption = async code => {
+    const media = new Map()
+    for (const body of await visit(`https://www.instagram.com/reel/${code}/`, 0)) collectMedia(body, media)
+    return media.get(code)?.caption || ''
+  }
   const queue = dry ? [] : await loadQueue()
   const queued = new Set(queue.map(row => row.username))
   let fatal = null
   try {
     await visit('https://www.instagram.com/', 0)
     if (!(await loggedIn(context))) throw Object.assign(new Error('수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행하세요.'), { blocked: true })
+    // 0) Reels stored earlier without a caption get one from their pages before new accounts are visited.
+    const missing = dry ? [] : (plan.missingCaptions || []).slice(0, 40)
+    if (missing.length) {
+      const captions = []
+      for (const code of missing) {
+        try { const caption = await readCaption(code); if (caption) captions.push({ shortcode: code, caption }) } catch (error) { if (error.blocked) throw error }
+        await pause(5000, 9000)
+      }
+      const result = captions.length ? await api(config, 'POST', '/success-reels/captions', { captions }) : { saved: 0 }
+      stats.captions = result.saved || 0
+      await log(`캡션 보충: ${missing.length}개 확인, ${stats.captions}개 저장`)
+    }
     // 1) Keyword searches find candidate accounts; views are verified on each reels tab.
     // Order: weekly revisits of approved accounts, then queued suggestions, then keyword finds.
     const candidates = new Map()
@@ -298,6 +316,11 @@ async function collect(dry, dryKeywords) {
         const reels = [...media.values()].filter(item => (!item.owner || item.owner.toLowerCase() === username) && item.clip && item.views)
           .slice(0, 120).map(({ code, views, likes, comments, caption, audio, thumbnailUrl }) => ({ shortcode: code, views, likes, comments, caption, audio, thumbnailUrl }))
         const hits = reels.filter(r => r.views >= MIN_VIEWS && postedAt(r.shortcode) >= new Date(Date.now() - MAX_AGE_DAYS * 86400000))
+        for (const hit of hits) {
+          if (hit.caption) continue
+          try { hit.caption = await readCaption(hit.shortcode) } catch (error) { if (error.blocked) throw error }
+          await pause(4000, 7000)
+        }
         stats.accounts += 1
         stats.qualified += hits.length
         const account = { username, fullName: profile.full_name || '', biography: profile.biography || '',
@@ -306,7 +329,7 @@ async function collect(dry, dryKeywords) {
         if (dry) {
           const huge = account.followers >= 5000000 ? ' ← 초대형 계정, 실제 수집 때 제외' : ''
           await log(`@${username} (팔로워 ${account.followers ?? '?'}): 릴스 ${reels.length}개 중 50만+·3개월 ${hits.length}개, 추천 계정 ${suggested.size}개${huge}`)
-          for (const hit of hits) await log(`   ${hit.shortcode} 조회 ${hit.views} 좋아요 ${hit.likes} 댓글 ${hit.comments} 날짜 ${postedAt(hit.shortcode).toISOString().slice(0, 10)} 썸네일 ${hit.thumbnailUrl ? '있음' : '없음'} 음원 ${hit.audio || '-'}`)
+          for (const hit of hits) await log(`   ${hit.shortcode} 조회 ${hit.views} 좋아요 ${hit.likes} 댓글 ${hit.comments} 날짜 ${postedAt(hit.shortcode).toISOString().slice(0, 10)} 썸네일 ${hit.thumbnailUrl ? '있음' : '없음'} 캡션 ${hit.caption ? '있음' : '없음'} 음원 ${hit.audio || '-'}`)
         } else {
           const result = await api(config, 'POST', '/success-reels/accounts', { account, reels, source })
           stats.saved += result.saved || 0

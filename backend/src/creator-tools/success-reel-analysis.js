@@ -183,20 +183,26 @@ export function schedule(key, task, limit = 2) {
 const message = error => error?.exposeMessage ? error.message : '분석을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.'
 
 // Free extractor first; Bright Data (already used for link analysis) when it is missing or blocked.
-// CDN links expire, so they are cached only until shortly before their own expiry.
-export async function reelVideoUrl({ providers, redis, playback = referencePlayback }, shortcode, now = Date.now()) {
+// CDN links expire, so they are cached only until shortly before their own expiry. The caption comes
+// back with a fresh lookup so a reel the collector stored without one can be completed.
+export async function reelMedia({ providers, redis, playback = referencePlayback }, shortcode, now = Date.now()) {
   const key = `success-reel-video:${shortcode}`
   const cached = await redis?.get(key).catch(() => null)
-  if (cached) return cached
+  if (cached) return { url: cached, caption: '' }
   const href = `https://www.instagram.com/reel/${shortcode}/`
-  let url = (await playback.resolve(href).catch(() => null))?.url
-  if (!url) url = playbackUrl((await providers.brightData(href, (_key, task) => task())).videoUrl)
+  const free = await playback.resolve(href).catch(() => null)
+  let url = free?.url, caption = String(free?.caption || '')
+  if (!url) {
+    const record = await providers.brightData(href, (_key, task) => task())
+    url = playbackUrl(record.videoUrl); caption = String(record.caption || '')
+  }
   if (!url) fail('REEL_VIDEO_UNAVAILABLE', '영상을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.', 422)
   const expires = parseInt(new URL(url).searchParams.get('oe') || '', 16) * 1000
   const ttl = Math.floor(Math.min(Number.isFinite(expires) ? expires - now - 3600000 : 3600000, 2 * 86400000) / 1000)
   if (ttl > 60) await redis?.set(key, url, 'EX', ttl).catch(() => {})
-  return url
+  return { url, caption: caption.normalize('NFC').trim().slice(0, 2000) }
 }
+export const reelVideoUrl = async (deps, shortcode, now) => (await reelMedia(deps, shortcode, now)).url
 
 // A pasted script: no video, so the analysis works from the text alone.
 async function textMedia(providers, text) {
@@ -216,11 +222,19 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
     const media = reel.source === 'upload-text' ? await textMedia(providers, reel.source_text) : await workspace(async directory => {
       const path = join(directory, 'reel.mp4')
       if (reel.source === 'upload-video') await downloadStored(db, reel.source_path, path, signal)
-      else await downloadPublicMedia(await reelVideoUrl({ providers, redis }, shortcode), path, signal).catch(async () => {
-        // A cached CDN link can be revoked before its stated expiry; fetch a fresh one once.
-        await redis?.del(`success-reel-video:${shortcode}`).catch(() => {})
-        await downloadPublicMedia(await reelVideoUrl({ providers, redis }, shortcode), path, signal)
-      })
+      else {
+        const fetchMedia = async () => {
+          const found = await reelMedia({ providers, redis }, shortcode)
+          // The collector reads the reels tab, which carries no captions; fill the row from the reel itself.
+          if (!reel.caption && found.caption) { reel.caption = found.caption; await query(db.from('creator_success_reels').update({ caption: found.caption }).eq('shortcode', shortcode)) }
+          return found.url
+        }
+        await downloadPublicMedia(await fetchMedia(), path, signal).catch(async () => {
+          // A cached CDN link can be revoked before its stated expiry; fetch a fresh one once.
+          await redis?.del(`success-reel-video:${shortcode}`).catch(() => {})
+          await downloadPublicMedia(await fetchMedia(), path, signal)
+        })
+      }
       const info = await probeVideo(path, signal, { allowSilent: true })
       const ctx = { providers, signal }
       // When the subtitle reader gives up, the analysis model reads the on-screen text from sampled frames instead.

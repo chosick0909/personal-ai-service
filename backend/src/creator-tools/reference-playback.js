@@ -41,7 +41,7 @@ export function createReferencePlayback({ extract = async url => {
         const formats = [...(Array.isArray(record.formats) ? record.formats : []), record]
         const video = formats.filter(f => f.ext === 'mp4' && f.vcodec !== 'none' && f.acodec !== 'none'
           && playbackUrl(f.url)).sort((a,b) => (b.height || 0) - (a.height || 0))[0]
-        if (video) result = { url: playbackUrl(video.url) }
+        if (video) result = { url: playbackUrl(video.url), caption: typeof record.description === 'string' ? record.description.slice(0, 5000) : '' }
         return result
       } catch { return null }
       finally {

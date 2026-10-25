@@ -149,7 +149,7 @@ export async function ingestAccount(deps, body) {
   let saved = 0
   for (const reel of qualified) {
     const judged = review.reels?.find(r => r.shortcode === reel.shortcode)
-    const current = await query(db.from('creator_success_reels').select('thumbnail_path,visible,analysis_status').eq('shortcode', reel.shortcode).maybeSingle())
+    const current = await query(db.from('creator_success_reels').select('thumbnail_path,visible,analysis_status,caption').eq('shortcode', reel.shortcode).maybeSingle())
     // A reel a student saved or analyzed stays listed even if its account is later rejected.
     const kept = current?.visible && (current.analysis_status !== 'none'
       || (await query(db.from('creator_reel_saves').select('shortcode').eq('shortcode', reel.shortcode).limit(1))).length > 0)
@@ -164,13 +164,44 @@ export async function ingestAccount(deps, body) {
       }
     }
     await query(db.from('creator_success_reels').upsert({ shortcode: reel.shortcode, username: input.username, views: reel.views,
-      likes: reel.likes, comments: reel.comments, posted_at: reel.postedAt, caption: reel.caption,
-      caption_ko: judged?.captionKo?.trim() || null, language: review.language, region: review.region === 'unknown' ? null : review.region,
+      likes: reel.likes, comments: reel.comments, posted_at: reel.postedAt,
+      // The reels tab never carries captions; a caption read from the reel page earlier must survive revisits.
+      caption: reel.caption || current?.caption || '', caption_ko: judged?.captionKo?.trim() || null, language: review.language, region: review.region === 'unknown' ? null : review.region,
       audio: reel.audio, category: SUCCESS_REEL_CATEGORIES.includes(judged?.category) ? judged.category : review.category, face_visibility: judged?.faceVisibility || 'unknown', thumbnail_path: thumbnailPath,
       source: input.source, visible: Boolean(kept) || (decision.eligible && Boolean(thumbnailPath)), last_collected_at: new Date(now).toISOString() }, { onConflict: 'shortcode' }))
     saved += 1
   }
   return { username: input.username, qualified: qualified.length, saved, eligible: decision.eligible, reason: decision.reason }
+}
+
+// Captions read from reel pages, for rows the reels tab left empty. Only filled captions are stored.
+export function normalizeCaptions(body) {
+  if (!Array.isArray(body?.captions) || body.captions.length > 200) fail('INVALID_CAPTIONS', '캡션 목록을 확인해주세요.')
+  const seen = new Set()
+  return body.captions.flatMap(item => {
+    const caption = text(item?.caption, 2000).trim()
+    if (!shortcodePostedAt(item?.shortcode) || !caption || seen.has(item.shortcode)) return []
+    seen.add(item.shortcode)
+    return [{ shortcode: item.shortcode, caption }]
+  })
+}
+// An analysis made while the caption was still empty described a captionless reel; it is redone once the caption lands.
+export async function storeReelCaptions(db, body) {
+  const captions = normalizeCaptions(body)
+  const reanalyze = []
+  for (const { shortcode, caption } of captions) {
+    const row = await query(db.from('creator_success_reels').select('caption,analysis_status').eq('shortcode', shortcode).maybeSingle())
+    if (!row) continue
+    const patch = { caption }
+    if (!row.caption && row.analysis_status === 'ready') { patch.analysis_status = 'none'; reanalyze.push(shortcode) }
+    await query(db.from('creator_success_reels').update(patch).eq('shortcode', shortcode))
+  }
+  return { saved: captions.length, reanalyze }
+}
+// Listed reels still missing a caption, most watched first, for the collector to read from their pages.
+export async function reelsMissingCaptions(db, limit = 40) {
+  const rows = await query(db.from('creator_success_reels').select('shortcode,source,caption').eq('visible', true).eq('caption', '').order('views', { ascending: false }).limit(limit * 2))
+  return rows.filter(row => !String(row.source || '').startsWith('upload-')).map(row => row.shortcode).slice(0, limit)
 }
 
 const LIST_SORTS = { latest: 'posted_at', views: 'views', popular: 'analysis_requests' }

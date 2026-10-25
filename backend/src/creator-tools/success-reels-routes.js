@@ -7,7 +7,7 @@ import { database, query, signedDownload } from './store.js'
 import { redisConnection } from './queue.js'
 import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
-import { ingestAccount, listSuccessReels } from './success-reels.js'
+import { ingestAccount, listSuccessReels, reelsMissingCaptions, storeReelCaptions } from './success-reels.js'
 import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
 
@@ -64,7 +64,14 @@ export function createReelIngestRouter() {
     const keywords = pending.length >= 20 ? [] : short.length ? keywordsForCatchUp(day, short) : keywordsForDay(day)
     const boosted = pending.length ? visitCap : short.length ? Math.min(400, Math.max(maxAccounts, 80 + 20 * short.length)) : maxAccounts
     res.json({ day, keywords, maxAccounts: boosted, skipAccounts: [...recentNames], recheckAccounts, catalogPending: pending.length,
-      continue: pending.length > 0 || short.length > 0, target, short: short.map(category => ({ category, count: counts[category] })) })
+      continue: pending.length > 0 || short.length > 0, target, short: short.map(category => ({ category, count: counts[category] })),
+      missingCaptions: await reelsMissingCaptions(db) })
+  }))
+  router.post('/success-reels/captions', asyncHandler(async (req, res) => {
+    const result = await storeReelCaptions(database(), req.body)
+    const deps = { db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) }
+    for (const shortcode of result.reanalyze) await requestReelAnalysis(deps, shortcode).catch(() => {})
+    res.json({ saved: result.saved, reanalyzed: result.reanalyze.length })
   }))
   router.post('/success-reels/runs', asyncHandler(async (_req, res) => {
     const row = await query(database().from('creator_reel_ingest_runs').insert({}).select('id').single())

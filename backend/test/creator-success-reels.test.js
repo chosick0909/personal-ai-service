@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema, searchTerm } from '../src/creator-tools/success-reels.js'
+import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema, searchTerm, normalizeCaptions, storeReelCaptions } from '../src/creator-tools/success-reels.js'
 import { ingestTokenValid, successReelsEnabled } from '../src/creator-tools/success-reels-routes.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from '../src/creator-tools/success-reels-keywords.js'
 import { CREATOR_CATEGORIES, SUCCESS_REEL_CATEGORIES } from '../src/creator-tools/categories.js'
@@ -246,4 +246,27 @@ test('catch-up keywords search every seed of short categories and one pair elsew
   assert.equal(plan.filter(k => k.category === '부업').length, 7)
   assert.equal(plan.filter(k => k.category === '먹방').length, 2)
   assert.equal(plan.filter(k => k.category === '피부')[0].keyword, keywordsForDay(3).find(k => k.category === '피부').keyword, 'the usual seed comes first')
+})
+
+test('captions read from reel pages are stored, and a revisit without one keeps the stored caption', async () => {
+  const db = fakeDb()
+  const providers = { json: async (_op, _p, input) => ({ accountType: 'individual_creator', accountTypeEvidence: [], ordinaryCreator: true, ordinaryCreatorEvidence: [],
+    productionLevel: 'personal', productionEvidence: [], monetizationEvidence: [], replicability: 80, replicabilityEvidence: [],
+    category: '피부', region: 'domestic', regionEvidence: [], language: 'ko',
+    reels: input.successReels.map(r => ({ shortcode: r.shortcode, faceVisibility: 'visible', captionKo: '' })) }) }
+  const deps = { db, providers, readImage: async () => 'data:image/jpeg;base64,AA==', now: NOW }
+  await ingestAccount(deps, body([reel('Dd8xyurzlmx', 1220000, { caption: '' })]))
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '')
+  assert.deepEqual(normalizeCaptions({ captions: [{ shortcode: 'Dd8xyurzlmx', caption: ' 택배비 4,500원만 내세요 ' }, { shortcode: 'Dd8xyurzlmx', caption: 'dup' }, { shortcode: 'bad!', caption: 'x' }, { shortcode: 'DcdnugUTjcE', caption: '' }] }),
+    [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }])
+  assert.throws(() => normalizeCaptions({ captions: 'no' }), /캡션 목록/)
+  db.tables.creator_success_reels.get('Dd8xyurzlmx').analysis_status = 'ready'
+  assert.deepEqual(await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }, { shortcode: 'DcdnugUTjcE', caption: '없는 릴스' }] }), { saved: 2, reanalyze: ['Dd8xyurzlmx'] })
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '택배비 4,500원만 내세요')
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').analysis_status, 'none', 'an analysis made without the caption is redone')
+  assert.deepEqual(await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }] }), { saved: 1, reanalyze: [] })
+  await ingestAccount({ ...deps, now: NOW + 86400000 }, body([reel('Dd8xyurzlmx', 1300000, { caption: '' })]))
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '택배비 4,500원만 내세요', 'the reels tab never carries captions')
+  await ingestAccount({ ...deps, now: NOW + 2 * 86400000 }, body([reel('Dd8xyurzlmx', 1300000, { caption: '새 캡션' })]))
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '새 캡션')
 })

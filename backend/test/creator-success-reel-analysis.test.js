@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validateReelAnalysis, validateReelPlan, copiedPhrases, requestReelAnalysis, requestReelPlan, reelAnalysisSchema, reelPlanSchema, reelVideoUrl, reelActivity, reelCoverAnalysis, planThumbnailTitles } from '../src/creator-tools/success-reel-analysis.js'
+import { validateReelAnalysis, validateReelPlan, copiedPhrases, requestReelAnalysis, requestReelPlan, reelAnalysisSchema, reelPlanSchema, reelVideoUrl, reelMedia, reelActivity, reelCoverAnalysis, planThumbnailTitles } from '../src/creator-tools/success-reel-analysis.js'
 
 const script = '종합비타민 약사추천 안사요 사요\n센트룸 안사요\n함량도 낮고 전부 비활성형이라 아쉽습니다\n쏜 리서치 베이직 사요'
 const analysisRaw = {
@@ -113,9 +113,12 @@ test('video links fall back to Bright Data and are cached until shortly before e
   assert.deepEqual(sets, [5 * 3600])
   assert.equal(await reelVideoUrl({ providers, redis, playback }, 'Aaaaa1', now), cdn)
   assert.equal(paid, 1)
-  const free = { resolve: async () => ({ url: 'https://x.fbcdn.net/a.mp4' }) }
-  assert.equal(await reelVideoUrl({ providers, redis, playback: free }, 'Bbbbb2', now), 'https://x.fbcdn.net/a.mp4')
+  const free = { resolve: async () => ({ url: 'https://x.fbcdn.net/a.mp4', caption: ' 택배비 4,500원만 내세요 ' }) }
+  assert.deepEqual(await reelMedia({ providers, redis, playback: free }, 'Bbbbb2', now), { url: 'https://x.fbcdn.net/a.mp4', caption: '택배비 4,500원만 내세요' })
   assert.equal(paid, 1)
+  const described = { brightData: async () => ({ videoUrl: cdn, caption: '브라이트 캡션' }) }
+  assert.equal((await reelMedia({ providers: described, redis, playback }, 'Ddddd4', now)).caption, '브라이트 캡션')
+  assert.equal((await reelMedia({ providers: described, redis, playback }, 'Ddddd4', now)).caption, '', 'a cached link carries no caption')
   const bad = { brightData: async () => ({ videoUrl: 'https://evil.example/a.mp4' }) }
   await assert.rejects(reelVideoUrl({ providers: bad, redis, playback }, 'Ccccc3', now), /영상을 불러오지/)
 })
