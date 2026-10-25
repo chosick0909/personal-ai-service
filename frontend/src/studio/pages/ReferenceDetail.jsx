@@ -64,7 +64,7 @@ export function AnalysisTabs({ reel, analysis, tab, setTab }) {
       <div className="st-metrics"><div><span>조회수</span><strong>{compactCount(reel.views)}</strong></div><div><span>좋아요</span><strong>{compactCount(reel.likes)}</strong></div><div><span>댓글</span><strong>{compactCount(reel.comments)}</strong></div><div><span>참여율</span><strong>{engagement == null ? '-' : `${engagement.toFixed(1)}%`}</strong></div>{analysis.durationSeconds ? <div><span>길이</span><strong>{analysis.durationSeconds}초</strong></div> : null}</div>
       <section className="st-card"><KV label="주제">{o.topic}</KV><KV label="핵심 아이디어">{o.ideaSeed}</KV><KV label="차별 포인트">{o.uniqueAngle}</KV></section>
       {(known(o.commonBelief) || known(o.contrarianReality)) && <section className="st-card"><h3 style={{ marginBottom: 12 }}>통념과 반전</h3><div className="st-grid-2"><div className="st-note st-pill-gray" style={{ background: 'var(--st-bg)', color: 'var(--st-text)' }}><strong className="st-small st-muted">시청자가 흔히 하는 생각</strong><p>{o.commonBelief}</p></div><div className="st-note"><strong className="st-small">영상이 보여준 것</strong><p>{o.contrarianReality}</p></div></div></section>}
-      {o.evidence?.length > 0 && <section className="st-card"><div className="st-card-head"><h3>설득 포인트</h3><p>주장을 믿게 하려고 영상이 이유로 든 내용</p></div><ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>{o.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul></section>}
+      {o.evidence?.length > 0 && <section className="st-card"><div className="st-card-head"><h3>설득 포인트</h3><p>주장을 믿게 하려고 영상이 이유로 든 내용</p></div><ul className="st-lines-read">{o.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul></section>}
     </div>}
     {tab === 'hook' && <div className="st-stack">
       <section className="st-card"><span className="st-pill">{h.category}</span><h2 style={{ marginTop: 10, fontSize: 24, lineHeight: 1.45 }}>“{h.spokenHook}”</h2></section>
@@ -81,11 +81,11 @@ export function AnalysisTabs({ reel, analysis, tab, setTab }) {
     </div>}
     {tab === 'filming' && <div className="st-stack">
       <section className="st-card"><KV label="촬영 장소">{f.location}</KV><KV label="구도·앵글">{f.shotType}</KV><KV label="화면에 나오는 것">{f.onScreen}</KV></section>
-      {f.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 찍어보세요</h3><ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>{f.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
+      {f.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 찍어보세요</h3><ol className="st-steps">{f.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
     </div>}
     {tab === 'editing' && <div className="st-stack">
       <section className="st-card"><KV label="자막 스타일">{e.subtitleStyle}</KV><KV label="컷·템포">{e.cuts}</KV><KV label="전환">{e.transitions}</KV><KV label="효과">{e.effects}</KV><KV label="사운드">{e.sound}</KV></section>
-      {e.guide?.length > 0 ? <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 편집해보세요</h3><ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>{e.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>
+      {e.guide?.length > 0 ? <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 편집해보세요</h3><ol className="st-steps">{e.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>
         : !analysis.editing && <div className="st-note">이 릴스는 편집 분석이 추가되기 전에 분석됐어요. 자막·컷 정보만 보여요.</div>}
     </div>}
     {tab === 'caption' && <div className="st-stack">
