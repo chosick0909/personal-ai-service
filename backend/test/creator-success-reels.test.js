@@ -92,6 +92,7 @@ function fakeDb() {
     const api = {
       select() { return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
       upsert(row) { action = 'upsert'; payload = row; return api }, update(row) { action = 'update'; payload = row; return api },
+      in(k, values) { filters.push([null, row => values.includes(row[k])]); return api },
       order(k) { order = k; return api }, range(a, b) { range = [a, b]; return api }, limit(n) { limit = n; return api },
       // Supports the "field.ilike.%term%,field.ilike.%term%" form used for search.
       or(expr) { const parts = expr.split(',').map(p => p.match(/^(\w+)\.ilike\.%(.*)%$/)); filters.push([null, row => parts.some(([, f, t]) => String(row[f] ?? '').toLowerCase().includes(t.toLowerCase()))]); return api },
@@ -211,4 +212,17 @@ test('celebrity-size accounts are rejected before AI review', async () => {
   assert.equal(calls, 0)
   assert.equal(db.tables.creator_success_reels.size, 0)
   assert.equal(db.tables.creator_reel_accounts.get('kendalljenner').eligible, false)
+})
+
+test('students see 분석됨 only on reels they analyzed themselves', async () => {
+  const db = fakeDb()
+  const base = { visible: true, views: 600000, posted_at: '2026-10-01T00:00:00Z', thumbnail_path: null, analysis_status: 'ready' }
+  db.tables.creator_success_reels.set('Aaaaa1', { ...base, shortcode: 'Aaaaa1' })
+  db.tables.creator_success_reels.set('Bbbbb2', { ...base, shortcode: 'Bbbbb2' })
+  db.tables.creator_reel_user_analyses.set('u1:Aaaaa1', { user_id: 'u1', shortcode: 'Aaaaa1' })
+  const mine = await listSuccessReels(db, {}, 'u1')
+  assert.deepEqual(Object.fromEntries(mine.reels.map(r => [r.shortcode, r.analysisStatus])), { Aaaaa1: 'ready', Bbbbb2: 'none' })
+  const other = await listSuccessReels(db, {}, 'u2')
+  assert.ok(other.reels.every(r => r.analysisStatus === 'none'))
+  assert.deepEqual((await listSuccessReels(db, { analyzed: '1' }, 'u1')).reels.map(r => r.shortcode), ['Aaaaa1'])
 })

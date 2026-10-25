@@ -193,10 +193,12 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
     if (!savedCodes.size) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
     request = request.in('shortcode', [...savedCodes])
   }
+  // Analyses are shared, but a student only sees "분석됨" on reels they analyzed themselves.
+  const mine = userId ? await query(db.from('creator_reel_user_analyses').select('shortcode').eq('user_id', userId).limit(5000)) : []
+  const analyzedCodes = new Set(mine.map(row => row.shortcode))
   if (filters.analyzed === '1') {
-    const mine = userId ? await query(db.from('creator_reel_user_analyses').select('shortcode').eq('user_id', userId).limit(5000)) : []
-    if (!mine.length) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
-    request = request.in('shortcode', mine.map(row => row.shortcode))
+    if (!analyzedCodes.size) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
+    request = request.in('shortcode', [...analyzedCodes])
   }
   const q = searchTerm(filters.q)
   if (q) request = request.or(['caption', 'caption_ko', 'username', 'audio'].map(field => `${field}.ilike.%${q}%`).join(','))
@@ -211,6 +213,6 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
     username: row.username, views: row.views, likes: row.likes, comments: row.comments, postedAt: row.posted_at,
     caption: row.caption, captionKo: row.caption_ko, language: row.language, region: row.region, audio: row.audio,
     category: row.category, faceVisibility: row.face_visibility, thumbnailUrl: urls.get(row.thumbnail_path) || null,
-    analysisStatus: row.analysis_status || 'none', saved: savedCodes.has(row.shortcode) })),
+    analysisStatus: analyzedCodes.has(row.shortcode) ? row.analysis_status || 'none' : 'none', saved: savedCodes.has(row.shortcode) })),
   page, hasMore: rows.length === limit, sort, q }
 }
