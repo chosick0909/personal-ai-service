@@ -64,10 +64,9 @@ function ChatPanel({ session, messages, busy, onSend, onPickTopic, onApply, appl
 }
 
 // ---------- stage views ----------
-function TopicStage({ session, save, onSuggest, onOwnTopic }) {
+function TopicStage({ session, save, onSuggest, onBrief }) {
   const { toast } = useStudio()
   const [brief, setBrief] = useState(session.brief || '')
-  const [own, setOwn] = useState('')
   const [attachments, setAttachments] = useState(session.attachments || [])
   const [uploading, setUploading] = useState(false)
   const [listening, setListening] = useState(false)
@@ -96,17 +95,13 @@ function TopicStage({ session, save, onSuggest, onOwnTopic }) {
   return <div className="st-stack">
     <section className="st-card st-stack">
       <div><h3>이번 릴스에 담고 싶은 내용</h3><p className="st-muted">제품, 경험, 하고 싶은 말을 편하게 적어주세요. 길어도 괜찮아요. 적은 사실만 기획안에 들어가요.</p></div>
-      <textarea className="st-textarea" value={brief} onChange={e => { setBrief(e.target.value); debounced(e.target.value) }} placeholder={'예) 30대 지성 피부인 제가 3주 동안 써본 선크림 3개를 솔직하게 비교하고 싶어요. 제일 좋았던 건 백탁이 없고 오후에도 번들거리지 않던 제품이에요.'} aria-label="이번 릴스에 담고 싶은 내용" />
+      <textarea className="st-textarea" value={brief} onChange={e => { setBrief(e.target.value); onBrief?.(e.target.value); debounced(e.target.value) }} placeholder={'예) 30대 지성 피부인 제가 3주 동안 써본 선크림 3개를 솔직하게 비교하고 싶어요. 제일 좋았던 건 백탁이 없고 오후에도 번들거리지 않던 제품이에요.'} aria-label="이번 릴스에 담고 싶은 내용" />
       <div className="st-row">
         <button type="button" className="st-btn" onClick={speak} disabled={listening}><Mic size={18} />{listening ? '듣는 중…' : '말로 입력'}</button>
         <label className="st-btn" style={{ cursor: 'pointer' }}><Paperclip size={18} />{uploading ? '읽는 중…' : '자료 첨부'}<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.docx" style={{ display: 'none' }} disabled={uploading} onChange={e => upload([...e.target.files])} /></label>
         <button type="button" className="st-btn st-btn-soft" onClick={() => onSuggest(brief)}><Sparkles size={18} />주제 제안해줘</button>
       </div>
       {attachments.length > 0 && <div className="st-chips">{attachments.map((a, i) => <span key={i} className="st-chip st-btn-sm" style={{ minHeight: 36 }}>{a.name}<button type="button" className="st-icon-btn" style={{ width: 24, height: 24, border: 0 }} aria-label="첨부 삭제" onClick={() => { const next = attachments.filter((_, j) => j !== i); setAttachments(next); save({ attachments: next }) }}><X size={14} /></button></span>)}</div>}
-    </section>
-    <section className="st-card st-stack" style={{ gap: 10 }}>
-      <div><h3>주제가 이미 정해졌다면</h3><p className="st-muted">한 줄로 적고 바로 다음으로 가요. 오른쪽 훅ai와 대화하며 정해도 돼요.</p></div>
-      <div className="st-row"><input className="st-input" style={{ flex: 1 }} value={own} onChange={e => setOwn(e.target.value)} placeholder="예) 3주 써본 선크림 3개 솔직 비교" aria-label="주제 직접 입력" /><button type="button" className="st-btn st-btn-primary" disabled={own.trim().length < 2} onClick={() => onOwnTopic(own.trim())}>이 주제로<ArrowRight size={18} /></button></div>
     </section>
   </div>
 }
@@ -285,10 +280,15 @@ export default function PlanWizard({ sessionId }) {
   const apply = async messageId => { try { const r = await studio.apply(sessionId, messageId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); setAppliedId(messageId); toast({ kind: 'ready', title: '적용했어요', body: '화면에 반영됐어요.' }) } catch (e) { toast({ kind: 'failed', title: '적용 실패', body: e.message }) } }
   const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, sessionId }); toast({ kind: 'ready', title: '내 공식에 저장했어요', body: r.formula.title, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
 
+  const [briefLive, setBriefLive] = useState('')
+  useEffect(() => { if (session?.brief) setBriefLive(session.brief) }, [session?.brief])
   if (error) return <div className="st-error">{error}</div>
   if (!session) return <p className="st-muted">불러오는 중…</p>
   const idx = ORDER.indexOf(session.stage)
   const hasTopic = Boolean(session.topic?.title)
+  // No separate topic box: the first sentence of what the student wrote becomes the topic when they move on.
+  const briefTopic = () => briefLive.split(/[.!?\n]/).map(t => t.trim()).find(Boolean)?.slice(0, 60) || ''
+  const startFromBrief = async () => { await save({ brief: briefLive }); pickTopic({ title: briefTopic(), category: session.topic?.category || '기타', facts: [] }) }
   const stageReady = session.stage === 'topic' ? hasTopic : session.stage === 'done' ? true : Boolean(session[session.stage])
   const failed = session.job?.status === 'failed'
   const generating = running && session.job?.stage === session.stage
@@ -306,7 +306,7 @@ export default function PlanWizard({ sessionId }) {
       {session.ask && session.ask.stage === session.stage && !generating ? <AskCard ask={session.ask} busy={chatBusy} onAnswer={a => send(a, { openChat: false })} />
         : generating ? <HookLoader title={`훅ai가 ${STAGES.find(([id]) => id === session.stage)?.[1]} 만드는 중`} stages={GEN_STAGES} stageIndex={elapsed < 5 ? 0 : elapsed < 60 ? 1 : 2} startedAt={session.job.startedAt} />
         : failed ? <div className="st-card st-stack"><div className="st-error">{session.job.error}</div><button type="button" className="st-btn st-btn-primary" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시 만들기</button></div>
-        : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onOwnTopic={title => pickTopic({ title, category: session.topic?.category || '기타', facts: [] })} />
+        : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive} />
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
         : session.stage === 'thumbnail' ? <ThumbnailStage session={session} save={save} />
         : session.stage === 'hook' ? <HookStage session={session} save={save} />
@@ -318,7 +318,7 @@ export default function PlanWizard({ sessionId }) {
       {session.stage !== 'done' && !generating && <div className="st-wizard-foot">
         {idx > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx - 1])}><ArrowLeft size={20} />이전</button>}
         {session.stage !== 'topic' && stageReady && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시</button>}
-        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic} onClick={() => toStage('thumbnail')}>{hasTopic ? `${nextLabel}` : '먼저 주제를 정해주세요'}<ArrowRight size={20} /></button>
+        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic && !briefTopic()} onClick={() => hasTopic ? toStage('thumbnail') : startFromBrief()}>{hasTopic ? `${nextLabel}` : briefTopic() ? '이 내용으로 바로 시작' : '담고 싶은 내용을 적어주세요'}<ArrowRight size={20} /></button>
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
       </div>}
     </div>
