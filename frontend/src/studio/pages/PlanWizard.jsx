@@ -88,7 +88,7 @@ function TopicStage({ session, save, onSuggest, onOwnTopic }) {
     </section>
     <section className="st-card st-stack" style={{ gap: 10 }}>
       <div><h3>주제가 이미 정해졌다면</h3><p className="st-muted">한 줄로 적고 바로 다음으로 가요. 오른쪽 훅ai와 대화하며 정해도 돼요.</p></div>
-      <div className="st-row"><input className="st-input" style={{ flex: 1 }} value={own} onChange={e => setOwn(e.target.value)} placeholder="예) 지성 피부 선크림 3개, 안 사요/사요로 판정" aria-label="주제 직접 입력" /><button type="button" className="st-btn st-btn-primary" disabled={own.trim().length < 2} onClick={() => onOwnTopic(own.trim())}>이 주제로<ArrowRight size={18} /></button></div>
+      <div className="st-row"><input className="st-input" style={{ flex: 1 }} value={own} onChange={e => setOwn(e.target.value)} placeholder="예) 3주 써본 선크림 3개 솔직 비교" aria-label="주제 직접 입력" /><button type="button" className="st-btn st-btn-primary" disabled={own.trim().length < 2} onClick={() => onOwnTopic(own.trim())}>이 주제로<ArrowRight size={18} /></button></div>
     </section>
   </div>
 }
@@ -99,8 +99,9 @@ function ThumbnailStage({ session, save }) {
   const debounced = useDebouncedSave(v => save({ thumbnail: { custom: v } }))
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>썸네일 카피 3안</h3><p className="st-muted">릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.</p></div>
-      <div className="st-covers">{t.options.map((o, i) => <button type="button" key={i} className="st-cover" onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }} style={{ border: 0, background: 'none', padding: 0, textAlign: 'left' }}>
-        <div className={`st-cover-art${!t.custom && t.chosen === i ? ' is-on' : ''}`}>{o.label && <span className="st-pill">{o.label}</span>}<strong>{o.text}</strong></div><span className="st-muted st-small">{o.why}</span></button>)}</div>
+      <div className="st-options">{t.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!t.custom && t.chosen === i} onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }}>
+        <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{i + 1}안</span>}<span className="st-option-check"><Check size={16} /></span></div>
+        <strong className="st-thumb-text">{o.text}</strong>{o.why && <span className="st-why">{o.why}</span>}</button>)}</div>
       <div className="st-field"><label>직접 쓸게요 <small>적으면 이게 썸네일 카피가 돼요</small></label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 썸네일 제목" /></div>
     </section>
   </div>
