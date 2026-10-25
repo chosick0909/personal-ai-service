@@ -42,13 +42,14 @@ export function PlayerModal({ reel, onClose, onAnalyze, onOpenAnalysis }) {
       <div className="st-player-meta">
         <a href={`https://www.instagram.com/${reel.username}/`} target="_blank" rel="noreferrer" style={{ fontWeight: 800, color: 'var(--st-text)', fontSize: 17 }}>@{reel.username}</a>
         <div className="st-row st-muted st-small" style={{ gap: 14 }}><span><Play size={14} /> {compactCount(reel.views)}</span><span><Heart size={14} /> {compactCount(reel.likes)}</span><span><MessageCircle size={14} /> {compactCount(reel.comments)}</span><span>{day(reel.postedAt)}</span></div>
-        <p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption}</p>
-        {reel.captionKo && reel.captionKo !== reel.caption && <p className="st-muted st-small" style={{ whiteSpace: 'pre-wrap' }}>번역: {reel.captionKo}</p>}
-        <div className="st-row" style={{ marginTop: 'auto' }}>
+        {/* Actions sit above the caption so a long caption never hides them. */}
+        <div className="st-row" style={{ flexWrap: 'wrap' }}>
           <button type="button" className={`st-btn ${ready ? 'st-btn-soft' : 'st-btn-primary'}`} disabled={busy} onClick={() => { onClose(); ready ? onOpenAnalysis() : onAnalyze() }}>
             {busy ? <><LoaderCircle size={18} className="st-spin" />분석 중</> : ready ? <><Sparkles size={18} />분석 보기</> : <><ScanSearch size={18} />분석하기</>}</button>
           <a className="st-btn" href={reel.permalink} target="_blank" rel="noreferrer"><InstagramIcon size={18} />인스타그램에서 보기</a>
         </div>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption}</p>
+        {reel.captionKo && reel.captionKo !== reel.caption && <p className="st-muted st-small" style={{ whiteSpace: 'pre-wrap' }}>번역: {reel.captionKo}</p>}
       </div>
     </div>
   </div>
