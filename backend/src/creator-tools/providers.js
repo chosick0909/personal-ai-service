@@ -114,8 +114,13 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
         : /region|geo/.test(detail) ? 'LINK_REGION_RESTRICTED' : 'LINK_UNAVAILABLE'
       fail(code, '영상을 가져올 수 없습니다. 권한을 확인하거나 MP4·대본 업로드로 전환해주세요.', 422)
     }
+    const count = value => { const n = Number(value); return Number.isSafeInteger(n) && n >= 0 ? n : null }
     return { videoUrl: record.video_url, caption: String(record.description || '').slice(0, 5000),
-      username: record.user_posted || null, fetchedAt: new Date().toISOString() }
+      username: record.user_posted || null, fetchedAt: new Date().toISOString(),
+      views: [count(record.video_play_count), count(record.views)].filter(Number.isFinite).sort((a, b) => b - a)[0] ?? null,
+      likes: count(record.likes), comments: count(record.num_comments),
+      postedAt: Number.isFinite(Date.parse(record.date_posted)) ? new Date(record.date_posted).toISOString() : null,
+      thumbnailUrl: typeof record.thumbnail === 'string' && record.thumbnail.startsWith('https://') ? record.thumbnail : null }
   }
   async function searchAccounts(queryText, region, page = 0) {
     const key = process.env.BRIGHT_DATA_API_KEY, zone = process.env.BRIGHT_DATA_SERP_ZONE

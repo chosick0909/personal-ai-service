@@ -59,7 +59,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
   return <article className="st-reel">
     <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 릴스 재생`}>
-        {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : null}
+        {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-reel-placeholder">{reel.source === 'upload-text' ? '📝' : '🎬'}<b>{reel.title || `@${reel.username}`}</b></span>}
         {hover && preview && <video src={preview} muted autoPlay loop playsInline className="st-reel-preview" />}
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
@@ -68,11 +68,11 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
       <div className="st-reel-hover">
         <button type="button" className="st-reel-analyze" disabled={busy} onClick={ready ? onOpenAnalysis : onAnalyze}>
           {busy ? <><LoaderCircle size={16} className="st-spin" />분석 중</> : ready ? <><Sparkles size={16} />분석 보기</> : <><ScanSearch size={16} />분석하기</>}</button>
-        <a className="st-reel-ig" href={reel.permalink} target="_blank" rel="noreferrer" aria-label="인스타그램에서 보기" data-tip="인스타그램에서 보기"><InstagramIcon size={18} /></a>
+        {reel.permalink && <a className="st-reel-ig" href={reel.permalink} target="_blank" rel="noreferrer" aria-label="인스타그램에서 보기" data-tip="인스타그램에서 보기"><InstagramIcon size={18} /></a>}
         {footer}
       </div>
     </div>
-    <span className="st-reel-caption"><strong>@{reel.username}</strong>{reel.captionKo || reel.caption}</span>
+    <span className="st-reel-caption"><strong>{reel.title || `@${reel.username}`}</strong>{reel.captionKo || reel.caption}</span>
     {children}
   </article>
 }

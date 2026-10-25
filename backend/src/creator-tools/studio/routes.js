@@ -1,4 +1,9 @@
 import Redis from 'ioredis'
+import multer from 'multer'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { readFile, rm } from 'node:fs/promises'
 import { asyncHandler } from '../../lib/errors.js'
 import { fail, uuid } from '../domain.js'
 import { database, query } from '../store.js'
@@ -9,12 +14,19 @@ import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage } from './persona.js'
 import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, buildStyleCard, answerAsk } from './engine.js'
 import { THUMBNAIL_BUCKET } from '../success-reels.js'
+import { BUCKET } from '../store.js'
+import { instagramPostUrl } from '../reference-quality.js'
+import { readPublicImage } from '../network.js'
+import { probeVideo, ff } from '../media.js'
+import { requestReelAnalysis } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
 const deps = () => ({ db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) })
 const TAGS = ['hook', 'structure', 'filming', 'caption']
+const uploadVideo = multer({ storage: multer.diskStorage({ destination: (_req, _file, cb) => cb(null, tmpdir()), filename: (_req, _file, cb) => cb(null, `studio-${randomUUID()}.upload`) }), limits: { fileSize: 150 * 1024 * 1024, files: 1 } })
+const UPLOADS_PER_DAY = 10
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
@@ -174,13 +186,14 @@ export function registerStudioRoutes(router) {
     const db = database()
     const mine = await query(db.from('creator_reel_user_analyses').select('shortcode,tags,created_at').eq('user_id', req.auth.userId).order('created_at', { ascending: false }).limit(500))
     const codes = mine.map(r => r.shortcode)
-    const reels = codes.length ? await query(db.from('creator_success_reels').select('shortcode,username,views,posted_at,caption,caption_ko,category,thumbnail_path,analysis_status,analysis_requests,analysis').in('shortcode', codes)) : []
+    const reels = codes.length ? await query(db.from('creator_success_reels').select('shortcode,username,views,posted_at,caption,caption_ko,category,thumbnail_path,analysis_status,analysis_requests,analysis,source,title,visible,owner_user_id').in('shortcode', codes)) : []
     const paths = reels.map(r => r.thumbnail_path).filter(Boolean)
     const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)) : []
     const urls = new Map(signed.filter(i => i.signedUrl).map(i => [i.path, i.signedUrl]))
     const byCode = new Map(reels.map(r => [r.shortcode, r]))
     res.set('Cache-Control', 'private, no-store').json({ references: mine.flatMap(m => { const r = byCode.get(m.shortcode); if (!r) return []
-      return [{ kind: 'reel', id: r.shortcode, username: r.username, views: r.views, postedAt: r.posted_at, caption: r.caption_ko || r.caption, category: r.category, thumbnailUrl: urls.get(r.thumbnail_path) || null,
+      if (!r.visible && r.owner_user_id !== req.auth.userId) return []
+      return [{ kind: 'reel', id: r.shortcode, username: r.username, views: r.views, postedAt: r.posted_at, caption: r.caption_ko || r.caption, category: r.category, thumbnailUrl: urls.get(r.thumbnail_path) || null, source: r.source, title: r.title, permalink: r.source && r.source !== 'upload-link' && r.source.startsWith('upload') ? null : `https://www.instagram.com/reel/${r.shortcode}/`,
         analysisStatus: r.analysis_status, analysisRequests: r.analysis_requests || 0, tags: m.tags || [], addedAt: m.created_at,
         summary: r.analysis?.overview?.summary || null, hookType: r.analysis?.hook?.category || null, format: r.analysis?.structure?.category || null }] }) })
   }))
@@ -194,6 +207,92 @@ export function registerStudioRoutes(router) {
     enabled(req)
     await query(database().from('creator_reel_user_analyses').delete().eq('user_id', req.auth.userId).eq('shortcode', String(req.params.shortcode)))
     res.json({ ok: true })
+  }))
+
+  // ----- 내 레퍼런스 직접 추가: 인스타그램 링크 · 영상 파일 · 대본 텍스트 -----
+  const uploadQuota = async userId => {
+    const since = new Date(Date.now() - 86400000).toISOString()
+    const rows = await query(database().from('creator_success_reels').select('shortcode').eq('owner_user_id', userId).gte('first_collected_at', since).limit(UPLOADS_PER_DAY + 1))
+    if (rows.length >= UPLOADS_PER_DAY) fail('UPLOAD_LIMIT', `레퍼런스 직접 추가는 하루 ${UPLOADS_PER_DAY}개까지예요.`, 429)
+  }
+  const uploadAccount = async (db, userId) => {
+    const username = `up_${userId.replace(/-/g, '').slice(0, 12)}`
+    await query(db.from('creator_reel_accounts').upsert({ username, profile: { upload: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
+    return username
+  }
+  const storeThumbnail = async (db, shortcode, dataUrl) => {
+    const [, type, data] = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/) || []
+    if (!type) return null
+    const path = `${shortcode}.${type.split('/')[1].replace('jpeg', 'jpg')}`
+    const { error } = await db.storage.from(THUMBNAIL_BUCKET).upload(path, Buffer.from(data, 'base64'), { contentType: type, upsert: true })
+    return error ? null : path
+  }
+  const startAnalysis = (shortcode, userId) => requestReelAnalysis({ ...deps(), schedule: undefined }, shortcode, Date.now(), userId)
+
+  router.post('/creator-tools/studio/references/link', asyncHandler(async (req, res) => {
+    enabled(req)
+    const db = database(), userId = req.auth.userId
+    const url = instagramPostUrl(String(req.body?.url || '').trim())
+    if (!url) fail('LINK_INVALID', '인스타그램 릴스 링크를 넣어주세요. 예) https://www.instagram.com/reel/XXXX/')
+    const shortcode = new URL(url).pathname.split('/')[2]
+    const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id').eq('shortcode', shortcode).maybeSingle())
+    if (!existing) {
+      await uploadQuota(userId)
+      const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(120000) })
+      const media = await providers.brightData(url, (_key, task) => task())
+      const username = String(media.username || '').replace(/^@/, '').toLowerCase()
+      if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
+      await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
+      const thumbnail = media.thumbnailUrl ? await readPublicImage(media.thumbnailUrl, AbortSignal.timeout(20000)).catch(() => null) : null
+      await query(db.from('creator_success_reels').upsert({ shortcode, username, views: media.views ?? 0, likes: media.likes, comments: media.comments,
+        posted_at: media.postedAt || new Date().toISOString(), caption: media.caption || '', source: 'upload-link', owner_user_id: userId, visible: false,
+        thumbnail_path: thumbnail ? await storeThumbnail(db, shortcode, thumbnail) : null }, { onConflict: 'shortcode' }))
+      // The link fetch already paid for the video URL; keep it for the analysis download.
+      if (media.videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, media.videoUrl, 'EX', 3600).catch(() => {})
+    } else if (!existing.visible && existing.owner_user_id !== userId) {
+      // Someone else's private link: make it theirs too so it appears in their library.
+      await query(db.from('creator_success_reels').update({ owner_user_id: userId }).eq('shortcode', shortcode))
+    }
+    const result = await startAnalysis(shortcode, userId)
+    res.status(201).json({ shortcode, status: result.status })
+  }))
+
+  router.post('/creator-tools/studio/references/text', asyncHandler(async (req, res) => {
+    enabled(req)
+    const db = database(), userId = req.auth.userId
+    const body = text(req.body?.text, 12000), title = text(req.body?.title, 80) || body.split(/\n/)[0].slice(0, 40)
+    if (body.length < 20) fail('TEXT_TOO_SHORT', '대본을 20자 이상 넣어주세요.')
+    await uploadQuota(userId)
+    const shortcode = `up_${randomUUID().replace(/-/g, '').slice(0, 24)}`
+    const username = await uploadAccount(db, userId)
+    await query(db.from('creator_success_reels').insert({ shortcode, username, views: 0, posted_at: new Date().toISOString(), caption: '', source: 'upload-text', source_text: body, title, owner_user_id: userId, visible: false }))
+    const result = await startAnalysis(shortcode, userId)
+    res.status(201).json({ shortcode, title, status: result.status })
+  }))
+
+  router.post('/creator-tools/studio/references/video', (req, res, next) => uploadVideo.single('video')(req, res, error => next(error ? fail('VIDEO_TOO_LARGE', '영상은 150MB 이하로 올려주세요.') : undefined)), asyncHandler(async (req, res) => {
+    enabled(req)
+    const db = database(), userId = req.auth.userId
+    const file = req.file
+    if (!file) fail('VIDEO_REQUIRED', '영상 파일을 골라주세요.')
+    try {
+      if (!/^video\//.test(file.mimetype)) fail('NOT_VIDEO', '영상 파일만 올릴 수 있어요.')
+      await uploadQuota(userId)
+      const signal = AbortSignal.timeout(120000)
+      await probeVideo(file.path, signal, { allowSilent: true })
+      const shortcode = `up_${randomUUID().replace(/-/g, '').slice(0, 24)}`
+      const title = text(req.body?.title, 80) || String(file.originalname || '내 영상').replace(/\.[^.]+$/, '').slice(0, 40)
+      const storagePath = `studio-uploads/${userId}/${shortcode}.mp4`
+      const { error } = await db.storage.from(BUCKET).upload(storagePath, await readFile(file.path), { contentType: file.mimetype, upsert: true })
+      if (error) fail('UPLOAD_FAILED', '영상을 저장하지 못했어요. 다시 시도해주세요.', 502)
+      const frame = join(tmpdir(), `${shortcode}.jpg`)
+      let thumbnailPath = null
+      try { await ff(['-ss', '0.5', '-i', file.path, '-frames:v', '1', '-vf', 'scale=540:-2', '-q:v', '5', frame], signal); thumbnailPath = await storeThumbnail(db, shortcode, `data:image/jpeg;base64,${(await readFile(frame)).toString('base64')}`) } catch { /* no cover */ } finally { await rm(frame, { force: true }) }
+      const username = await uploadAccount(db, userId)
+      await query(db.from('creator_success_reels').insert({ shortcode, username, views: 0, posted_at: new Date().toISOString(), caption: '', source: 'upload-video', source_path: storagePath, title, owner_user_id: userId, visible: false, thumbnail_path: thumbnailPath }))
+      const result = await startAnalysis(shortcode, userId)
+      res.status(201).json({ shortcode, title, status: result.status })
+    } finally { await rm(file.path, { force: true }) }
   }))
 
   // ----- 내 공식 -----

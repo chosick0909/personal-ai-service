@@ -35,7 +35,7 @@ function Video({ shortcode, poster, permalink }) {
   }, [shortcode])
   return <div className="st-video">
     {state.url && !state.failed ? <video src={state.url} poster={poster || undefined} controls autoPlay muted playsInline loop onError={() => setState(s => ({ ...s, failed: true }))} />
-      : <>{poster && <img src={poster} alt="" />}{state.failed ? <a className="st-video-link" href={permalink} target="_blank" rel="noreferrer">인스타그램에서 보기</a> : <span className="st-video-link" style={{ background: 'rgba(0,0,0,.4)', color: '#fff' }}><LoaderCircle size={18} className="st-spin" /></span>}</>}
+      : <>{poster && <img src={poster} alt="" />}{state.failed ? (permalink ? <a className="st-video-link" href={permalink} target="_blank" rel="noreferrer">인스타그램에서 보기</a> : <span className="st-video-link">영상을 불러오지 못했어요</span>) : <span className="st-video-link" style={{ background: 'rgba(0,0,0,.4)', color: '#fff' }}><LoaderCircle size={18} className="st-spin" /></span>}</>}
   </div>
 }
 
@@ -117,9 +117,11 @@ export default function ReferenceDetail({ shortcode }) {
     </div>
     <div className="st-detail">
       <aside className="st-stack" style={{ gap: 12 }}>
-        <Video shortcode={shortcode} poster={reel.thumbnailUrl} permalink={reel.permalink} />
-        <div className="st-row" style={{ justifyContent: 'space-between' }}><a href={`https://www.instagram.com/${reel.username}/`} target="_blank" rel="noreferrer" style={{ fontWeight: 800, color: 'var(--st-text)' }}>@{reel.username}</a><a className="st-btn st-btn-sm" href={reel.permalink} target="_blank" rel="noreferrer"><InstagramIcon size={17} />인스타그램에서 보기</a></div>
-        <div className="st-row st-muted st-small" style={{ gap: 14 }}><span><Play size={14} /> {compactCount(reel.views)}</span><span><Heart size={14} /> {compactCount(reel.likes)}</span><span><MessageCircle size={14} /> {compactCount(reel.comments)}</span><span>{day(reel.postedAt)}</span></div>
+        {reel.source === 'upload-text' ? <div className="st-card st-stack" style={{ gap: 8 }}><span className="st-pill st-pill-gray">내가 넣은 대본</span><strong style={{ fontSize: 18 }}>{reel.title}</strong><p className="st-muted st-small">영상 없이 대본만으로 분석했어요.</p></div>
+          : <Video shortcode={shortcode} poster={reel.thumbnailUrl} permalink={reel.permalink} />}
+        {reel.permalink ? <div className="st-row" style={{ justifyContent: 'space-between' }}><a href={`https://www.instagram.com/${reel.username}/`} target="_blank" rel="noreferrer" style={{ fontWeight: 800, color: 'var(--st-text)' }}>@{reel.username}</a><a className="st-btn st-btn-sm" href={reel.permalink} target="_blank" rel="noreferrer"><InstagramIcon size={17} />인스타그램에서 보기</a></div>
+          : <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>{reel.title || '내 레퍼런스'}</strong><span className="st-pill st-pill-gray">나만 보여요</span></div>}
+        {reel.permalink && <div className="st-row st-muted st-small" style={{ gap: 14 }}><span><Play size={14} /> {compactCount(reel.views)}</span><span><Heart size={14} /> {compactCount(reel.likes)}</span><span><MessageCircle size={14} /> {compactCount(reel.comments)}</span><span>{day(reel.postedAt)}</span></div>}
       </aside>
       <div className="st-stack">
         {analysis ? <AnalysisTabs reel={reel} analysis={analysis} tab={tab} setTab={setTab} />

@@ -18,9 +18,9 @@ function SlotPicker({ slot, refs, formulas, library, onPick, onClose }) {
       <div className="st-chips"><button type="button" className="st-chip" aria-pressed={tab === 'refs'} onClick={() => setTab('refs')}><FolderHeart size={16} />내 레퍼런스 · {refs.length}</button><button type="button" className="st-chip" aria-pressed={tab === 'formulas'} onClick={() => setTab('formulas')}><Wand2 size={16} />내 공식 · {formulas.filter(f => f.kind === kind).length}</button>{libItems.length > 0 && <button type="button" className="st-chip" aria-pressed={tab === 'library'} onClick={() => setTab('library')}><BookOpen size={16} />공식 사전</button>}</div>
       {tab === 'refs' && <div className="st-stack" style={{ gap: 10 }}>
         {refs.length === 0 && <div className="st-empty"><strong>아직 분석한 릴스가 없어요</strong><span>성공 릴스에서 '분석하기'를 눌러 모아주세요.</span></div>}
-        {[...tagged, ...others].map(r => <button type="button" key={r.id} className="st-option" onClick={() => onPick({ kind: 'reel', id: r.id, label: `@${r.username}`, thumbnailUrl: r.thumbnailUrl })} style={{ gridTemplateColumns: '56px 1fr', display: 'grid', alignItems: 'center', gap: 14 }}>
+        {[...tagged, ...others].map(r => <button type="button" key={r.id} className="st-option" onClick={() => onPick({ kind: 'reel', id: r.id, label: r.title || `@${r.username}`, thumbnailUrl: r.thumbnailUrl })} style={{ gridTemplateColumns: '56px 1fr', display: 'grid', alignItems: 'center', gap: 14 }}>
           {r.thumbnailUrl ? <img src={r.thumbnailUrl} alt="" style={{ width: 56, height: 84, objectFit: 'cover', borderRadius: 8, gridRow: 'span 2' }} /> : <span style={{ gridRow: 'span 2' }} />}
-          <strong>@{r.username}{r.tags.includes(slot) && <span className="st-pill" style={{ marginLeft: 8 }}>{SLOT_LABELS[slot]} 참고</span>}</strong>
+          <strong>{r.title || `@${r.username}`}{r.tags.includes(slot) && <span className="st-pill" style={{ marginLeft: 8 }}>{SLOT_LABELS[slot]} 참고</span>}</strong>
           <span className="st-why">{slot === 'hook' ? r.hookType : slot === 'structure' ? r.format : ''} {r.summary ? `· ${r.summary}` : ''}</span>
         </button>)}
       </div>}
@@ -47,7 +47,7 @@ export default function PlanStart({ preset = {} }) {
   useEffect(() => {
     Promise.all([studio.references(), studio.formulas(), studio.library().catch(() => null)]).then(([r, f, l]) => {
       setData({ refs: r.references, formulas: f.formulas, library: l })
-      if (preset.ref) { const found = r.references.find(x => x.id === preset.ref); if (found) setSources({ hook: { kind: 'reel', id: found.id, label: `@${found.username}`, thumbnailUrl: found.thumbnailUrl } }) }
+      if (preset.ref) { const found = r.references.find(x => x.id === preset.ref); if (found) setSources({ hook: { kind: 'reel', id: found.id, label: found.title || `@${found.username}`, thumbnailUrl: found.thumbnailUrl } }) }
     }).catch(() => {})
   }, [preset.ref])
   const start = async () => {

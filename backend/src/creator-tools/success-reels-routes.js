@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import Redis from 'ioredis'
 import { asyncHandler } from '../lib/errors.js'
 import { fail, uuid } from './domain.js'
-import { database, query } from './store.js'
+import { database, query, signedDownload } from './store.js'
 import { redisConnection } from './queue.js'
 import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
@@ -131,8 +131,10 @@ export function registerSuccessReelRoutes(router) {
   router.post('/creator-tools/success-reels/:shortcode/playback', asyncHandler(async (req, res) => {
     enabled(req)
     const shortcode = /^[A-Za-z0-9_-]{5,40}$/.test(req.params.shortcode) ? req.params.shortcode : null
-    const row = shortcode && await query(database().from('creator_success_reels').select('shortcode').eq('shortcode', shortcode).eq('visible', true).maybeSingle())
-    if (!row) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+    const row = shortcode && await query(database().from('creator_success_reels').select('shortcode,visible,owner_user_id,source,source_path').eq('shortcode', shortcode).maybeSingle())
+    if (!row || !(row.visible || row.owner_user_id === req.auth.userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+    if (row.source === 'upload-text') return res.set('Cache-Control', 'private, no-store').json({ media: null })
+    if (row.source === 'upload-video') return res.set('Cache-Control', 'private, no-store').json({ media: { url: await signedDownload(database(), row.source_path) } })
     const controller = new AbortController()
     res.on('close', () => { if (!res.writableEnded) controller.abort() })
     const providers = createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal: controller.signal })

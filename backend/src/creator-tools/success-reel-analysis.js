@@ -1,12 +1,13 @@
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
-import { workspace, probeVideo, transcribeFile, ff } from './media.js'
+import { workspace, probeVideo, transcribeFile, ff, downloadStored } from './media.js'
 import { downloadPublicMedia } from './network.js'
 import { extractScreenSubtitles, referenceTranscript } from '../lib/video-subtitle-transcript.js'
 import { translateSegments } from './link-import.js'
 import { referencePlayback, playbackUrl } from './reference-playback.js'
 import { query } from './store.js'
-import { THUMBNAIL_BUCKET } from './success-reels.js'
+import { THUMBNAIL_BUCKET, SUCCESS_REEL_MIN_VIEWS, SUCCESS_REEL_MAX_AGE_DAYS } from './success-reels.js'
+import { SUCCESS_REEL_CATEGORIES } from './categories.js'
 import { analyzeThumbnailImage, generateThumbnailTitles } from '../lib/thumbnail-title.js'
 import { fail } from './domain.js'
 
@@ -30,6 +31,8 @@ export const reelAnalysisSchema = obj({
   editing: obj({ subtitleStyle: str, cuts: str, transitions: str, effects: str, sound: str, guide: arr(str) }),
   caption: obj({ firstLine: str, structure: str, cta: str, hashtags: str, analysis: str }),
   screenText: str,
+  category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES },
+  region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] },
 })
 
 export const reelAnalysisPrompt = `조회수가 크게 터진 인스타그램 릴스를 분석해, 수강생이 같은 방식으로 자기 콘텐츠를 만들 수 있게 설명하세요. 모든 설명은 한국어로 씁니다.
@@ -41,6 +44,7 @@ filming(촬영): 제공된 장면 이미지에서 관찰한 것만 씁니다. lo
 editing(편집): subtitleStyle(자막 글꼴 느낌·크기·위치·색·강조 방식), cuts(컷 길이와 템포, 장면 수), transitions(전환 방식), effects(줌·스탬프·이모지·그래픽 등 효과, 없으면 "확인되지 않음"), sound(배경음·효과음·나레이션 유무, 확인되지 않으면 "확인되지 않음"), guide는 수강생이 비슷하게 편집하기 위한 방법 3~6개.
 screenText: 입력 script가 비어 있으면(말소리도 자막 추출도 없는 영상) 제공된 장면 이미지의 화면 글자를 시간순으로 읽어 줄바꿈으로 이어 적고, 그것을 script로 삼아 분석합니다. 영상에 글자가 없으면 "". script가 있으면 "".
 caption: 입력 caption(인스타 캡션 원문)을 분석합니다. firstLine은 첫 줄이 쓴 장치(없으면 "캡션 없음"), structure는 본문 구성(줄 수·정보 배치), cta는 마무리에서 유도한 행동, hashtags는 해시태그 전략(개수·종류), analysis는 캡션이 영상을 어떻게 받쳐 주는지 한두 문장.
+category는 이 릴스의 분야(목록 중 하나), region은 한국 시청자 대상이면 domestic, 해외 시청자 대상이면 overseas, 모르면 unknown. 장면 이미지가 없으면(텍스트만 입력) filming·editing은 "확인되지 않음"으로 둡니다.
 조회수나 성과의 원인을 단정하거나 예측하지 말고, 관찰한 구조적 특징만 설명합니다. 근거가 없는 항목은 "확인되지 않음"으로 씁니다.`
 
 export const reelPlanSchema = obj({
@@ -194,16 +198,25 @@ export async function reelVideoUrl({ providers, redis, playback = referencePlayb
   return url
 }
 
+// A pasted script: no video, so the analysis works from the text alone.
+async function textMedia(providers, text) {
+  const original = String(text || '').normalize('NFC').trim()
+  const hangul = /[가-힣]/.test(original)
+  const korean = hangul ? original : (await translateSegments(providers, 'unknown', original.split(/\n+/).filter(Boolean).map(line => ({ text: line })))).map(cue => cue.text).join('\n').trim()
+  return { duration: 0, language: hangul ? 'ko' : 'unknown', source: 'text', frames: [], original, korean }
+}
+
 export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 12 * 60000)
   const signal = controller.signal
   try {
     const providers = makeProviders(signal)
-    const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,likes,comments,thumbnail_path,category').eq('shortcode', shortcode).single())
-    const media = await workspace(async directory => {
+    const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,likes,comments,thumbnail_path,category,source,source_path,source_text,posted_at,visible').eq('shortcode', shortcode).single())
+    const media = reel.source === 'upload-text' ? await textMedia(providers, reel.source_text) : await workspace(async directory => {
       const path = join(directory, 'reel.mp4')
-      await downloadPublicMedia(await reelVideoUrl({ providers, redis }, shortcode), path, signal).catch(async () => {
+      if (reel.source === 'upload-video') await downloadStored(db, reel.source_path, path, signal)
+      else await downloadPublicMedia(await reelVideoUrl({ providers, redis }, shortcode), path, signal).catch(async () => {
         // A cached CDN link can be revoked before its stated expiry; fetch a fresh one once.
         await redis?.del(`success-reel-video:${shortcode}`).catch(() => {})
         await downloadPublicMedia(await reelVideoUrl({ providers, redis }, shortcode), path, signal)
@@ -241,9 +254,17 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
     const analysis = validateReelAnalysis(raw, media.korean)
     if (!analysis) fail('REEL_ANALYSIS_INVALID', '분석 결과를 정리하지 못했습니다. 다시 시도해주세요.', 422)
     const cover = await reelCoverAnalysis({ db }, reel, analysis.overview.topic)
-    await query(db.from('creator_success_reels').update({ analysis_status: 'ready', analysis_error: null, analysis_updated_at: new Date().toISOString(),
+    const patch = { analysis_status: 'ready', analysis_error: null, analysis_updated_at: new Date().toISOString(),
       analysis: { ...analysis, cover, transcript: { original: media.original, korean: media.korean, language: media.language, source: media.source },
-        durationSeconds: Math.round(media.duration), analyzedAt: new Date().toISOString() } }).eq('shortcode', shortcode))
+        durationSeconds: Math.round(media.duration), analyzedAt: new Date().toISOString() } }
+    if (String(reel.source || '').startsWith('upload')) {
+      if (!reel.category && SUCCESS_REEL_CATEGORIES.includes(raw.category)) patch.category = raw.category
+      if (['domestic', 'overseas'].includes(raw.region)) patch.region = raw.region
+      // A public link that meets the archive rules joins 성공 릴스 for everyone.
+      if (reel.source === 'upload-link' && !reel.visible && reel.thumbnail_path && reel.views >= SUCCESS_REEL_MIN_VIEWS
+        && Date.parse(reel.posted_at) >= Date.now() - SUCCESS_REEL_MAX_AGE_DAYS * 86400000) patch.visible = true
+    }
+    await query(db.from('creator_success_reels').update(patch).eq('shortcode', shortcode))
   } catch (error) {
     await query(db.from('creator_success_reels').update({ analysis_status: 'failed', analysis_error: message(error), analysis_updated_at: new Date().toISOString() })
       .eq('shortcode', shortcode)).catch(() => {})
@@ -251,8 +272,8 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
 }
 
 export async function requestReelAnalysis(deps, shortcode, now = Date.now(), userId = null) {
-  const row = await query(deps.db.from('creator_success_reels').select('shortcode,visible,analysis_status,analysis_updated_at').eq('shortcode', shortcode).maybeSingle())
-  if (!row?.visible) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+  const row = await query(deps.db.from('creator_success_reels').select('shortcode,visible,analysis_status,analysis_updated_at,owner_user_id').eq('shortcode', shortcode).maybeSingle())
+  if (!row || !(row.visible || (userId && row.owner_user_id === userId))) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
   if (userId) await query(deps.db.from('creator_reel_user_analyses').upsert({ user_id: userId, shortcode, created_at: new Date(now).toISOString() }))
   if (row.analysis_status === 'ready') return { status: 'ready' }
   const fresh = row.analysis_status === 'running' && Date.parse(row.analysis_updated_at) > now - STALE_MS
@@ -317,14 +338,16 @@ export async function requestReelPlan(deps, userId, shortcode, briefValue, now =
 }
 
 export async function reelDetail(db, userId, shortcode) {
-  const reel = await query(db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,visible,analysis,analysis_status,analysis_error')
+  const reel = await query(db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,visible,analysis,analysis_status,analysis_error,source,title,source_text,owner_user_id')
     .eq('shortcode', shortcode).maybeSingle())
-  if (!reel?.visible) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+  if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
   const [saved, plans] = await Promise.all([
     query(db.from('creator_reel_saves').select('shortcode').eq('user_id', userId).eq('shortcode', shortcode).maybeSingle()),
     query(db.from('creator_reel_plans').select('id,brief,status,plan,error,created_at').eq('user_id', userId).eq('shortcode', shortcode).order('created_at', { ascending: false }).range(0, 9)),
   ])
-  return { shortcode, permalink: `https://www.instagram.com/reel/${shortcode}/`, username: reel.username, views: reel.views, likes: reel.likes,
+  const upload = String(reel.source || '').startsWith('upload') ? reel.source : null
+  return { shortcode, permalink: upload && upload !== 'upload-link' ? null : `https://www.instagram.com/reel/${shortcode}/`, username: reel.username, views: reel.views, likes: reel.likes,
+    source: reel.source, title: reel.title, sourceText: upload === 'upload-text' ? reel.source_text : null, mine: reel.owner_user_id === userId,
     comments: reel.comments, postedAt: reel.posted_at, caption: reel.caption, captionKo: reel.caption_ko, language: reel.language, region: reel.region,
     audio: reel.audio, category: reel.category, faceVisibility: reel.face_visibility, saved: Boolean(saved),
     thumbnailUrl: reel.thumbnail_path ? (await query(db.storage.from('creator-reel-thumbnails').createSignedUrl(reel.thumbnail_path, 3600)))?.signedUrl || null : null,
