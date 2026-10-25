@@ -9,6 +9,8 @@ export const SUCCESS_REEL_MIN_VIEWS = 500000
 export const SUCCESS_REEL_MAX_AGE_DAYS = 90
 export const SUCCESS_REEL_REVIEW_VERSION = 1
 export const SUCCESS_REEL_REVIEW_DAYS = 30
+// Accounts this large are celebrities or media, never reproducible ordinary creators.
+export const SUCCESS_REEL_MAX_FOLLOWERS = 5000000
 export const THUMBNAIL_BUCKET = 'creator-reel-thumbnails'
 const DAY = 86400000
 // Instagram media ids embed the upload time: (id >> 23) ms after this epoch.
@@ -91,6 +93,7 @@ export const successReelReviewSchema = { type: 'object', additionalProperties: f
 
 // Same exclusion policy as the account recommendations; undecidable accounts never pass.
 export function reviewDecision(review, profile) {
+  if (profile.followers >= SUCCESS_REEL_MAX_FOLLOWERS) return { eligible: false, reason: '초대형 계정(유명인)' }
   if (obviousNonReferenceAccount({ full_name: profile.fullName, biography: profile.biography, category_name: profile.categoryName }, profile.username)) return { eligible: false, reason: '브랜드·미디어·유명인 신호' }
   if (review?.accountType !== 'individual_creator') return { eligible: false, reason: '개인 크리에이터 아님' }
   if (review.ordinaryCreator !== true) return { eligible: false, reason: review.ordinaryCreator === false ? '연예인·소속사 등 제외 대상' : '일반인 여부 판단 불가' }
@@ -111,6 +114,12 @@ export async function ingestAccount(deps, body) {
   await query(db.from('creator_reel_accounts').upsert({ username: input.username, profile: { ...input.profile, recentReels: input.reels.slice(0, 24) },
     last_seen_at: new Date(now).toISOString() }, { onConflict: 'username', ignoreDuplicates: false }))
   if (!qualified.length) return { username: input.username, qualified: 0, saved: 0, eligible: existing?.eligible ?? null }
+  // Celebrity-size accounts are rejected before any AI review or thumbnail download.
+  const early = reviewDecision({}, input.profile)
+  if (early.reason === '초대형 계정(유명인)') {
+    await query(db.from('creator_reel_accounts').update({ eligible: false, reject_reason: early.reason }).eq('username', input.username))
+    return { username: input.username, qualified: qualified.length, saved: 0, eligible: false, reason: early.reason }
+  }
 
   // Thumbnails expire within hours, so they are read immediately and reused as review images.
   const images = new Map()

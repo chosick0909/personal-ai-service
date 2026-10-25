@@ -171,3 +171,15 @@ test('search matches caption, translation, account and audio, and strips filter 
   assert.deepEqual(await codes('pump'), ['B2bbbb'])
   assert.deepEqual((await codes('')).sort(), ['A1aaaa', 'B2bbbb'])
 })
+
+test('celebrity-size accounts are rejected before AI review', async () => {
+  const db = fakeDb()
+  let calls = 0
+  const providers = { json: async () => { calls += 1; return {} } }
+  const result = await ingestAccount({ db, providers, readImage: async () => 'data:image/jpeg;base64,AA==', now: NOW },
+    body([reel('Dd8xyurzlmx', 29695484)], { username: 'kendalljenner', followers: 277683563 }))
+  assert.deepEqual(result, { username: 'kendalljenner', qualified: 1, saved: 0, eligible: false, reason: '초대형 계정(유명인)' })
+  assert.equal(calls, 0)
+  assert.equal(db.tables.creator_success_reels.size, 0)
+  assert.equal(db.tables.creator_reel_accounts.get('kendalljenner').eligible, false)
+})

@@ -299,7 +299,8 @@ async function collect(dry, dryKeywords) {
           followers: num(profile.follower_count) ?? num(profile.edge_followed_by?.count), externalUrl: profile.external_url || null,
           isPrivate: profile.is_private === true, isVerified: profile.is_verified === true, categoryName: profile.category_name || '' }
         if (dry) {
-          await log(`@${username} (팔로워 ${account.followers ?? '?'}): 릴스 ${reels.length}개 중 50만+·3개월 ${hits.length}개, 추천 계정 ${suggested.size}개`)
+          const huge = account.followers >= 5000000 ? ' ← 초대형 계정, 실제 수집 때 제외' : ''
+          await log(`@${username} (팔로워 ${account.followers ?? '?'}): 릴스 ${reels.length}개 중 50만+·3개월 ${hits.length}개, 추천 계정 ${suggested.size}개${huge}`)
           for (const hit of hits) await log(`   ${hit.shortcode} 조회 ${hit.views} 좋아요 ${hit.likes} 댓글 ${hit.comments} 날짜 ${postedAt(hit.shortcode).toISOString().slice(0, 10)} 썸네일 ${hit.thumbnailUrl ? '있음' : '없음'} 음원 ${hit.audio || '-'}`)
         } else {
           const result = await api(config, 'POST', '/success-reels/accounts', { account, reels, source })
@@ -335,4 +336,4 @@ const [command, ...args] = process.argv.slice(2)
 if (command === 'login') await login()
 else if (command === 'probe') await probe(args[0] || '피부관리', args[1] || 'ojirapper_')
 else if (command === 'collect') await collect(args[0] === '--dry', args.slice(1))
-else console.log('사용법: node collector.mjs login | probe [키워드] [계정] | collect [--dry 키워드...]')
+else console.log('사용법: node collector.mjs login | probe [키워드] [계정] | collect [--dry 키워드...]  (--dry는 서버 심사 없이 숫자만 확인)')
