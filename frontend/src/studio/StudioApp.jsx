@@ -32,6 +32,24 @@ function readRoute() {
   return { page: q.get('p') || 'reels', params: Object.fromEntries([...q.entries()].filter(([k]) => k !== 'p')) }
 }
 
+// While an analysis runs, the toast keeps talking so the wait does not feel stuck: the tip changes with the time elapsed.
+const WAIT_TIPS = [
+  [12, '기다리는 동안 다른 릴스도 둘러보세요. 끝나면 여기서 알려드릴게요.'],
+  [40, '영상의 말과 자막을 읽는 중이에요. 조금만 더요.'],
+  [80, '첫 문장·전개·촬영·캡션을 정리하는 중. 거의 다 됐어요.'],
+  [140, '오래 걸리네요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드려요.'],
+]
+function WaitingBody({ body, startedAt }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const base = startedAt || Date.now()
+    const timer = setInterval(() => setElapsed(Math.round((Date.now() - base) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [startedAt])
+  const tip = [...WAIT_TIPS].reverse().find(([at]) => elapsed >= at)?.[1]
+  return <>{body}{tip && <em className="st-toast-tip">{tip}</em>}</>
+}
+
 export default function StudioApp() {
   const { currentUser } = useAppState()
   const [route, setRoute] = useState(readRoute)
@@ -74,7 +92,7 @@ export default function StudioApp() {
   const analyze = useCallback(async (reel, { started = false } = {}) => {
     const code = reel.shortcode
     setTracking(t => ({ ...t, [code]: { reel, status: 'running' } }))
-    toast({ id: `an:${code}`, kind: 'running', title: '분석 중…', body: `@${reel.username} · 1~2분 걸려요`, ttl: 0 })
+    toast({ id: `an:${code}`, kind: 'running', title: '분석 중…', body: `@${reel.username} · 보통 1~2분 걸려요`, startedAt: Date.now(), ttl: 0 })
     if (started) return
     try {
       const result = await studio.analyze(code)
@@ -147,7 +165,7 @@ export default function StudioApp() {
       {route.page !== 'plan' && route.page !== 'new' && <button type="button" className="st-fab" onClick={() => go('new')}><Sparkles size={22} />내 기획안 만들기</button>}
       <div className="st-toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`st-toast st-toast-${t.kind}`}>
         {t.kind === 'running' ? <LoaderCircle size={20} className="st-spin" /> : t.kind === 'ready' ? <CheckCircle2 size={20} /> : <TriangleAlert size={20} />}
-        <div><strong>{t.title}</strong><span>{t.body}</span></div>
+        <div><strong>{t.title}</strong><span>{t.kind === 'running' ? <WaitingBody body={t.body} startedAt={t.startedAt} /> : t.body}</span></div>
         {t.action && <button type="button" className="st-btn st-btn-sm st-btn-primary" onClick={() => { dismiss(t.id); t.action.onClick() }}>{t.action.label}</button>}
         <button type="button" className="st-icon-btn" style={{ width: 36, height: 36, border: 0 }} aria-label="닫기" onClick={() => dismiss(t.id)}><X size={16} /></button>
       </div>)}</div>

@@ -2,6 +2,7 @@ import { fail } from './domain.js'
 import { query } from './store.js'
 import { SUCCESS_REEL_CATEGORIES } from './categories.js'
 import { obviousNonReferenceAccount } from './reference-quality.js'
+import { playbackUrl } from './reference-playback.js'
 
 // Success reels: public Instagram reels with 500k+ views uploaded in the last 3 months,
 // from individual creators whose production is reproducible at home. Domestic and overseas.
@@ -48,7 +49,7 @@ export function normalizeIngest(body, now = Date.now()) {
     seen.add(reel.shortcode)
     return [{ shortcode: reel.shortcode, views, likes: count(reel.likes), comments: count(reel.comments),
       postedAt: postedAt.toISOString(), caption: text(reel.caption, 2000), audio: text(reel.audio, 200) || null,
-      thumbnailUrl: cdnUrl(reel.thumbnailUrl) }]
+      thumbnailUrl: cdnUrl(reel.thumbnailUrl), videoUrl: playbackUrl(reel.videoUrl) }]
   })
   return {
     username,
@@ -168,10 +169,50 @@ export async function ingestAccount(deps, body) {
       // The reels tab never carries captions; a caption read from the reel page earlier must survive revisits.
       caption: reel.caption || current?.caption || '', caption_ko: judged?.captionKo?.trim() || null, language: review.language, region: review.region === 'unknown' ? null : review.region,
       audio: reel.audio, category: SUCCESS_REEL_CATEGORIES.includes(judged?.category) ? judged.category : review.category, face_visibility: judged?.faceVisibility || 'unknown', thumbnail_path: thumbnailPath,
-      source: input.source, visible: Boolean(kept) || (decision.eligible && Boolean(thumbnailPath)), last_collected_at: new Date(now).toISOString() }, { onConflict: 'shortcode' }))
+      source: input.source, visible: Boolean(kept) || (decision.eligible && Boolean(thumbnailPath)), last_collected_at: new Date(now).toISOString(),
+      ...(reel.caption ? { category_checked_at: new Date(now).toISOString() } : {}) }, { onConflict: 'shortcode' }))
+    if (reel.videoUrl) await cacheVideoUrl(deps.redis, reel.shortcode, reel.videoUrl, now)
     saved += 1
   }
   return { username: input.username, qualified: qualified.length, saved, eligible: decision.eligible, reason: decision.reason }
+}
+
+// A CDN video link the collector read is kept until shortly before its own expiry (capped), so hover previews and
+// analysis downloads skip the extractor and Bright Data entirely.
+export const VIDEO_CACHE_MAX_SECONDS = 5 * 86400
+export async function cacheVideoUrl(redis, shortcode, url, now = Date.now()) {
+  const link = playbackUrl(url)
+  if (!redis || !link) return false
+  const expires = parseInt(new URL(link).searchParams.get('oe') || '', 16) * 1000
+  const ttl = Math.floor(Math.min(Number.isFinite(expires) ? expires - now - 3600000 : 3600000, VIDEO_CACHE_MAX_SECONDS * 1000) / 1000)
+  if (ttl <= 60) return false
+  await redis.set(`success-reel-video:${shortcode}`, link, 'EX', ttl).catch(() => {})
+  return true
+}
+
+// Per-reel category from the caption. The account review guessed from the profile while captions were still empty.
+export const reelCategoryPrompt = `각 릴스의 캡션(과 계정명)을 보고 그 릴스 한 편의 주제 분야를 고르세요. 계정 전체가 아니라 그 영상의 내용입니다.
+분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그. 맞는 분야가 없으면 기타.`
+export const reelCategorySchema = { type: 'object', additionalProperties: false, required: ['reels'], properties: {
+  reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category'], properties: {
+    shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES } } } } } }
+export async function classifyReelCategories(db, providers, rows, now = Date.now()) {
+  const input = rows.filter(r => text(r.caption, 1).trim()).map(r => ({ shortcode: r.shortcode, username: r.username, caption: text(r.caption, 700) }))
+  if (!input.length) return 0
+  const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: input }, [], reelCategorySchema)
+  let changed = 0
+  for (const row of input) {
+    const category = judged?.reels?.find(j => j.shortcode === row.shortcode)?.category
+    const patch = { category_checked_at: new Date(now).toISOString() }
+    if (SUCCESS_REEL_CATEGORIES.includes(category)) { patch.category = category; changed += 1 }
+    await query(db.from('creator_success_reels').update(patch).eq('shortcode', row.shortcode))
+  }
+  return changed
+}
+// Listed reels whose category was set before their caption was known, most watched first.
+export async function reelsNeedingCategory(db, limit = 30) {
+  const rows = await query(db.from('creator_success_reels').select('shortcode,username,caption,source').eq('visible', true).neq('caption', '').is('category_checked_at', null).order('views', { ascending: false }).limit(limit * 2))
+  return rows.filter(row => !String(row.source || '').startsWith('upload-')).slice(0, limit)
 }
 
 // Captions read from reel pages, for rows the reels tab left empty. Only filled captions are stored.
@@ -179,29 +220,41 @@ export function normalizeCaptions(body) {
   if (!Array.isArray(body?.captions) || body.captions.length > 200) fail('INVALID_CAPTIONS', '캡션 목록을 확인해주세요.')
   const seen = new Set()
   return body.captions.flatMap(item => {
-    const caption = text(item?.caption, 2000).trim()
-    if (!shortcodePostedAt(item?.shortcode) || !caption || seen.has(item.shortcode)) return []
+    const caption = text(item?.caption, 2000).trim(), videoUrl = playbackUrl(item?.videoUrl)
+    if (!shortcodePostedAt(item?.shortcode) || (!caption && !videoUrl) || seen.has(item.shortcode)) return []
     seen.add(item.shortcode)
-    return [{ shortcode: item.shortcode, caption }]
+    return [{ shortcode: item.shortcode, caption, videoUrl }]
   })
 }
 // An analysis made while the caption was still empty described a captionless reel; it is redone once the caption lands.
-export async function storeReelCaptions(db, body) {
+export async function storeReelCaptions(db, body, redis = null) {
   const captions = normalizeCaptions(body)
-  const reanalyze = []
-  for (const { shortcode, caption } of captions) {
-    const row = await query(db.from('creator_success_reels').select('caption,analysis_status').eq('shortcode', shortcode).maybeSingle())
+  const reanalyze = [], filled = []
+  let saved = 0
+  for (const { shortcode, caption, videoUrl } of captions) {
+    const row = await query(db.from('creator_success_reels').select('shortcode,username,caption,analysis_status').eq('shortcode', shortcode).maybeSingle())
     if (!row) continue
+    saved += 1
+    if (videoUrl) await cacheVideoUrl(redis, shortcode, videoUrl)
+    if (!caption || row.caption) continue
     const patch = { caption }
-    if (!row.caption && row.analysis_status === 'ready') { patch.analysis_status = 'none'; reanalyze.push(shortcode) }
+    if (row.analysis_status === 'ready') { patch.analysis_status = 'none'; reanalyze.push(shortcode) }
     await query(db.from('creator_success_reels').update(patch).eq('shortcode', shortcode))
+    filled.push({ shortcode, username: row.username, caption })
   }
-  return { saved: captions.length, reanalyze }
+  return { saved, reanalyze, filled }
 }
 // Listed reels still missing a caption, most watched first, for the collector to read from their pages.
-export async function reelsMissingCaptions(db, limit = 40) {
-  const rows = await query(db.from('creator_success_reels').select('shortcode,source,caption').eq('visible', true).eq('caption', '').order('views', { ascending: false }).limit(limit * 2))
-  return rows.filter(row => !String(row.source || '').startsWith('upload-')).map(row => row.shortcode).slice(0, limit)
+export async function reelsMissingCaptions(db, limit = 40, redis = null) {
+  const rows = (await query(db.from('creator_success_reels').select('shortcode,source,caption').eq('visible', true).order('views', { ascending: false }).limit(400)))
+    .filter(row => !String(row.source || '').startsWith('upload-'))
+  const out = []
+  for (const row of rows) {
+    if (out.length >= limit) break
+    const cached = row.caption && redis ? await redis.exists(`success-reel-video:${row.shortcode}`).catch(() => 1) : 0
+    if (!row.caption || !cached) out.push(row.shortcode)
+  }
+  return out
 }
 
 const LIST_SORTS = { latest: 'posted_at', views: 'views', popular: 'analysis_requests' }

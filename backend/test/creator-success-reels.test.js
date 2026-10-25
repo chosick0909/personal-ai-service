@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema, searchTerm, normalizeCaptions, storeReelCaptions } from '../src/creator-tools/success-reels.js'
+import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema, searchTerm, normalizeCaptions, storeReelCaptions, classifyReelCategories, cacheVideoUrl } from '../src/creator-tools/success-reels.js'
 import { ingestTokenValid, successReelsEnabled } from '../src/creator-tools/success-reels-routes.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from '../src/creator-tools/success-reels-keywords.js'
 import { CREATOR_CATEGORIES, SUCCESS_REEL_CATEGORIES } from '../src/creator-tools/categories.js'
@@ -258,15 +258,44 @@ test('captions read from reel pages are stored, and a revisit without one keeps 
   await ingestAccount(deps, body([reel('Dd8xyurzlmx', 1220000, { caption: '' })]))
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '')
   assert.deepEqual(normalizeCaptions({ captions: [{ shortcode: 'Dd8xyurzlmx', caption: ' 택배비 4,500원만 내세요 ' }, { shortcode: 'Dd8xyurzlmx', caption: 'dup' }, { shortcode: 'bad!', caption: 'x' }, { shortcode: 'DcdnugUTjcE', caption: '' }] }),
-    [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }])
+    [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요', videoUrl: null }])
   assert.throws(() => normalizeCaptions({ captions: 'no' }), /캡션 목록/)
   db.tables.creator_success_reels.get('Dd8xyurzlmx').analysis_status = 'ready'
-  assert.deepEqual(await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }, { shortcode: 'DcdnugUTjcE', caption: '없는 릴스' }] }), { saved: 2, reanalyze: ['Dd8xyurzlmx'] })
+  const stored = await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }, { shortcode: 'DcdnugUTjcE', caption: '없는 릴스' }] })
+  assert.equal(stored.saved, 1, 'unknown shortcodes are ignored'); assert.deepEqual(stored.reanalyze, ['Dd8xyurzlmx']); assert.deepEqual(stored.filled.map(f => f.shortcode), ['Dd8xyurzlmx'])
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '택배비 4,500원만 내세요')
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').analysis_status, 'none', 'an analysis made without the caption is redone')
-  assert.deepEqual(await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }] }), { saved: 1, reanalyze: [] })
+  assert.deepEqual(await storeReelCaptions(db, { captions: [{ shortcode: 'Dd8xyurzlmx', caption: '택배비 4,500원만 내세요' }] }), { saved: 1, reanalyze: [], filled: [] })
   await ingestAccount({ ...deps, now: NOW + 86400000 }, body([reel('Dd8xyurzlmx', 1300000, { caption: '' })]))
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '택배비 4,500원만 내세요', 'the reels tab never carries captions')
   await ingestAccount({ ...deps, now: NOW + 2 * 86400000 }, body([reel('Dd8xyurzlmx', 1300000, { caption: '새 캡션' })]))
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').caption, '새 캡션')
+})
+
+test('captions can carry the reel video link, which is cached until shortly before it expires', async () => {
+  const store = new Map(), sets = []
+  const redis = { set: async (k, v, _ex, ttl) => { store.set(k, v); sets.push(ttl) }, exists: async k => store.has(k) ? 1 : 0 }
+  const now = Date.parse('2026-10-25T00:00:00Z')
+  const oe = Math.floor(now / 1000 + 30 * 86400).toString(16).toUpperCase()
+  const cdn = `https://scontent.cdninstagram.com/v/reel.mp4?oe=${oe}`
+  assert.equal(await cacheVideoUrl(redis, 'Dd8xyurzlmx', cdn, now), true)
+  assert.equal(store.get('success-reel-video:Dd8xyurzlmx'), cdn); assert.equal(sets[0], 5 * 86400, 'capped at five days')
+  assert.equal(await cacheVideoUrl(redis, 'Dd8xyurzlmx', 'https://evil.example/a.mp4', now), false)
+  assert.deepEqual(normalizeCaptions({ captions: [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn }] }), [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn }])
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('DcdnugUTjcE', { shortcode: 'DcdnugUTjcE', username: 'u', caption: '', analysis_status: 'none' })
+  const result = await storeReelCaptions(db, { captions: [{ shortcode: 'DcdnugUTjcE', caption: '욕실 청소', videoUrl: cdn }] }, redis)
+  assert.deepEqual(result, { saved: 1, reanalyze: [], filled: [{ shortcode: 'DcdnugUTjcE', username: 'u', caption: '욕실 청소' }] })
+  assert.equal(store.get('success-reel-video:DcdnugUTjcE'), cdn)
+})
+
+test('reel categories are re-read from captions and marked as checked', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('A', { shortcode: 'A', username: 'liv', caption: '하수구에 한 알 넣어두면 한달 내내 깨끗', category: '부업', visible: true })
+  db.tables.creator_success_reels.set('B', { shortcode: 'B', username: 'x', caption: '', category: '일상', visible: true })
+  const providers = { json: async (op, _p, input) => { assert.equal(op, 'success-reel-category'); assert.deepEqual(input.reels.map(r => r.shortcode), ['A']); return { reels: [{ shortcode: 'A', category: '살림' }] } } }
+  assert.equal(await classifyReelCategories(db, providers, [...db.tables.creator_success_reels.values()], NOW), 1)
+  assert.equal(db.tables.creator_success_reels.get('A').category, '살림')
+  assert.ok(db.tables.creator_success_reels.get('A').category_checked_at)
+  assert.equal(db.tables.creator_success_reels.get('B').category_checked_at, undefined, 'no caption, nothing to judge')
 })

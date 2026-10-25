@@ -7,7 +7,7 @@ import { database, query, signedDownload } from './store.js'
 import { redisConnection } from './queue.js'
 import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
-import { ingestAccount, listSuccessReels, reelsMissingCaptions, storeReelCaptions } from './success-reels.js'
+import { ingestAccount, listSuccessReels, reelsMissingCaptions, storeReelCaptions, classifyReelCategories, reelsNeedingCategory } from './success-reels.js'
 import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
 
@@ -65,11 +65,18 @@ export function createReelIngestRouter() {
     const boosted = pending.length ? visitCap : short.length ? Math.min(400, Math.max(maxAccounts, 80 + 20 * short.length)) : maxAccounts
     res.json({ day, keywords, maxAccounts: boosted, skipAccounts: [...recentNames], recheckAccounts, catalogPending: pending.length,
       continue: pending.length > 0 || short.length > 0, target, short: short.map(category => ({ category, count: counts[category] })),
-      missingCaptions: await reelsMissingCaptions(db) })
+      missingCaptions: await reelsMissingCaptions(db, 40, sharedRedis()) })
+    // Reels listed before their caption was known get their category checked, a batch per run.
+    const unchecked = await reelsNeedingCategory(db).catch(() => [])
+    if (unchecked.length) {
+      const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(120000) })
+      classifyReelCategories(db, providers, unchecked).catch(error => console.error('[success-reel-category]', error?.code || 'FAILED'))
+    }
   }))
   router.post('/success-reels/captions', asyncHandler(async (req, res) => {
-    const result = await storeReelCaptions(database(), req.body)
+    const result = await storeReelCaptions(database(), req.body, sharedRedis())
     const deps = { db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) }
+    if (result.filled.length) await classifyReelCategories(database(), deps.makeProviders(AbortSignal.timeout(120000)), result.filled).catch(() => {})
     for (const shortcode of result.reanalyze) await requestReelAnalysis(deps, shortcode).catch(() => {})
     res.json({ saved: result.saved, reanalyzed: result.reanalyze.length })
   }))
@@ -89,7 +96,7 @@ export function createReelIngestRouter() {
     res.on('close', () => { if (!res.writableEnded) controller.abort() })
     const db = database()
     const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: controller.signal })
-    const result = await ingestAccount({ db, providers, readImage: url => readPublicImage(url, controller.signal) }, req.body)
+    const result = await ingestAccount({ db, providers, redis: sharedRedis(), readImage: url => readPublicImage(url, controller.signal) }, req.body)
     res.json(result)
   }))
   return router

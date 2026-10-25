@@ -322,6 +322,7 @@
 .st-toast strong { display:block; font-size:15px; }
 .st-toast span { font-size:14px; color:var(--st-muted); }
 .st-toast svg { flex:none; color:var(--st-accent); }
+.st-toast-tip { display:block; margin-top:4px; font-style:normal; color:var(--st-accent-text); font-weight:600; }
 .st-toast-ready svg { color:var(--st-success); }
 .st-toast-failed svg { color:var(--st-danger); }
 .st-spin { animation:st-spin 1s linear infinite; }

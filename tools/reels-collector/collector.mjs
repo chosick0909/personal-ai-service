@@ -178,6 +178,8 @@ function collectMedia(value, media, depth = 0) {
       caption: (typeof value.caption?.text === 'string' ? value.caption.text : previous.caption) || '',
       audio: (music ? `${music.display_artist || ''} · ${music.title || ''}`.replace(/^ · | · $/g, '') : sound?.original_audio_title) || previous.audio || null,
       thumbnailUrl: thumb?.url || previous.thumbnailUrl || null,
+      // The reel page lists playable CDN files; the largest one serves the hover preview and the analysis download.
+      videoUrl: [...(Array.isArray(value.video_versions) ? value.video_versions : [])].sort((a, b) => (b.width || 0) - (a.width || 0)).find(v => typeof v.url === 'string')?.url || previous.videoUrl || null,
       clip: value.product_type === 'clips' || value.media_type === 2 || previous.clip || false,
     })
   }
@@ -258,10 +260,11 @@ async function collect(dry, dryKeywords) {
     return !dates.length || Math.min(...dates) >= cutoff.getTime()
   }
   // The reels tab lists play counts without captions; the reel's own page carries the caption.
-  const readCaption = async code => {
+  const readReel = async code => {
     const media = new Map()
     for (const body of await visit(`https://www.instagram.com/reel/${code}/`, 0)) collectMedia(body, media)
-    return media.get(code)?.caption || ''
+    const item = media.get(code)
+    return { caption: item?.caption || '', videoUrl: item?.videoUrl || null }
   }
   const queue = dry ? [] : await loadQueue()
   const queued = new Set(queue.map(row => row.username))
@@ -274,12 +277,12 @@ async function collect(dry, dryKeywords) {
     if (missing.length) {
       const captions = []
       for (const code of missing) {
-        try { const caption = await readCaption(code); if (caption) captions.push({ shortcode: code, caption }) } catch (error) { if (error.blocked) throw error }
+        try { const { caption, videoUrl } = await readReel(code); if (caption || videoUrl) captions.push({ shortcode: code, caption, videoUrl }) } catch (error) { if (error.blocked) throw error }
         await pause(5000, 9000)
       }
       const result = captions.length ? await api(config, 'POST', '/success-reels/captions', { captions }) : { saved: 0 }
       stats.captions = result.saved || 0
-      await log(`캡션 보충: ${missing.length}개 확인, ${stats.captions}개 저장`)
+      await log(`캡션·영상 주소 보충: ${missing.length}개 확인, ${stats.captions}개 저장`)
     }
     // 1) Keyword searches find candidate accounts; views are verified on each reels tab.
     // Order: weekly revisits of approved accounts, then queued suggestions, then keyword finds.
@@ -314,11 +317,11 @@ async function collect(dry, dryKeywords) {
         for (const body of captured) { collectMedia(body, media); profile ||= findProfile(body, username) }
         if (!profile || profile.is_private) { await log(`@${username}: 프로필 없음 또는 비공개, 건너뜀`); continue }
         const reels = [...media.values()].filter(item => (!item.owner || item.owner.toLowerCase() === username) && item.clip && item.views)
-          .slice(0, 120).map(({ code, views, likes, comments, caption, audio, thumbnailUrl }) => ({ shortcode: code, views, likes, comments, caption, audio, thumbnailUrl }))
+          .slice(0, 120).map(({ code, views, likes, comments, caption, audio, thumbnailUrl, videoUrl }) => ({ shortcode: code, views, likes, comments, caption, audio, thumbnailUrl, videoUrl }))
         const hits = reels.filter(r => r.views >= MIN_VIEWS && postedAt(r.shortcode) >= new Date(Date.now() - MAX_AGE_DAYS * 86400000))
         for (const hit of hits) {
-          if (hit.caption) continue
-          try { hit.caption = await readCaption(hit.shortcode) } catch (error) { if (error.blocked) throw error }
+          if (hit.caption && hit.videoUrl) continue
+          try { const read = await readReel(hit.shortcode); hit.caption = hit.caption || read.caption; hit.videoUrl = hit.videoUrl || read.videoUrl } catch (error) { if (error.blocked) throw error }
           await pause(4000, 7000)
         }
         stats.accounts += 1
