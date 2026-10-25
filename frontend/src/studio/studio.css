@@ -251,7 +251,9 @@
 /* ----- detail ----- */
 .st-detail { display:grid; grid-template-columns:minmax(260px,340px) minmax(0,1fr); gap:28px; align-items:start; }
 /* The player follows the reader down the analysis; the main stack scrolls past it. */
-.st-detail > aside { position:sticky; top:84px; max-height:calc(100vh - 100px); overflow:auto; }
+.st-detail > aside { position:sticky; top:84px; }
+/* The player shrinks to leave room for the account row and counts below it, so nothing overlaps on short screens. */
+.st-detail > aside .st-video { height:min(calc(100vh - 260px), 604px); width:auto; max-width:100%; margin:0 auto; }
 .st-video { position:relative; aspect-ratio:9/16; overflow:hidden; border-radius:16px; background:#000; }
 .st-video video, .st-video img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 .st-video video { object-fit:contain; }
@@ -368,7 +370,7 @@
   .st-top { padding:0 16px; min-height:60px; } .st-top .st-sub { display:none; } .st-top h1 { font-size:19px; }
   .st-content { padding:18px 16px 140px; }
   .st-options-scripts { grid-template-columns:1fr; }
-  .st-detail { grid-template-columns:1fr; } .st-detail > aside { position:static; max-height:none; overflow:visible; } .st-grid-2 { grid-template-columns:1fr; }
+  .st-detail { grid-template-columns:1fr; } .st-detail > aside { position:static; } .st-detail > aside .st-video { height:auto; width:100%; max-width:380px; } .st-grid-2 { grid-template-columns:1fr; }
   .st-reels { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
   .st-reel-stats { font-size:13px; gap:8px; white-space:nowrap; left:10px; bottom:10px; }
   .st-line { grid-template-columns:60px minmax(0,1fr) 36px; gap:8px; padding:10px; }

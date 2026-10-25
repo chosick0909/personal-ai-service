@@ -325,6 +325,33 @@ export function formulaFromSession(session, resolved, kind) {
   return null
 }
 
+// 내 공식 straight from a reel analysis (분석 결과 화면의 저장 버튼), same shapes as formulaFromSession.
+export function formulaFromReel(reel, kind) {
+  const a = reel?.analysis; if (!a) return null
+  const source = { shortcode: reel.shortcode, username: reel.username || null }
+  if (kind === 'hook') {
+    const h = a.hook || {}; if (!h.spokenHook && !h.formula) return null
+    return { title: `첫 문장: ${h.spokenHook || h.formula}`.slice(0, 80), spec: { type: h.category || '기타', formula: h.formula || '', spoken: h.spokenHook || '', onScreen: h.visualHook || '' }, example: h.spokenHook || '', source }
+  }
+  if (kind === 'structure') {
+    const st = a.structure || {}; if (!st.steps?.length && !st.description) return null
+    return { title: `전개: ${st.category || st.description || '레퍼런스 전개'}`.slice(0, 80), spec: { format: st.category || '', description: st.description || '', segments: (st.steps || []).map(step => [step.role || '', step.purpose || '']), totalSeconds: a.durationSeconds || 0 },
+      example: String(a.transcript?.korean || '').slice(0, 1200), source }
+  }
+  if (kind === 'filming') {
+    const f = a.filming || {}, e = a.editing || {}; if (!f.shotType && !f.location && !e.subtitleStyle) return null
+    return { title: `촬영/편집: ${f.shotType || f.location || '레퍼런스 촬영'}`.slice(0, 80), spec: { location: f.location || '', shotType: f.shotType || '', onScreen: f.onScreen || '', guide: f.guide || [],
+      subtitleStyle: e.subtitleStyle || f.textOverlay || '', cuts: e.cuts || f.editing || '', transitions: e.transitions || '', effects: e.effects || '', sound: e.sound || '', editingGuide: e.guide || [] },
+      example: [f.shotType, e.subtitleStyle || f.textOverlay].filter(Boolean).join(' / '), source }
+  }
+  if (kind === 'caption') {
+    const c = a.caption; if (!c && !reel.caption) return null
+    const firstLine = String(reel.caption || '').split('\n').find(Boolean) || ''
+    return { title: `캡션: ${firstLine || c?.firstLine || '레퍼런스 캡션'}`.slice(0, 80), spec: { firstLine: c?.firstLine || '', structure: c?.structure || '', cta: c?.cta || '', hashtags: c?.hashtags || '', analysis: c?.analysis || '' }, example: String(reel.caption || '').slice(0, 1200), source }
+  }
+  return null
+}
+
 // ---------- style ----------
 const styleSchema = obj({ card: obj({ tone: str, sentence: str, signature: arr(str), avoid: arr(str), ending: str, summary: str }) })
 export async function buildStyleCard(deps, { description, choices, samples }) {

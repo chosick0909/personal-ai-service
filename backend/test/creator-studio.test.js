@@ -1,5 +1,6 @@
 import test from 'node:test'
 import { sessionHistory } from '../src/creator-tools/studio/routes.js'
+import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
 import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk } from '../src/creator-tools/studio/engine.js'
@@ -171,4 +172,13 @@ test('switching or restoring a script keeps the replaced version in a short hist
   assert.deepEqual(remember(script, null, 'n'), [], 'nothing to keep when there is no current value')
   assert.deepEqual(currentCaption({ chosen: 0, options: [{ text: 'c', hashtags: ['a'] }] }), { text: 'c', hashtags: ['a'] })
   assert.equal(optionName(2), 'C안'); assert.equal(optionName(3), '4안')
+})
+
+test('a reel analysis saves as 내 공식 in the same shapes a plan produces', () => {
+  const reel = { shortcode: 'Aaaaa1', username: 'yaksa', caption: '안 사요 사요\n#약국', analysis }
+  const hook = formulaFromReel(reel, 'hook')
+  assert.equal(hook.spec.formula, analysis.hook.formula); assert.deepEqual(hook.source, { shortcode: 'Aaaaa1', username: 'yaksa' })
+  assert.ok(formulaFromReel(reel, 'structure').spec.segments.length >= 1)
+  assert.equal(formulaFromReel(reel, 'caption').title.startsWith('캡션: 안 사요 사요'), true)
+  assert.equal(formulaFromReel({ shortcode: 'x', analysis: null }, 'hook'), null)
 })

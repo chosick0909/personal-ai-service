@@ -12,7 +12,7 @@ import { createProviders } from '../providers.js'
 import { studio2Enabled } from './access.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage } from './persona.js'
-import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, buildStyleCard, answerAsk } from './engine.js'
+import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk } from './engine.js'
 import { THUMBNAIL_BUCKET } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
@@ -338,6 +338,13 @@ export function registerStudioRoutes(router) {
       draft = formulaFromSession(session, resolved, kind)
       if (!draft) fail('FORMULA_EMPTY', '이 단계가 아직 완성되지 않았어요.', 409)
       draft.source = { sessionId: session.id, topic: session.topic?.title || null }
+    } else if (typeof req.body?.shortcode === 'string') {
+      const code = /^[A-Za-z0-9_-]{5,40}$/.test(req.body.shortcode) ? req.body.shortcode : fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+      const reel = await query(database().from('creator_success_reels').select('shortcode,username,caption,visible,owner_user_id,analysis,analysis_status').eq('shortcode', code).maybeSingle())
+      if (!reel || !(reel.visible || reel.owner_user_id === req.auth.userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+      if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 릴스예요.', 409)
+      draft = formulaFromReel(reel, kind)
+      if (!draft) fail('FORMULA_EMPTY', '이 릴스 분석에는 저장할 내용이 없어요.', 409)
     } else if (req.body?.libraryId) {
       const entry = kind === 'hook' ? HOOK_LIBRARY.find(h => h.id === req.body.libraryId) : kind === 'structure' ? STRUCTURE_LIBRARY.find(s => s.id === req.body.libraryId) : null
       if (!entry) fail('SOURCE_NOT_FOUND', '공식 사전 항목을 찾을 수 없어요.', 404)
