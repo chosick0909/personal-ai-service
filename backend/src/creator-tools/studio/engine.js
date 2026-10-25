@@ -12,8 +12,8 @@ const obj = properties => ({ type: 'object', additionalProperties: false, requir
 const arr = items => ({ type: 'array', items })
 const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC').replace(/[ \t]+/g, ' ').trim().slice(0, max) : ''
 const list = (value, max, count) => Array.isArray(value) ? value.map(v => clean(v, max)).filter(Boolean).slice(0, count) : []
-export const SLOTS = ['hook', 'structure', 'filming', 'caption']
-const SLOT_LABELS = { hook: '첫 문장(후킹)', structure: '전개', filming: '촬영·편집', caption: '캡션' }
+export const SLOTS = ['hook', 'structure', 'filming', 'editing', 'caption']
+const SLOT_LABELS = { hook: '첫 문장(후킹)', structure: '전개', filming: '촬영', editing: '편집', caption: '캡션' }
 const PARTS = ['hook', 'body', 'cta']
 const PART_LABELS = { hook: '첫 문장', body: '본문', cta: '마무리 멘트' }
 
@@ -30,7 +30,8 @@ export async function resolveSources(db, userId, sources = {}) {
       const a = reel.analysis
       const excerpt = slot === 'hook' ? { formula: a.hook?.formula, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook, type: a.hook?.category, why: a.hook?.analysis }
         : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis }
-        : slot === 'filming' ? a.filming
+        : slot === 'filming' ? { location: a.filming?.location, shotType: a.filming?.shotType, onScreen: a.filming?.onScreen, guide: a.filming?.guide }
+        : slot === 'editing' ? (a.editing || { subtitleStyle: a.filming?.textOverlay, cuts: a.filming?.editing, transitions: '확인되지 않음', effects: '확인되지 않음', sound: '확인되지 않음', guide: [] })
         : a.caption || { firstLine: '확인되지 않음', structure: '확인되지 않음', cta: '확인되지 않음', hashtags: '확인되지 않음', analysis: '원본 캡션 분석이 없어 캡션 형식만 참고' }
       resolved[slot] = { kind: 'reel', id: reel.shortcode, label: `@${reel.username}`, category: reel.category, excerpt, topic: a.overview?.topic }
     } else if (source.kind === 'formula') {
@@ -38,7 +39,7 @@ export async function resolveSources(db, userId, sources = {}) {
       if (!row) fail('SOURCE_NOT_FOUND', '저장한 공식을 찾을 수 없어요.', 404)
       resolved[slot] = { kind: 'formula', id: row.id, label: row.title, excerpt: row.spec }
     } else if (source.kind === 'library') {
-      const entry = slot === 'hook' ? HOOK_LIBRARY.find(h => h.id === source.id) : STRUCTURE_LIBRARY.find(s => s.id === source.id)
+      const entry = slot === 'hook' ? HOOK_LIBRARY.find(h => h.id === source.id) : slot === 'structure' ? STRUCTURE_LIBRARY.find(s => s.id === source.id) : null
       if (!entry) fail('SOURCE_NOT_FOUND', '공식 사전 항목을 찾을 수 없어요.', 404)
       resolved[slot] = { kind: 'library', id: entry.id, label: entry.title, excerpt: slot === 'hook' ? { type: entry.type, formula: entry.formula, example: entry.example } : { format: entry.format, segments: entry.segments } }
     }
@@ -57,7 +58,7 @@ function sessionContext(session, resolved, extras = {}) {
     topic: session.topic ? { title: session.topic.title, angle: session.topic.angle, promise: session.topic.promise, facts: session.topic.facts, audience: session.topic.audience, category: session.topic.category } : null,
     thumbnail: chosen('thumbnail'), hook: chosen('hook'),
     script: session.script?.edited || chosen('script')?.lines || null,
-    filming: session.filming ? { storyboard: session.filming.storyboard, editing: session.filming.editing, memo: session.memo } : null,
+    filming: session.filming ? { storyboard: session.filming.storyboard, editing: session.filming.editing, editingPlan: session.filming.editingPlan, memo: session.memo } : null,
     caption: session.caption?.edited || chosen('caption'),
     placeholders: session.placeholders || [],
     voice: session.style_snapshot || null,
@@ -154,7 +155,8 @@ const stageSchemas = {
   thumbnail: obj({ questions, options: arr(obj({ text: str, why: str })), placeholders: arr(str) }),
   hook: obj({ questions, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
   script: obj({ questions, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
-  filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str, checklist: arr(str), placeholders: arr(str) }),
+  filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str,
+    editingPlan: obj({ subtitleStyle: str, cuts: str, transitions: str, effects: str, sound: str, checklist: arr(str) }), checklist: arr(str), placeholders: arr(str) }),
   caption: obj({ questions, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
 // Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
@@ -172,7 +174,8 @@ why는 눌러보고 싶게 만드는 이유 한 줄. topic.facts에 없는 수�
 - topic.facts에 없는 제품명·수치·경험은 [제품 A 이름]처럼 빈칸으로 두고 placeholders에 적습니다. 마무리 멘트는 "댓글 남겨주세요" 대신 sources의 마무리 장치나 저장·팔로우 이유를 씁니다.`,
   filming: `${ASK_RULE}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
 - sources.filming이 있으면 그 구도·화면 장치·자막 스타일·컷 템포를 적용합니다. storyboard: scene 번호, seconds, shot(구도·거리), action(화면 속 행동·보여줄 것), onScreen(자막), spoken(그 장면 대사; script에서 그대로).
-- location, props(준비물), camera(거치·각도), lighting, editing(컷 템포·전환·자막 스타일), checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로.`,
+- 촬영: location, props(준비물), camera(거치·각도), lighting, checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로. editing에는 편집 방향 한 줄.
+- 편집(editingPlan): sources.editing이 있으면 그 자막 스타일·컷 템포·전환·효과·사운드를 적용합니다. subtitleStyle(자막 글꼴 느낌·크기·위치·색·강조), cuts(컷 길이·템포), transitions(전환), effects(줌·스탬프·그래픽 등), sound(배경음·효과음·나레이션), checklist(편집할 때 확인 3~6개). 휴대폰 편집 앱으로 가능한 수준으로.`,
   caption: `${ASK_RULE}\n'캡션' 단계입니다. 인스타 캡션 3안을 만듭니다. 첫 줄은 썸네일·첫 문장의 약속을 이어받고, 본문은 대본의 핵심을 2~4줄로, 마무리는 저장·댓글을 부르는 이유 한 줄. hashtags는 # 없이 5~8개.
 sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식을 따릅니다. why는 이 캡션이 맞는 이유 한 줄. 없는 사실은 쓰지 않습니다.`,
 }
@@ -206,7 +209,9 @@ export async function generateStage(deps, session, stage) {
   if (stage === 'filming') {
     const storyboard = (Array.isArray(raw.storyboard) ? raw.storyboard : []).map((s, i) => ({ scene: i + 1, seconds: seconds(s?.seconds), shot: clean(s?.shot, 200), action: clean(s?.action, 300), onScreen: clean(s?.onScreen, 60), spoken: clean(s?.spoken, 400) })).filter(s => s.action || s.spoken).slice(0, 10)
     if (storyboard.length < 2) fail('STAGE_EMPTY', '스토리보드를 만들지 못했어요. 다시 시도해주세요.', 422)
-    return { value: { storyboard, location: clean(raw.location, 200), props: list(raw.props, 80, 10), camera: clean(raw.camera, 300), lighting: clean(raw.lighting, 200), editing: clean(raw.editing, 300), checklist: list(raw.checklist, 200, 6) }, placeholders }
+    const ep = raw.editingPlan || {}
+    return { value: { storyboard, location: clean(raw.location, 200), props: list(raw.props, 80, 10), camera: clean(raw.camera, 300), lighting: clean(raw.lighting, 200), editing: clean(raw.editing, 300), checklist: list(raw.checklist, 200, 6),
+      editingPlan: { subtitleStyle: clean(ep.subtitleStyle, 300), cuts: clean(ep.cuts, 300), transitions: clean(ep.transitions, 200), effects: clean(ep.effects, 300), sound: clean(ep.sound, 200), checklist: list(ep.checklist, 200, 6) } }, placeholders }
   }
   if (stage === 'caption') {
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ text: typeof o.text === 'string' ? o.text.normalize('NFC').trim().slice(0, 2200) : '', hashtags: list(o.hashtags, 40, 8).map(t => t.replace(/^#+/, '').replace(/\s+/g, '')), why: clean(o.why, 200) })).filter(o => o.text).slice(0, 3)
@@ -287,7 +292,11 @@ export function formulaFromSession(session, resolved, kind) {
   }
   if (kind === 'filming') {
     const f = session.filming; if (!f) return null
-    return { title: `촬영·편집: ${f.storyboard?.[0]?.shot || session.topic?.title || '내 촬영 방식'}`.slice(0, 80), spec: { shots: (f.storyboard || []).map(s => s.shot), editing: f.editing, camera: f.camera, lighting: f.lighting, onScreenStyle: (f.storyboard || []).map(s => s.onScreen).filter(Boolean).slice(0, 4) }, example: f.editing || '' }
+    return { title: `촬영: ${f.storyboard?.[0]?.shot || session.topic?.title || '내 촬영 방식'}`.slice(0, 80), spec: { shots: (f.storyboard || []).map(s => s.shot), camera: f.camera, lighting: f.lighting, location: f.location }, example: f.camera || '' }
+  }
+  if (kind === 'editing') {
+    const e = session.filming?.editingPlan; if (!e) return null
+    return { title: `편집: ${e.subtitleStyle || e.cuts || session.topic?.title || '내 편집 방식'}`.slice(0, 80), spec: { subtitleStyle: e.subtitleStyle, cuts: e.cuts, transitions: e.transitions, effects: e.effects, sound: e.sound, onScreenStyle: (session.filming.storyboard || []).map(s => s.onScreen).filter(Boolean).slice(0, 4) }, example: e.subtitleStyle || '' }
   }
   if (kind === 'caption') {
     const c = session.caption?.edited || chosen('caption'); if (!c) return null

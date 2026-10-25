@@ -5,7 +5,7 @@ import { studio, compactCount, day } from '../api'
 import { InstagramIcon } from './ReelsPage'
 
 const ROLE = { hook: '첫 문장', problem: '문제 제기', empathy: '공감', evidence: '근거', method: '방법', twist: '반전', cta: '마무리', other: '전개' }
-const TABS = [['script', '대본'], ['overview', '한눈에'], ['hook', '첫 문장'], ['structure', '전개'], ['filming', '촬영·편집'], ['caption', '캡션']]
+const TABS = [['script', '대본'], ['overview', '한눈에'], ['hook', '첫 문장'], ['structure', '전개'], ['filming', '촬영'], ['editing', '편집'], ['caption', '캡션']]
 const known = v => v && v !== '확인되지 않음'
 
 export function CopyButton({ text, label = '복사' }) {
@@ -38,6 +38,7 @@ export function AnalysisTabs({ reel, analysis, tab, setTab }) {
   if (!orig) { const squash = v => String(v || '').replace(/[\s.,!?~…"'“”‘’]/g, ''); let from = 0
     for (const step of analysis.structure?.steps || []) { const head = squash(step.quote).slice(0, 10); const at = head ? lines.findIndex((l, i) => i >= from && squash(l).includes(head)) : -1; if (at >= 0) { roles[at] = step.role; from = at + 1 } } }
   const o = analysis.overview || {}, h = analysis.hook || {}, s = analysis.structure || {}, f = analysis.filming || {}, c = analysis.caption
+  const e = analysis.editing || { subtitleStyle: f.textOverlay, cuts: f.editing, transitions: '', effects: '', sound: '', guide: [] }
   const engagement = reel.views ? ((reel.likes || 0) + (reel.comments || 0)) / reel.views * 100 : null
   return <>
     <nav className="st-tabs" aria-label="분석 보기">{TABS.map(([id, label]) => <button type="button" key={id} className="st-tab" aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</nav>
@@ -66,8 +67,13 @@ export function AnalysisTabs({ reel, analysis, tab, setTab }) {
       <section className="st-card"><h3 style={{ marginBottom: 8 }}>내 영상에 적용하기</h3><p style={{ whiteSpace: 'pre-wrap' }}>{s.analysis}</p></section>
     </div>}
     {tab === 'filming' && <div className="st-stack">
-      <section className="st-card"><KV label="촬영 장소">{f.location}</KV><KV label="구도·앵글">{f.shotType}</KV><KV label="화면에 나오는 것">{f.onScreen}</KV><KV label="자막 스타일">{f.textOverlay}</KV><KV label="편집">{f.editing}</KV></section>
+      <section className="st-card"><KV label="촬영 장소">{f.location}</KV><KV label="구도·앵글">{f.shotType}</KV><KV label="화면에 나오는 것">{f.onScreen}</KV></section>
       {f.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 찍어보세요</h3><ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>{f.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
+    </div>}
+    {tab === 'editing' && <div className="st-stack">
+      <section className="st-card"><KV label="자막 스타일">{e.subtitleStyle}</KV><KV label="컷·템포">{e.cuts}</KV><KV label="전환">{e.transitions}</KV><KV label="효과">{e.effects}</KV><KV label="사운드">{e.sound}</KV></section>
+      {e.guide?.length > 0 ? <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 편집해보세요</h3><ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>{e.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>
+        : !analysis.editing && <div className="st-note">이 릴스는 편집 분석이 추가되기 전에 분석됐어요. 자막·컷 정보만 보여요.</div>}
     </div>}
     {tab === 'caption' && <div className="st-stack">
       {c ? <section className="st-card"><KV label="첫 줄 장치">{c.firstLine}</KV><KV label="본문 구성">{c.structure}</KV><KV label="마무리 유도">{c.cta}</KV><KV label="해시태그 전략">{c.hashtags}</KV><KV label="역할">{c.analysis}</KV></section>

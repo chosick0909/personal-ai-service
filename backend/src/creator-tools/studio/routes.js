@@ -14,7 +14,7 @@ import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
 const deps = () => ({ db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) })
-const TAGS = ['hook', 'structure', 'filming', 'caption']
+const TAGS = ['hook', 'structure', 'filming', 'editing', 'caption']
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
@@ -206,7 +206,7 @@ export function registerStudioRoutes(router) {
       if (!draft) fail('FORMULA_EMPTY', '이 단계가 아직 완성되지 않았어요.', 409)
       draft.source = { sessionId: session.id, topic: session.topic?.title || null }
     } else if (req.body?.libraryId) {
-      const entry = kind === 'hook' ? HOOK_LIBRARY.find(h => h.id === req.body.libraryId) : STRUCTURE_LIBRARY.find(s => s.id === req.body.libraryId)
+      const entry = kind === 'hook' ? HOOK_LIBRARY.find(h => h.id === req.body.libraryId) : kind === 'structure' ? STRUCTURE_LIBRARY.find(s => s.id === req.body.libraryId) : null
       if (!entry) fail('SOURCE_NOT_FOUND', '공식 사전 항목을 찾을 수 없어요.', 404)
       draft = { title: entry.title, spec: kind === 'hook' ? { type: entry.type, formula: entry.formula } : { format: entry.format, segments: entry.segments }, example: entry.example || entry.summary, source: { libraryId: entry.id } }
     } else fail('SOURCE_REQUIRED', '저장할 내용이 없어요.')
