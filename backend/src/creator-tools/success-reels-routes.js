@@ -40,11 +40,16 @@ export function createReelIngestRouter() {
   }))
   router.get('/success-reels/plan', asyncHandler(async (_req, res) => {
     const day = Math.floor(Date.now() / 86400000)
-    const perDay = Math.min(12, Math.max(1, Number(process.env.CREATOR_REELS_KEYWORDS_PER_DAY) || 6))
-    const maxAccounts = Math.min(80, Math.max(1, Number(process.env.CREATOR_REELS_ACCOUNTS_PER_DAY) || 30))
-    const recent = await query(database().from('creator_reel_accounts').select('username')
-      .gt('last_seen_at', new Date(Date.now() - 7 * 86400000).toISOString()).limit(2000))
-    res.json({ day, keywords: keywordsForDay(day, perDay), maxAccounts, skipAccounts: recent.map(row => row.username) })
+    const perDay = Math.min(20, Math.max(1, Number(process.env.CREATOR_REELS_KEYWORDS_PER_DAY) || 8))
+    const maxAccounts = Math.min(150, Math.max(1, Number(process.env.CREATOR_REELS_ACCOUNTS_PER_DAY) || 40))
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString()
+    const db = database()
+    const recent = await query(db.from('creator_reel_accounts').select('username').gt('last_seen_at', weekAgo).limit(5000))
+    // Approved accounts tend to go viral again, so they are revisited weekly first.
+    const recheck = await query(db.from('creator_reel_accounts').select('username').eq('eligible', true)
+      .lte('last_seen_at', weekAgo).order('last_seen_at', { ascending: true }).limit(Math.ceil(maxAccounts / 2)))
+    res.json({ day, keywords: keywordsForDay(day, perDay), maxAccounts, skipAccounts: recent.map(row => row.username),
+      recheckAccounts: recheck.map(row => row.username) })
   }))
   router.post('/success-reels/runs', asyncHandler(async (_req, res) => {
     const row = await query(database().from('creator_reel_ingest_runs').insert({}).select('id').single())

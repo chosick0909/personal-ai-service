@@ -190,6 +190,20 @@ function findProfile(value, username, depth = 0) {
   return null
 }
 
+// Accounts Instagram suggests next to an approved creator ("비슷한 계정") are the
+// richest source of new candidates, so they are queued for the following days.
+function findSuggested(value, found = new Set(), inside = false, depth = 0) {
+  if (depth > 14 || value === null || typeof value !== 'object') return found
+  if (inside && !Array.isArray(value) && typeof value.username === 'string') found.add(value.username.toLowerCase())
+  for (const [key, child] of Object.entries(value)) findSuggested(child, found, inside || /chaining|suggested/i.test(key), depth + 1)
+  return found
+}
+const QUEUE = () => join(HOME, 'queue.json')
+async function loadQueue() {
+  try { const rows = JSON.parse(await readFile(QUEUE(), 'utf8')); return Array.isArray(rows) ? rows : [] } catch { return [] }
+}
+async function saveQueue(rows) { await writeFile(QUEUE(), JSON.stringify(rows.slice(0, 1500))) }
+
 async function loadConfig() {
   try { return JSON.parse(await readFile(join(HOME, 'config.json'), 'utf8')) } catch { return null }
 }
@@ -224,22 +238,36 @@ async function collect(dry, dryKeywords) {
     if (!/^https:\/\/www\.instagram\.com\/(api\/|graphql)/.test(response.url())) return
     try { bodies.push(...parseBodies(await response.text())) } catch { /* Body unavailable. */ }
   })
-  const visit = async (url, scrolls) => {
+  // keepScrolling() decides after each scroll whether older pages are still worth loading.
+  const visit = async (url, scrolls, keepScrolling = () => true) => {
     bodies = []
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await pause(6000, 9000)
     if (BLOCKED.test(page.url())) throw Object.assign(new Error(`인스타 확인 화면: ${page.url()}`), { blocked: true })
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
     for (const text of inline) if (/"code"/.test(text)) bodies.push(...parseBodies(text))
-    for (let i = 0; i < scrolls; i += 1) { await page.mouse.wheel(0, 2200); await pause(3000, 5000) }
+    for (let i = 0; i < scrolls && keepScrolling(bodies); i += 1) { await page.mouse.wheel(0, 2200); await pause(3000, 5000) }
     return bodies
   }
+  const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 86400000)
+  // Keep loading a reels tab until the oldest reel seen is older than 3 months.
+  const reachesCutoff = captured => {
+    const media = new Map()
+    captured.forEach(body => collectMedia(body, media))
+    const dates = [...media.keys()].map(postedAt).filter(Boolean)
+    return !dates.length || Math.min(...dates) >= cutoff.getTime()
+  }
+  const queue = dry ? [] : await loadQueue()
+  const queued = new Set(queue.map(row => row.username))
   let fatal = null
   try {
     await visit('https://www.instagram.com/', 0)
     if (!(await loggedIn(context))) throw Object.assign(new Error('수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행하세요.'), { blocked: true })
     // 1) Keyword searches find candidate accounts; views are verified on each reels tab.
+    // Order: weekly revisits of approved accounts, then queued suggestions, then keyword finds.
     const candidates = new Map()
+    for (const username of plan.recheckAccounts || []) candidates.set(username, '재방문')
+    for (const row of queue) if (!skip.has(row.username) && !candidates.has(row.username)) candidates.set(row.username, row.source)
     for (const { keyword, region } of plan.keywords) {
       const media = new Map()
       for (const body of await visit(`https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(keyword)}`, 3)) collectMedia(body, media)
@@ -254,13 +282,16 @@ async function collect(dry, dryKeywords) {
     // 2) Each account's reels tab gives play counts, likes, comments and thumbnails.
     for (const [username, source] of [...candidates].slice(0, plan.maxAccounts)) {
       try {
-        const captured = await visit(`https://www.instagram.com/${username}/reels/`, 2)
+        const captured = await visit(`https://www.instagram.com/${username}/reels/`, 8, reachesCutoff)
+        const suggested = new Set()
+        captured.forEach(body => findSuggested(body, suggested))
+        suggested.delete(username)
         const media = new Map()
         let profile = null
         for (const body of captured) { collectMedia(body, media); profile ||= findProfile(body, username) }
         if (!profile || profile.is_private) { await log(`@${username}: 프로필 없음 또는 비공개, 건너뜀`); continue }
         const reels = [...media.values()].filter(item => (!item.owner || item.owner.toLowerCase() === username) && item.clip && item.views)
-          .slice(0, 48).map(({ code, views, likes, comments, caption, audio, thumbnailUrl }) => ({ shortcode: code, views, likes, comments, caption, audio, thumbnailUrl }))
+          .slice(0, 120).map(({ code, views, likes, comments, caption, audio, thumbnailUrl }) => ({ shortcode: code, views, likes, comments, caption, audio, thumbnailUrl }))
         const hits = reels.filter(r => r.views >= MIN_VIEWS && postedAt(r.shortcode) >= new Date(Date.now() - MAX_AGE_DAYS * 86400000))
         stats.accounts += 1
         stats.qualified += hits.length
@@ -268,22 +299,24 @@ async function collect(dry, dryKeywords) {
           followers: num(profile.follower_count) ?? num(profile.edge_followed_by?.count), externalUrl: profile.external_url || null,
           isPrivate: profile.is_private === true, isVerified: profile.is_verified === true, categoryName: profile.category_name || '' }
         if (dry) {
-          await log(`@${username} (팔로워 ${account.followers ?? '?'}): 릴스 ${reels.length}개 중 50만+·3개월 ${hits.length}개`)
+          await log(`@${username} (팔로워 ${account.followers ?? '?'}): 릴스 ${reels.length}개 중 50만+·3개월 ${hits.length}개, 추천 계정 ${suggested.size}개`)
           for (const hit of hits) await log(`   ${hit.shortcode} 조회 ${hit.views} 좋아요 ${hit.likes} 댓글 ${hit.comments} 날짜 ${postedAt(hit.shortcode).toISOString().slice(0, 10)} 썸네일 ${hit.thumbnailUrl ? '있음' : '없음'} 음원 ${hit.audio || '-'}`)
-        } else if (hits.length) {
+        } else {
           const result = await api(config, 'POST', '/success-reels/accounts', { account, reels, source })
           stats.saved += result.saved || 0
-          if (result.eligible) stats.eligible += 1
-          await log(`@${username}: 50만+ ${hits.length}개, 저장 ${result.saved}, ${result.eligible ? '공개' : `비공개(${result.reason})`}`)
-        } else {
-          await api(config, 'POST', '/success-reels/accounts', { account, reels, source })
-          await log(`@${username}: 50만+ 없음`)
+          if (result.eligible) {
+            if (hits.length) stats.eligible += 1
+            for (const name of suggested) if (!skip.has(name) && !queued.has(name)) { queued.add(name); queue.push({ username: name, source: `추천 계정:@${username}` }) }
+          }
+          await log(hits.length ? `@${username}: 50만+ ${hits.length}개, 저장 ${result.saved}, ${result.eligible ? '공개' : `비공개(${result.reason})`}`
+            : `@${username}: 50만+ 없음`)
         }
       } catch (error) {
         if (error.blocked) throw error
         stats.errors += 1
         await log(`@${username}: 오류 ${error.message}`)
       }
+      queue.splice(0, queue.length, ...queue.filter(row => row.username !== username))
       await pause(20000, 40000)
     }
   } catch (error) {
@@ -291,6 +324,8 @@ async function collect(dry, dryKeywords) {
     await log(`⚠️ 수집 중단: ${error.message}`)
   }
   await context.close()
+  if (!dry) await saveQueue(queue)
+  stats.queued = queue.length
   await log(`완료: ${JSON.stringify(stats)}`)
   if (run) await api(config, 'PATCH', `/success-reels/runs/${run.id}`, { stats, error: fatal }).catch(() => {})
   if (fatal) process.exitCode = 1

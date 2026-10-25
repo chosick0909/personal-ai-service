@@ -37,7 +37,7 @@ export function normalizeIngest(body, now = Date.now()) {
   const username = typeof account?.username === 'string' ? account.username.toLowerCase() : ''
   if (!/^[a-z0-9_.]{1,30}$/.test(username)) fail('INVALID_ACCOUNT', '계정 아이디를 확인해주세요.')
   if (account.isPrivate === true) fail('PRIVATE_ACCOUNT', '비공개 계정은 수집하지 않습니다.')
-  if (!Array.isArray(body.reels) || body.reels.length > 48) fail('INVALID_REELS', '릴스 목록을 확인해주세요.')
+  if (!Array.isArray(body.reels) || body.reels.length > 120) fail('INVALID_REELS', '릴스 목록을 확인해주세요.')
   const seen = new Set()
   const reels = body.reels.flatMap(reel => {
     const postedAt = shortcodePostedAt(reel?.shortcode)
