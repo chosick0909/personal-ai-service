@@ -39,8 +39,8 @@ function SourceChip({ source }) {
 
 export default function PlanStart({ preset = {} }) {
   const { go, toast } = useStudio()
-  const [mode, setMode] = useState(preset.ref ? 'single' : null)
-  const [sources, setSources] = useState(() => preset.ref ? { hook: { kind: 'reel', id: preset.ref, label: '' } } : {})
+  const [mode, setMode] = useState(preset.ref ? 'single' : preset.formula ? 'mix' : null)
+  const [sources, setSources] = useState(() => preset.ref ? { hook: { kind: 'reel', id: preset.ref, label: '' } } : preset.formula && preset.kind ? { [preset.kind]: { kind: 'formula', id: preset.formula, label: '' } } : {})
   const [picking, setPicking] = useState(null)
   const [data, setData] = useState({ refs: [], formulas: [], library: null })
   const [busy, setBusy] = useState(false)
@@ -49,9 +49,10 @@ export default function PlanStart({ preset = {} }) {
       // Only analyzed references can feed a plan; the rest stay in 내 레퍼런스 until their analysis finishes.
       const refs = r.references.filter(x => x.analysisStatus === 'ready')
       setData({ refs, formulas: f.formulas, library: l })
+      if (preset.formula && preset.kind) { const found = f.formulas.find(x => x.id === preset.formula); if (found) setSources({ [preset.kind]: { kind: 'formula', id: found.id, label: found.title } }) }
       if (preset.ref) { const found = refs.find(x => x.id === preset.ref); if (found) setSources({ hook: { kind: 'reel', id: found.id, label: found.title || `@${found.username}`, thumbnailUrl: found.thumbnailUrl } }) }
     }).catch(() => {})
-  }, [preset.ref])
+  }, [preset.ref, preset.formula, preset.kind])
   const start = async () => {
     setBusy(true)
     try {

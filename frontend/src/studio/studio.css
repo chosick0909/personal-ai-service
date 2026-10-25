@@ -334,6 +334,15 @@
 @keyframes st-spin { to { transform:rotate(360deg) } }
 
 /* ----- library ----- */
+/* 내 공식: one row per formula, tap for the whole thing. */
+.st-formula-list { display:grid; gap:10px; }
+.st-formula-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto 20px; align-items:center; gap:16px; min-height:72px; padding:14px 18px; border:1px solid var(--st-line); border-radius:14px; background:var(--st-panel); text-align:left; color:var(--st-text); }
+.st-formula-row:hover { border-color:var(--st-accent); }
+.st-formula-row-text { display:grid; gap:3px; min-width:0; }
+.st-formula-row-text strong { font-size:17px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.st-formula-row-text span { font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.st-formula-row-when { white-space:nowrap; }
+@media (max-width:860px) { .st-formula-row { grid-template-columns:auto minmax(0,1fr) 20px; } .st-formula-row-when { display:none; } }
 .st-lib { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px; }
 .st-lib-card { display:grid; gap:8px; padding:20px; border:1px solid var(--st-line); border-radius:14px; background:var(--st-panel); text-align:left; }
 .st-lib-card:hover { border-color:var(--st-accent); }
