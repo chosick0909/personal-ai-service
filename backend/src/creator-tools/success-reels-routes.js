@@ -7,8 +7,8 @@ import { database, query } from './store.js'
 import { redisConnection } from './queue.js'
 import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
-import { referencePlayback } from './reference-playback.js'
 import { ingestAccount, listSuccessReels } from './success-reels.js'
+import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl } from './success-reel-analysis.js'
 import { keywordsForDay } from './success-reels-keywords.js'
 
 export function successReelsEnabled(userId, env = process.env) {
@@ -63,7 +63,8 @@ export function createReelIngestRouter() {
   }))
   router.post('/success-reels/accounts', asyncHandler(async (req, res) => {
     const controller = new AbortController()
-    req.on('close', () => controller.abort())
+    // req emits 'close' as soon as the body is read; only a dropped response means the collector left.
+    res.on('close', () => { if (!res.writableEnded) controller.abort() })
     const db = database()
     const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: controller.signal })
     const result = await ingestAccount({ db, providers, readImage: url => readPublicImage(url, controller.signal) }, req.body)
@@ -77,14 +78,46 @@ export function registerSuccessReelRoutes(router) {
   const enabled = req => { if (!successReelsEnabled(req.auth.userId)) fail('FEATURE_DISABLED', '아직 공개되지 않은 기능입니다.', 404) }
   router.get('/creator-tools/success-reels', asyncHandler(async (req, res) => {
     enabled(req)
-    res.set('Cache-Control', 'private, no-store').json(await listSuccessReels(database(), req.query))
+    res.set('Cache-Control', 'private, no-store').json(await listSuccessReels(database(), req.query, req.auth.userId))
+  }))
+  const code = value => /^[A-Za-z0-9_-]{5,40}$/.test(value) ? value : fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+  const deps = () => ({ db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) })
+  router.get('/creator-tools/success-reels/:shortcode', asyncHandler(async (req, res) => {
+    enabled(req)
+    res.set('Cache-Control', 'private, no-store').json(await reelDetail(database(), req.auth.userId, code(req.params.shortcode)))
+  }))
+  router.post('/creator-tools/success-reels/:shortcode/analysis', asyncHandler(async (req, res) => {
+    enabled(req)
+    res.status(202).json(await requestReelAnalysis(deps(), code(req.params.shortcode)))
+  }))
+  router.put('/creator-tools/success-reels/:shortcode/save', asyncHandler(async (req, res) => {
+    enabled(req)
+    const shortcode = code(req.params.shortcode), db = database()
+    const reel = await query(db.from('creator_success_reels').select('shortcode').eq('shortcode', shortcode).eq('visible', true).maybeSingle())
+    if (!reel) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+    if (req.body?.saved === true) await query(db.from('creator_reel_saves').upsert({ user_id: req.auth.userId, shortcode }))
+    else await query(db.from('creator_reel_saves').delete().eq('user_id', req.auth.userId).eq('shortcode', shortcode))
+    res.json({ shortcode, saved: req.body?.saved === true })
+  }))
+  router.post('/creator-tools/success-reels/:shortcode/plans', asyncHandler(async (req, res) => {
+    enabled(req)
+    res.status(202).json(await requestReelPlan(deps(), req.auth.userId, code(req.params.shortcode), req.body?.brief))
+  }))
+  router.get('/creator-tools/success-reel-plans/:id', asyncHandler(async (req, res) => {
+    enabled(req)
+    const row = await query(database().from('creator_reel_plans').select('id,shortcode,brief,status,plan,error,created_at').eq('id', uuid(req.params.id)).eq('user_id', req.auth.userId).maybeSingle())
+    if (!row) fail('PLAN_NOT_FOUND', '기획안을 찾을 수 없습니다.', 404)
+    res.set('Cache-Control', 'private, no-store').json({ id: row.id, shortcode: row.shortcode, brief: row.brief, status: row.status, plan: row.plan, error: row.error, createdAt: row.created_at })
   }))
   router.post('/creator-tools/success-reels/:shortcode/playback', asyncHandler(async (req, res) => {
     enabled(req)
     const shortcode = /^[A-Za-z0-9_-]{5,40}$/.test(req.params.shortcode) ? req.params.shortcode : null
     const row = shortcode && await query(database().from('creator_success_reels').select('shortcode').eq('shortcode', shortcode).eq('visible', true).maybeSingle())
     if (!row) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
-    const media = await referencePlayback.resolve(`https://www.instagram.com/reel/${shortcode}/`)
-    res.set('Cache-Control', 'private, no-store').json({ media })
+    const controller = new AbortController()
+    res.on('close', () => { if (!res.writableEnded) controller.abort() })
+    const providers = createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal: controller.signal })
+    const url = await reelVideoUrl({ providers, redis: sharedRedis() }, shortcode).catch(() => null)
+    res.set('Cache-Control', 'private, no-store').json({ media: url ? { url } : null })
   }))
 }

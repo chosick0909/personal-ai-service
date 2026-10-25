@@ -174,15 +174,21 @@ export function searchTerm(value) {
   if (typeof value !== 'string') return ''
   return value.normalize('NFC').replace(/[^\p{L}\p{N}\s._#@-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)
 }
-export async function listSuccessReels(db, filters = {}) {
+export async function listSuccessReels(db, filters = {}, userId = null) {
   const sort = LIST_SORTS[filters.sort] ? filters.sort : 'latest'
   const limit = 48
   const page = Math.max(0, Math.min(50, Number.parseInt(filters.page, 10) || 0))
-  let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path')
+  let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status')
     .eq('visible', true)
   if (SUCCESS_REEL_CATEGORIES.includes(filters.category)) request = request.eq('category', filters.category)
   if (['visible', 'hidden', 'mixed'].includes(filters.face)) request = request.eq('face_visibility', filters.face)
   if (['domestic', 'overseas'].includes(filters.region)) request = request.eq('region', filters.region)
+  const saves = userId ? await query(db.from('creator_reel_saves').select('shortcode').eq('user_id', userId).limit(5000)) : []
+  const savedCodes = new Set(saves.map(row => row.shortcode))
+  if (filters.saved === '1') {
+    if (!savedCodes.size) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
+    request = request.in('shortcode', [...savedCodes])
+  }
   const q = searchTerm(filters.q)
   if (q) request = request.or(['caption', 'caption_ko', 'username', 'audio'].map(field => `${field}.ilike.%${q}%`).join(','))
   const rows = await query(request.order(LIST_SORTS[sort], { ascending: false }).range(page * limit, page * limit + limit - 1))
@@ -195,6 +201,7 @@ export async function listSuccessReels(db, filters = {}) {
   return { lastUpdatedAt: lastRun[0]?.finished_at || null, reels: rows.map(row => ({ shortcode: row.shortcode, permalink: `https://www.instagram.com/reel/${row.shortcode}/`,
     username: row.username, views: row.views, likes: row.likes, comments: row.comments, postedAt: row.posted_at,
     caption: row.caption, captionKo: row.caption_ko, language: row.language, region: row.region, audio: row.audio,
-    category: row.category, faceVisibility: row.face_visibility, thumbnailUrl: urls.get(row.thumbnail_path) || null })),
+    category: row.category, faceVisibility: row.face_visibility, thumbnailUrl: urls.get(row.thumbnail_path) || null,
+    analysisStatus: row.analysis_status || 'none', saved: savedCodes.has(row.shortcode) })),
   page, hasMore: rows.length === limit, sort, q }
 }
