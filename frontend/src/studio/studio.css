@@ -6,6 +6,13 @@
   font-family:"Pretendard","Pretendard Variable","Apple SD Gothic Neo","Noto Sans KR",sans-serif; font-size:16px; line-height:1.6; color:var(--st-text); background:var(--st-bg); color-scheme:light;
   min-height:100vh; display:grid; grid-template-columns:240px minmax(0,1fr); -webkit-font-smoothing:antialiased; overflow-wrap:anywhere; }
 .st *, .st *::before, .st *::after { box-sizing:border-box; }
+.st[data-theme=dark] { --st-bg:#141220; --st-panel:#1D1A2B; --st-line:#2E2A40; --st-line-strong:#3F3955; --st-text:#EDEBF5; --st-muted:#ABA6BE; --st-faint:#7E7893;
+  --st-accent:#7C5CFF; --st-accent-text:#BBAAFF; --st-accent-soft:#2A2347; --st-accent-soft-2:#3B3066; --st-success:#3DC58C; --st-success-soft:#17352A; --st-danger:#F26E74; --st-danger-soft:#3B1F24; --st-warn-soft:#3B2E16; --st-warn-text:#F4BA63;
+  --st-shadow:0 10px 30px rgba(0,0,0,.45); --st-highlight:#4A3F12; --st-ink:#EDE8FF; --st-ink-text:#1b1825; color-scheme:dark; }
+.st { --st-highlight:#FFF6D6; --st-ink:#1b1825; --st-ink-text:#fff; }
+/* Every button box darkens a little under the pointer so clicks feel obvious; in the dark theme it brightens instead. */
+.st button:not(:disabled):hover, .st a.st-btn:hover { filter:brightness(.93); }
+.st[data-theme=dark] button:not(:disabled):hover, .st[data-theme=dark] a.st-btn:hover { filter:brightness(1.22); }
 .st button { font:inherit; cursor:pointer; }
 .st button:disabled { cursor:default; }
 .st a { color:var(--st-accent-text); text-decoration:none; }
@@ -44,7 +51,7 @@
 /* ----- buttons ----- */
 .st-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:48px; padding:0 20px; border:1px solid var(--st-line-strong); border-radius:12px; background:var(--st-panel); color:var(--st-text); font-size:16px; font-weight:700; white-space:nowrap; }
 .st-btn:hover { background:var(--st-bg); }
-.st .st-btn-primary, .st .st-btn-primary:hover, .st .st-btn-primary svg { border-color:var(--st-accent); background:var(--st-accent); color:#fff; }
+.st .st-btn-primary, .st .st-btn-primary:hover { border-color:var(--st-accent); background:var(--st-accent); color:#fff; }
 .st-btn-primary:hover { background:#5B3DE3; }
 .st .st-btn-primary:disabled { background:var(--st-accent-soft-2); border-color:var(--st-accent-soft-2); color:#fff; }
 .st-btn-soft { border-color:transparent; background:var(--st-accent-soft); color:var(--st-accent-text); }
@@ -161,7 +168,7 @@
 /* ----- revision preview & history ----- */
 .st-diff { display:grid; gap:6px; font-size:14.5px; line-height:1.55; }
 .st-diff > div { display:grid; gap:2px; padding:4px 8px; border-radius:8px; }
-.st-diff > div.is-changed { background:#FFF6D6; }
+.st-diff > div.is-changed { background:var(--st-highlight); }
 .st-diff s { color:var(--st-faint); }
 .st-diff .is-changed span { font-weight:700; }
 .st-history { border-top:1px solid var(--st-line); padding-top:12px; }
@@ -280,7 +287,7 @@
 .st-board li { display:grid; align-content:start; gap:6px; padding:14px; border:1px solid var(--st-line); border-radius:12px; background:var(--st-bg); font-size:15px; }
 .st-board-top { display:flex; justify-content:space-between; color:var(--st-muted); font-size:13px; font-weight:700; }
 .st-board-top strong { color:var(--st-accent-text); font-size:15px; }
-.st-board .st-on { justify-self:start; padding:3px 8px; border-radius:6px; background:#1b1825; color:#fff; font-size:13px; font-weight:700; }
+.st-board .st-on { justify-self:start; padding:3px 8px; border-radius:6px; background:var(--st-ink); color:var(--st-ink-text); font-size:13px; font-weight:700; }
 .st-check { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
 .st-check label { display:flex; gap:10px; align-items:flex-start; cursor:pointer; font-size:16px; }
 .st-check input { width:20px; height:20px; margin-top:3px; accent-color:var(--st-accent); flex:none; }

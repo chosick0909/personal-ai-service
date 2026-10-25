@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Flame, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft } from 'lucide-react'
+import { Flame, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon } from 'lucide-react'
+import { safeGetStorageItem, safeSetStorageItem } from '../lib/safeStorage'
 import hookLogo from '../Logo_1.webp'
 import { useAppState } from '../store/AppState'
 import { studio } from './api'
@@ -35,6 +36,9 @@ export default function StudioApp() {
   const { currentUser } = useAppState()
   const [route, setRoute] = useState(readRoute)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Same key as the old studio, so a student's choice carries between the two.
+  const [theme, setTheme] = useState(() => safeGetStorageItem('hookai-tools-theme') === 'dark' ? 'dark' : 'light')
+  const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); safeSetStorageItem('hookai-tools-theme', next) }
   const [features, setFeatures] = useState(null)
   const [categories, setCategories] = useState([])
   const [toasts, setToasts] = useState([])
@@ -107,7 +111,7 @@ export default function StudioApp() {
   if (route.page === 'print') return <StudioContext.Provider value={value}><main className="st" style={{ gridTemplateColumns: '1fr' }}><PrintView sessionId={route.params.session} /></main></StudioContext.Provider>
 
   return <StudioContext.Provider value={value}>
-    <main className="st">
+    <main className="st" data-theme={theme}>
       {menuOpen && <div className="st-backdrop" onClick={() => setMenuOpen(false)} />}
       <aside className={`st-side${menuOpen ? ' is-open' : ''}`}>
         <div className="st-brand"><img src={hookLogo} alt="" /><div><strong>HookAI</strong><span>크리에이터 스튜디오</span></div></div>
@@ -122,6 +126,7 @@ export default function StudioApp() {
           <button type="button" className="st-icon-btn st-menu-btn" aria-label="메뉴" onClick={() => setMenuOpen(v => !v)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button>
           <h1>{title}</h1>{sub && <span className="st-sub">{sub}</span>}
           <div className="st-top-actions" id="st-top-actions" />
+          <button type="button" className="st-icon-btn" title={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'} aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'} onClick={toggleTheme}>{theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}</button>
         </header>
         <div className="st-content">
           {!features ? <p className="st-muted">불러오는 중…</p>
