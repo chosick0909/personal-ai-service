@@ -228,7 +228,8 @@ export default function PlanWizard({ sessionId }) {
   if (error) return <div className="st-error">{error}</div>
   if (!session) return <p className="st-muted">불러오는 중…</p>
   const idx = ORDER.indexOf(session.stage)
-  const stageReady = session.stage === 'topic' ? Boolean(session.topic) : session.stage === 'done' ? true : Boolean(session[session.stage])
+  const hasTopic = Boolean(session.topic?.title)
+  const stageReady = session.stage === 'topic' ? hasTopic : session.stage === 'done' ? true : Boolean(session[session.stage])
   const failed = session.job?.status === 'failed'
   const generating = running && session.job?.stage === session.stage
   const elapsed = session.job?.startedAt ? (Date.now() - Date.parse(session.job.startedAt)) / 1000 : 0
@@ -237,7 +238,7 @@ export default function PlanWizard({ sessionId }) {
     <div className="st-wizard-main">
       <div className="st-row" style={{ justifyContent: 'space-between' }}>
         <button type="button" className="st-btn st-btn-ghost" onClick={() => go('plans')}><ArrowLeft size={20} />내 기획안</button>
-        {session.topic && <strong className="st-muted st-wizard-title" style={{ fontSize: 15 }}>{session.topic.title}</strong>}
+        {hasTopic && <strong className="st-muted st-wizard-title" style={{ fontSize: 15 }}>{session.topic.title}</strong>}
         <button type="button" className="st-btn st-btn-ghost st-chat-toggle" onClick={() => setChatOpen(o => !o)}><MessageSquareText size={18} />훅ai</button>
       </div>
       <nav className="st-stepper" aria-label="기획 단계">{STAGES.map(([id, label], i) => <span key={id} style={{ display: 'contents' }}>{i > 0 && <span className="st-step-gap" />}<button type="button" className={`st-step${i < idx ? ' is-done' : ''}`} aria-current={id === session.stage ? 'step' : undefined} disabled={i > idx} onClick={() => i < idx && toStage(id)}><i>{i < idx ? <Check size={15} /> : i + 1}</i>{label}</button></span>)}</nav>
@@ -257,7 +258,7 @@ export default function PlanWizard({ sessionId }) {
       {session.stage !== 'done' && !generating && <div className="st-wizard-foot">
         {idx > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx - 1])}><ArrowLeft size={20} />이전</button>}
         {session.stage !== 'topic' && stageReady && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시</button>}
-        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!session.topic} onClick={() => toStage('thumbnail')}>{session.topic ? `${nextLabel}` : '먼저 주제를 정해주세요'}<ArrowRight size={20} /></button>
+        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic} onClick={() => toStage('thumbnail')}>{hasTopic ? `${nextLabel}` : '먼저 주제를 정해주세요'}<ArrowRight size={20} /></button>
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
       </div>}
     </div>

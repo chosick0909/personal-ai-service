@@ -78,7 +78,7 @@ const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개(짧게). 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
 - proposals: 주제 후보 3개(수강생이 주제를 못 정했거나 "제안해줘"를 원할 때). 각 후보는 title(주제 한 줄), angle(차별 관점), promise(시청자가 얻는 것), why(지금 이 분야에서 먹히는 이유; trending이 있으면 그 근거), category(분야). 후보를 낼 상황이 아니면 [].
 - topic: 주제를 확정할 수 있을 만큼 정보가 모이면 ready=true와 함께 채웁니다. title, angle, promise, facts(수강생이 실제로 준 사실만, 없으면 []), audience(누구에게), category(분야). 아직이면 ready=false와 빈 값.
-규칙: 레퍼런스(sources)가 있으면 첫 질문은 그 포맷을 살리는 데 필요한 재료를 묻습니다(예: 판정형이면 "비교할 제품 이름을 알려주세요", 경험담이면 "들려줄 경험을 한 줄로 말해주세요"). 질문은 한 번에 하나씩, 필요한 만큼. 제품명·경험·수치처럼 대본에 들어갈 사실은 반드시 묻고 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어가되, 사실을 지어내지 않습니다(없는 사실은 뒤 단계에서 다시 묻습니다). facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
+규칙: 레퍼런스(sources)가 있으면 첫 질문은 그 포맷을 살리는 데 필요한 재료를 묻습니다(예: 판정형이면 "비교할 제품 이름을 알려주세요", 경험담이면 "들려줄 경험을 한 줄로 말해주세요"). 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 제품명·경험·수치처럼 대본에 들어갈 사실은 반드시 묻고 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어가되, 사실을 지어내지 않습니다(없는 사실은 뒤 단계에서 다시 묻습니다). facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
 
 async function trendingFor(db, category) {
   let request = db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready')
@@ -114,7 +114,11 @@ export async function chat(deps, session, messages, text) {
     const style = await query(deps.db.from('studio_topics').select('topic,category').eq('user_id', session.user_id).order('created_at', { ascending: false }).limit(8))
     const wantsIdeas = /제안|추천|알아서|모르겠/.test(text)
     const trending = wantsIdeas || !Object.keys(resolved).length ? await trendingFor(deps.db, session.topic?.category) : []
-    const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved), recentTopics: style.map(t => t.topic), trending, conversation: recent, userMessage: text }, topicSchema)
+    // Students lose patience after a few questions: settle the topic once they ask to, or after three answers.
+    const answered = messages.filter(m => m.role === 'user').length
+    const mustDecide = answered >= 3 || /충분|정해|확정|그만|알아서|그냥 해|바로 해|넘어가/.test(text)
+    const directive = mustDecide ? '지금까지 모인 정보로 더 묻지 말고 topic.ready=true로 주제를 확정하세요. 빠진 사실은 facts에 넣지 말고(뒤 단계에서 묻습니다) title·promise는 아는 사실만으로 씁니다. chips는 [].' : '질문은 한 번에 하나. 이미 답을 받은 내용은 다시 묻지 않습니다.'
+    const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved), recentTopics: style.map(t => t.topic), trending, conversation: recent, userMessage: text, directive }, topicSchema)
     return normalizeTopicReply(raw)
   }
   const stage = session.stage
@@ -254,7 +258,7 @@ export function runStageJob(deps, sessionId, stage) {
 
 export async function startStage(deps, session, stage, { force = false } = {}) {
   if (!STAGE_ORDER.includes(stage) || stage === 'topic' || stage === 'done') fail('STAGE_UNKNOWN', '알 수 없는 단계예요.')
-  if (!session.topic) fail('TOPIC_REQUIRED', '먼저 주제를 정해주세요.', 409)
+  if (!session.topic?.title) fail('TOPIC_REQUIRED', '먼저 주제를 정해주세요.', 409)
   const patch = { stage, updated_at: new Date().toISOString() }
   const stale = session.job_status === 'running' && Date.parse(session.job_started_at) < Date.now() - 6 * 60000
   if (session.job_status === 'running' && !stale) return { ...session, ...patch }
