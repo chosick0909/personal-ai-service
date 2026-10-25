@@ -48,8 +48,14 @@ export function createReelIngestRouter() {
     // Approved accounts tend to go viral again, so they are revisited weekly first.
     const recheck = await query(db.from('creator_reel_accounts').select('username').eq('eligible', true)
       .lte('last_seen_at', weekAgo).order('last_seen_at', { ascending: true }).limit(Math.ceil(maxAccounts / 2)))
-    res.json({ day, keywords: keywordsForDay(day), maxAccounts, skipAccounts: recent.map(row => row.username),
-      recheckAccounts: recheck.map(row => row.username) })
+    // Accounts already vetted for 계정 추천 are visited first; their recent reels are the fastest way to fill the archive.
+    const recentNames = new Set(recent.map(row => row.username))
+    const catalog = await query(db.from('creator_reference_catalog').select('username').eq('active', true).limit(2000))
+    const pending = catalog.map(row => row.username).filter(name => !recentNames.has(name))
+    const visitCap = pending.length ? Math.min(150, Math.max(maxAccounts, pending.length + 20)) : maxAccounts
+    const recheckAccounts = [...new Set([...pending, ...recheck.map(row => row.username)])]
+    res.json({ day, keywords: keywordsForDay(day), maxAccounts: visitCap, skipAccounts: [...recentNames],
+      recheckAccounts, catalogPending: pending.length })
   }))
   router.post('/success-reels/runs', asyncHandler(async (_req, res) => {
     const row = await query(database().from('creator_reel_ingest_runs').insert({}).select('id').single())

@@ -139,7 +139,9 @@ export async function ingestAccount(deps, body) {
     }, frames, successReelReviewSchema)
     review = review ? { ...review, reels: [...(review.reels || []), ...fresh.reels] } : fresh
   }
-  const decision = reviewDecision(review, input.profile)
+  // 계정 추천 catalog accounts were vetted by hand; the AI review only classifies their reels.
+  const vetted = await query(db.from('creator_reference_catalog').select('username').eq('username', input.username).eq('active', true).maybeSingle())
+  const decision = vetted && input.profile.followers < SUCCESS_REEL_MAX_FOLLOWERS ? { eligible: true, reason: null } : reviewDecision(review, input.profile)
   await query(db.from('creator_reel_accounts').update({ review, review_version: SUCCESS_REEL_REVIEW_VERSION, eligible: decision.eligible,
     reject_reason: decision.reason, reviewed_at: reviewFresh(existing, now) && !missingReels.length ? existing.reviewed_at : new Date(now).toISOString() })
     .eq('username', input.username))

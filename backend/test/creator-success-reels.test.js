@@ -72,7 +72,7 @@ test('every day covers every category in both regions, and seeds rotate across d
 
 // Minimal in-memory stand-in for the Supabase query builder used by this module.
 function fakeDb() {
-  const tables = { creator_reel_accounts: new Map(), creator_success_reels: new Map(), creator_reel_ingest_runs: new Map(), creator_reel_saves: new Map(), creator_reel_user_analyses: new Map() }
+  const tables = { creator_reel_accounts: new Map(), creator_success_reels: new Map(), creator_reel_ingest_runs: new Map(), creator_reel_saves: new Map(), creator_reel_user_analyses: new Map(), creator_reference_catalog: new Map() }
   const keys = { creator_reel_accounts: 'username', creator_success_reels: 'shortcode', creator_reel_ingest_runs: 'id' }
   const uploads = new Map()
   const builder = table => {
@@ -225,4 +225,17 @@ test('students see 분석됨 only on reels they analyzed themselves', async () =
   const other = await listSuccessReels(db, {}, 'u2')
   assert.ok(other.reels.every(r => r.analysisStatus === 'none'))
   assert.deepEqual((await listSuccessReels(db, { analyzed: '1' }, 'u1')).reels.map(r => r.shortcode), ['Aaaaa1'])
+})
+
+test('accounts vetted for 계정 추천 are listed even when the AI review would reject them', async () => {
+  const db = fakeDb()
+  db.tables.creator_reference_catalog.set('ojirapper_', { username: 'ojirapper_', active: true })
+  const providers = { json: async (_op, _p, input) => ({ accountType: 'brand', accountTypeEvidence: [], ordinaryCreator: false, ordinaryCreatorEvidence: [],
+    productionLevel: 'professional', productionEvidence: [], monetizationEvidence: [], replicability: 10, replicabilityEvidence: [],
+    category: '뷰티', region: 'domestic', regionEvidence: [], language: 'ko',
+    reels: input.successReels.map(r => ({ shortcode: r.shortcode, faceVisibility: 'visible', captionKo: '' })) }) }
+  const result = await ingestAccount({ db, providers, readImage: async () => 'data:image/jpeg;base64,AA==', now: NOW }, body([reel('Dd8xyurzlmx', 1220000)]))
+  assert.equal(result.eligible, true)
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').visible, true)
+  assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').category, '뷰티', 'the review still classifies the reel')
 })
