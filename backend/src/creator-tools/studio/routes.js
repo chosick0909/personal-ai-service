@@ -29,6 +29,13 @@ const uploadVideo = multer({ storage: multer.diskStorage({ destination: (_req, _
 const UPLOADS_PER_DAY = 10
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 
+// Version history: what the student is about to replace is kept first, newest at the top, ten deep.
+const remember = (field, value, note) => value ? [{ note, at: new Date().toISOString(), value }, ...(field?.history || [])].slice(0, 10) : field?.history || []
+const currentScript = s => s?.edited || s?.options?.[s?.chosen ?? 0]?.lines || null
+const currentCaption = c => c?.edited || c?.options?.[c?.chosen ?? 0] || null
+const optionName = i => `${'ABC'[i] || i + 1}안`
+export const sessionHistory = { remember, currentScript, currentCaption, optionName }
+
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
   topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders, ask: row.ask,
   job: { status: row.job_status, stage: row.job_stage, error: row.job_error, startedAt: row.job_started_at }, createdAt: row.created_at, updatedAt: row.updated_at })
@@ -106,7 +113,7 @@ export function registerStudioRoutes(router) {
         patch[field] = next; continue
       }
       if (Number.isInteger(change.chosen) && row[field].options?.[change.chosen]) {
-        if ((field === 'script' || field === 'caption') && (change.chosen !== row[field].chosen || row[field].edited)) next.history = remember(row[field], field === 'script' ? currentScript(row[field]) : currentCaption(row[field]), row[field].edited ? '직접 고친 버전' : `${(row[field].chosen ?? 0) + 1}안`)
+        if ((field === 'script' || field === 'caption') && (change.chosen !== row[field].chosen || row[field].edited)) next.history = remember(row[field], field === 'script' ? currentScript(row[field]) : currentCaption(row[field]), row[field].edited ? '직접 고친 버전' : optionName(row[field].chosen ?? 0))
         next.chosen = change.chosen; if ('custom' in next) next.custom = null; if ('edited' in next) next.edited = null }
       if (typeof change.custom === 'string' && 'custom' in next) next.custom = text(change.custom, 200) || null
       if (field === 'script' && Array.isArray(change.edited)) next.edited = change.edited.map(l => ({ part: ['hook', 'body', 'cta'].includes(l?.part) ? l.part : 'body', spoken: text(l?.spoken, 400), onScreen: text(l?.onScreen, 60), seconds: Math.max(1, Math.min(180, Math.round(Number(l?.seconds) || 3))) })).filter(l => l.spoken).slice(0, 24)

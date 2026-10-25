@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { sessionHistory } from '../src/creator-tools/studio/routes.js'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
 import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk } from '../src/creator-tools/studio/engine.js'
@@ -131,4 +132,17 @@ test('a stage that needs facts asks first, then resumes with the answers as fact
   const done = db.tables.studio_sessions.get('s1')
   assert.equal(done.ask, null); assert.equal(done.script.options[0].lines[1].spoken, '라운드랩? 사요.')
   assert.equal(done.topic.facts.length, 2)
+})
+
+test('switching or restoring a script keeps the replaced version in a short history', () => {
+  const { remember, currentScript, currentCaption, optionName } = sessionHistory
+  const script = { chosen: 1, options: [{ lines: [{ spoken: 'A' }] }, { lines: [{ spoken: 'B' }] }], history: [] }
+  assert.deepEqual(currentScript(script), [{ spoken: 'B' }])
+  assert.deepEqual(currentScript({ ...script, edited: [{ spoken: 'B2' }] }), [{ spoken: 'B2' }])
+  const history = remember(script, currentScript(script), optionName(1))
+  assert.equal(history.length, 1); assert.equal(history[0].note, 'B안'); assert.deepEqual(history[0].value, [{ spoken: 'B' }])
+  assert.equal(remember({ history: Array.from({ length: 10 }, (_, i) => ({ note: String(i) })) }, [{ spoken: 'x' }], 'n').length, 10, 'ten deep')
+  assert.deepEqual(remember(script, null, 'n'), [], 'nothing to keep when there is no current value')
+  assert.deepEqual(currentCaption({ chosen: 0, options: [{ text: 'c', hashtags: ['a'] }] }), { text: 'c', hashtags: ['a'] })
+  assert.equal(optionName(2), 'C안'); assert.equal(optionName(3), '4안')
 })

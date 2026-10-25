@@ -119,6 +119,14 @@
 .st-option .st-why { color:var(--st-muted); font-size:15px; }
 .st-option-check { width:28px; height:28px; border-radius:999px; border:2px solid var(--st-line-strong); display:grid; place-items:center; color:transparent; flex:none; }
 .st-option[aria-pressed=true] .st-option-check { border-color:var(--st-accent); background:var(--st-accent); color:#fff; }
+.st .st-option[aria-pressed=true] .st-pill, .st .st-option[aria-pressed=true] .st-pill * { background:var(--st-accent); color:#fff; }
+/* 대본 3안: whole scripts side by side so the student compares before choosing. */
+.st-options-scripts { grid-template-columns:repeat(3, minmax(0,1fr)); align-items:stretch; }
+.st-option-lines { margin:4px 0 0; padding:0; list-style:none; display:grid; gap:8px; }
+.st-option-lines li { font-size:15px; line-height:1.55; color:var(--st-text); }
+.st-option-lines li em { display:inline-block; margin-right:6px; padding:0 7px; border-radius:6px; background:var(--st-bg); color:var(--st-muted); font-style:normal; font-size:12px; font-weight:800; line-height:20px; vertical-align:2px; }
+.st-option-lines li.st-option-line-hook em { background:var(--st-accent-soft); color:var(--st-accent-text); }
+.st .st-option[aria-pressed=true] .st-option-lines li em { background:var(--st-panel); }
 
 /* chosen source with a small cover */
 .st-source-chip { display:inline-flex; align-items:center; gap:10px; padding:4px 14px 4px 4px; border-radius:12px; background:var(--st-accent-soft); color:var(--st-accent-text); font-weight:800; font-size:15px; }
@@ -353,6 +361,7 @@
   .st-main .st-menu-btn { display:inline-grid; }
   .st-top { padding:0 16px; min-height:60px; } .st-top .st-sub { display:none; } .st-top h1 { font-size:19px; }
   .st-content { padding:18px 16px 140px; }
+  .st-options-scripts { grid-template-columns:1fr; }
   .st-detail { grid-template-columns:1fr; } .st-detail > aside { position:static; max-height:none; overflow:visible; } .st-grid-2 { grid-template-columns:1fr; }
   .st-reels { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
   .st-reel-stats { font-size:13px; gap:8px; white-space:nowrap; left:10px; bottom:10px; }
