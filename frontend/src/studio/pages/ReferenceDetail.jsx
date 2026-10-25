@@ -8,14 +8,15 @@ const ROLE = { hook: '첫 문장', problem: '문제 제기', empathy: '공감', 
 const TABS = [['script', '대본'], ['overview', '한눈에'], ['hook', '첫 문장'], ['structure', '전개'], ['filming', '촬영'], ['editing', '편집'], ['caption', '캡션']]
 const known = v => v && v !== '확인되지 않음'
 // Older analyses hold one long paragraph: split it into readable lines and pull out "(1) … (2) …" steps.
+const sentences = value => String(value || '').split(/(?<=[.다요]\.)\s+|(?<=니다\.)\s+/).map(v => v.trim()).filter(Boolean)
 function Readable({ text, steps }) {
   if (steps?.length) return <ol className="st-steps">{steps.map((t, i) => <li key={i}>{t}</li>)}</ol>
   const value = String(text || '')
   const numbered = value.split(/\s*\(\d+\)\s*/).map(v => v.trim()).filter(Boolean)
   if (numbered.length >= 3) { const [lead, ...rest] = value.includes('(1)') && !value.trim().startsWith('(1)') ? numbered : ['', ...numbered]
-    return <>{lead && <p style={{ marginBottom: 10 }}>{lead.replace(/[:：]\s*$/, '')}</p>}<ol className="st-steps">{rest.map((t, i) => <li key={i}>{t.replace(/[.。]\s*$/, '')}</li>)}</ol></> }
-  const lines = value.split(/(?<=[.다요]\.)\s+|(?<=니다\.)\s+/).map(v => v.trim()).filter(Boolean)
-  return <ul className="st-lines-read">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+    const leadLines = sentences(lead.replace(/\s*적용 방법[:：]?\s*본인 주제도\s*$|[:：]\s*$/, ''))
+    return <>{leadLines.length > 0 && <ul className="st-lines-read" style={{ marginBottom: 14 }}>{leadLines.map((l, i) => <li key={i}>{l}</li>)}</ul>}<p className="st-muted st-small" style={{ marginBottom: 8 }}>내 주제에 적용하는 순서</p><ol className="st-steps">{rest.map((t, i) => <li key={i}>{t.replace(/[.。]\s*$/, '')}</li>)}</ol></> }
+  return <ul className="st-lines-read">{sentences(value).map((l, i) => <li key={i}>{l}</li>)}</ul>
 }
 
 export function CopyButton({ text, label = '복사' }) {
