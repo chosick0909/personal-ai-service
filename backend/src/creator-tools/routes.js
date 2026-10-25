@@ -10,6 +10,7 @@ import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from './categories.js'
 import { assertCreatorCoupon } from './access.js'
 import { catalogQualityEligible, instagramPostUrl } from './reference-quality.js'
 import { referencePlayback } from './reference-playback.js'
+import { registerSuccessReelRoutes, successReelsEnabled } from './success-reels-routes.js'
 
 export function createCreatorRouter() {
   const router = Router()
@@ -25,6 +26,7 @@ export function createCreatorRouter() {
     req.creatorCoupon = await assertCreatorAccess(req)
     next()
   }))
+  registerSuccessReelRoutes(router)
   router.get('/creator-tools/access', (req, res) => {
     res.json({ allowed: true, endsAt: req.creatorCoupon.ends_at })
   })
@@ -68,7 +70,8 @@ export function createCreatorRouter() {
     res.status(row.status === 'completed' ? 200 : 202).json(publicJob(row))
   }
   router.get('/creator-tools/capabilities', asyncHandler(async (req, res) => {
-    const features = Object.fromEntries(KINDS.map((kind) => [kind, featureEnabled(kind, req.auth.userId)]))
+    const features = { ...Object.fromEntries(KINDS.map((kind) => [kind, featureEnabled(kind, req.auth.userId)])),
+      'success-reels': successReelsEnabled(req.auth.userId) }
     res.json({ features, categories: CREATOR_CATEGORIES, referenceCategories: REFERENCE_CATEGORIES, trendCategories: REFERENCE_CATEGORIES, limits: { maxVideoBytes: MAX_BYTES, maxVideoSeconds: 300 },
       readiness: {
         'reference-accounts': { ready: Boolean(process.env.BRIGHT_DATA_API_KEY && process.env.BRIGHT_DATA_SERP_ZONE && process.env.OPENAI_API_KEY && process.env.CREATOR_REDIS_URL), message: '공개 계정 검색·프로필 조회 서비스 미연결입니다. 공급자 연결 후 사용할 수 있습니다.' },

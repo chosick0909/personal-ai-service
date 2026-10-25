@@ -15,6 +15,7 @@ import { getAccountCharacterContext } from './lib/account-character.js'
 import { resolveCopilotConversationReference, scopeCopilotConversation } from './lib/copilot/conversation-context.js'
 import { requireAuth, requireAdmin } from './lib/auth.js'
 import { createCreatorRouter } from './creator-tools/routes.js'
+import { createReelIngestRouter } from './creator-tools/success-reels-routes.js'
 import { createToolHistoryRouter } from './lib/tool-history.js'
 import { getOpenAIModels, hasOpenAIConfig } from './lib/openai.js'
 import {
@@ -491,6 +492,8 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
+// The Mac mini collector authenticates with its own token, not a user session.
+app.use('/api/creator-ingest', createReelIngestRouter())
 app.use('/api', requireAuth)
 app.use('/api', createCreatorRouter())
 app.use('/api', createToolHistoryRouter())

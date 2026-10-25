@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bookmark, ExternalLink, Search, Scissors, Link, X, Sun, Moon, MessageSquare, RefreshCw, ArrowLeft, ArrowRight, SlidersHorizontal, Clock3, UploadCloud, Info, FileVideo, CheckCircle2, LayoutDashboard } from 'lucide-react'
+import { Bookmark, ExternalLink, Search, Scissors, Link, X, Sun, Moon, MessageSquare, RefreshCw, ArrowLeft, ArrowRight, SlidersHorizontal, Clock3, UploadCloud, Info, FileVideo, CheckCircle2, LayoutDashboard, Flame } from 'lucide-react'
 import { Upload } from 'tus-js-client'
 import { creatorRequest, safeInstagramHref } from '../lib/creatorApi'
 import ReferenceReels from './ReferenceReels'
+import SuccessReels from './SuccessReels'
 import { creatorStudioPath } from '../lib/creatorRoutes'
 import { useAppState } from '../store/AppState'
 import { safeGetStorageItem, safeSetStorageItem, safeRemoveStorageItem } from '../lib/safeStorage'
@@ -12,6 +13,7 @@ import CreatorLinkResult from './CreatorLinkResult'
 import hookLogo from '../Logo_1.webp'
 
 const tools = [
+  { id: 'success-reels', label: '성공 릴스', title: '지금 터진 릴스 모아보기', note: '조회수 50만+ · 최근 3개월 · 국내·해외', icon: Flame },
   { id: 'reference-accounts', label: '계정 인사이트', title: '내 주제에 맞는 계정 인사이트', note: '카테고리·조건별 공개 계정 분석', icon: Search },
   { id: 'import-link', label: '링크 분석', title: '릴스 대본·후킹·구조를 한 번에', note: '대본 추출 · 후킹·구조 분석 · 적용 방법', icon: Link },
   { id: 'media-analyze', label: '컷편집·자막', title: '영상은 간결하게, 자막은 정확하게', note: '훅·템포 진단 · 컷·자막 편집', icon: Scissors },
@@ -81,6 +83,7 @@ function CreatorWorkspace() {
   const submitting = useRef(false)
   const [features, setFeatures] = useState({})
   const [referenceCategories, setReferenceCategories] = useState([])
+  const [creatorCategories, setCreatorCategories] = useState([])
   const [trendCategories, setTrendCategories] = useState([])
   const [readiness, setReadiness] = useState({})
   const [mode, setMode] = useState(() => {
@@ -115,6 +118,7 @@ function CreatorWorkspace() {
     creatorRequest('/creator-tools/capabilities', { signal: controller.signal }).then(async (data) => {
       setFeatures({ ...data.features, feedback: data.features['media-analyze'] })
       setReferenceCategories(data.referenceCategories || data.categories || [])
+      setCreatorCategories(data.categories || [])
       setTrendCategories(data.trendCategories || data.referenceCategories || data.categories || [])
       setReadiness({ ...(data.readiness || {}), feedback: data.readiness?.['media-analyze'] })
       const initial = new URLSearchParams(window.location.search).get('tab')
@@ -296,6 +300,8 @@ function CreatorWorkspace() {
     }
   }
   const historyMode = mode === 'recent-jobs'
+  // Success reels stays hidden until it is enabled for this user.
+  const visibleTools = tools.filter(tool => tool.id !== 'success-reels' || features['success-reels'])
   const CurrentIcon = historyMode ? Clock3 : (tools.find(tool => tool.id === mode) || tools[0]).icon
   const currentTool = historyMode ? { label:'최근 작업', title:'최근 작업 내역' } : tools.find(tool => tool.id === mode) || tools[0]
   const isMedia = ['media-analyze','feedback'].includes(mode)
@@ -305,14 +311,14 @@ function CreatorWorkspace() {
   function changeLinkInputMode(nextMode) { setLinkInputMode(nextMode); setJob(null); setMedia(null); setError(''); setRights(false); setFile(null); requestKey.current=null }
   return <main className="creator-tools ct-live" data-theme={theme}>
     <div className="ct-topbar"><a className="ct-brand" href="/creatorstudio"><img src={hookLogo} alt="" />HookAI <span>CREATOR WORKSPACE</span></a><div className="ct-row"><span className="ct-live-user">{currentAccount?.name || '내 계정'}</span><a className="ct-back ct-workspace-link" href="/analyze"><ArrowLeft size={16} aria-hidden="true" />대본작업실</a><IconButton title={theme==='dark'?'라이트 모드로 전환':'다크 모드로 전환'} onClick={()=>{const next=theme==='dark'?'light':'dark';setTheme(next);safeSetStorageItem('hookai-tools-theme',next)}}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</IconButton></div></div>
-    <aside className="ct-studio-sidebar"><p>WORKSPACE</p><a className="ct-workspace-link ct-sidebar-workspace-link" href="/analyze"><ArrowLeft size={17} aria-hidden="true" />대본작업실로 이동</a><button type="button" aria-current={!historyMode?'page':undefined}><LayoutDashboard size={18}/>크리에이터 스튜디오</button><button type="button" aria-current={historyMode?'page':undefined} onClick={()=>changeMode('recent-jobs')}><Clock3 size={18}/>최근 작업 <span className="ct-sidebar-count">{jobs.length}</span></button><div/><p>CREATOR TOOLS</p>{tools.map((tool)=><button type="button" key={tool.id} disabled={busy} aria-current={mode===tool.id?'page':undefined} onClick={()=>changeMode(tool.id)}><tool.icon size={17}/>{tool.label}</button>)}{accounts?.length>0&&<label className="ct-sidebar-account"><span>작업 계정</span><select aria-label="작업 계정" value={currentAccount?.id||''} disabled={busy} onChange={e=>selectAccount(e.target.value)}>{accounts.map(a=><option key={a.id} value={a.id}>{a.name||a.id}</option>)}</select></label>}</aside>
+    <aside className="ct-studio-sidebar"><p>WORKSPACE</p><a className="ct-workspace-link ct-sidebar-workspace-link" href="/analyze"><ArrowLeft size={17} aria-hidden="true" />대본작업실로 이동</a><button type="button" aria-current={!historyMode?'page':undefined}><LayoutDashboard size={18}/>크리에이터 스튜디오</button><button type="button" aria-current={historyMode?'page':undefined} onClick={()=>changeMode('recent-jobs')}><Clock3 size={18}/>최근 작업 <span className="ct-sidebar-count">{jobs.length}</span></button><div/><p>CREATOR TOOLS</p>{visibleTools.map((tool)=><button type="button" key={tool.id} disabled={busy} aria-current={mode===tool.id?'page':undefined} onClick={()=>changeMode(tool.id)}><tool.icon size={17}/>{tool.label}</button>)}{accounts?.length>0&&<label className="ct-sidebar-account"><span>작업 계정</span><select aria-label="작업 계정" value={currentAccount?.id||''} disabled={busy} onChange={e=>selectAccount(e.target.value)}>{accounts.map(a=><option key={a.id} value={a.id}>{a.name||a.id}</option>)}</select></label>}</aside>
     <div className="ct-workspace">
     <header className="ct-header"><div><div className="ct-eyebrow">WORKSPACE / CREATOR STUDIO <span className="ct-badge">Beta</span></div><h1>크리에이터 스튜디오</h1><p>콘텐츠 인사이트부터 영상 편집과 게시 전 점검까지.</p></div></header>
-    {!historyMode&&<nav className="ct-tabs" aria-label="콘텐츠 도구">{tools.map((tool) => <button type="button" key={tool.id} disabled={busy}
+    {!historyMode&&<nav className="ct-tabs" aria-label="콘텐츠 도구">{visibleTools.map((tool) => <button type="button" key={tool.id} disabled={busy}
       aria-current={mode === tool.id ? 'page' : undefined} onClick={() => changeMode(tool.id)}><tool.icon size={20} /><strong>{tool.label}</strong><small>{tool.note}</small></button>)}</nav>
     }
     <div className="ct-work-heading"><div><span className="ct-badge">{currentTool.label}</span><h2>{currentTool.title}</h2></div><span className="ct-muted">{currentAccount?.name||'내 계정'} · Instagram Reels</span></div>
-    {historyMode ? <section className="ct-history ct-history-page"><div className="ct-section-heading"><h2><Clock3 size={19}/>전체 작업 <span>{jobs.length}</span></h2><span className="ct-muted">최신 작업부터 표시합니다.</span></div>{jobs.length===0&&<div className="ct-empty"><Clock3 size={28}/><strong>최근 작업이 없습니다.</strong></div>}{jobs.map((item)=><button type="button" key={item.id} disabled={busy} onClick={()=>loadJob(item)}><span className="ct-job-title">{item.kind.startsWith('media-')?<FileVideo size={18}/>:<Search size={18}/>} {item.purpose==='feedback'?'영상·캡션 피드백':tools.find(t=>t.id===item.kind)?.label||'영상 내보내기'}</span><time>{new Date(item.createdAt).toLocaleString('ko-KR')}</time><span className={`ct-status ct-status-${(job?.id===item.id?job:item).status}`}>{(job?.id===item.id?job:item).status==='completed'&&<CheckCircle2 size={14}/>} {stages[(job?.id===item.id?job:item).status]||'처리 중'}</span><ArrowRight size={16}/></button>)}</section> : <div className="ct-work-layout"><div className="ct-main-flow">
+    {historyMode ? <section className="ct-history ct-history-page"><div className="ct-section-heading"><h2><Clock3 size={19}/>전체 작업 <span>{jobs.length}</span></h2><span className="ct-muted">최신 작업부터 표시합니다.</span></div>{jobs.length===0&&<div className="ct-empty"><Clock3 size={28}/><strong>최근 작업이 없습니다.</strong></div>}{jobs.map((item)=><button type="button" key={item.id} disabled={busy} onClick={()=>loadJob(item)}><span className="ct-job-title">{item.kind.startsWith('media-')?<FileVideo size={18}/>:<Search size={18}/>} {item.purpose==='feedback'?'영상·캡션 피드백':tools.find(t=>t.id===item.kind)?.label||'영상 내보내기'}</span><time>{new Date(item.createdAt).toLocaleString('ko-KR')}</time><span className={`ct-status ct-status-${(job?.id===item.id?job:item).status}`}>{(job?.id===item.id?job:item).status==='completed'&&<CheckCircle2 size={14}/>} {stages[(job?.id===item.id?job:item).status]||'처리 중'}</span><ArrowRight size={16}/></button>)}</section> : mode === 'success-reels' ? <div className="ct-work-layout"><div className="ct-main-flow">{features['success-reels'] ? <SuccessReels categories={creatorCategories} /> : <p role="status" className="ct-notice">이 계정에는 아직 공개되지 않은 기능입니다.</p>}</div></div> : <div className="ct-work-layout"><div className="ct-main-flow">
     <div className="ct-section-heading"><h2><SlidersHorizontal size={19} />{usesFileUpload ? '원본 영상' : mode === 'import-link' ? '분석할 콘텐츠' : '콘텐츠 조건'}</h2><span className="ct-badge ct-badge-neutral">{usesFileUpload ? 'MP4 · MOV · WebM' : 'Instagram'}</span></div>
     <form onSubmit={submit} className="ct-form">
       {mode === 'reference-accounts' && <div className="ct-fields ct-fields-two"><SelectField label="카테고리" value={brief.category} onChange={category=>formChanged({category})} required options={[["","카테고리 선택"],...referenceCategories.map(category=>[category,category])]}/><SelectField label="얼굴 노출" value={brief.faceVisibility} onChange={faceVisibility=>formChanged({faceVisibility})} options={[["any","상관없음"],["visible","얼굴 자주 등장"],["mixed","얼굴 일부 등장"],["hidden","얼굴 비공개"]]}/><SelectField label="계정 규모" value={brief.accountSize} onChange={accountSize=>formChanged({accountSize})} options={[["any","상관없음"],["10k_50k","1만~5만"],["50k_100k","5만~10만"],["100k_200k","10만~20만"],["over_200k","20만 이상"]]}/><SelectField label="콘텐츠 언어" value={brief.contentLanguage} onChange={contentLanguage=>formChanged({contentLanguage})} options={[["any","상관없음"],["ko","한국어"],["en","영어"],["ja","일본어"]]}/></div>}
