@@ -6,7 +6,7 @@ import { KINDS, MAX_BYTES, featureEnabled, fail, normalizeBrief, normalizeInstag
 import { database, query, ownedJob, ownedMedia, createJob, publicJob, BUCKET, OUTPUT_BUCKET, signedDownload } from './store.js'
 import { enqueue } from './queue.js'
 import { completeReviewedReferenceJob } from './reference-immediate.js'
-import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from './categories.js'
+import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES, SUCCESS_REEL_CATEGORIES } from './categories.js'
 import { assertCreatorCoupon } from './access.js'
 import { catalogQualityEligible, instagramPostUrl } from './reference-quality.js'
 import { referencePlayback } from './reference-playback.js'
@@ -72,7 +72,7 @@ export function createCreatorRouter() {
   router.get('/creator-tools/capabilities', asyncHandler(async (req, res) => {
     const features = { ...Object.fromEntries(KINDS.map((kind) => [kind, featureEnabled(kind, req.auth.userId)])),
       'success-reels': successReelsEnabled(req.auth.userId) }
-    res.json({ features, categories: CREATOR_CATEGORIES, referenceCategories: REFERENCE_CATEGORIES, trendCategories: REFERENCE_CATEGORIES, limits: { maxVideoBytes: MAX_BYTES, maxVideoSeconds: 300 },
+    res.json({ features, categories: CREATOR_CATEGORIES, successReelCategories: SUCCESS_REEL_CATEGORIES, referenceCategories: REFERENCE_CATEGORIES, trendCategories: REFERENCE_CATEGORIES, limits: { maxVideoBytes: MAX_BYTES, maxVideoSeconds: 300 },
       readiness: {
         'reference-accounts': { ready: Boolean(process.env.BRIGHT_DATA_API_KEY && process.env.BRIGHT_DATA_SERP_ZONE && process.env.OPENAI_API_KEY && process.env.CREATOR_REDIS_URL), message: '공개 계정 검색·프로필 조회 서비스 미연결입니다. 공급자 연결 후 사용할 수 있습니다.' },
         'trend-keywords': { ready: Boolean(process.env.OPENAI_API_KEY), message: 'AI 키워드 서비스를 연결해주세요.' },

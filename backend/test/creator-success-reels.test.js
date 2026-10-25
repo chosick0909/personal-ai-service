@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { shortcodePostedAt, normalizeIngest, qualifyingReels, reviewDecision, ingestAccount, listSuccessReels, successReelReviewSchema } from '../src/creator-tools/success-reels.js'
 import { ingestTokenValid, successReelsEnabled } from '../src/creator-tools/success-reels-routes.js'
 import { keywordsForDay, SUCCESS_REEL_KEYWORDS } from '../src/creator-tools/success-reels-keywords.js'
+import { CREATOR_CATEGORIES, SUCCESS_REEL_CATEGORIES } from '../src/creator-tools/categories.js'
 
 const NOW = Date.parse('2026-10-25T00:00:00Z')
 
@@ -139,4 +140,14 @@ test('rejected accounts keep their reels hidden', async () => {
   assert.equal(result.eligible, false)
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').visible, false)
   assert.equal((await listSuccessReels(db, {})).reels.length, 0)
+})
+
+test('success reels split skin from beauty and add trend-board topics without touching shared categories', () => {
+  for (const name of ['피부', '뷰티', '먹방', '일상', '부업', '부동산', '다이어트·운동']) assert.ok(SUCCESS_REEL_CATEGORIES.includes(name), name)
+  assert.equal(new Set(SUCCESS_REEL_CATEGORIES).size, SUCCESS_REEL_CATEGORIES.length)
+  assert.deepEqual(successReelReviewSchema.properties.category.enum, SUCCESS_REEL_CATEGORIES)
+  // Every searchable category exists, and every category except 기타 is searched.
+  assert.ok(SUCCESS_REEL_KEYWORDS.every(k => SUCCESS_REEL_CATEGORIES.includes(k.category)))
+  assert.deepEqual(SUCCESS_REEL_CATEGORIES.filter(c => c !== '기타' && !SUCCESS_REEL_KEYWORDS.some(k => k.category === c)), [])
+  assert.ok(!CREATOR_CATEGORIES.includes('피부'), 'other creator tools keep their own list')
 })

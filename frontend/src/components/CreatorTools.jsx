@@ -118,7 +118,7 @@ function CreatorWorkspace() {
     creatorRequest('/creator-tools/capabilities', { signal: controller.signal }).then(async (data) => {
       setFeatures({ ...data.features, feedback: data.features['media-analyze'] })
       setReferenceCategories(data.referenceCategories || data.categories || [])
-      setCreatorCategories(data.categories || [])
+      setCreatorCategories(data.successReelCategories || data.categories || [])
       setTrendCategories(data.trendCategories || data.referenceCategories || data.categories || [])
       setReadiness({ ...(data.readiness || {}), feedback: data.readiness?.['media-analyze'] })
       const initial = new URLSearchParams(window.location.search).get('tab')
