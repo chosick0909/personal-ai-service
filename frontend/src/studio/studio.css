@@ -124,9 +124,7 @@
 .st-options-scripts { grid-template-columns:repeat(3, minmax(0,1fr)); align-items:stretch; }
 .st-option-lines { margin:4px 0 0; padding:0; list-style:none; display:grid; gap:8px; }
 .st-option-lines li { font-size:15px; line-height:1.55; color:var(--st-text); }
-.st-option-lines li em { display:inline-block; margin-right:6px; padding:0 7px; border-radius:6px; background:var(--st-bg); color:var(--st-muted); font-style:normal; font-size:12px; font-weight:800; line-height:20px; vertical-align:2px; }
-.st-option-lines li.st-option-line-hook em { background:var(--st-accent-soft); color:var(--st-accent-text); }
-.st .st-option[aria-pressed=true] .st-option-lines li em { background:var(--st-panel); }
+/* Scripts are not all hook/body/close; lines are shown as plain sentences. */
 
 /* chosen source with a small cover */
 .st-source-chip { display:inline-flex; align-items:center; gap:10px; padding:4px 14px 4px 4px; border-radius:12px; background:var(--st-accent-soft); color:var(--st-accent-text); font-weight:800; font-size:15px; }
@@ -179,6 +177,13 @@
 .st-diff > div.is-changed { background:var(--st-highlight); }
 .st-diff s { color:var(--st-faint); }
 .st-diff .is-changed span { font-weight:700; }
+/* 저장 내역 modal */
+.st-versions { width:min(820px, 100%); }
+.st-versions h2 { display:flex; align-items:center; gap:8px; }
+.st-version { display:grid; gap:10px; padding:18px; border:1px solid var(--st-line); border-radius:14px; background:var(--st-bg); }
+.st-version-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.st-version-head strong { font-size:18px; }
+.st-version-text { margin:0; padding:14px 16px; border:1px solid var(--st-line); border-radius:10px; background:var(--st-panel); font:inherit; font-size:15px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
 .st-history { border-top:1px solid var(--st-line); padding-top:12px; }
 .st-history summary { cursor:pointer; font-weight:700; color:var(--st-muted); }
 .st-history ul { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:8px; }
@@ -188,7 +193,7 @@
 /* ----- script editor ----- */
 .st-lines { display:grid; gap:8px; }
 .st-line { display:grid; grid-template-columns:84px minmax(0,1fr) 44px; gap:12px; align-items:start; padding:12px 14px; border:1px solid var(--st-line); border-radius:12px; background:var(--st-panel); }
-.st-line-part { display:grid; gap:2px; font-size:13px; font-weight:800; color:var(--st-accent-text); }
+.st-line-part { display:grid; gap:2px; padding-top:6px; font-size:13px; font-weight:800; color:var(--st-accent-text); }
 .st-line-part small { color:var(--st-muted); font-weight:600; }
 .st-line-part-cta { color:var(--st-success); }
 .st-line textarea { width:100%; min-height:44px; padding:8px 10px; border:1px solid transparent; border-radius:8px; background:transparent; font-size:17px; line-height:1.55; resize:none; }
