@@ -34,9 +34,9 @@ export default function ReferencesPage() {
     <div className="st-reels">{shown.map(ref => { const reel = { shortcode: ref.id, username: ref.username, views: ref.views, postedAt: ref.postedAt, caption: ref.caption, permalink: `https://www.instagram.com/reel/${ref.id}/`, thumbnailUrl: ref.thumbnailUrl, analysisStatus: ref.analysisStatus, analysisRequests: ref.analysisRequests }
       return <ReelCard key={ref.id} reel={reel} badge={ref.format ? <span className="st-reel-badge">{ref.format}</span> : null} onPlay={() => setOpen(reel)} onAnalyze={() => go('reference', { ref: ref.id })} onOpenAnalysis={() => go('reference', { ref: ref.id })}
         footer={<button type="button" className="st-reel-ig" aria-label="내 레퍼런스에서 빼기" data-tip="내 레퍼런스에서 빼기" onClick={() => remove(ref)}><Trash2 size={17} /></button>}>
-        <div className="st-ref-like"><span className="st-muted st-small">이 릴스에서 배울 점을 표시해 두세요</span>
+        <div className="st-ref-like"><span className="st-ref-like-title">이 릴스에서 배울 점을 표시해 두세요</span>
           <div className="st-tags" role="group" aria-label="참고할 점">{LIKES.map(([tag, label, icon]) => { const Icon = icon; const on = ref.tags.includes(tag); return <button type="button" key={tag} className="st-tag" aria-pressed={on} onClick={() => toggleTag(ref, tag)}>{on ? <Check size={14} /> : <Icon size={14} />}{label}</button> })}</div></div>
-        <button type="button" className="st-btn st-btn-soft st-btn-sm" onClick={() => go('new', { ref: ref.id })}><Sparkles size={16} />이 레퍼런스로 기획안 만들기</button>
+        <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => go('new', { ref: ref.id })}><Sparkles size={16} />이 레퍼런스로 기획안 만들기</button>
       </ReelCard> })}</div>
     {open && <PlayerModal reel={open} onClose={() => setOpen(null)} onAnalyze={() => go('reference', { ref: open.shortcode })} onOpenAnalysis={() => go('reference', { ref: open.shortcode })} />}
   </div>

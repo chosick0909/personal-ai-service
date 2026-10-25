@@ -219,6 +219,7 @@
 .st-reel-caption strong { display:block; color:var(--st-text); }
 .st-tags { display:flex; gap:6px; flex-wrap:wrap; }
 .st-ref-like { display:grid; gap:6px; }
+.st-ref-like-title { color:var(--st-accent-text); font-weight:600; font-size:14px; }
 .st-tag { display:inline-flex; align-items:center; gap:5px; min-height:36px; padding:0 12px; border:1px solid var(--st-line-strong); border-radius:999px; background:var(--st-panel); font-size:14px; font-weight:600; color:var(--st-muted); }
 .st-tag[aria-pressed=true] { border-color:var(--st-accent); background:var(--st-accent-soft); color:var(--st-accent-text); }
 
