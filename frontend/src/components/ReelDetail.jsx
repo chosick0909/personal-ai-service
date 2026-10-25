@@ -97,7 +97,7 @@ function OverviewTab({ analysis, reel }) {
     </section>
     {(known(o.commonBelief) || known(o.contrarianReality)) && <section className="ct-rd-card"><h3>통념과 반전</h3>
       <div className="ct-rd-flip"><div><span>시청자가 흔히 하는 생각</span><p>{o.commonBelief}</p></div><div><span>영상이 보여준 것</span><p>{o.contrarianReality}</p></div></div></section>}
-    {o.evidence?.length > 0 && <section className="ct-rd-card"><h3>영상이 든 근거</h3><ul className="ct-rd-bullets">{o.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul></section>}
+    {o.evidence?.length > 0 && <section className="ct-rd-card"><header><h3>설득 포인트</h3><span className="ct-muted">주장을 믿게 하려고 영상이 이유로 든 내용이에요</span></header><ul className="ct-rd-bullets">{o.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul></section>}
   </div>
 }
 
