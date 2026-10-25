@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Copy, Heart, MessageCircle, Play, Sparkles, LoaderCir
 import { useStudio } from '../context'
 import { studio, compactCount, day } from '../api'
 import { InstagramIcon } from './ReelsPage'
+import HookLoader from '../HookLoader'
 
 const ROLE = { hook: '첫 문장', problem: '문제 제기', empathy: '공감', evidence: '근거', method: '방법', twist: '반전', cta: '마무리', other: '전개' }
 const TABS = [['script', '대본'], ['overview', '한눈에'], ['hook', '첫 문장'], ['structure', '전개'], ['filming', '촬영/편집'], ['caption', '캡션']]
@@ -94,6 +95,10 @@ export function AnalysisTabs({ reel, analysis, tab, setTab }) {
   </>
 }
 
+// The server reports only running/ready; the stage shown follows how long the analysis has run.
+const ANALYSIS_STAGES = ['영상 가져오기', '대본 읽기', '첫 문장·전개·촬영·캡션 분석']
+const analysisStage = startedAt => { const s = startedAt ? (Date.now() - Date.parse(startedAt)) / 1000 : 0; return s < 20 ? 0 : s < 60 ? 1 : 2 }
+
 export default function ReferenceDetail({ shortcode }) {
   const { go, analyze, tracking } = useStudio()
   const [reel, setReel] = useState(null)
@@ -125,7 +130,7 @@ export default function ReferenceDetail({ shortcode }) {
       </aside>
       <div className="st-stack">
         {analysis ? <AnalysisTabs reel={reel} analysis={analysis} tab={tab} setTab={setTab} />
-          : running ? <div className="st-card st-row"><LoaderCircle size={26} className="st-spin" style={{ color: 'var(--st-accent)' }} /><div><h3>분석 중이에요</h3><p className="st-muted">보통 1~2분 걸려요. 끝나면 이 화면에 바로 나와요.</p></div></div>
+          : running ? <HookLoader title="훅ai가 분석하는 중" stages={ANALYSIS_STAGES} stageIndex={analysisStage(reel.analysisUpdatedAt)} startedAt={reel.analysisUpdatedAt} note="보통 1~2분 걸려요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드릴게요." />
           : <div className="st-card st-stack"><h3>{reel.analysisStatus === 'failed' ? '분석하지 못했어요' : '아직 분석하지 않은 릴스예요'}</h3>{reel.analysisError && <p className="st-muted">{reel.analysisError}</p>}<button type="button" className="st-btn st-btn-primary st-btn-big" style={{ justifySelf: 'start' }} onClick={() => analyze(reel)}><Sparkles size={20} />분석하기</button></div>}
       </div>
     </div>

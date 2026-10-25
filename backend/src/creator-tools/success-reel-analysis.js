@@ -353,7 +353,7 @@ export async function requestReelPlan(deps, userId, shortcode, briefValue, now =
 }
 
 export async function reelDetail(db, userId, shortcode) {
-  const reel = await query(db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,visible,analysis,analysis_status,analysis_error,source,title,source_text,owner_user_id')
+  const reel = await query(db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,visible,analysis,analysis_status,analysis_error,analysis_updated_at,source,title,source_text,owner_user_id')
     .eq('shortcode', shortcode).maybeSingle())
   if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
   const [saved, plans] = await Promise.all([
@@ -366,7 +366,7 @@ export async function reelDetail(db, userId, shortcode) {
     comments: reel.comments, postedAt: reel.posted_at, caption: reel.caption, captionKo: reel.caption_ko, language: reel.language, region: reel.region,
     audio: reel.audio, category: reel.category, faceVisibility: reel.face_visibility, saved: Boolean(saved),
     thumbnailUrl: reel.thumbnail_path ? (await query(db.storage.from('creator-reel-thumbnails').createSignedUrl(reel.thumbnail_path, 3600)))?.signedUrl || null : null,
-    analysisStatus: reel.analysis_status, analysisError: reel.analysis_error, analysis: reel.analysis_status === 'ready' ? reel.analysis : null,
+    analysisStatus: reel.analysis_status, analysisError: reel.analysis_error, analysisUpdatedAt: reel.analysis_updated_at || null, analysis: reel.analysis_status === 'ready' ? reel.analysis : null,
     plans: plans.map(p => ({ id: p.id, brief: p.brief, status: p.status, plan: p.plan, error: p.error, createdAt: p.created_at })) }
 }
 

@@ -71,10 +71,11 @@ export default function StudioApp() {
   const dismiss = useCallback(id => setToasts(list => list.filter(t => t.id !== id)), [])
 
   // Reel analyses run on the server; this tracker polls them and opens the result when it is ready.
-  const analyze = useCallback(async (reel) => {
+  const analyze = useCallback(async (reel, { started = false } = {}) => {
     const code = reel.shortcode
     setTracking(t => ({ ...t, [code]: { reel, status: 'running' } }))
     toast({ id: `an:${code}`, kind: 'running', title: '분석 중…', body: `@${reel.username} · 1~2분 걸려요`, ttl: 0 })
+    if (started) return
     try {
       const result = await studio.analyze(code)
       if (result.status === 'ready') { setTracking(t => { const n = { ...t }; delete n[code]; return n }); dismiss(`an:${code}`); go('reference', { ref: code }) }

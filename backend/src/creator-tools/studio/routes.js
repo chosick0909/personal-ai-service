@@ -18,7 +18,7 @@ import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
 import { readPublicImage } from '../network.js'
 import { probeVideo, ff } from '../media.js'
-import { requestReelAnalysis } from '../success-reel-analysis.js'
+import { requestReelAnalysis, runReelAnalysis, schedule } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 
 let redis
@@ -229,6 +229,28 @@ export function registerStudioRoutes(router) {
   }
   const startAnalysis = (shortcode, userId) => requestReelAnalysis({ ...deps(), schedule: undefined }, shortcode, Date.now(), userId)
 
+  // Bright Data takes a minute or more, so the row is created at once and filled in the background;
+  // the student watches the same analysis tracker as for any other reel.
+  const importLink = async (shortcode, url, userId) => {
+    const db = database()
+    try {
+      const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(180000) })
+      const media = await providers.brightData(url, (_key, task) => task())
+      const username = String(media.username || '').replace(/^@/, '').toLowerCase()
+      if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
+      await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
+      const thumbnail = media.thumbnailUrl ? await readPublicImage(media.thumbnailUrl, AbortSignal.timeout(20000)).catch(() => null) : null
+      await query(db.from('creator_success_reels').update({ username, views: media.views ?? 0, likes: media.likes, comments: media.comments,
+        posted_at: media.postedAt || new Date().toISOString(), caption: media.caption || '', thumbnail_path: thumbnail ? await storeThumbnail(db, shortcode, thumbnail) : null }).eq('shortcode', shortcode))
+      // The link fetch already paid for the video URL; keep it for the analysis download.
+      if (media.videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, media.videoUrl, 'EX', 3600).catch(() => {})
+    } catch (error) {
+      const text = error?.exposeMessage ? error.message : '영상을 가져오지 못했어요. 링크를 확인하고 다시 시도해주세요.'
+      await query(db.from('creator_success_reels').update({ analysis_status: 'failed', analysis_error: text, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
+      return
+    }
+    await runReelAnalysis(deps(), shortcode)
+  }
   router.post('/creator-tools/studio/references/link', asyncHandler(async (req, res) => {
     enabled(req)
     const db = database(), userId = req.auth.userId
@@ -238,18 +260,15 @@ export function registerStudioRoutes(router) {
     const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id').eq('shortcode', shortcode).maybeSingle())
     if (!existing) {
       await uploadQuota(userId)
-      const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(120000) })
-      const media = await providers.brightData(url, (_key, task) => task())
-      const username = String(media.username || '').replace(/^@/, '').toLowerCase()
-      if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
-      await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
-      const thumbnail = media.thumbnailUrl ? await readPublicImage(media.thumbnailUrl, AbortSignal.timeout(20000)).catch(() => null) : null
-      await query(db.from('creator_success_reels').upsert({ shortcode, username, views: media.views ?? 0, likes: media.likes, comments: media.comments,
-        posted_at: media.postedAt || new Date().toISOString(), caption: media.caption || '', source: 'upload-link', owner_user_id: userId, visible: false,
-        thumbnail_path: thumbnail ? await storeThumbnail(db, shortcode, thumbnail) : null }, { onConflict: 'shortcode' }))
-      // The link fetch already paid for the video URL; keep it for the analysis download.
-      if (media.videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, media.videoUrl, 'EX', 3600).catch(() => {})
-    } else if (!existing.visible && existing.owner_user_id !== userId) {
+      const now = new Date().toISOString()
+      await query(db.from('creator_success_reels').upsert({ shortcode, username: await uploadAccount(db, userId), views: 0, posted_at: now, caption: '', source: 'upload-link',
+        owner_user_id: userId, visible: false, analysis_status: 'running', analysis_error: null, analysis_updated_at: now }, { onConflict: 'shortcode' }))
+      await query(db.from('creator_reel_user_analyses').upsert({ user_id: userId, shortcode, created_at: now }))
+      schedule(`analysis:${shortcode}`, () => importLink(shortcode, url, userId))
+      res.status(201).json({ shortcode, status: 'running' })
+      return
+    }
+    if (!existing.visible && existing.owner_user_id !== userId) {
       // Someone else's private link: make it theirs too so it appears in their library.
       await query(db.from('creator_success_reels').update({ owner_user_id: userId }).eq('shortcode', shortcode))
     }

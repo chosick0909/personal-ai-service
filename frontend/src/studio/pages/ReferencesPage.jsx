@@ -4,6 +4,7 @@ import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
 import { useStudio } from '../context'
 import { studio } from '../api'
 import { ReelCard, PlayerModal } from './ReelsPage'
+import HookLoader from '../HookLoader'
 
 const FILTERS = [['all', '전체'], ['hook', '첫 문장이 좋았던'], ['structure', '흐름이 좋았던'], ['filming', '촬영/편집이 좋았던'], ['caption', '캡션이 좋았던']]
 const LIKES = [['hook', '첫 문장이 좋아요', Quote], ['structure', '흐름이 좋아요', ListOrdered], ['filming', '촬영/편집이 좋아요', Clapperboard], ['caption', '캡션이 좋아요', PenLine]]
@@ -43,6 +44,8 @@ function AddReferenceModal({ onClose, onAdded }) {
       {tab === 'video' && <><div className="st-field"><label>영상 파일 <small>150MB·5분 이하</small></label><input type="file" accept="video/*" className="st-input" onChange={e => setFile(e.target.files?.[0] || null)} /></div><div className="st-field"><label>제목 (선택)</label><input className="st-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 지난달 올린 선크림 리뷰" /></div></>}
       {tab === 'text' && <><div className="st-field"><label>제목 (선택)</label><input className="st-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 경쟁사 릴스 대본" /></div><div className="st-field"><label>대본 <small>말한 순서대로 붙여넣어 주세요.</small></label><textarea className="st-textarea" value={body} onChange={e => setBody(e.target.value)} placeholder="첫 문장부터 마지막 문장까지" /></div></>}
       {error && <div className="st-error" role="alert">{error}</div>}
+      {busy && <HookLoader title={tab === 'video' ? '영상을 올리는 중' : tab === 'link' ? '릴스를 가져오는 중' : '대본을 저장하는 중'} stages={[tab === 'video' ? '영상 올리기' : tab === 'link' ? '링크 확인' : '대본 저장', '분석 시작']}
+        note={tab === 'video' ? '올리는 동안은 이 창을 열어 두세요. 올리고 나면 분석은 알아서 이어져요.' : '곧 분석이 시작돼요. 끝나면 바로 열어드릴게요.'} />}
       <button type="submit" className="st-btn st-btn-primary st-btn-big" disabled={busy || (tab === 'link' ? !url.trim() : tab === 'text' ? body.trim().length < 20 : !file)}>{busy ? <><LoaderCircle size={20} className="st-spin" />{tab === 'video' ? '올리는 중…' : '가져오는 중…'}</> : <><Sparkles size={20} />추가하고 분석하기</>}</button>
     </form>
   </div>
@@ -81,6 +84,6 @@ export default function ReferencesPage() {
         <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => go('new', { ref: ref.id })}><Sparkles size={16} />이 레퍼런스로 기획안 만들기</button>
       </ReelCard> })}</div>
     {open && <PlayerModal reel={open} onClose={() => setOpen(null)} onAnalyze={() => go('reference', { ref: open.shortcode })} onOpenAnalysis={() => go('reference', { ref: open.shortcode })} />}
-    {adding && <AddReferenceModal onClose={() => setAdding(false)} onAdded={added => { setAdding(false); toast({ kind: 'ready', title: '레퍼런스를 추가했어요', body: '분석이 끝나면 바로 열어드릴게요.' }); analyze(added) }} />}
+    {adding && <AddReferenceModal onClose={() => setAdding(false)} onAdded={added => { setAdding(false); toast({ kind: 'ready', title: '레퍼런스를 추가했어요', body: '분석이 끝나면 바로 열어드릴게요.' }); analyze(added, { started: true }) }} />}
   </div>
 }
