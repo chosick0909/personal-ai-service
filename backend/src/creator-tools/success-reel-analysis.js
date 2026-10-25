@@ -18,7 +18,7 @@ const num = { type: 'number' }
 const obj = properties => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties })
 const arr = items => ({ type: 'array', items })
 export const HOOK_TYPES = ['질문형', '손실 회피', '통념 반박', '결과 먼저', '공감', '호기심', '순위·평가', '비교', '경고', '숫자·리스트', '기타']
-export const STORY_FORMATS = ['비교·평가', '문제-해결', '리스트', '스토리텔링', '튜토리얼', '비포·애프터', '리뷰·후기', '정보 전달', '기타']
+export const STORY_FORMATS = ['비교·평가', '문제-해결', '리스트', '스토리텔링', '튜토리얼', '비포·애프터', '통념 깨기', '리뷰·후기', '정보 전달', '기타']
 const ROLES = ['hook', 'problem', 'empathy', 'evidence', 'method', 'twist', 'cta', 'other']
 
 export const reelAnalysisSchema = obj({
@@ -27,6 +27,7 @@ export const reelAnalysisSchema = obj({
   structure: obj({ category: { type: 'string', enum: STORY_FORMATS }, description: str,
     steps: arr(obj({ role: { type: 'string', enum: ROLES }, quote: str, purpose: str })), analysis: str }),
   filming: obj({ location: str, shotType: str, onScreen: str, textOverlay: str, editing: str, guide: arr(str) }),
+  caption: obj({ firstLine: str, structure: str, cta: str, hashtags: str, analysis: str }),
 })
 
 export const reelAnalysisPrompt = `조회수가 크게 터진 인스타그램 릴스를 분석해, 수강생이 같은 방식으로 자기 콘텐츠를 만들 수 있게 설명하세요. 모든 설명은 한국어로 씁니다.
@@ -35,6 +36,7 @@ overview: summary는 영상 전체를 2~3문장으로 요약. topic은 주제, i
 hook: category는 훅 유형. formula는 이 영상의 말 훅과 첫 화면 텍스트가 실제로 쓴 장치를 그대로 본뜬 공식으로, 주제만 바뀌는 자리는 [대괄호]로 씁니다(예: "[주제] [전문가]가 안 사요/사요로 판정"). 영상에 없는 장치를 만들어 넣지 않습니다. spokenHook은 script 첫 부분에서 글자 그대로 옮긴 말 훅(40자 이내). visualHook은 첫 장면 이미지에서 보이는 화면 텍스트·연출(보이지 않으면 "확인되지 않음"). analysis는 말·화면 훅이 왜 시청자를 붙잡는지와 따라 하는 방법.
 structure: category는 전개 형식, description은 한 문장 설명. steps는 대본의 실제 순서대로 최대 7개이고 quote는 script에서 글자 그대로 옮긴 40자 이내 인용, purpose는 그 구간이 하는 일. analysis는 이 구조가 효과적인 이유와 적용 방법.
 filming: 제공된 장면 이미지에서 관찰한 것만 씁니다. location(촬영 장소), shotType(구도·카메라 거리·각도), onScreen(등장 인물·손·제품 등 화면에 나오는 것), textOverlay(자막·텍스트 스타일과 위치), editing(컷 템포·전환·효과), guide는 수강생이 비슷하게 찍기 위한 구체적인 방법 3~6개.
+caption: 입력 caption(인스타 캡션 원문)을 분석합니다. firstLine은 첫 줄이 쓴 장치(없으면 "캡션 없음"), structure는 본문 구성(줄 수·정보 배치), cta는 마무리에서 유도한 행동, hashtags는 해시태그 전략(개수·종류), analysis는 캡션이 영상을 어떻게 받쳐 주는지 한두 문장.
 조회수나 성과의 원인을 단정하거나 예측하지 말고, 관찰한 구조적 특징만 설명합니다. 근거가 없는 항목은 "확인되지 않음"으로 씁니다.`
 
 export const reelPlanSchema = obj({
@@ -89,6 +91,7 @@ export function validateReelAnalysis(raw, script) {
         const quote = grounded(step?.quote), purpose = clean(step?.purpose, 300)
         return quote && purpose && ROLES.includes(step.role) ? [{ role: step.role, quote, purpose }] : []
       }).slice(0, 7) },
+    caption: raw.caption ? { firstLine: clean(raw.caption.firstLine, 200), structure: clean(raw.caption.structure, 300), cta: clean(raw.caption.cta, 200), hashtags: clean(raw.caption.hashtags, 200), analysis: clean(raw.caption.analysis, 400) } : null,
     filming: { location: clean(raw.filming.location, 200), shotType: clean(raw.filming.shotType, 200), onScreen: clean(raw.filming.onScreen, 200),
       textOverlay: clean(raw.filming.textOverlay, 200), editing: clean(raw.filming.editing, 300), guide: words(raw.filming.guide, 300, 6) },
   }

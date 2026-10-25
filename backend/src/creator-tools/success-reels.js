@@ -171,7 +171,7 @@ export async function ingestAccount(deps, body) {
   return { username: input.username, qualified: qualified.length, saved, eligible: decision.eligible, reason: decision.reason }
 }
 
-const LIST_SORTS = { latest: 'posted_at', views: 'views' }
+const LIST_SORTS = { latest: 'posted_at', views: 'views', popular: 'analysis_requests' }
 // Free-text search over stored fields only. Characters that carry meaning in a
 // PostgREST filter (commas, parentheses, wildcards, quotes, backslashes) are dropped.
 export function searchTerm(value) {
@@ -182,7 +182,7 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   const sort = LIST_SORTS[filters.sort] ? filters.sort : 'latest'
   const limit = 48
   const page = Math.max(0, Math.min(50, Number.parseInt(filters.page, 10) || 0))
-  let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status')
+  let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests')
     .eq('visible', true)
   if (SUCCESS_REEL_CATEGORIES.includes(filters.category)) request = request.eq('category', filters.category)
   if (['visible', 'hidden', 'mixed'].includes(filters.face)) request = request.eq('face_visibility', filters.face)
@@ -202,7 +202,8 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   }
   const q = searchTerm(filters.q)
   if (q) request = request.or(['caption', 'caption_ko', 'username', 'audio'].map(field => `${field}.ilike.%${q}%`).join(','))
-  const rows = await query(request.order(LIST_SORTS[sort], { ascending: false }).range(page * limit, page * limit + limit - 1))
+  if (sort === 'popular') request = request.order('analysis_requests', { ascending: false })
+  const rows = await query(request.order(sort === 'popular' ? 'views' : LIST_SORTS[sort], { ascending: false }).range(page * limit, page * limit + limit - 1))
   const paths = rows.map(row => row.thumbnail_path).filter(Boolean)
   const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)) : []
   const urls = new Map(signed.filter(item => item.signedUrl).map(item => [item.path, item.signedUrl]))
@@ -213,6 +214,6 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
     username: row.username, views: row.views, likes: row.likes, comments: row.comments, postedAt: row.posted_at,
     caption: row.caption, captionKo: row.caption_ko, language: row.language, region: row.region, audio: row.audio,
     category: row.category, faceVisibility: row.face_visibility, thumbnailUrl: urls.get(row.thumbnail_path) || null,
-    analysisStatus: analyzedCodes.has(row.shortcode) ? row.analysis_status || 'none' : 'none', saved: savedCodes.has(row.shortcode) })),
+    analysisStatus: analyzedCodes.has(row.shortcode) ? row.analysis_status || 'none' : 'none', analysisRequests: row.analysis_requests || 0, saved: savedCodes.has(row.shortcode) })),
   page, hasMore: rows.length === limit, sort, q }
 }

@@ -4,7 +4,7 @@ const writing = new Set(['reference-analysis', 'media-hook-diagnosis'])
 export const premiumOperations = new Set(['success-reel-analysis', 'success-reel-plan'])
 export function operationModel(operation, fallback, env = process.env, premiumFallback = fallback) {
   const key = `CREATOR_MODEL_${String(operation).toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
-  if (premiumOperations.has(operation)) return env[key]?.trim() || premiumFallback
+  if (premiumOperations.has(operation) || String(operation).startsWith('studio-')) return env[key]?.trim() || premiumFallback
   return env[key]?.trim() || (writing.has(operation) && env.CREATOR_WRITING_MODEL?.trim()) || env.CREATOR_TEXT_MODEL || fallback
 }
 export function parseJsonCompletion(response) {
