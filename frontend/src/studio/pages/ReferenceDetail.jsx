@@ -130,7 +130,7 @@ export default function ReferenceDetail({ shortcode }) {
       </aside>
       <div className="st-stack">
         {analysis ? <AnalysisTabs reel={reel} analysis={analysis} tab={tab} setTab={setTab} />
-          : running ? <HookLoader title="훅ai가 분석하는 중" stages={ANALYSIS_STAGES} stageIndex={analysisStage(reel.analysisUpdatedAt)} startedAt={reel.analysisUpdatedAt} note="보통 1~2분 걸려요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드릴게요." />
+          : running ? <HookLoader title="훅ai가 분석하는 중" stages={ANALYSIS_STAGES} stageIndex={analysisStage(tracking[shortcode] ? null : reel.analysisUpdatedAt)} startedAt={tracking[shortcode] ? null : reel.analysisUpdatedAt} note="보통 1~2분 걸려요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드릴게요." />
           : <div className="st-card st-stack"><h3>{reel.analysisStatus === 'failed' ? '분석하지 못했어요' : '아직 분석하지 않은 릴스예요'}</h3>{reel.analysisError && <p className="st-muted">{reel.analysisError}</p>}<button type="button" className="st-btn st-btn-primary st-btn-big" style={{ justifySelf: 'start' }} onClick={() => analyze(reel)}><Sparkles size={20} />분석하기</button></div>}
       </div>
     </div>
