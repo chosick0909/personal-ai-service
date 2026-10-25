@@ -49,7 +49,7 @@ test('slot sources resolve to excerpts from reels, formulas and the library', as
   assert.equal(resolved.filming.excerpt.editing.subtitleStyle, '상단 판정판', 'older analyses map textOverlay to editing')
   assert.equal(resolved.caption.excerpt.type, '경고')
   await assert.rejects(resolveSources(db, 'u2', { hook: { kind: 'formula', id: 'f1' } }), /저장한 공식/)
-  await assert.rejects(resolveSources(db, 'u1', { hook: { kind: 'reel', id: 'Nope' } }), /분석이 끝나지/)
+  await assert.rejects(resolveSources(db, 'u1', { hook: { kind: 'reel', id: 'Nope' } }), /찾을 수 없어요/)
 })
 
 test('stage generation normalizes 훅ai output and keeps placeholders', async () => {
