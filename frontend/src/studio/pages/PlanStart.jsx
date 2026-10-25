@@ -3,8 +3,8 @@ import { Sparkles, Layers, PenLine, Check, X, BookOpen, Wand2, FolderHeart } fro
 import { useStudio } from '../context'
 import { studio, SLOT_LABELS } from '../api'
 
-const SLOTS = ['hook', 'structure', 'filming', 'editing', 'caption']
-const SLOT_HELP = { hook: '첫 3초 말 훅과 화면 훅을 가져와요', structure: '이야기가 흘러가는 순서와 리듬을 가져와요', filming: '장소·구도·조명 등 찍는 방식을 가져와요', editing: '자막 스타일·컷 템포·효과·사운드를 가져와요', caption: '캡션의 첫 줄과 마무리 방식을 가져와요 (선택)' }
+const SLOTS = ['hook', 'structure', 'filming', 'caption']
+const SLOT_HELP = { hook: '첫 3초 말 훅과 화면 훅을 가져와요', structure: '이야기가 흘러가는 순서와 리듬을 가져와요', filming: '구도·조명 같은 촬영 방식과 자막·컷·효과 같은 편집 방식을 함께 가져와요', caption: '캡션의 첫 줄과 마무리 방식을 가져와요 (선택)' }
 
 // Picks one source for a slot from 내 레퍼런스 / 내 공식 / 공식 사전.
 function SlotPicker({ slot, refs, formulas, library, onPick, onClose }) {

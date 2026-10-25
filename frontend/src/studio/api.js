@@ -35,6 +35,6 @@ export function compactCount(value) {
 }
 export const day = value => value ? new Date(value).toISOString().slice(0, 10) : ''
 export const when = value => value ? new Date(value).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
-export const SLOT_LABELS = { hook: '첫 문장', structure: '전개', filming: '촬영', editing: '편집', caption: '캡션' }
+export const SLOT_LABELS = { hook: '첫 문장', structure: '전개', filming: '촬영/편집', caption: '캡션' }
 export const PART_LABELS = { hook: '첫 문장', body: '본문', cta: '마무리' }
 export const STAGES = [['topic', '주제'], ['thumbnail', '썸네일'], ['hook', '첫 문장'], ['script', '대본'], ['filming', '촬영·편집'], ['caption', '캡션'], ['done', '완성']]

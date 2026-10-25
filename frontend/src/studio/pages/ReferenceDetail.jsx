@@ -5,7 +5,7 @@ import { studio, compactCount, day } from '../api'
 import { InstagramIcon } from './ReelsPage'
 
 const ROLE = { hook: '첫 문장', problem: '문제 제기', empathy: '공감', evidence: '근거', method: '방법', twist: '반전', cta: '마무리', other: '전개' }
-const TABS = [['script', '대본'], ['overview', '한눈에'], ['hook', '첫 문장'], ['structure', '전개'], ['filming', '촬영'], ['editing', '편집'], ['caption', '캡션']]
+const TABS = [['script', '대본'], ['overview', '한눈에'], ['hook', '첫 문장'], ['structure', '전개'], ['filming', '촬영/편집'], ['caption', '캡션']]
 const known = v => v && v !== '확인되지 않음'
 // Older analyses hold one long paragraph: split it into readable lines and pull out "(1) … (2) …" steps.
 const sentences = value => String(value || '').split(/(?<=[.다요]\.)\s+|(?<=니다\.)\s+/).map(v => v.trim()).filter(Boolean)
@@ -80,13 +80,11 @@ export function AnalysisTabs({ reel, analysis, tab, setTab }) {
       {s.apply?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>내 영상에 적용하기</h3><ol className="st-steps">{s.apply.map((t, i) => <li key={i}>{t}</li>)}</ol></section>}
     </div>}
     {tab === 'filming' && <div className="st-stack">
-      <section className="st-card"><KV label="촬영 장소">{f.location}</KV><KV label="구도·앵글">{f.shotType}</KV><KV label="화면에 나오는 것">{f.onScreen}</KV></section>
+      <section className="st-card"><div className="st-card-head"><h3>촬영</h3></div><KV label="촬영 장소">{f.location}</KV><KV label="구도·앵글">{f.shotType}</KV><KV label="화면에 나오는 것">{f.onScreen}</KV></section>
       {f.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 찍어보세요</h3><ol className="st-steps">{f.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
-    </div>}
-    {tab === 'editing' && <div className="st-stack">
-      <section className="st-card"><KV label="자막 스타일">{e.subtitleStyle}</KV><KV label="컷·템포">{e.cuts}</KV><KV label="전환">{e.transitions}</KV><KV label="효과">{e.effects}</KV><KV label="사운드">{e.sound}</KV></section>
-      {e.guide?.length > 0 ? <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 편집해보세요</h3><ol className="st-steps">{e.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>
-        : !analysis.editing && <div className="st-note">이 릴스는 편집 분석이 추가되기 전에 분석됐어요. 자막·컷 정보만 보여요.</div>}
+      <section className="st-card"><div className="st-card-head"><h3>편집</h3></div><KV label="자막 스타일">{e.subtitleStyle}</KV><KV label="컷·템포">{e.cuts}</KV><KV label="전환">{e.transitions}</KV><KV label="효과">{e.effects}</KV><KV label="사운드">{e.sound}</KV>
+        {!analysis.editing && <p className="st-muted st-small" style={{ marginTop: 10 }}>이 릴스는 편집 분석이 추가되기 전에 분석됐어요. 자막·컷 정보만 보여요.</p>}</section>
+      {e.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 편집해보세요</h3><ol className="st-steps">{e.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
     </div>}
     {tab === 'caption' && <div className="st-stack">
       {c ? <section className="st-card"><KV label="첫 줄 장치">{c.firstLine}</KV><KV label="본문 구성">{c.structure}</KV><KV label="마무리 유도">{c.cta}</KV><KV label="해시태그 전략">{c.hashtags}</KV><KV label="역할">{c.analysis}</KV></section>

@@ -14,7 +14,7 @@ import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
 const deps = () => ({ db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) })
-const TAGS = ['hook', 'structure', 'filming', 'editing', 'caption']
+const TAGS = ['hook', 'structure', 'filming', 'caption']
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
