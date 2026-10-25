@@ -274,7 +274,10 @@ export function formulaFromSession(session, resolved, kind) {
   const chosen = (field) => { const f = session[field]; if (!f) return null; if (f.custom) return { text: f.custom }; return f.options?.[f.chosen ?? 0] ?? null }
   if (kind === 'hook') {
     const hook = chosen('hook'); if (!hook) return null
-    return { title: `첫 문장: ${hook.spoken || hook.text}`.slice(0, 80), spec: { type: hook.type || resolved.hook?.excerpt?.type || '기타', formula: resolved.hook?.excerpt?.formula || '', spoken: hook.spoken || hook.text, onScreen: hook.onScreen || '' }, example: hook.spoken || hook.text || '' }
+    // The source formula only applies when the student kept the source's hook device.
+    const sourceType = resolved.hook?.excerpt?.type
+    const type = hook.type || sourceType || '기타'
+    return { title: `첫 문장: ${hook.spoken || hook.text}`.slice(0, 80), spec: { type, formula: type === sourceType ? resolved.hook?.excerpt?.formula || '' : '', spoken: hook.spoken || hook.text, onScreen: hook.onScreen || '' }, example: hook.spoken || hook.text || '' }
   }
   if (kind === 'structure') {
     const lines = session.script?.edited || chosen('script')?.lines; if (!lines?.length) return null

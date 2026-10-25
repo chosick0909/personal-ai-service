@@ -97,8 +97,9 @@ test('topic chat returns chips, proposals and a ready topic; revise chat returns
 test('formulas are saved as structure, and the library matches analysis categories', () => {
   const session = { topic: { title: '선크림 판정' }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.', onScreen: '안 사요', type: '손실 회피' }], chosen: 0 },
     script: { options: [{ label: '판정으로 설득', lines: [{ part: 'hook', spoken: 'a', onScreen: 'x', seconds: 3 }, { part: 'body', spoken: 'b', onScreen: '', seconds: 5 }] }], chosen: 0, edited: null } }
-  const hook = formulaFromSession(session, { hook: { excerpt: { formula: '[주제] 판정' } } }, 'hook')
+  const hook = formulaFromSession(session, { hook: { excerpt: { type: '손실 회피', formula: '[주제] 판정' } } }, 'hook')
   assert.equal(hook.spec.formula, '[주제] 판정')
+  assert.equal(formulaFromSession(session, { hook: { excerpt: { type: '질문형', formula: '[주제] 해본 적 있죠?' } } }, 'hook').spec.formula, '', 'a different hook device does not inherit the source formula')
   assert.equal(hook.spec.type, '손실 회피')
   const structure = formulaFromSession(session, {}, 'structure')
   assert.deepEqual(structure.spec.segments, [['첫 문장', '3초 · x'], ['본문', '5초 · 자막 없음']])
