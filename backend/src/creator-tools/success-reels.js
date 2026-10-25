@@ -7,7 +7,7 @@ import { obviousNonReferenceAccount } from './reference-quality.js'
 // from individual creators whose production is reproducible at home. Domestic and overseas.
 export const SUCCESS_REEL_MIN_VIEWS = 500000
 export const SUCCESS_REEL_MAX_AGE_DAYS = 90
-export const SUCCESS_REEL_REVIEW_VERSION = 1
+export const SUCCESS_REEL_REVIEW_VERSION = 2
 export const SUCCESS_REEL_REVIEW_DAYS = 30
 // Accounts this large are celebrities or media, never reproducible ordinary creators.
 export const SUCCESS_REEL_MAX_FOLLOWERS = 5000000
@@ -67,7 +67,7 @@ export function qualifyingReels(reels, now = Date.now()) {
 
 export const successReelReviewPrompt = `인스타그램 공개 계정과 그 계정의 터진 릴스를 심사하세요. 제공된 공개 프로필·캡션·이미지에만 근거하고 추측하지 마세요. 국내·해외 계정 모두 대상입니다.
 한 개인의 이름·얼굴·경험·관점이 중심일 때만 accountType=individual_creator. 브랜드·쇼핑몰·상점·회사·기관은 brand/organization, 미디어·매거진·뉴스·큐레이션·리포스트는 organization입니다.
-연예인·방송인·아이돌·배우·가수·개그맨·프로선수·전업모델 출신, MCN·소속사·에이전시 소속(비즈니스 문의처 포함)은 ordinaryCreator=false입니다. 일반인임을 판단할 근거가 부족하면 null입니다. 팔로워 수만으로 판단하지 마세요.
+ordinaryCreator는 연예인 여부만 봅니다. 연예인·방송인·아이돌·배우·가수·개그맨·프로선수·전업모델 출신, 연예 소속사·MCN 소속이 확인되면 false입니다. 그런 근거가 없는 개인 크리에이터는 true입니다. 의사·약사·변호사 같은 전문직, 자기 사업을 하는 대표, 광고·협찬·공동구매 이력, 인증 배지, 비즈니스 문의 이메일, 팔로워 수는 false의 근거가 아닙니다. 판단할 정보가 전혀 없을 때만 null입니다.
 집·주방·욕실·동네에서 스마트폰으로 재현 가능한 촬영은 personal, 소규모 보조 제작은 semi_pro, 전문 스튜디오·편집팀·고비용 제작은 professional, 근거 부족은 unknown입니다. 외모의 아름다움·평범함·매력을 절대 평가하지 마세요.
 monetizationEvidence는 확인된 쇼핑몰/제휴 링크, 공동구매·체험단, #광고/#협찬/#유료광고 협업, 자체 제품·클래스 판매만 적으세요. 링크 내용이 제공되지 않았다면 확인했다고 추측하지 마세요. 없으면 []입니다.
 replicability는 일상 공간·스마트폰·일반인 경험으로 수강생이 비슷하게 만들 수 있는 정도 0~100입니다.
@@ -96,7 +96,8 @@ export function reviewDecision(review, profile) {
   if (profile.followers >= SUCCESS_REEL_MAX_FOLLOWERS) return { eligible: false, reason: '초대형 계정(유명인)' }
   if (obviousNonReferenceAccount({ full_name: profile.fullName, biography: profile.biography, category_name: profile.categoryName }, profile.username)) return { eligible: false, reason: '브랜드·미디어·유명인 신호' }
   if (review?.accountType !== 'individual_creator') return { eligible: false, reason: '개인 크리에이터 아님' }
-  if (review.ordinaryCreator !== true) return { eligible: false, reason: review.ordinaryCreator === false ? '연예인·소속사 등 제외 대상' : '일반인 여부 판단 불가' }
+  // Only confirmed celebrities are excluded; a missing signal is not evidence of fame.
+  if (review.ordinaryCreator === false) return { eligible: false, reason: '연예인·소속사 등 제외 대상' }
   if (!['personal', 'semi_pro'].includes(review.productionLevel)) return { eligible: false, reason: review.productionLevel === 'professional' ? '전문·고비용 제작' : '제작 수준 판단 불가' }
   return { eligible: true, reason: null }
 }

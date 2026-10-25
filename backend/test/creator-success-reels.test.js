@@ -36,7 +36,7 @@ test('account decision follows the existing exclusion policy and rejects undecid
   const profile = { username: 'creator', fullName: '홍길동', biography: '30대 직장인 홈트', categoryName: '' }
   const ok = { accountType: 'individual_creator', ordinaryCreator: true, productionLevel: 'personal' }
   assert.deepEqual(reviewDecision(ok, profile), { eligible: true, reason: null })
-  assert.equal(reviewDecision({ ...ok, ordinaryCreator: null }, profile).reason, '일반인 여부 판단 불가')
+  assert.equal(reviewDecision({ ...ok, ordinaryCreator: null }, profile).eligible, true, 'no fame signal is not a reason to exclude')
   assert.equal(reviewDecision({ ...ok, ordinaryCreator: false }, profile).reason, '연예인·소속사 등 제외 대상')
   assert.equal(reviewDecision({ ...ok, productionLevel: 'professional' }, profile).eligible, false)
   assert.equal(reviewDecision({ ...ok, accountType: 'brand' }, profile).eligible, false)
