@@ -199,6 +199,7 @@
 .st-reel-placeholder b { font-size:15px; line-height:1.4; word-break:keep-all; }
 
 /* hover bar and in-place preview */
+.st-reel-loading { position:absolute; top:10px; left:10px; z-index:3; display:inline-flex; align-items:center; gap:5px; padding:4px 9px; border-radius:999px; background:rgba(13,10,18,.7); color:#fff; font-size:12px; font-weight:700; }
 .st-reel-preview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; }
 .st-reel-hover { position:absolute; left:8px; right:8px; bottom:8px; z-index:3; display:flex; gap:6px; opacity:0; transform:translateY(8px); transition:opacity .15s, transform .15s; }
 .st-reel-thumb:hover .st-reel-hover, .st-reel-thumb:focus-within .st-reel-hover { opacity:1; transform:none; }

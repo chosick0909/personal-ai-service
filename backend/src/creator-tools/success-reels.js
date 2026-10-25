@@ -74,7 +74,7 @@ replicability는 일상 공간·스마트폰·일반인 경험으로 수강생�
 category는 특정 상품이나 영상 한 편이 아니라 최근 콘텐츠 전반의 주제로 고르세요. 맞는 분야가 없으면 기타입니다.
 분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템입니다. 먹방은 먹는 장면·맛집, 요리는 레시피·조리 과정입니다. 일상은 브이로그·일상 기록, 부업은 부업·N잡·온라인 수익, 부동산은 매매·청약·임대, 재테크는 저축·투자·절약입니다.
 region은 한국 이용자 대상 국내 활동 계정이면 domestic, 해외 이용자 대상이면 overseas, 근거 부족이면 unknown입니다. 한국어 사용만으로 단정하지 마세요.
-reels에는 제공된 터진 릴스 각각에 대해 faceVisibility(이미지에서 크리에이터 얼굴이 대부분 보이면 visible, 일부만 mixed, 손·제품·화면만 hidden, 판단 불가 unknown)와 captionKo(캡션이 한국어가 아니면 첫 문장을 자연스러운 한국어로 번역, 한국어면 빈 문자열)를 반환하세요.
+reels에는 제공된 터진 릴스 각각에 대해 faceVisibility(이미지에서 크리에이터 얼굴이 대부분 보이면 visible, 일부만 mixed, 손·제품·화면만 hidden, 판단 불가 unknown), captionKo(캡션이 한국어가 아니면 첫 문장을 자연스러운 한국어로 번역, 한국어면 빈 문자열), category(그 릴스 한 편의 주제 분야. 계정 분야와 달라도 캡션·썸네일이 말하는 그 릴스의 주제를 따릅니다. 예: 피부 계정이 올린 운동 영상은 다이어트·운동)를 반환하세요.
 각 판정의 근거는 관찰한 사실로 짧게 적으세요.`
 const list = { type: 'array', items: { type: 'string' } }
 export const successReelReviewSchema = { type: 'object', additionalProperties: false,
@@ -87,8 +87,8 @@ export const successReelReviewSchema = { type: 'object', additionalProperties: f
     monetizationEvidence: list, replicability: { type: 'number', minimum: 0, maximum: 100 }, replicabilityEvidence: list,
     category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] }, regionEvidence: list,
     language: { type: 'string', enum: ['ko', 'en', 'ja', 'other', 'unknown'] },
-    reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'faceVisibility', 'captionKo'], properties: {
-      shortcode: { type: 'string' }, faceVisibility: { type: 'string', enum: ['visible', 'hidden', 'mixed', 'unknown'] }, captionKo: { type: 'string' } } } },
+    reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'faceVisibility', 'captionKo', 'category'], properties: {
+      shortcode: { type: 'string' }, faceVisibility: { type: 'string', enum: ['visible', 'hidden', 'mixed', 'unknown'] }, captionKo: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES } } } },
   } }
 
 // Same exclusion policy as the account recommendations; undecidable accounts never pass.
@@ -166,7 +166,7 @@ export async function ingestAccount(deps, body) {
     await query(db.from('creator_success_reels').upsert({ shortcode: reel.shortcode, username: input.username, views: reel.views,
       likes: reel.likes, comments: reel.comments, posted_at: reel.postedAt, caption: reel.caption,
       caption_ko: judged?.captionKo?.trim() || null, language: review.language, region: review.region === 'unknown' ? null : review.region,
-      audio: reel.audio, category: review.category, face_visibility: judged?.faceVisibility || 'unknown', thumbnail_path: thumbnailPath,
+      audio: reel.audio, category: SUCCESS_REEL_CATEGORIES.includes(judged?.category) ? judged.category : review.category, face_visibility: judged?.faceVisibility || 'unknown', thumbnail_path: thumbnailPath,
       source: input.source, visible: Boolean(kept) || (decision.eligible && Boolean(thumbnailPath)), last_collected_at: new Date(now).toISOString() }, { onConflict: 'shortcode' }))
     saved += 1
   }

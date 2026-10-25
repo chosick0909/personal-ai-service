@@ -257,8 +257,9 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
     const patch = { analysis_status: 'ready', analysis_error: null, analysis_updated_at: new Date().toISOString(),
       analysis: { ...analysis, cover, transcript: { original: media.original, korean: media.korean, language: media.language, source: media.source },
         durationSeconds: Math.round(media.duration), analyzedAt: new Date().toISOString() } }
+    // The analysis has read the whole script, so its category beats the account-level guess made at collection.
+    if (SUCCESS_REEL_CATEGORIES.includes(raw.category) && raw.category !== '기타' && raw.category !== reel.category) patch.category = raw.category
     if (String(reel.source || '').startsWith('upload')) {
-      if (!reel.category && SUCCESS_REEL_CATEGORIES.includes(raw.category)) patch.category = raw.category
       if (['domestic', 'overseas'].includes(raw.region)) patch.region = raw.region
       // A public link that meets the archive rules joins 성공 릴스 for everyone.
       if (reel.source === 'upload-link' && !reel.visible && reel.thumbnail_path && reel.views >= SUCCESS_REEL_MIN_VIEWS

@@ -6,9 +6,11 @@ import { studio, compactCount, day, when } from '../api'
 const FACE = [['any', '얼굴 전체'], ['visible', '얼굴 공개'], ['mixed', '얼굴 일부'], ['hidden', '얼굴 비공개']]
 const REGION = [['any', '국내·해외'], ['domestic', '국내'], ['overseas', '해외']]
 const SORT = [['latest', '최신순'], ['views', '조회수순'], ['popular', '인기순']]
+// Playback links are short-lived and the server resolves them one at a time, so a miss is retried on the next hover.
 const playbackCache = new Map()
 const playbackUrl = shortcode => {
-  if (!playbackCache.has(shortcode)) playbackCache.set(shortcode, studio.playback(shortcode).then(d => d.media?.url || null).catch(() => null))
+  if (!playbackCache.has(shortcode)) playbackCache.set(shortcode, studio.playback(shortcode).then(d => d.media?.url || null).catch(() => null)
+    .then(url => { if (!url) playbackCache.delete(shortcode); return url }))
   return playbackCache.get(shortcode)
 }
 
@@ -54,8 +56,15 @@ export function PlayerModal({ reel, onClose, onAnalyze, onOpenAnalysis }) {
 export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, children, footer }) {
   const [preview, setPreview] = useState(null)
   const [hover, setHover] = useState(false)
+  const [loadingPreview, setLoadingPreview] = useState(false)
   const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
-  useEffect(() => { if (!hover || preview) return undefined; let alive = true; playbackUrl(reel.shortcode).then(u => { if (alive && u) setPreview(u) }); return () => { alive = false } }, [hover, preview, reel.shortcode])
+  useEffect(() => {
+    if (!hover || preview || reel.source === 'upload-text') return undefined
+    let alive = true
+    const timer = setTimeout(() => { if (alive) setLoadingPreview(true) }, 0)
+    playbackUrl(reel.shortcode).then(u => { if (!alive) return; setLoadingPreview(false); if (u) setPreview(u) })
+    return () => { alive = false; clearTimeout(timer) }
+  }, [hover, preview, reel.shortcode, reel.source])
   return <article className="st-reel">
     <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 릴스 재생`}>
@@ -63,6 +72,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
         {hover && preview && <video src={preview} muted autoPlay loop playsInline className="st-reel-preview" />}
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
+      {hover && loadingPreview && !preview && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
       {badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}
       <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{compactCount(reel.views)}</span>{reel.analysisRequests > 0 && <span>🔍 {reel.analysisRequests}명 분석</span>}</div>
       <div className="st-reel-hover">
@@ -99,6 +109,13 @@ export default function ReelsPage() {
       .catch(e => { if (!controller.signal.aborted) setError(e.message) }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [filters, page])
+  // Warm the first row's playback links one by one so hovering the top cards plays at once.
+  useEffect(() => {
+    let alive = true
+    const warm = async () => { for (const reel of reels.slice(0, 6)) { if (!alive) return; await playbackUrl(reel.shortcode) } }
+    const id = setTimeout(warm, 800)
+    return () => { alive = false; clearTimeout(id) }
+  }, [reels])
   const change = patch => { setFilters(f => ({ ...f, ...patch })); setPage(0); setLoading(true); setError('') }
   const shown = reels.map(r => tracking[r.shortcode] ? { ...r, analysisStatus: 'running' } : r)
   return <div className="st-stack">
