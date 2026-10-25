@@ -25,7 +25,8 @@ test('analysis keeps only quotes that exist in the transcript', () => {
 })
 
 const planRaw = {
-  title: '선크림 사요/안사요', hooks: [{ spoken: '선크림 피부과 실장 추천, 안사요 사요', onScreen: '안사요 vs 사요', why: '판정 기대' }, { spoken: '', onScreen: '', why: '' }],
+  title: '선크림 사요/안사요', thumbnailTitles: [{ text: '선크림 안사요 사요', why: '판정 기대' }, { text: '', why: '' }],
+  hooks: [{ spoken: '선크림 피부과 실장 추천, 안사요 사요', onScreen: '안사요 vs 사요', why: '판정 기대' }, { spoken: '', onScreen: '', why: '' }],
   script: [{ part: 'hook', spoken: '선크림 피부과 실장 추천, 안사요 사요', onScreen: '안사요 vs 사요', seconds: 3 }, { part: 'body', spoken: '[제품명]은 안사요.', onScreen: '[제품명] ❌', seconds: 4.4 },
     { part: 'weird', spoken: '이건 사요.', onScreen: '', seconds: 999 }],
   storyboard: [{ scene: 7, seconds: 3, shot: '정면', action: '진열대 앞 인사', onScreen: '선크림', spoken: '...' }, { scene: 1, seconds: 4, shot: '제품 클로즈업', action: '제품 들기', onScreen: '', spoken: '' }],
@@ -36,6 +37,8 @@ const planRaw = {
 test('plan output is bounded and normalized', () => {
   const plan = validateReelPlan(planRaw)
   assert.equal(plan.hooks.length, 1)
+  assert.deepEqual(plan.thumbnailTitles.map(t => t.text), ['선크림 안사요 사요'])
+  assert.ok(reelPlanSchema.required.includes('thumbnailTitles'))
   assert.deepEqual(plan.script.map(s => [s.part, s.seconds]), [['hook', 3], ['body', 4], ['body', 180]])
   assert.deepEqual(plan.storyboard.map(s => s.scene), [1, 2])
   assert.deepEqual(plan.caption.hashtags, ['선크림', '스킨케어', '선크림추천'])

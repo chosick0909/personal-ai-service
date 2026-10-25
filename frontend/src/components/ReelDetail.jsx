@@ -138,6 +138,9 @@ function PlanResult({ plan, onNew }) {
   const total = plan.script.reduce((sum, line) => sum + (line.seconds || 0), 0)
   const captionText = [plan.caption.text, plan.caption.hashtags.map(t => `#${t}`).join(' ')].filter(Boolean).join('\n\n')
   return <div className="ct-rd-stack">
+    {plan.thumbnailTitles?.length > 0 && <section className="ct-rd-card"><header><h3>썸네일 제목 추천</h3><span className="ct-muted">릴스 커버에 크게 넣을 제목이에요</span></header>
+      <ol className="ct-rd-thumbs">{plan.thumbnailTitles.map((t, i) => <li key={i}><div className="ct-rd-thumb-cover"><strong>{t.text}</strong></div>
+        <div className="ct-rd-thumb-meta">{t.why && <p className="ct-muted">{t.why}</p>}<CopyButton text={t.text} /></div></li>)}</ol></section>}
     <section className="ct-rd-card ct-rd-plan-head">
       <div><span className="ct-rd-pill"><Sparkles size={13} />내 기획안 · 약 {total}초</span><h3>{plan.title}</h3></div>
       <div className="ct-rd-actions"><CopyButton text={planText(plan, hookIndex)} label="전체 복사" /><button type="button" className="ct-rd-ghost" onClick={onNew}><RotateCcw size={15} />다시 만들기</button></div>

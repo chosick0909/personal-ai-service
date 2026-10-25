@@ -37,6 +37,7 @@ filming: 제공된 장면 이미지에서 관찰한 것만 씁니다. location(�
 
 export const reelPlanSchema = obj({
   title: str,
+  thumbnailTitles: arr(obj({ text: str, why: str })),
   hooks: arr(obj({ spoken: str, onScreen: str, why: str })),
   script: arr(obj({ part: { type: 'string', enum: ['hook', 'body', 'cta'] }, spoken: str, onScreen: str, seconds: num })),
   storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })),
@@ -55,6 +56,7 @@ export const reelPlanPrompt = `수강생이 터진 릴스의 공식을 빌려 �
 5. 실제 사람이 말하듯 짧고 리듬감 있게 씁니다. 번역투, 광고 문구, 과장된 감탄사, "궁금한 점 댓글 남겨 주세요" 같은 뻔한 마무리를 피합니다. CTA도 원본 CTA 장치(팔로우 이유 제시, 다음 편 예고 등)를 따릅니다.
 출력:
 - title: 기획안 제목.
+- thumbnailTitles: 릴스 커버(썸네일)에 크게 넣을 제목 3안. text는 한눈에 읽히는 15자 안팎, why는 눌러보고 싶게 만드는 이유 한 문장. 원본 릴스의 첫 화면 텍스트 장치(reel.hook.visualHook)를 brief 주제에 적용한 안을 첫 번째로 두고, 나머지 둘은 서로 다른 장치로 씁니다. brief에 없는 사실은 넣지 않습니다.
 - hooks: 서로 다른 훅 3개. spoken은 첫 3초에 말할 문장, onScreen은 첫 화면 큰 자막(15자 이내), why는 이 훅이 먹히는 이유 한 문장. 첫 번째가 가장 추천하는 훅입니다.
 - script: 첫 번째 훅으로 시작하는 전체 대본. part는 hook/body/cta, spoken은 말할 문장, onScreen은 그 구간 화면 자막, seconds는 구간 길이. 전체 길이는 원본 릴스와 비슷하게 맞춥니다.
 - storyboard: 장면 4~8개. scene 번호, seconds, shot(구도·카메라 거리), action(화면 속 행동·보여줄 것), onScreen(화면 자막), spoken(그 장면 대사).
@@ -116,6 +118,7 @@ export function validateReelPlan(raw) {
   if (!hooks.length || script.length < 2 || storyboard.length < 2) return null
   return {
     title: clean(raw.title, 80) || '내 기획안', hooks, script, storyboard,
+    thumbnailTitles: (Array.isArray(raw.thumbnailTitles) ? raw.thumbnailTitles : []).map(t => ({ text: clean(t?.text, 40), why: clean(t?.why, 200) })).filter(t => t.text).slice(0, 3),
     filming: { location: clean(raw.filming.location, 200), props: words(raw.filming.props, 80, 10), camera: clean(raw.filming.camera, 300),
       lighting: clean(raw.filming.lighting, 200), editing: clean(raw.filming.editing, 300), checklist: words(raw.filming.checklist, 200, 6) },
     caption: { text: typeof raw.caption.text === 'string' ? raw.caption.text.normalize('NFC').trim().slice(0, 2200) : '',
