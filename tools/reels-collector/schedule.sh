@@ -1,6 +1,5 @@
 # HookAI success-reels collector: create this Mac's own key, connect to the server,
 # and run once a day at 03:30. The key never leaves this Mac; only its SHA-256 is shared.
-set -e
 cd ~/hookai-collector
 if [ ! -f config.json ]; then
   TOKEN="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n')"
