@@ -39,16 +39,16 @@ export function createReelIngestRouter() {
     next()
   }))
   router.get('/success-reels/plan', asyncHandler(async (_req, res) => {
-    const day = Math.floor(Date.now() / 86400000)
-    const perDay = Math.min(20, Math.max(1, Number(process.env.CREATOR_REELS_KEYWORDS_PER_DAY) || 8))
-    const maxAccounts = Math.min(150, Math.max(1, Number(process.env.CREATOR_REELS_ACCOUNTS_PER_DAY) || 40))
+    // Days roll over at midnight KST so the 03:30 run always starts a new rotation.
+    const day = Math.floor((Date.now() + 9 * 3600000) / 86400000)
+    const maxAccounts = Math.min(150, Math.max(1, Number(process.env.CREATOR_REELS_ACCOUNTS_PER_DAY) || 80))
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString()
     const db = database()
     const recent = await query(db.from('creator_reel_accounts').select('username').gt('last_seen_at', weekAgo).limit(5000))
     // Approved accounts tend to go viral again, so they are revisited weekly first.
     const recheck = await query(db.from('creator_reel_accounts').select('username').eq('eligible', true)
       .lte('last_seen_at', weekAgo).order('last_seen_at', { ascending: true }).limit(Math.ceil(maxAccounts / 2)))
-    res.json({ day, keywords: keywordsForDay(day, perDay), maxAccounts, skipAccounts: recent.map(row => row.username),
+    res.json({ day, keywords: keywordsForDay(day), maxAccounts, skipAccounts: recent.map(row => row.username),
       recheckAccounts: recheck.map(row => row.username) })
   }))
   router.post('/success-reels/runs', asyncHandler(async (_req, res) => {

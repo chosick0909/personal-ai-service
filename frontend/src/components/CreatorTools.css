@@ -324,3 +324,6 @@
 .ct-live .ct-reels-search button { min-height:38px; padding:8px 16px; border-radius:9px; background:var(--ct-accent); border-color:var(--ct-accent); color:#fff; font-weight:700; }
 .ct-reels-search:focus-within { border-color:var(--ct-accent); box-shadow:0 0 0 2px var(--ct-soft); }
 .ct-live .ct-reels-search input:focus-visible { outline:none; }
+.ct-reels-intro { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.ct-reels-intro p { margin:0; flex:1 1 320px; }
+.ct-reels-updated { flex:none; font-size:13px; color:var(--ct-muted); font-variant-numeric:tabular-nums; }

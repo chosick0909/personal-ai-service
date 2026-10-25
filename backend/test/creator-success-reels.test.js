@@ -56,35 +56,43 @@ test('collector token is checked against a stored SHA-256 only', () => {
   assert.equal(successReelsEnabled('u2', { CREATOR_SUCCESS_REELS_ENABLED: 'true' }), true)
 })
 
-test('daily keywords rotate through every seed, domestic and overseas', () => {
+test('every day covers every category in both regions, and seeds rotate across days', () => {
+  const today = keywordsForDay(20751)
+  assert.equal(today.length, SUCCESS_REEL_KEYWORDS.length * 2)
+  for (const { category } of SUCCESS_REEL_KEYWORDS) {
+    assert.ok(today.some(k => k.category === category && k.region === 'domestic'), category)
+    assert.ok(today.some(k => k.category === category && k.region === 'overseas'), category)
+  }
   const total = SUCCESS_REEL_KEYWORDS.reduce((sum, k) => sum + k.domestic.length + k.overseas.length, 0)
   const seen = new Set()
-  for (let day = 0; day < Math.ceil(total / 6); day += 1) keywordsForDay(day, 6).forEach(k => seen.add(`${k.region}:${k.keyword}`))
+  const days = Math.max(...SUCCESS_REEL_KEYWORDS.map(k => Math.max(k.domestic.length, k.overseas.length)))
+  for (let day = 0; day < days; day += 1) keywordsForDay(day).forEach(k => seen.add(`${k.region}:${k.keyword}`))
   assert.equal(seen.size, total)
-  assert.ok(keywordsForDay(3, 6).some(k => k.region === 'overseas') || keywordsForDay(4, 6).some(k => k.region === 'overseas'))
 })
 
 // Minimal in-memory stand-in for the Supabase query builder used by this module.
 function fakeDb() {
-  const tables = { creator_reel_accounts: new Map(), creator_success_reels: new Map() }
-  const keys = { creator_reel_accounts: 'username', creator_success_reels: 'shortcode' }
+  const tables = { creator_reel_accounts: new Map(), creator_success_reels: new Map(), creator_reel_ingest_runs: new Map() }
+  const keys = { creator_reel_accounts: 'username', creator_success_reels: 'shortcode', creator_reel_ingest_runs: 'id' }
   const uploads = new Map()
   const builder = table => {
     const filters = []
-    let action = 'select', payload, single = false, order, range
+    let action = 'select', payload, single = false, order, range, limit
     const run = () => {
       const rows = [...tables[table].values()].filter(row => filters.every(([k, v]) => k === null ? v(row) : row[k] === v))
       if (action === 'upsert') { const key = keys[table]; tables[table].set(payload[key], { ...(tables[table].get(payload[key]) || {}), ...payload }); return null }
       if (action === 'update') { rows.forEach(row => Object.assign(row, payload)); return null }
       let out = rows
-      if (order) out = [...out].sort((a, b) => (b[order] > a[order] ? 1 : -1))
+      // Descending with nulls last, like the queries in the module.
+      if (order) out = [...out].sort((a, b) => (a[order] ?? '') === (b[order] ?? '') ? 0 : (b[order] ?? '') > (a[order] ?? '') ? 1 : -1)
       if (range) out = out.slice(range[0], range[1] + 1)
+      if (limit) out = out.slice(0, limit)
       return single ? out[0] ?? null : out
     }
     const api = {
       select() { return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
       upsert(row) { action = 'upsert'; payload = row; return api }, update(row) { action = 'update'; payload = row; return api },
-      order(k) { order = k; return api }, range(a, b) { range = [a, b]; return api },
+      order(k) { order = k; return api }, range(a, b) { range = [a, b]; return api }, limit(n) { limit = n; return api },
       // Supports the "field.ilike.%term%,field.ilike.%term%" form used for search.
       or(expr) { const parts = expr.split(',').map(p => p.match(/^(\w+)\.ilike\.%(.*)%$/)); filters.push([null, row => parts.some(([, f, t]) => String(row[f] ?? '').toLowerCase().includes(t.toLowerCase()))]); return api },
       then(resolve) { resolve({ data: run(), error: null }) },
@@ -126,7 +134,11 @@ test('ingest reviews once, stores thumbnails, and shows only eligible accounts',
   assert.equal(calls.length, 1)
   assert.equal(db.tables.creator_success_reels.get('Dd8xyurzlmx').views, 1300000)
 
+  db.tables.creator_reel_ingest_runs.set('r1', { id: 'r1', finished_at: '2026-10-24T18:42:00Z' })
+  db.tables.creator_reel_ingest_runs.set('r2', { id: 'r2', finished_at: null })
+  db.tables.creator_reel_ingest_runs.set('r3', { id: 'r3', finished_at: '2026-10-23T18:40:00Z' })
   const list = await listSuccessReels(db, { sort: 'views' })
+  assert.equal(list.lastUpdatedAt, '2026-10-24T18:42:00Z')
   assert.deepEqual(list.reels.map(r => r.shortcode), ['Dd8xyurzlmx', 'DdTFnCDxcGN'])
   assert.equal(list.reels[0].thumbnailUrl, 'https://signed/Dd8xyurzlmx.jpg')
   assert.equal(list.reels[0].permalink, 'https://www.instagram.com/reel/Dd8xyurzlmx/')

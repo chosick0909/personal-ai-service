@@ -14,6 +14,7 @@ function compactCount(value) {
   return value.toLocaleString('ko-KR')
 }
 const day = value => value ? new Date(value).toISOString().slice(0, 10) : ''
+const updatedAt = value => new Date(value).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
 function Chips({ label, options, value, onChange }) {
   return <div className="ct-reels-chips" role="group" aria-label={label}>{options.map(([id, text]) =>
@@ -63,6 +64,7 @@ export default function SuccessReels({ categories = [] }) {
   const [reels, setReels] = useState([])
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [open, setOpen] = useState(null)
@@ -74,14 +76,17 @@ export default function SuccessReels({ categories = [] }) {
     if (filters.region !== 'any') params.set('region', filters.region)
     if (filters.q) params.set('q', filters.q)
     creatorRequest(`/creator-tools/success-reels?${params}`, { signal: controller.signal })
-      .then(data => { setReels(previous => page === 0 ? data.reels : [...previous, ...data.reels]); setHasMore(data.hasMore) })
+      .then(data => { setReels(previous => page === 0 ? data.reels : [...previous, ...data.reels]); setHasMore(data.hasMore); if (page === 0) setLastUpdatedAt(data.lastUpdatedAt || null) })
       .catch(e => { if (!controller.signal.aborted) setError(e.message) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [filters, page])
   const change = patch => { setFilters(previous => ({ ...previous, ...patch })); setPage(0); setLoading(true); setError('') }
   return <section className="ct-reels">
-    <p className="ct-muted">최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 릴스를 매일 모읍니다. 집·일상에서 따라 만들 수 있는 계정만 골랐어요.</p>
+    <div className="ct-reels-intro">
+      <p className="ct-muted">최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 릴스를 매일 모읍니다. 집·일상에서 따라 만들 수 있는 계정만 골랐어요.</p>
+      {lastUpdatedAt && <span className="ct-reels-updated">업데이트 {updatedAt(lastUpdatedAt)}</span>}
+    </div>
     <form className="ct-reels-search" role="search" onSubmit={event => { event.preventDefault(); change({ q: draft.trim().slice(0, 40) }) }}>
       <Search size={18} aria-hidden="true" />
       <input type="search" value={draft} maxLength={40} onChange={event => { setDraft(event.target.value); if (!event.target.value && filters.q) change({ q: '' }) }}

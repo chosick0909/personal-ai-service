@@ -268,16 +268,21 @@ async function collect(dry, dryKeywords) {
     const candidates = new Map()
     for (const username of plan.recheckAccounts || []) candidates.set(username, '재방문')
     for (const row of queue) if (!skip.has(row.username) && !candidates.has(row.username)) candidates.set(row.username, row.source)
+    // Keyword finds are interleaved one account per keyword, so every category gets
+    // reels-tab visits even when the daily account limit is smaller than the finds.
+    const perKeyword = []
     for (const { keyword, region } of plan.keywords) {
       const media = new Map()
       for (const body of await visit(`https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(keyword)}`, 3)) collectMedia(body, media)
       stats.keywords += 1
-      for (const item of [...media.values()].sort((a, b) => (b.views || 0) - (a.views || 0))) {
-        const owner = item.owner?.toLowerCase()
-        if (owner && !skip.has(owner) && !candidates.has(owner)) candidates.set(owner, `${region === 'overseas' ? '해외' : '국내'} 키워드:${keyword}`)
-      }
-      await log(`키워드 "${keyword}": 후보 계정 누적 ${candidates.size}개`)
+      const owners = [...new Set([...media.values()].sort((a, b) => (b.views || 0) - (a.views || 0))
+        .map(item => item.owner?.toLowerCase()).filter(owner => owner && !skip.has(owner)))]
+      perKeyword.push({ source: `${region === 'overseas' ? '해외' : '국내'} 키워드:${keyword}`, owners })
+      await log(`키워드 "${keyword}": 후보 계정 ${owners.length}개`)
       await pause(8000, 15000)
+    }
+    for (let i = 0; perKeyword.some(k => i < k.owners.length); i += 1) {
+      for (const { source, owners } of perKeyword) if (owners[i] && !candidates.has(owners[i])) candidates.set(owners[i], source)
     }
     // 2) Each account's reels tab gives play counts, likes, comments and thumbnails.
     for (const [username, source] of [...candidates].slice(0, plan.maxAccounts)) {

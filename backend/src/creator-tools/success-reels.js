@@ -189,7 +189,10 @@ export async function listSuccessReels(db, filters = {}) {
   const paths = rows.map(row => row.thumbnail_path).filter(Boolean)
   const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)) : []
   const urls = new Map(signed.filter(item => item.signedUrl).map(item => [item.path, item.signedUrl]))
-  return { reels: rows.map(row => ({ shortcode: row.shortcode, permalink: `https://www.instagram.com/reel/${row.shortcode}/`,
+  // Shown as "업데이트 ..." on the screen: when the last daily collection finished.
+  const lastRun = page === 0 ? await query(db.from('creator_reel_ingest_runs').select('finished_at')
+    .order('finished_at', { ascending: false, nullsFirst: false }).limit(1)) : []
+  return { lastUpdatedAt: lastRun[0]?.finished_at || null, reels: rows.map(row => ({ shortcode: row.shortcode, permalink: `https://www.instagram.com/reel/${row.shortcode}/`,
     username: row.username, views: row.views, likes: row.likes, comments: row.comments, postedAt: row.posted_at,
     caption: row.caption, captionKo: row.caption_ko, language: row.language, region: row.region, audio: row.audio,
     category: row.category, faceVisibility: row.face_visibility, thumbnailUrl: urls.get(row.thumbnail_path) || null })),
