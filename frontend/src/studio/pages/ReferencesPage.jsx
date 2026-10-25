@@ -4,8 +4,8 @@ import { useStudio } from '../context'
 import { studio } from '../api'
 import { ReelCard, PlayerModal } from './ReelsPage'
 
-const FILTERS = [['all', '전체'], ['hook', '첫 문장이 좋았던'], ['structure', '흐름이 좋았던'], ['filming', '촬영이 좋았던'], ['caption', '캡션이 좋았던']]
-const LIKES = [['hook', '첫 문장이 좋아요', Quote], ['structure', '흐름이 좋아요', ListOrdered], ['filming', '촬영이 좋아요', Clapperboard], ['caption', '캡션이 좋아요', PenLine]]
+const FILTERS = [['all', '전체'], ['hook', '첫 문장이 좋았던'], ['structure', '흐름이 좋았던'], ['filming', '촬영/편집이 좋았던'], ['caption', '캡션이 좋았던']]
+const LIKES = [['hook', '첫 문장이 좋아요', Quote], ['structure', '흐름이 좋아요', ListOrdered], ['filming', '촬영/편집이 좋아요', Clapperboard], ['caption', '캡션이 좋아요', PenLine]]
 
 export default function ReferencesPage() {
   const { go, toast } = useStudio()
