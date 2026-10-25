@@ -87,7 +87,15 @@ export function registerStudioRoutes(router) {
       const change = body[field]
       if (!change || !row[field]) continue
       const next = { ...row[field] }
-      if (Number.isInteger(change.chosen) && row[field].options?.[change.chosen]) { next.chosen = change.chosen; if ('custom' in next) next.custom = null; if ('edited' in next) next.edited = null }
+      if (Number.isInteger(change.restore) && row[field].history?.[change.restore]) {
+        const entry = row[field].history[change.restore]
+        next.history = remember(row[field], field === 'script' ? currentScript(row[field]) : currentCaption(row[field]), '되돌리기 전')
+        next.edited = entry.value
+        patch[field] = next; continue
+      }
+      if (Number.isInteger(change.chosen) && row[field].options?.[change.chosen]) {
+        if ((field === 'script' || field === 'caption') && (change.chosen !== row[field].chosen || row[field].edited)) next.history = remember(row[field], field === 'script' ? currentScript(row[field]) : currentCaption(row[field]), row[field].edited ? '직접 고친 버전' : `${(row[field].chosen ?? 0) + 1}안`)
+        next.chosen = change.chosen; if ('custom' in next) next.custom = null; if ('edited' in next) next.edited = null }
       if (typeof change.custom === 'string' && 'custom' in next) next.custom = text(change.custom, 200) || null
       if (field === 'script' && Array.isArray(change.edited)) next.edited = change.edited.map(l => ({ part: ['hook', 'body', 'cta'].includes(l?.part) ? l.part : 'body', spoken: text(l?.spoken, 400), onScreen: text(l?.onScreen, 60), seconds: Math.max(1, Math.min(180, Math.round(Number(l?.seconds) || 3))) })).filter(l => l.spoken).slice(0, 24)
       if (field === 'caption' && change.edited && typeof change.edited === 'object') next.edited = { text: text(change.edited.text, 2200), hashtags: (Array.isArray(change.edited.hashtags) ? change.edited.hashtags : []).map(t => text(t, 40).replace(/^#+/, '')).filter(Boolean).slice(0, 8) }
@@ -150,10 +158,10 @@ export function registerStudioRoutes(router) {
     const row = await owned(req)
     const msg = await query(database().from('studio_messages').select('*').eq('id', uuid(req.body?.messageId)).eq('session_id', row.id).maybeSingle())
     const p = msg?.meta?.proposal
-    if (!p || p.stage !== row.stage) fail('PROPOSAL_NOT_FOUND', '적용할 제안을 찾을 수 없어요.', 404)
+    if (!p || (p.stage !== row.stage && row.stage !== 'done') || !row[p.stage]) fail('PROPOSAL_NOT_FOUND', '적용할 제안을 찾을 수 없어요.', 404)
     const patch = { updated_at: new Date().toISOString() }
-    if (p.stage === 'script') patch.script = { ...row.script, edited: p.lines }
-    else if (p.stage === 'caption') patch.caption = { ...row.caption, edited: { text: p.text, hashtags: p.hashtags } }
+    if (p.stage === 'script') patch.script = { ...row.script, edited: p.lines, history: remember(row.script, currentScript(row.script), `훅ai 수정 전 · ${p.summary || ''}`) }
+    else if (p.stage === 'caption') patch.caption = { ...row.caption, edited: { text: p.text, hashtags: p.hashtags }, history: remember(row.caption, currentCaption(row.caption), `훅ai 수정 전 · ${p.summary || ''}`) }
     else if (p.stage === 'thumbnail') patch.thumbnail = { ...row.thumbnail, custom: p.text }
     else if (p.stage === 'hook') { const options = [...(row.hook?.options || [])]; options.unshift({ spoken: p.text, onScreen: p.onScreen || '', type: '기타', why: p.summary || '훅ai 수정안' }); patch.hook = { ...row.hook, options: options.slice(0, 4), chosen: 0, custom: null } }
     const updated = await query(database().from('studio_sessions').update(patch).eq('id', row.id).select('*').single())

@@ -122,7 +122,8 @@ export async function chat(deps, session, messages, text) {
     const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved), recentTopics: style.map(t => t.topic), trending, conversation: recent, userMessage: text, directive }, topicSchema)
     return normalizeTopicReply(raw)
   }
-  const stage = session.stage
+  // On the finished plan the student says what to change; the request decides which part is revised.
+  const stage = session.stage === 'done' ? (/캡션|해시태그/.test(text) ? 'caption' : /썸네일|커버|제목/.test(text) ? 'thumbnail' : /첫 ?문장|훅/.test(text) && !/대본/.test(text) ? 'hook' : 'script') : session.stage
   const raw = await providersJson(providers, 'studio-revise', revisePrompt(stage), { ...sessionContext(session, resolved), conversation: recent, userMessage: text }, reviseSchema)
   const proposal = raw.proposal?.has ? normalizeProposal(stage, raw.proposal) : null
   return { content: clean(raw.reply, 800) || '네, 반영했어요.', meta: { chips: list(raw.chips, 30, 4), proposal } }

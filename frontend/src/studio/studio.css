@@ -154,9 +154,21 @@
 .st-chat-input button { flex:none; }
 .st-chat-toggle { display:none; }
 
+/* ----- revision preview & history ----- */
+.st-diff { display:grid; gap:6px; font-size:14.5px; line-height:1.55; }
+.st-diff > div { display:grid; gap:2px; padding:4px 8px; border-radius:8px; }
+.st-diff > div.is-changed { background:#FFF6D6; }
+.st-diff s { color:var(--st-faint); }
+.st-diff .is-changed span { font-weight:700; }
+.st-history { border-top:1px solid var(--st-line); padding-top:12px; }
+.st-history summary { cursor:pointer; font-weight:700; color:var(--st-muted); }
+.st-history ul { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:8px; }
+.st-history li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--st-line); border-radius:10px; background:var(--st-bg); }
+.st-history li p { margin:2px 0 0; }
+
 /* ----- script editor ----- */
 .st-lines { display:grid; gap:8px; }
-.st-line { display:grid; grid-template-columns:76px minmax(0,1fr) 44px; gap:12px; align-items:start; padding:12px 14px; border:1px solid var(--st-line); border-radius:12px; background:var(--st-panel); }
+.st-line { display:grid; grid-template-columns:84px minmax(0,1fr) 44px; gap:12px; align-items:start; padding:12px 14px; border:1px solid var(--st-line); border-radius:12px; background:var(--st-panel); }
 .st-line-part { display:grid; gap:2px; font-size:13px; font-weight:800; color:var(--st-accent-text); }
 .st-line-part small { color:var(--st-muted); font-weight:600; }
 .st-line-part-cta { color:var(--st-success); }

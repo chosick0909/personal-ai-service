@@ -17,7 +17,24 @@ function useDebouncedSave(fn, delay = 700) {
 }
 
 // ---------- chat ----------
-function ChatPanel({ session, messages, busy, onSend, onPickTopic, onApply, open, setOpen }) {
+const STAGE_NAME = { thumbnail: '썸네일 카피', hook: '첫 문장', script: '대본', caption: '캡션' }
+// A 훅ai revision is previewed against the current version: changed lines show old → new, then 이대로 적용.
+function ProposalPreview({ proposal, session, applied, onApply }) {
+  const current = proposal.stage === 'script' ? (session.script?.edited || session.script?.options?.[session.script?.chosen ?? 0]?.lines || [])
+    : proposal.stage === 'caption' ? (session.caption?.edited || session.caption?.options?.[session.caption?.chosen ?? 0])?.text
+    : proposal.stage === 'thumbnail' ? (session.thumbnail?.custom || session.thumbnail?.options?.[session.thumbnail?.chosen ?? 0]?.text)
+    : (session.hook?.custom || session.hook?.options?.[session.hook?.chosen ?? 0]?.spoken)
+  return <div className="st-proposal">
+    <strong>{STAGE_NAME[proposal.stage]} 수정안 · {proposal.summary || '미리보기'}</strong>
+    {proposal.lines ? <div className="st-proposal-card st-diff">{proposal.lines.map((l, i) => { const before = current[i]?.spoken; const changed = before !== l.spoken
+      return <div key={i} className={changed ? 'is-changed' : ''}>{changed && before && <s>{before}</s>}<span>{l.spoken}</span></div> })}
+      {current.length > proposal.lines.length && current.slice(proposal.lines.length).map((l, i) => <div key={`d${i}`} className="is-changed"><s>{l.spoken}</s><span className="st-muted st-small">삭제</span></div>)}</div>
+      : <div className="st-proposal-card st-diff"><div className="is-changed">{current && current !== proposal.text && <s>{current}</s>}<span>{proposal.text}</span></div>{proposal.hashtags?.length > 0 && <span className="st-muted st-small">{proposal.hashtags.map(t => `#${t}`).join(' ')}</span>}</div>}
+    <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />이 수정 적용</button>}<span className="st-muted st-small">적용 전 버전은 버전 기록에 남아요</span></div>
+  </div>
+}
+
+function ChatPanel({ session, messages, busy, onSend, onPickTopic, onApply, appliedId, open, setOpen }) {
   const log = useRef(null)
   const [text, setText] = useState('')
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }) }, [messages, busy])
@@ -30,10 +47,7 @@ function ChatPanel({ session, messages, busy, onSend, onPickTopic, onApply, open
         <div className={`st-msg st-msg-${m.role}`}>{m.content}</div>
         {m.role === 'hookai' && m.meta?.proposals?.length > 0 && session.stage === 'topic' && <div className="st-proposal"><strong>주제 후보예요. 마음에 드는 걸 눌러주세요.</strong>{m.meta.proposals.map((p, i) => <button type="button" key={i} className="st-proposal-card" onClick={() => onPickTopic(p)}><strong>{p.title}</strong><span className="st-muted">{p.promise}</span><span className="st-small" style={{ color: 'var(--st-accent-text)' }}>{p.why}</span></button>)}</div>}
         {m.role === 'hookai' && m.meta?.topic && session.stage === 'topic' && <div className="st-proposal"><strong>이 주제로 갈까요?</strong><div className="st-proposal-card"><strong>{m.meta.topic.title}</strong><span className="st-muted">{m.meta.topic.promise}</span></div><button type="button" className="st-btn st-btn-primary" onClick={() => onPickTopic(m.meta.topic)}><Check size={18} />이 주제로 할게요</button></div>}
-        {m.role === 'hookai' && m.meta?.proposal && m.meta.proposal.stage === session.stage && <div className="st-proposal"><strong>{m.meta.proposal.summary || '고친 결과'}</strong>
-          {m.meta.proposal.text && <div className="st-proposal-card"><strong>{m.meta.proposal.text}</strong>{m.meta.proposal.hashtags?.length > 0 && <span className="st-muted">{m.meta.proposal.hashtags.map(t => `#${t}`).join(' ')}</span>}</div>}
-          {m.meta.proposal.lines && <div className="st-proposal-card">{m.meta.proposal.lines.map((l, i) => <span key={i}>{l.spoken}</span>)}</div>}
-          <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => onApply(m.id)}><Check size={16} />이대로 적용</button></div>}
+        {m.role === 'hookai' && m.meta?.proposal && (m.meta.proposal.stage === session.stage || session.stage === 'done') && session[m.meta.proposal.stage] && <ProposalPreview proposal={m.meta.proposal} session={session} applied={m.id === appliedId} onApply={() => onApply(m.id)} />}
         {m.role === 'hookai' && m === last && m.meta?.chips?.length > 0 && !busy && <div className="st-msg-chips">{m.meta.chips.map(c => <button type="button" key={c} className="st-chip" onClick={() => send(c)}>{c}</button>)}</div>}
       </div>)}
       {busy && <div className="st-chat-typing"><i /><i /><i /></div>}
@@ -118,26 +132,34 @@ function HookStage({ session, save }) {
   </section>
 }
 
-function ScriptStage({ session, save, onQuick }) {
+// Line editor shared by the 대본 stage and the finished plan: sentences, captions and seconds are editable in place.
+function ScriptEditor({ session, save, onQuick, title = '대본' }) {
   const s = session.script
   const [lines, setLines] = useState(s.edited || s.options[s.chosen ?? 0]?.lines || [])
   const debounced = useDebouncedSave(v => save({ script: { edited: v } }))
   const edit = (i, patch) => setLines(ls => { const next = ls.map((l, j) => j === i ? { ...l, ...patch } : l); debounced(next); return next })
   const total = lines.reduce((sum, l) => sum + (l.seconds || 0), 0)
+  return <section className="st-card st-stack">
+    <div className="st-card-head"><h3>{title} <span className="st-pill st-pill-gray" style={{ marginLeft: 6 }}>예상 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
+    <p className="st-muted st-small">문장·자막·초를 눌러 바로 고칠 수 있어요. 고치면 자동으로 저장돼요.</p>
+    <div className="st-lines">{lines.map((l, i) => <div className="st-line" key={i}>
+      <div className={`st-line-part st-line-part-${l.part}`}>{PART_LABELS[l.part]}<small><input type="number" min={1} max={180} value={l.seconds} onChange={e => edit(i, { seconds: Math.max(1, Math.min(180, Number(e.target.value) || 1)) })} aria-label="구간 초" className="st-line-seconds" />초</small></div>
+      <div><textarea value={l.spoken} rows={Math.max(1, Math.ceil(l.spoken.length / 34))} onChange={e => edit(i, { spoken: e.target.value })} aria-label={`${PART_LABELS[l.part]} 문장`} /><input value={l.onScreen} onChange={e => edit(i, { onScreen: e.target.value })} placeholder="자막" aria-label="자막" /></div>
+      <button type="button" className="st-icon-btn" style={{ width: 36, height: 36 }} aria-label="이 문장 삭제" onClick={() => setLines(ls => { const next = ls.filter((_, j) => j !== i); debounced(next); return next })}><X size={16} /></button>
+    </div>)}</div>
+    {onQuick && <div className="st-quick">{['첫 문장 더 세게', '더 짧게', '더 길게', '더 친근하게', '마무리 멘트 바꾸기'].map(q => <button type="button" key={q} className="st-chip st-chip-soft" onClick={() => onQuick(q)}>{q}</button>)}</div>}
+    {s.history?.length > 0 && <details className="st-history"><summary>버전 기록 · {s.history.length}</summary>
+      <ul>{s.history.map((h, i) => <li key={i}><div><strong>{h.note}</strong><span className="st-muted st-small"> · {new Date(h.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span><p className="st-muted st-small">{(h.value || []).map(l => l.spoken).join(' ').slice(0, 90)}…</p></div><button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { restore: i } })}><RotateCcw size={14} />이 버전으로</button></li>)}</ul></details>}
+  </section>
+}
+
+function ScriptStage({ session, save, onQuick }) {
+  const s = session.script
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>전개 3안</h3><p className="st-muted">같은 첫 문장, 다른 흐름이에요. 하나를 고르면 아래에서 바로 고칠 수 있어요.</p></div>
       <div className="st-options">{s.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={s.chosen === i} onClick={() => save({ script: { chosen: i } })}>
-        <div className="st-option-top"><span className="st-pill">{o.label}</span><span className="st-muted st-small">{o.lines.reduce((a, l) => a + l.seconds, 0)}초</span><span className="st-option-check"><Check size={16} /></span></div><span className="st-why">{o.why}</span></button>)}</div></section>
-    <section className="st-card st-stack">
-      <div className="st-card-head"><h3>대본 <span className="st-muted st-small">· 약 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
-      <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 아래 자막 칸도요.</p>
-      <div className="st-lines">{lines.map((l, i) => <div className="st-line" key={i}>
-        <div className={`st-line-part st-line-part-${l.part}`}>{PART_LABELS[l.part]}<small>{l.seconds}초</small></div>
-        <div><textarea value={l.spoken} rows={Math.max(1, Math.ceil(l.spoken.length / 34))} onChange={e => edit(i, { spoken: e.target.value })} aria-label={`${PART_LABELS[l.part]} 문장`} /><input value={l.onScreen} onChange={e => edit(i, { onScreen: e.target.value })} placeholder="자막" aria-label="자막" /></div>
-        <button type="button" className="st-icon-btn" style={{ width: 36, height: 36 }} aria-label="이 문장 삭제" onClick={() => setLines(ls => { const next = ls.filter((_, j) => j !== i); debounced(next); return next })}><X size={16} /></button>
-      </div>)}</div>
-      <div className="st-quick">{['첫 문장 더 세게', '더 짧게', '더 길게', '더 친근하게', '마무리 멘트 바꾸기'].map(q => <button type="button" key={q} className="st-chip st-chip-soft" onClick={() => onQuick(q)}>{q}</button>)}</div>
-    </section>
+        <div className="st-option-top"><span className="st-pill">{o.label}</span><span className="st-muted st-small">예상 {o.lines.reduce((a, l) => a + l.seconds, 0)}초</span><span className="st-option-check"><Check size={16} /></span></div><span className="st-why">{o.why}</span></button>)}</div></section>
+    <ScriptEditor session={session} save={save} onQuick={onQuick} />
   </div>
 }
 
@@ -168,21 +190,22 @@ function CaptionStage({ session, save }) {
       <div className="st-options">{c.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!c.edited && c.chosen === i} onClick={() => save({ caption: { chosen: i } })}><div className="st-option-top"><span className="st-pill">{i + 1}안</span><span className="st-option-check"><Check size={16} /></span></div><strong style={{ fontSize: 16, whiteSpace: 'pre-wrap' }}>{o.text}</strong><span className="st-why">{o.why}</span></button>)}</div></section>
     <section className="st-card st-stack"><div className="st-card-head"><h3>캡션</h3><CopyButton text={`${text}\n\n${tags.split(/[\s,]+/).filter(Boolean).map(t => t.startsWith('#') ? t : `#${t}`).join(' ')}`} /></div>
       <textarea className="st-textarea" value={text} onChange={e => { setText(e.target.value); debounced(e.target.value, tags) }} aria-label="캡션 본문" />
-      <div className="st-field"><label>해시태그</label><input className="st-input" value={tags} onChange={e => { setTags(e.target.value); debounced(text, e.target.value) }} placeholder="선크림추천 지성피부" /></div></section>
+      <div className="st-field"><label>해시태그</label><input className="st-input" value={tags} onChange={e => { setTags(e.target.value); debounced(text, e.target.value) }} placeholder="선크림추천 지성피부" /></div>
+      {c.history?.length > 0 && <details className="st-history"><summary>버전 기록 · {c.history.length}</summary><ul>{c.history.map((h, i) => <li key={i}><div><strong>{h.note}</strong><p className="st-muted st-small">{String(h.value?.text || '').slice(0, 90)}…</p></div><button type="button" className="st-btn st-btn-sm" onClick={() => save({ caption: { restore: i } })}><RotateCcw size={14} />이 버전으로</button></li>)}</ul></details>}</section>
   </div>
 }
 
-function DoneStage({ session, onSaveFormula }) {
+function DoneStage({ session, onSaveFormula, save, version }) {
   const { go } = useStudio()
   const thumb = chosenOf(session.thumbnail), hook = chosenOf(session.hook)
-  const lines = session.script?.edited || chosenOf(session.script)?.lines || []
   const cap = session.caption?.edited || chosenOf(session.caption)
   return <div className="st-stack">
     <div className="st-note" style={{ fontSize: 17 }}>👏 기획안이 완성됐어요. 아래에서 한눈에 보고, 마음에 드는 공식은 저장해 두세요.</div>
     <div className="st-row"><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('print', { session: session.id })}><Printer size={20} />PDF로 받기 · 인쇄</button><button type="button" className="st-btn st-btn-big" onClick={() => go('new')}><Sparkles size={20} />새 기획안</button></div>
     <section className="st-card st-stack"><div className="st-card-head"><h3>썸네일 카피</h3><div className="st-row"><CopyButton text={thumb?.text} /></div></div><strong style={{ fontSize: 22 }}>{thumb?.text}</strong></section>
     <section className="st-card st-stack"><div className="st-card-head"><h3>첫 문장</h3><div className="st-row"><CopyButton text={hook?.spoken || hook?.text} /><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('hook')}><Save size={15} />이 공식 저장</button></div></div><strong style={{ fontSize: 18 }}>“{hook?.spoken || hook?.text}”</strong></section>
-    <section className="st-card st-stack"><div className="st-card-head"><h3>대본</h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} /><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('structure')}><Save size={15} />전개 공식 저장</button></div></div><ol className="st-transcript">{lines.map((l, i) => <li key={i}><span className={`st-role st-role-${l.part}`}>{PART_LABELS[l.part]}</span><span>{l.spoken}</span></li>)}</ol></section>
+    <div className="st-row" style={{ justifyContent: 'flex-end', marginBottom: -8 }}><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('structure')}><Save size={15} />전개 공식 저장</button></div>
+    <ScriptEditor key={`${version}-${session.script?.chosen}-${session.script?.edited ? 'e' : 'o'}-${session.script?.history?.length || 0}`} session={session} save={save} />
     {session.filming && <section className="st-card st-stack"><div className="st-card-head"><h3>촬영</h3><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('filming')}><Save size={15} />촬영 공식 저장</button></div><ol className="st-board">{session.filming.storyboard.map(s => <li key={s.scene}><div className="st-board-top"><strong>#{s.scene}</strong><span>{s.seconds}초</span></div><strong>{s.shot}</strong><span>{s.action}</span></li>)}</ol>{session.memo && <p className="st-muted" style={{ whiteSpace: 'pre-wrap' }}>메모: {session.memo}</p>}</section>}
     {session.filming?.editingPlan && <section className="st-card st-stack"><div className="st-card-head"><h3>편집</h3><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('editing')}><Save size={15} />편집 공식 저장</button></div><div className="st-kv"><span>자막</span><div>{session.filming.editingPlan.subtitleStyle}</div></div><div className="st-kv"><span>컷·템포</span><div>{session.filming.editingPlan.cuts}</div></div><div className="st-kv"><span>효과</span><div>{session.filming.editingPlan.effects}</div></div><div className="st-kv"><span>사운드</span><div>{session.filming.editingPlan.sound}</div></div></section>}
     {cap && <section className="st-card st-stack"><div className="st-card-head"><h3>캡션</h3><div className="st-row"><CopyButton text={`${cap.text}\n\n${(cap.hashtags || []).map(t => `#${t}`).join(' ')}`} /><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('caption')}><Save size={15} />캡션 공식 저장</button></div></div><p style={{ whiteSpace: 'pre-wrap' }}>{cap.text}</p><p style={{ color: 'var(--st-accent-text)' }}>{(cap.hashtags || []).map(t => `#${t}`).join(' ')}</p></section>}
@@ -212,6 +235,7 @@ export default function PlanWizard({ sessionId }) {
   const [chatBusy, setChatBusy] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [version, setVersion] = useState(0)
+  const [appliedId, setAppliedId] = useState(null)
   const session = data?.session
   const load = useCallback(() => studio.session(sessionId).then(setData).catch(e => setError(e.message)), [sessionId])
   useEffect(() => { load() }, [load])
@@ -226,7 +250,7 @@ export default function PlanWizard({ sessionId }) {
   }
   const pickTopic = async topic => { setChatOpen(false); try { const r = await studio.setTopic(sessionId, topic); setData(d => ({ ...d, session: r.session })); load() } catch (e) { toast({ kind: 'failed', title: '주제를 정하지 못했어요', body: e.message }) } }
   const toStage = async (stage, regenerate = false) => { setChatOpen(false); try { const r = await studio.stage(sessionId, stage, regenerate); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load(); window.scrollTo(0, 0) } catch (e) { toast({ kind: 'failed', title: '이동하지 못했어요', body: e.message }) } }
-  const apply = async messageId => { setChatOpen(false); try { const r = await studio.apply(sessionId, messageId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); toast({ kind: 'ready', title: '적용했어요', body: '화면에 반영됐어요.' }) } catch (e) { toast({ kind: 'failed', title: '적용 실패', body: e.message }) } }
+  const apply = async messageId => { try { const r = await studio.apply(sessionId, messageId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); setAppliedId(messageId); toast({ kind: 'ready', title: '적용했어요', body: '화면에 반영됐어요.' }) } catch (e) { toast({ kind: 'failed', title: '적용 실패', body: e.message }) } }
   const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, sessionId }); toast({ kind: 'ready', title: '내 공식에 저장했어요', body: r.formula.title, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
 
   if (error) return <div className="st-error">{error}</div>
@@ -254,10 +278,10 @@ export default function PlanWizard({ sessionId }) {
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
         : session.stage === 'thumbnail' ? <ThumbnailStage session={session} save={save} />
         : session.stage === 'hook' ? <HookStage session={session} save={save} />
-        : session.stage === 'script' ? <ScriptStage key={`${version}-${session.script.chosen}-${session.script.edited ? 'e' : 'o'}`} session={session} save={save} onQuick={send} />
+        : session.stage === 'script' ? <ScriptStage key={`${version}-${session.script.chosen}-${session.script.edited ? 'e' : 'o'}-${session.script.history?.length || 0}`} session={session} save={save} onQuick={send} />
         : session.stage === 'filming' ? <FilmingStage session={session} save={save} />
-        : session.stage === 'caption' ? <CaptionStage key={`${version}-${session.caption.chosen}-${session.caption.edited ? 'e' : 'o'}`} session={session} save={save} />
-        : <DoneStage session={session} onSaveFormula={saveFormula} />}
+        : session.stage === 'caption' ? <CaptionStage key={`${version}-${session.caption.chosen}-${session.caption.edited ? 'e' : 'o'}-${session.caption.history?.length || 0}`} session={session} save={save} />
+        : <DoneStage session={session} onSaveFormula={saveFormula} save={save} version={version} />}
       {session.placeholders?.length > 0 && session.stage !== 'done' && session.stage !== 'topic' && <div className="st-note st-note-warn st-small">촬영 전에 채울 빈칸: {session.placeholders.join(', ')}</div>}
       {session.stage !== 'done' && !generating && <div className="st-wizard-foot">
         {idx > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx - 1])}><ArrowLeft size={20} />이전</button>}
@@ -266,6 +290,6 @@ export default function PlanWizard({ sessionId }) {
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
       </div>}
     </div>
-    <ChatPanel session={session} messages={data.messages} busy={chatBusy} onSend={send} onPickTopic={pickTopic} onApply={apply} open={chatOpen} setOpen={setChatOpen} />
+    <ChatPanel session={session} messages={data.messages} busy={chatBusy} onSend={send} onPickTopic={pickTopic} onApply={apply} appliedId={appliedId} open={chatOpen} setOpen={setChatOpen} />
   </div>
 }
