@@ -57,6 +57,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
   const [preview, setPreview] = useState(null)
   const [hover, setHover] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
+  const [playing, setPlaying] = useState(false)
   const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
   useEffect(() => {
     if (!hover || preview || reel.source === 'upload-text') return undefined
@@ -66,13 +67,13 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
     return () => { alive = false; clearTimeout(timer) }
   }, [hover, preview, reel.shortcode, reel.source])
   return <article className="st-reel">
-    <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => { setHover(false); setPlaying(false) }}>
       <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 릴스 재생`}>
         {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-reel-placeholder">{reel.source === 'upload-text' ? '📝' : '🎬'}<b>{reel.title || `@${reel.username}`}</b></span>}
-        {hover && preview && <video src={preview} muted autoPlay loop playsInline className="st-reel-preview" />}
+        {hover && preview && <video src={preview} muted autoPlay loop playsInline className={`st-reel-preview${playing ? ' is-playing' : ''}`} onPlaying={() => setPlaying(true)} onEmptied={() => setPlaying(false)} />}
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
-      {hover && loadingPreview && !preview && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
+      {hover && (loadingPreview || (preview && !playing)) && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
       {badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}
       <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{compactCount(reel.views)}</span></div>
       <div className="st-reel-hover">
