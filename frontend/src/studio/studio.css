@@ -113,6 +113,10 @@
 .st-option-check { width:28px; height:28px; border-radius:999px; border:2px solid var(--st-line-strong); display:grid; place-items:center; color:transparent; flex:none; }
 .st-option[aria-pressed=true] .st-option-check { border-color:var(--st-accent); background:var(--st-accent); color:#fff; }
 
+/* chosen source with a small cover */
+.st-source-chip { display:inline-flex; align-items:center; gap:10px; padding:4px 14px 4px 4px; border-radius:12px; background:var(--st-accent-soft); color:var(--st-accent-text); font-weight:800; font-size:15px; }
+.st-source-chip img, .st-source-chip-blank { width:40px; height:56px; border-radius:8px; object-fit:cover; background:#1b1825; display:block; }
+
 /* ----- stepper ----- */
 .st-stepper { display:flex; align-items:center; gap:3px; overflow-x:auto; padding:4px 0; scrollbar-width:none; }
 .st-step { display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 9px 0 5px; border:0; border-radius:999px; background:none; color:var(--st-faint); font-size:14px; font-weight:700; white-space:nowrap; }
