@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Check, Copy, ExternalLink, Heart, MessageCircle, Play, Sparkles, LoaderCircle } from 'lucide-react'
+import { ArrowLeft, Check, Copy, Heart, MessageCircle, Play, Sparkles, LoaderCircle } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount, day } from '../api'
 import { InstagramIcon } from './ReelsPage'
@@ -110,6 +110,5 @@ export default function ReferenceDetail({ shortcode }) {
           : <div className="st-card st-stack"><h3>{reel.analysisStatus === 'failed' ? '분석하지 못했어요' : '아직 분석하지 않은 릴스예요'}</h3>{reel.analysisError && <p className="st-muted">{reel.analysisError}</p>}<button type="button" className="st-btn st-btn-primary st-btn-big" style={{ justifySelf: 'start' }} onClick={() => analyze(reel)}><Sparkles size={20} />분석하기</button></div>}
       </div>
     </div>
-    <span className="st-muted st-small"><ExternalLink size={13} /> 분석 결과는 모든 수강생이 함께 써요. 내 레퍼런스에는 내가 분석한 릴스만 들어가요.</span>
   </div>
 }

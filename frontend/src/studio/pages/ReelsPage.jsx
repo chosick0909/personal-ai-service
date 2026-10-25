@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react'
-import { Play, Search, LoaderCircle, Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSearch } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount, day, when } from '../api'
 
 const FACE = [['any', '얼굴 전체'], ['visible', '얼굴 공개'], ['mixed', '얼굴 일부'], ['hidden', '얼굴 비공개']]
 const REGION = [['any', '국내·해외'], ['domestic', '국내'], ['overseas', '해외']]
 const SORT = [['latest', '최신순'], ['views', '조회수순'], ['popular', '인기순']]
+const playbackCache = new Map()
+const playbackUrl = shortcode => {
+  if (!playbackCache.has(shortcode)) playbackCache.set(shortcode, studio.playback(shortcode).then(d => d.media?.url || null).catch(() => null))
+  return playbackCache.get(shortcode)
+}
 
 export function InstagramIcon({ size = 20 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r=".6" fill="currentColor" /></svg>
@@ -15,24 +20,60 @@ export function Chips({ label, options, value, onChange, scroll }) {
     <button type="button" key={id} className="st-chip" aria-pressed={value === id} onClick={() => onChange(id)}>{text}</button>)}</div>
 }
 
-export function ReelCard({ reel, onOpen, onAnalyze, extra }) {
+// Full-size player with sound; opens when the thumbnail is clicked.
+export function PlayerModal({ reel, onClose, onAnalyze, onOpenAnalysis }) {
+  const [url, setUrl] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const close = useRef(null)
+  useEffect(() => { let alive = true; close.current?.focus(); playbackUrl(reel.shortcode).then(u => { if (!alive) return; if (u) setUrl(u); else setFailed(true) }); return () => { alive = false } }, [reel.shortcode])
+  useEffect(() => { const onKey = e => { if (e.key === 'Escape') onClose() }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [onClose])
   const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
+  return <div className="st-modal" role="dialog" aria-modal="true" aria-label={`@${reel.username} 릴스`} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="st-player">
+      <button ref={close} type="button" className="st-icon-btn st-player-close" aria-label="닫기" onClick={onClose}><X size={20} /></button>
+      <div className="st-player-video">
+        {url && !failed ? <video src={url} poster={reel.thumbnailUrl || undefined} controls autoPlay playsInline onError={() => setFailed(true)} />
+          : <>{reel.thumbnailUrl && <img src={reel.thumbnailUrl} alt="" />}{failed ? <a className="st-video-link" href={reel.permalink} target="_blank" rel="noreferrer">인스타그램에서 보기</a> : <span className="st-video-link" style={{ background: 'rgba(0,0,0,.4)', color: '#fff' }}><LoaderCircle size={18} className="st-spin" /></span>}</>}
+      </div>
+      <div className="st-player-meta">
+        <a href={`https://www.instagram.com/${reel.username}/`} target="_blank" rel="noreferrer" style={{ fontWeight: 800, color: 'var(--st-text)', fontSize: 17 }}>@{reel.username}</a>
+        <div className="st-row st-muted st-small" style={{ gap: 14 }}><span><Play size={14} /> {compactCount(reel.views)}</span><span><Heart size={14} /> {compactCount(reel.likes)}</span><span><MessageCircle size={14} /> {compactCount(reel.comments)}</span><span>{day(reel.postedAt)}</span></div>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption}</p>
+        {reel.captionKo && reel.captionKo !== reel.caption && <p className="st-muted st-small" style={{ whiteSpace: 'pre-wrap' }}>번역: {reel.captionKo}</p>}
+        <div className="st-row" style={{ marginTop: 'auto' }}>
+          <button type="button" className={`st-btn ${ready ? 'st-btn-soft' : 'st-btn-primary'}`} disabled={busy} onClick={() => { onClose(); ready ? onOpenAnalysis() : onAnalyze() }}>
+            {busy ? <><LoaderCircle size={18} className="st-spin" />분석 중</> : ready ? <><Sparkles size={18} />분석 보기</> : <><ScanSearch size={18} />분석하기</>}</button>
+          <a className="st-btn" href={reel.permalink} target="_blank" rel="noreferrer"><InstagramIcon size={18} />인스타그램에서 보기</a>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+// Hover: the reel plays muted in place and the action bar rises. Click: full player.
+export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, children, footer }) {
+  const [preview, setPreview] = useState(null)
+  const [hover, setHover] = useState(false)
+  const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
+  useEffect(() => { if (!hover || preview) return undefined; let alive = true; playbackUrl(reel.shortcode).then(u => { if (alive && u) setPreview(u) }); return () => { alive = false } }, [hover, preview, reel.shortcode])
   return <article className="st-reel">
-    <div className="st-reel-thumb">
-      <button type="button" className="st-reel-open" onClick={onOpen} aria-label={`@${reel.username} 릴스 ${ready ? '분석 보기' : '분석하기'}`}>
+    <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 릴스 재생`}>
         {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : null}
+        {hover && preview && <video src={preview} muted autoPlay loop playsInline className="st-reel-preview" />}
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
-      {ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}
+      {badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}
       <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{compactCount(reel.views)}</span>{reel.analysisRequests > 0 && <span>🔍 {reel.analysisRequests}명 분석</span>}</div>
-    </div>
-    <div className="st-reel-actions">
-      <button type="button" className={`st-btn ${ready ? 'st-btn-soft' : 'st-btn-primary'}`} disabled={busy} onClick={ready ? onOpen : onAnalyze}>
-        {busy ? <><LoaderCircle size={18} className="st-spin" />분석 중</> : ready ? '분석 보기' : '분석하기'}</button>
-      <a className="st-icon-btn" href={reel.permalink} target="_blank" rel="noreferrer" aria-label="인스타그램에서 보기" title="인스타그램에서 보기" style={{ width: 48, height: 48 }}><InstagramIcon /></a>
+      <div className="st-reel-hover">
+        <button type="button" className="st-reel-analyze" disabled={busy} onClick={ready ? onOpenAnalysis : onAnalyze}>
+          {busy ? <><LoaderCircle size={16} className="st-spin" />분석 중</> : ready ? <><Sparkles size={16} />분석 보기</> : <><ScanSearch size={16} />분석하기</>}</button>
+        <a className="st-reel-ig" href={reel.permalink} target="_blank" rel="noreferrer" aria-label="인스타그램에서 보기" data-tip="인스타그램에서 보기"><InstagramIcon size={18} /></a>
+        {footer}
+      </div>
     </div>
     <span className="st-reel-caption"><strong>@{reel.username}</strong>{reel.captionKo || reel.caption}</span>
-    {extra}
+    {children}
   </article>
 }
 
@@ -46,6 +87,7 @@ export default function ReelsPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [open, setOpen] = useState(null)
   useEffect(() => {
     const controller = new AbortController()
     const params = new URLSearchParams({ sort: filters.sort, page: String(page) })
@@ -74,8 +116,9 @@ export default function ReelsPage() {
     </div>
     {error && <div className="st-error" role="alert">{error}</div>}
     {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : '조건에 맞는 릴스가 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
-    <div className="st-reels">{shown.map(reel => <ReelCard key={reel.shortcode} reel={reel} onOpen={() => reel.analysisStatus === 'ready' ? go('reference', { ref: reel.shortcode }) : analyze(reel)} onAnalyze={() => analyze(reel)} />)}</div>
+    <div className="st-reels">{shown.map(reel => <ReelCard key={reel.shortcode} reel={reel} onPlay={() => setOpen(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>
     {loading && <p className="st-muted" role="status">불러오는 중…</p>}
     {hasMore && !loading && <button type="button" className="st-btn st-btn-block" onClick={() => { setPage(p => p + 1); setLoading(true) }}>더 보기</button>}
+    {open && <PlayerModal reel={shown.find(r => r.shortcode === open.shortcode) || open} onClose={() => setOpen(null)} onAnalyze={() => analyze(open)} onOpenAnalysis={() => go('reference', { ref: open.shortcode })} />}
   </div>
 }

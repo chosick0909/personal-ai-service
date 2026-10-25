@@ -111,9 +111,19 @@ export function uniformFrameIds(metadata) {
   return uniform
 }
 
-async function readBatch(frames, { signal, invoke }) {
+// A reader that skips or truncates frames is retried on halves before the whole extraction fails.
+async function readBatch(frames, options) {
+  try { return await readFrames(frames, options) }
+  catch (error) {
+    if (!['SUBTITLE_RESPONSE_INCOMPLETE', 'SUBTITLE_RESPONSE_INVALID'].includes(error.code) || frames.length < 2) throw error
+    const half = Math.ceil(frames.length / 2)
+    return [...await readBatch(frames.slice(0, half), options), ...await readBatch(frames.slice(half), options)]
+  }
+}
+
+async function readFrames(frames, { signal, invoke }) {
   const response = await invoke(() => getOpenAIClient().chat.completions.create({
-    model: getOpenAIModels().visionModel, store: false, response_format: { type: 'json_object' }, max_completion_tokens: 6000,
+    model: getOpenAIModels().visionModel, store: false, response_format: { type: 'json_object' }, max_completion_tokens: 12000,
     messages: [{ role: 'system', content: instructions }, { role: 'user', content: frames.flatMap(frame => [
       { type: 'text', text: `Frame id=${frame.id}, time=${frame.timestamp}s` },
       { type: 'image_url', image_url: { url: frame.dataUrl, detail: 'high' } },
