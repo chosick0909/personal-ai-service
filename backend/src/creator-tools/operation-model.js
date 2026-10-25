@@ -1,7 +1,10 @@
 // An operation override takes precedence over the writing group. No model default changes.
 const writing = new Set(['reference-analysis', 'media-hook-diagnosis'])
-export function operationModel(operation, fallback, env = process.env) {
+// Success-reel analysis and plans are headline output, so they default to the script-writing model.
+export const premiumOperations = new Set(['success-reel-analysis', 'success-reel-plan'])
+export function operationModel(operation, fallback, env = process.env, premiumFallback = fallback) {
   const key = `CREATOR_MODEL_${String(operation).toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+  if (premiumOperations.has(operation)) return env[key]?.trim() || premiumFallback
   return env[key]?.trim() || (writing.has(operation) && env.CREATOR_WRITING_MODEL?.trim()) || env.CREATOR_TEXT_MODEL || fallback
 }
 export function parseJsonCompletion(response) {

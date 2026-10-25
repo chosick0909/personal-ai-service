@@ -48,7 +48,17 @@ function ScriptTab({ analysis, caption, captionKo }) {
   const text = showOriginal ? transcript.original : transcript.korean
   const steps = analysis.structure?.steps || []
   const lines = String(text || '').split('\n').filter(Boolean)
-  const roleOf = line => showOriginal ? null : steps.find(step => step.quote && (line.includes(step.quote) || step.quote.includes(line)))?.role
+  // Each structure step tags only the line where its quote starts, in transcript order.
+  const roles = {}
+  if (!showOriginal) {
+    const squash = value => String(value || '').replace(/[\s.,!?~…"'“”‘’]/g, '')
+    let from = 0
+    for (const step of steps) {
+      const head = squash(step.quote).slice(0, 10)
+      const at = head ? lines.findIndex((line, i) => i >= from && squash(line).includes(head)) : -1
+      if (at >= 0) { roles[at] = step.role; from = at + 1 }
+    }
+  }
   return <div className="ct-rd-stack">
     <section className="ct-rd-card">
       <header><h3>추출된 대본</h3><div className="ct-rd-actions">
@@ -56,7 +66,7 @@ function ScriptTab({ analysis, caption, captionKo }) {
           <button type="button" aria-pressed={!showOriginal} onClick={() => setShowOriginal(false)}>한국어</button>
           <button type="button" aria-pressed={showOriginal} onClick={() => setShowOriginal(true)}>원문</button></div>}
         <CopyButton text={text} /></div></header>
-      <ol className="ct-rd-lines">{lines.map((line, i) => { const role = roleOf(line)
+      <ol className="ct-rd-lines">{lines.map((line, i) => { const role = roles[i]
         return <li key={i}>{role && <span className={`ct-rd-role ct-rd-role-${role}`}>{ROLE[role]}</span>}<span>{line}</span></li> })}</ol>
       {transcript.source === 'screen' && <p className="ct-muted ct-rd-note">말소리가 없어 화면 자막에서 읽었어요.</p>}
     </section>

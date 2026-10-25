@@ -9,6 +9,8 @@ test('model override scope keeps translation, feedback and fallback unchanged',(
  assert.equal(operationModel('media-hook-diagnosis','fallback',env),'override');assert.equal(operationModel('reference-analysis','fallback',env),'writer')
  for(const op of ['content-feedback','translate-reference','verify-reference-numbers','account-search'])assert.equal(operationModel(op,'fallback',env),'old')
  assert.equal(operationModel('reference-analysis','fallback',{}),'fallback')
+ assert.equal(operationModel('success-reel-plan','fallback',{CREATOR_TEXT_MODEL:'old'},'writer-model'),'writer-model')
+ assert.equal(operationModel('success-reel-plan','fallback',{CREATOR_MODEL_SUCCESS_REEL_PLAN:'pinned'},'writer-model'),'pinned')
 })
 test('refusal, truncation and empty response fail before JSON downstream use',()=>{
  for(const choice of [{finish_reason:'length',message:{content:'{}'}},{finish_reason:'stop',message:{content:''}},{finish_reason:'stop',message:{refusal:'no',content:'{}'}}])assert.throws(()=>parseJsonCompletion({choices:[choice]}))
