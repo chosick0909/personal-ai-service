@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validateReelAnalysis, validateReelPlan, copiedPhrases, requestReelAnalysis, requestReelPlan, reelAnalysisSchema, reelPlanSchema, reelVideoUrl, reelActivity } from '../src/creator-tools/success-reel-analysis.js'
+import { validateReelAnalysis, validateReelPlan, copiedPhrases, requestReelAnalysis, requestReelPlan, reelAnalysisSchema, reelPlanSchema, reelVideoUrl, reelActivity, reelCoverAnalysis, planThumbnailTitles } from '../src/creator-tools/success-reel-analysis.js'
 
 const script = '종합비타민 약사추천 안사요 사요\n센트룸 안사요\n함량도 낮고 전부 비활성형이라 아쉽습니다\n쏜 리서치 베이직 사요'
 const analysisRaw = {
@@ -130,4 +130,24 @@ test('requesting an analysis records the student for 내가 분석한 릴스 and
   const items = await reelActivity(db, 'u1')
   assert.deepEqual(items.map(i => [i.type, i.status, i.username]), [['plan', 'ready', 'yaksa'], ['analysis', 'ready', 'yaksa']])
   assert.equal(items[0].title, '선크림 판정')
+})
+
+test('cover titles reuse the workspace thumbnail generator and its cover blueprint', async () => {
+  const calls = []
+  const generate = async input => { calls.push(input); return { recommendations: [
+    { type: 'A', label: '원본 보존형', title: '지성피부 편 안 사요 사요', reason: '원본 판정판 그대로' },
+    { type: 'B', label: '후킹 강화형', title: '오후에 번들거리면 탈락', reason: '지성 고민 직격' },
+    { type: 'C', label: '3단공식 적용형', title: '백탁 없이 고르는 선크림 3가지 기준', reason: '혜택+키워드+숫자' }] } }
+  const titles = await planThumbnailTitles({ generate }, { topic: 'x'.repeat(600), category: '피부', cover: { detectedText: ['안 사요 사요'] } })
+  assert.deepEqual(titles.map(t => t.label), ['원본 보존형', '후킹 강화형', '3단공식 적용형'])
+  assert.equal(calls[0].topic.length, 500)
+  assert.deepEqual(calls[0].imageAnalysis.detectedText, ['안 사요 사요'])
+  assert.deepEqual(await planThumbnailTitles({ generate: async () => { throw new Error('down') } }, { topic: 't', cover: null }), [], 'falls back to the plan model titles')
+
+  const db = { storage: { from: () => ({ download: async () => ({ data: new Blob([Buffer.from('jpg')]), error: null }) }) } }
+  const seen = []
+  const cover = await reelCoverAnalysis({ db, analyze: async input => { seen.push(input); return { detectedText: ['피부 편'] } } }, { thumbnail_path: 'Aaaaa1.jpg', category: '피부' }, '여드름 연고')
+  assert.deepEqual(cover, { detectedText: ['피부 편'] })
+  assert.equal(seen[0].mimeType, 'image/jpeg')
+  assert.equal(await reelCoverAnalysis({ db, analyze: async () => ({}) }, { thumbnail_path: null }, ''), null)
 })

@@ -6,6 +6,8 @@ import { extractScreenSubtitles, referenceTranscript } from '../lib/video-subtit
 import { translateSegments } from './link-import.js'
 import { referencePlayback, playbackUrl } from './reference-playback.js'
 import { query } from './store.js'
+import { THUMBNAIL_BUCKET } from './success-reels.js'
+import { analyzeThumbnailImage, generateThumbnailTitles } from '../lib/thumbnail-title.js'
 import { fail } from './domain.js'
 
 // One analysis per success reel is shared by every student; plans are per student.
@@ -118,13 +120,36 @@ export function validateReelPlan(raw) {
   if (!hooks.length || script.length < 2 || storyboard.length < 2) return null
   return {
     title: clean(raw.title, 80) || '내 기획안', hooks, script, storyboard,
-    thumbnailTitles: (Array.isArray(raw.thumbnailTitles) ? raw.thumbnailTitles : []).map(t => ({ text: clean(t?.text, 40), why: clean(t?.why, 200) })).filter(t => t.text).slice(0, 3),
+    thumbnailTitles: (Array.isArray(raw.thumbnailTitles) ? raw.thumbnailTitles : []).map(t => ({ text: clean(t?.text, 40), why: clean(t?.why, 200), label: '' })).filter(t => t.text).slice(0, 3),
     filming: { location: clean(raw.filming.location, 200), props: words(raw.filming.props, 80, 10), camera: clean(raw.filming.camera, 300),
       lighting: clean(raw.filming.lighting, 200), editing: clean(raw.filming.editing, 300), checklist: words(raw.filming.checklist, 200, 6) },
     caption: { text: typeof raw.caption.text === 'string' ? raw.caption.text.normalize('NFC').trim().slice(0, 2200) : '',
       hashtags: words(raw.caption.hashtags, 40, 8).map(tag => tag.replace(/^#+/, '').replace(/\s+/g, '')) },
     placeholders: words(raw.placeholders, 120, 10),
   }
+}
+
+
+// The reel's cover is read with the same analyzer as the workspace thumbnail tool, so plans can
+// reuse its title blueprint (line roles, sentence template, slots).
+export async function reelCoverAnalysis({ db, analyze = analyzeThumbnailImage }, reel, topic) {
+  if (!reel.thumbnail_path) return null
+  try {
+    const { data, error } = await db.storage.from(THUMBNAIL_BUCKET).download(reel.thumbnail_path)
+    if (error || !data) return null
+    const imageBuffer = Buffer.from(await data.arrayBuffer())
+    const mimeType = /\.png$/.test(reel.thumbnail_path) ? 'image/png' : /\.webp$/.test(reel.thumbnail_path) ? 'image/webp' : 'image/jpeg'
+    return await analyze({ imageBuffer, mimeType, topic, category: reel.category || '' })
+  } catch { return null }
+}
+
+// Cover titles come from the workspace thumbnail title generator (A 원본 보존형 / B 후킹 강화형 / C 3단공식).
+export async function planThumbnailTitles({ generate = generateThumbnailTitles }, { topic, category, cover }) {
+  try {
+    const result = await generate({ topic: topic.slice(0, 500), category: category || '', imageAnalysis: cover || {} })
+    return (result.recommendations || []).map(item => ({ text: clean(item.title, 40), why: clean(item.reason, 200), label: clean(item.label, 20) }))
+      .filter(item => item.text).slice(0, 3)
+  } catch { return [] }
 }
 
 // Small in-process runner: long jobs keep running after the HTTP response.
@@ -166,7 +191,7 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
   const signal = controller.signal
   try {
     const providers = makeProviders(signal)
-    const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,likes,comments').eq('shortcode', shortcode).single())
+    const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,likes,comments,thumbnail_path,category').eq('shortcode', shortcode).single())
     const media = await workspace(async directory => {
       const path = join(directory, 'reel.mp4')
       await downloadPublicMedia(await reelVideoUrl({ providers, redis }, shortcode), path, signal).catch(async () => {
@@ -199,8 +224,9 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
     media.frames, reelAnalysisSchema)
     const analysis = validateReelAnalysis(raw, media.korean)
     if (!analysis) fail('REEL_ANALYSIS_INVALID', '분석 결과를 정리하지 못했습니다. 다시 시도해주세요.', 422)
+    const cover = await reelCoverAnalysis({ db }, reel, analysis.overview.topic)
     await query(db.from('creator_success_reels').update({ analysis_status: 'ready', analysis_error: null, analysis_updated_at: new Date().toISOString(),
-      analysis: { ...analysis, transcript: { original: media.original, korean: media.korean, language: media.language, source: media.source },
+      analysis: { ...analysis, cover, transcript: { original: media.original, korean: media.korean, language: media.language, source: media.source },
         durationSeconds: Math.round(media.duration), analyzedAt: new Date().toISOString() } }).eq('shortcode', shortcode))
   } catch (error) {
     await query(db.from('creator_success_reels').update({ analysis_status: 'failed', analysis_error: message(error), analysis_updated_at: new Date().toISOString() })
@@ -234,7 +260,7 @@ export async function runReelPlan({ db, makeProviders }, planId) {
   try {
     const providers = makeProviders(controller.signal)
     const plan = await query(db.from('creator_reel_plans').select('id,shortcode,brief').eq('id', planId).single())
-    const reel = await query(db.from('creator_success_reels').select('caption,views,analysis').eq('shortcode', plan.shortcode).single())
+    const reel = await query(db.from('creator_success_reels').select('caption,views,analysis,thumbnail_path,category').eq('shortcode', plan.shortcode).single())
     const input = planInput(reel, plan.brief)
     let result = validateReelPlan(await providers.json('success-reel-plan', reelPlanPrompt, input, [], reelPlanSchema))
     const texts = value => [...value.hooks.map(h => h.spoken), ...value.script.map(s => s.spoken), value.caption.text]
@@ -244,6 +270,14 @@ export async function runReelPlan({ db, makeProviders }, planId) {
       result = validateReelPlan(await providers.json('success-reel-plan', reelPlanPrompt, correction, [], reelPlanSchema)) || result
     }
     if (!result) fail('PLAN_INVALID', '기획안을 완성하지 못했습니다. 다시 시도해주세요.', 422)
+    // Reels analyzed before cover reading existed get their cover read once here and kept.
+    let cover = reel.analysis.cover
+    if (cover === undefined) {
+      cover = await reelCoverAnalysis({ db }, reel, reel.analysis.overview?.topic || '')
+      await query(db.from('creator_success_reels').update({ analysis: { ...reel.analysis, cover } }).eq('shortcode', plan.shortcode)).catch(() => {})
+    }
+    const titles = await planThumbnailTitles({}, { topic: `${result.title}\n${plan.brief}`, category: reel.category, cover })
+    if (titles.length) result = { ...result, thumbnailTitles: titles }
     await query(db.from('creator_reel_plans').update({ status: 'ready', plan: result, error: null, updated_at: new Date().toISOString() }).eq('id', planId))
   } catch (error) {
     await query(db.from('creator_reel_plans').update({ status: 'failed', error: error?.exposeMessage ? error.message : '기획안을 완성하지 못했습니다. 잠시 후 다시 시도해주세요.',
