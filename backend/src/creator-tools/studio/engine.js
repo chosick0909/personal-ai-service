@@ -133,20 +133,31 @@ export async function chat(deps, session, messages, text) {
   }
   // On the finished plan the student says what to change; the request decides which part is revised.
   const stage = session.stage === 'done' ? (/캡션|해시태그/.test(text) ? 'caption' : /썸네일|커버|제목/.test(text) ? 'thumbnail' : /첫 ?문장|훅/.test(text) && !/대본/.test(text) ? 'hook' : 'script') : session.stage
-  const raw = await providersJson(providers, 'studio-revise', revisePrompt(stage), { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), conversation: recent, userMessage: text }, reviseSchema)
+  const input = { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), conversation: recent, userMessage: text }
+  let raw = await providersJson(providers, 'studio-revise', revisePrompt(stage), input, reviseSchema)
+  // A revision that misses a condition the student set is rewritten once, with the misses named.
+  const missed = revision => (revision.proposal?.has && Array.isArray(revision.proposal.requests) ? revision.proposal.requests : []).filter(r => r && r.met === false).map(r => clean(r.condition, 160)).filter(Boolean)
+  const misses = missed(raw)
+  if (misses.length) raw = await providersJson(providers, 'studio-revise', `${revisePrompt(stage)}\n방금 쓴 결과를 대조했더니 이 조건을 지키지 못했습니다: ${misses.join(' / ')}. 결과를 처음부터 다시 써서 모든 조건을 지키고, 다시 대조합니다.`, input, reviseSchema)
   const proposal = raw.proposal?.has ? normalizeProposal(stage, raw.proposal) : null
   return { content: clean(raw.reply, 800) || '네, 반영했어요.', meta: { chips: list(raw.chips, 30, 4), proposal } }
 }
 
-const reviseSchema = obj({ reply: str, chips: arr(str),
-  proposal: obj({ has: bool, summary: str, text: str, onScreen: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })), hashtags: arr(str) }) })
+// Field order is writing order: the revision is written first, then checked against the student's conditions,
+// and only then described, so the reply reports what the text actually does instead of what was intended.
+const reviseSchema = obj({
+  proposal: obj({ has: bool, text: str, onScreen: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })), hashtags: arr(str),
+    requests: arr(obj({ condition: str, evidence: str, met: bool })), summary: str }),
+  reply: str, chips: arr(str) })
 const revisePrompt = stage => `지금은 '${({ thumbnail: '썸네일 카피', hook: '첫 문장', script: '대본', filming: '촬영·편집', caption: '캡션' })[stage]}' 단계입니다. 수강생의 요청이나 질문에 답하고, 현재 내용을 고쳐 달라는 요청이면 proposal에 고친 결과를 담습니다.
-- reply: 2~4문장. 무엇을 어떻게 바꿨는지, 또는 질문에 대한 답.
-- chips: 이어서 누를 만한 짧은 요청 0~3개(예: "더 짧게", "더 친근하게").
+쓰는 순서대로 채웁니다.
 - proposal.has: 고친 결과가 있으면 true. 없으면 false와 빈 값.
 - 단계별 proposal: 썸네일·첫 문장 → text(고친 문장)와 onScreen(화면 자막). 대본 → lines(전체 대본, part는 hook/body/cta, seconds 포함). 캡션 → text(캡션 본문)와 hashtags(# 없이). 촬영·편집 → text에 조언만.
-- summary: 바뀐 점 한 줄.
-규칙: 수강생이 고친 부분은 유지하고 요청한 부분만 바꿉니다. 없는 사실을 넣지 않습니다. 대본은 말하듯 짧게.`
+- proposal.requests: 다 쓴 결과를 수강생의 요청과 하나씩 대조합니다. 이번 요청과, 대화에서 수강생이 앞서 정해 두어 아직 유효한 조건을 각각 condition으로 적고, 방금 쓴 결과에서 그 조건이 어떻게 드러나는지 evidence에 실제 글자 그대로 옮긴 뒤 met을 판정합니다. 개수·위치·순서·길이·뺄 것·넣을 것처럼 글자로 확인할 수 있는 조건은 세어서 확인하고, 단어에 대한 조건은 그 단어가 다른 말과 붙어 쓰인 경우까지 겉모양 그대로 셉니다.
+- proposal.summary: 결과에서 실제로 바뀐 점 한 줄.
+- reply: 2~4문장. 결과에 실제로 반영된 것만 말합니다. met이 false인 조건이 있으면 무엇을 못 지켰고 왜인지 그대로 말합니다. 질문이면 그 답.
+- chips: 이어서 누를 만한 짧은 요청 0~3개(예: "더 짧게", "더 친근하게").
+규칙: 수강생이 고친 부분은 유지하고 요청한 부분만 바꿉니다. 수강생이 건 조건은 결과 전체에서 지킵니다. 없는 사실을 넣지 않습니다. 대본은 말하듯 짧게.`
 
 function normalizeProposal(stage, p) {
   if (stage === 'script') { const lines = normalizeLines(p.lines); return lines.length >= 2 ? { stage, summary: clean(p.summary, 200), lines } : null }

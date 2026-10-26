@@ -36,6 +36,16 @@ const remember = (field, value, note) => value ? [{ note, at: new Date().toISOSt
 const currentScript = s => s?.edited || s?.options?.[s?.chosen ?? 0]?.lines || null
 const currentCaption = c => c?.edited || c?.options?.[c?.chosen ?? 0] || null
 const optionName = i => `${'ABC'[i] || i + 1}안`
+// The cover or first line in use, kept as a saved version. An original option keeps its index so loading it selects it again.
+const pickApplied = f => f?.applied && f.custom === f.applied.text
+const currentPick = (field, f) => {
+  if (!f) return null
+  if (pickApplied(f)) return { text: f.applied.text, onScreen: f.applied.onScreen || '', summary: f.applied.summary || '', applied: true }
+  if (f.custom) return { text: f.custom }
+  const o = f.options?.[f.chosen ?? 0]
+  return !o ? null : field === 'hook' ? { text: o.spoken, onScreen: o.onScreen || '', option: f.chosen ?? 0 } : { text: o.text, option: f.chosen ?? 0 }
+}
+const pickNote = f => pickApplied(f) ? '훅ai와 고친 안' : f?.custom ? '직접 쓴 안' : optionName(f?.chosen ?? 0)
 export const sessionHistory = { remember, currentScript, currentCaption, optionName }
 
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
@@ -108,6 +118,19 @@ export function registerStudioRoutes(router) {
       const change = body[field]
       if (!change || !row[field]) continue
       const next = { ...row[field] }
+      const pick = field === 'thumbnail' || field === 'hook'
+      if (pick && Number.isInteger(change.restore) && row[field].history?.[change.restore]) {
+        const v = row[field].history[change.restore].value
+        next.history = remember(row[field], currentPick(field, row[field]), pickNote(row[field]))
+        if (Number.isInteger(v.option) && row[field].options?.[v.option]) Object.assign(next, { chosen: v.option, custom: null, applied: null })
+        else Object.assign(next, { custom: v.text, applied: v.applied ? { text: v.text, onScreen: v.onScreen || '', summary: v.summary || '' } : null })
+        patch[field] = next; continue
+      }
+      // Switching away from the cover or first line in use keeps it in 저장 내역 (typing keeps only the version typing replaced).
+      if (pick) {
+        const was = row[field], typed = was.custom && !pickApplied(was)
+        if ((Number.isInteger(change.chosen) && (change.chosen !== was.chosen || was.custom)) || (typeof change.custom === 'string' && change.custom.trim() && !typed)) next.history = remember(was, currentPick(field, was), pickNote(was))
+      }
       if (Number.isInteger(change.restore) && row[field].history?.[change.restore]) {
         const entry = row[field].history[change.restore]
         next.history = remember(row[field], field === 'script' ? currentScript(row[field]) : currentCaption(row[field]), '되돌리기 전')
@@ -188,8 +211,8 @@ export function registerStudioRoutes(router) {
     if (p.stage === 'script') patch.script = { ...row.script, edited: p.lines, history: remember(row.script, currentScript(row.script), `훅ai 수정 전 · ${p.summary || ''}`) }
     else if (p.stage === 'caption') patch.caption = { ...row.caption, edited: { text: p.text, hashtags: p.hashtags }, history: remember(row.caption, currentCaption(row.caption), `훅ai 수정 전 · ${p.summary || ''}`) }
     // Applying a chat revision makes it the version in use; the screen shows it on top and folds the original 3 options away.
-    else if (p.stage === 'thumbnail') patch.thumbnail = { ...row.thumbnail, custom: p.text, applied: { text: p.text, summary: p.summary || '' } }
-    else if (p.stage === 'hook') patch.hook = { ...row.hook, custom: p.text, applied: { text: p.text, onScreen: p.onScreen || '', summary: p.summary || '' } }
+    else if (p.stage === 'thumbnail') patch.thumbnail = { ...row.thumbnail, custom: p.text, applied: { text: p.text, summary: p.summary || '' }, history: remember(row.thumbnail, currentPick('thumbnail', row.thumbnail), pickNote(row.thumbnail)) }
+    else if (p.stage === 'hook') patch.hook = { ...row.hook, custom: p.text, applied: { text: p.text, onScreen: p.onScreen || '', summary: p.summary || '' }, history: remember(row.hook, currentPick('hook', row.hook), pickNote(row.hook)) }
     const updated = await query(database().from('studio_sessions').update(patch).eq('id', row.id).select('*').single())
     res.json({ session: publicSession(updated) })
   }))

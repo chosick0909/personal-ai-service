@@ -244,3 +244,18 @@ test('a thumbnail draft that quotes words the student never wrote is rewritten f
   assert.deepEqual(ungroundedQuotes(session, ['쿠팡 냉동만두 세일즈', '냉동 만두', '냉동만두 세일', '세일 기간']), ['냉동만두 세일', '세일 기간'], 'spacing is ignored; a quote that stops mid-word or comes from 훅ai\'s own facts is not the student\'s words')
   assert.deepEqual(ungroundedQuotes({ brief: '냉동만두를 팔아요' }, ['냉동만두']), [], 'a particle after the quote is fine')
 })
+
+test('a chat revision is written before it is described, and one that misses a student\'s condition is rewritten once', async () => {
+  const db = fakeDb()
+  const calls = []
+  const draft = (text, met) => ({ proposal: { has: true, text, onScreen: '', lines: [], hashtags: [], requests: [{ condition: '단어는 한 번만', evidence: text, met }], summary: 's' }, reply: 'r', chips: [] })
+  const makeProviders = () => ({ json: async (op, instructions, _input, _frames, schema) => { calls.push({ instructions, schema }); return calls.length === 1 ? draft('첫 결과', false) : draft('고친 결과', true) } })
+  const session = { id: 's1', user_id: 'u1', mode: 'single', sources: {}, stage: 'thumbnail', brief: 'b', topic: { title: 't' }, thumbnail: { options: [{ text: 'a' }], chosen: 0 } }
+  const revised = await chat({ db, makeProviders }, session, [], '그 단어는 한 번만 써줘')
+  assert.equal(calls.length, 2)
+  assert.match(calls[1].instructions, /단어는 한 번만/)
+  assert.equal(revised.meta.proposal.text, '고친 결과')
+  assert.deepEqual(Object.keys(calls[0].schema.properties), ['proposal', 'reply', 'chips'], 'the reply is written after the revision')
+  const p = Object.keys(calls[0].schema.properties.proposal.properties)
+  assert.ok(p.indexOf('requests') > p.indexOf('text') && p.indexOf('summary') > p.indexOf('requests'), 'the check reads the finished text')
+})

@@ -36,15 +36,16 @@ function ProposalPreview({ proposal, session, applied, onApply }) {
       return <div key={i} className={changed ? 'is-changed' : ''}>{changed && before && <s>{before}</s>}<span>{l.spoken}</span></div> })}
       {current.length > proposal.lines.length && current.slice(proposal.lines.length).map((l, i) => <div key={`d${i}`} className="is-changed"><s>{l.spoken}</s><span className="st-muted st-small">삭제</span></div>)}</div>
       : <div className="st-proposal-card st-diff"><div className="is-changed">{current && current !== proposal.text && <s>{current}</s>}<span>{proposal.text}</span></div>{proposal.hashtags?.length > 0 && <span className="st-muted st-small">{proposal.hashtags.map(t => `#${t}`).join(' ')}</span>}</div>}
-    <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />이 수정 적용</button>}<span className="st-muted st-small">적용 전 버전은 버전 기록에 남아요</span></div>
+    <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />이 수정 적용</button>}<span className="st-muted st-small">적용 전 버전은 '저장 내역'에 남아요</span></div>
   </div>
 }
 
-function ChatPanel({ session, messages, busy, onSend, onPickTopic, onApply, appliedId, open, setOpen }) {
+function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onApply, appliedId, open, setOpen }) {
   const log = useRef(null)
   const [text, setText] = useState('')
-  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }) }, [messages, busy])
-  const send = (value) => { const t = (value ?? text).trim(); if (!t || busy) return; setText(''); onSend(t) }
+  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }) }, [messages, pending, busy])
+  // A message that failed to send goes back into the box, so nothing typed is lost.
+  const send = async (value) => { const t = (value ?? text).trim(); if (!t || busy) return; setText(''); if (!(await onSend(t))) setText(prev => prev || t) }
   const last = messages.at(-1)
   return <aside className={`st-chat${open ? ' is-open' : ''}`}>
     <div className="st-chat-head" onClick={() => setOpen(o => !o)}><HookAvatar size={40} />훅ai에게 말하기<button type="button" className="st-icon-btn st-chat-toggle" aria-label="채팅 열기/닫기" style={{ width: 36, height: 36, border: 0 }}><ChevronUp size={18} style={{ transform: open ? 'rotate(180deg)' : 'none' }} /></button></div>
@@ -56,6 +57,7 @@ function ChatPanel({ session, messages, busy, onSend, onPickTopic, onApply, appl
         {m.role === 'hookai' && m.meta?.proposal && (m.meta.proposal.stage === session.stage || session.stage === 'done') && session[m.meta.proposal.stage] && <ProposalPreview proposal={m.meta.proposal} session={session} applied={m.id === appliedId} onApply={() => onApply(m.id)} />}
         {m.role === 'hookai' && m === last && m.meta?.chips?.length > 0 && !busy && <div className="st-msg-chips">{m.meta.chips.map(c => <button type="button" key={c} className="st-chip" onClick={() => send(c)}>{c}</button>)}</div>}
       </div>)}
+      {pending && <div className="st-msg st-msg-user">{pending}</div>}
       {busy && <div className="st-chat-typing"><i /><i /><i /></div>}
     </div>
     <form className="st-chat-input" onSubmit={e => { e.preventDefault(); send() }}>
@@ -117,24 +119,25 @@ const THUMB_KIND = {
 }
 
 // After a chat revision is applied it is the version in use: shown on top, with the original 3 options folded away.
-function AppliedPick({ label, text, sub, summary, open, onToggle }) {
+function AppliedPick({ label, text, sub, summary, open, onToggle, history }) {
   return <section className="st-card st-applied">
     <div className="st-applied-top"><span className="st-pill st-pill-green"><Check size={14} />지금 쓰는 {label}</span><span className="st-muted st-small">훅ai와 대화로 고친 안{summary ? ` · ${summary}` : ''}</span></div>
     <strong className="st-applied-text">{text}</strong>
     {sub && <span className="st-why">{sub}</span>}
-    <button type="button" className="st-btn st-btn-sm st-applied-toggle" aria-expanded={open} onClick={onToggle}><ChevronDown size={16} style={{ transform: open ? 'rotate(180deg)' : 'none' }} />{open ? '처음 3안 접기' : '처음 3안 다시 보기'}</button>
+    <div className="st-row"><button type="button" className="st-btn st-btn-sm st-applied-toggle" aria-expanded={open} onClick={onToggle}><ChevronDown size={16} style={{ transform: open ? 'rotate(180deg)' : 'none' }} />{open ? '처음 3안 접기' : '처음 3안 다시 보기'}</button>{history}</div>
   </section>
 }
 
-function ThumbnailStage({ session, save }) {
+function ThumbnailStage({ session, save, restore }) {
   const t = session.thumbnail
   const applied = t.applied && t.custom === t.applied.text ? t.applied : null
   const [open, setOpen] = useState(!applied)
   const [custom, setCustom] = useState(applied ? '' : t?.custom || '')
   const debounced = useDebouncedSave(v => save({ thumbnail: { custom: v } }))
+  const history = <PickHistory field="thumbnail" title="썸네일" session={session} restore={restore} />
   return <div className="st-stack">
-    {applied && <AppliedPick label="썸네일" text={applied.text} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} />}
-    {open && <section className="st-card st-stack"><div><h3>{applied ? '처음 받은 썸네일 3안' : '썸네일 카피 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.'}</p></div>
+    {applied && <AppliedPick label="썸네일" text={applied.text} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} history={history} />}
+    {open && <section className="st-card st-stack"><div>{!applied && <div style={{ float: 'right' }}>{history}</div>}<h3>{applied ? '처음 받은 썸네일 3안' : '썸네일 카피 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.'}</p></div>
       <div className="st-options">{t.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!t.custom && t.chosen === i} onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }}>
         <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{OPTION_NAME[i]}</span>}{(o.hint || THUMB_KIND[o.label]) && <span className="st-option-hint">{o.hint || THUMB_KIND[o.label]}</span>}<span className="st-option-check"><Check size={16} /></span></div>
         <strong className="st-thumb-text">{o.text}</strong>{o.why && <span className="st-why">{o.why}</span>}</button>)}</div>
@@ -143,20 +146,37 @@ function ThumbnailStage({ session, save }) {
   </div>
 }
 
-function HookStage({ session, save }) {
+function HookStage({ session, save, restore }) {
   const h = session.hook
   const applied = h.applied && h.custom === h.applied.text ? h.applied : null
   const [open, setOpen] = useState(!applied)
   const [custom, setCustom] = useState(applied ? '' : h?.custom || '')
   const debounced = useDebouncedSave(v => save({ hook: { custom: v } }))
+  const history = <PickHistory field="hook" title="첫 문장" session={session} restore={restore} />
   return <div className="st-stack">
-    {applied && <AppliedPick label="첫 문장" text={`“${applied.text}”`} sub={applied.onScreen ? `자막 · ${applied.onScreen}` : ''} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} />}
-    {open && <section className="st-card st-stack"><div><h3>{applied ? '처음 받은 첫 문장 3안' : '첫 문장 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '영상 첫 3초에 말할 문장이에요. 썸네일이 한 약속을 이어받아요.'}</p></div>
+    {applied && <AppliedPick label="첫 문장" text={`“${applied.text}”`} sub={applied.onScreen ? `자막 · ${applied.onScreen}` : ''} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} history={history} />}
+    {open && <section className="st-card st-stack"><div>{!applied && <div style={{ float: 'right' }}>{history}</div>}<h3>{applied ? '처음 받은 첫 문장 3안' : '첫 문장 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '영상 첫 3초에 말할 문장이에요. 썸네일이 한 약속을 이어받아요.'}</p></div>
       <div className="st-options">{h.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!h.custom && h.chosen === i} onClick={() => { setCustom(''); save({ hook: { chosen: i } }) }}>
         <div className="st-option-top"><span className="st-pill">{o.type}</span><span className="st-option-check"><Check size={16} /></span></div><strong>“{o.spoken}”</strong><span className="st-why">자막 · {o.onScreen} — {o.why}</span></button>)}</div>
       <div className="st-field"><label>직접 쓸게요</label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 첫 문장" /></div>
     </section>}
   </div>
+}
+
+// 저장 내역 for the cover and the first line: the version in use plus every version it replaced (chat revisions, own text, other options).
+const pickText = (field, v) => v ? `${v.text || ''}${field === 'hook' && v.onScreen ? `\n자막 · ${v.onScreen}` : ''}` : ''
+function PickHistory({ field, title, session, restore }) {
+  const [show, setShow] = useState(false)
+  const f = session[field]
+  if (!f?.history?.length) return null
+  const applied = f.applied && f.custom === f.applied.text
+  const option = f.options?.[f.chosen ?? 0]
+  const current = applied ? { note: '훅ai와 고친 안', text: pickText(field, f.applied) } : f.custom ? { note: '직접 쓴 안', text: f.custom } : { note: OPTION_NAME[f.chosen ?? 0], text: pickText(field, field === 'hook' ? { text: option?.spoken, onScreen: option?.onScreen } : option) }
+  const versions = [{ ...current, at: session.updatedAt }, ...f.history.map((h, i) => ({ note: h.note, at: h.at, text: pickText(field, h.value), load: () => restore(field, i) }))]
+  return <>
+    <button type="button" className="st-btn st-btn-sm" onClick={() => setShow(true)}><History size={15} />저장 내역 · {versions.length}</button>
+    {show && <HistoryModal title={title} versions={versions} onClose={() => setShow(false)} />}
+  </>
 }
 
 // 저장 내역: every version of the script or caption, newest first, with the whole text so a student can read before loading one.
@@ -293,6 +313,7 @@ export default function PlanWizard({ sessionId }) {
   const [chatOpen, setChatOpen] = useState(false)
   const [version, setVersion] = useState(0)
   const [appliedId, setAppliedId] = useState(null)
+  const [pending, setPending] = useState(null)
   const session = data?.session
   const load = useCallback(() => studio.session(sessionId).then(setData).catch(e => setError(e.message)), [sessionId])
   useEffect(() => { load() }, [load])
@@ -300,14 +321,17 @@ export default function PlanWizard({ sessionId }) {
   useEffect(() => { if (!running) return undefined; const t = setInterval(load, 3000); return () => clearInterval(t) }, [running, load])
 
   const save = useCallback(async patch => { try { const r = await studio.patchSession(sessionId, patch); setData(d => ({ ...d, session: r.session })) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }, [sessionId, toast])
+  // The student's message shows at once, above 훅ai's typing dots, until the saved conversation comes back.
   const send = async (text, { openChat = true } = {}) => {
-    setChatBusy(true); if (openChat) setChatOpen(true)
-    try { const r = await studio.chat(sessionId, text); setData(d => ({ ...d, messages: mergeMessages(d.messages, r.messages) })); load() }
-    catch (e) { toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: e.message }) } finally { setChatBusy(false) }
+    setChatBusy(true); setPending(text); if (openChat) setChatOpen(true)
+    try { const r = await studio.chat(sessionId, text); setData(d => ({ ...d, messages: mergeMessages(d.messages, r.messages) })); load(); return true }
+    catch (e) { toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: e.message }); return false } finally { setChatBusy(false); setPending(null) }
   }
   const pickTopic = async topic => { setChatOpen(false); try { const r = await studio.setTopic(sessionId, topic); setData(d => ({ ...d, session: r.session })); load() } catch (e) { toast({ kind: 'failed', title: '주제를 정하지 못했어요', body: e.message }) } }
   const toStage = async (stage, regenerate = false) => { setChatOpen(false); try { const r = await studio.stage(sessionId, stage, regenerate); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load(); window.scrollTo(0, 0) } catch (e) { toast({ kind: 'failed', title: '이동하지 못했어요', body: e.message }) } }
   const apply = async messageId => { try { const r = await studio.apply(sessionId, messageId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); setAppliedId(messageId); toast({ kind: 'ready', title: '적용했어요', body: '화면에 반영됐어요.' }) } catch (e) { toast({ kind: 'failed', title: '적용 실패', body: e.message }) } }
+  // Loading a saved cover or first line redraws the stage so every box shows the loaded version.
+  const restorePick = async (field, index) => { await save({ [field]: { restore: index } }); setVersion(v => v + 1) }
   const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, sessionId }); toast({ kind: 'ready', title: '내 공식에 저장했어요', body: r.formula.title, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
 
   const [briefLive, setBriefLive] = useState('')
@@ -340,8 +364,8 @@ export default function PlanWizard({ sessionId }) {
         : failed ? <div className="st-card st-stack"><div className="st-error">{session.job.error}</div><button type="button" className="st-btn st-btn-primary" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시 만들기</button></div>
         : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive} />
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
-        : session.stage === 'thumbnail' ? <ThumbnailStage key={`${version}-${session.thumbnail.applied?.text || ''}`} session={session} save={save} />
-        : session.stage === 'hook' ? <HookStage key={`${version}-${session.hook.applied?.text || ''}`} session={session} save={save} />
+        : session.stage === 'thumbnail' ? <ThumbnailStage key={`${version}-${session.thumbnail.applied?.text || ''}`} session={session} save={save} restore={restorePick} />
+        : session.stage === 'hook' ? <HookStage key={`${version}-${session.hook.applied?.text || ''}`} session={session} save={save} restore={restorePick} />
         : session.stage === 'script' ? <ScriptStage key={`${version}-${session.script.chosen}-${session.script.edited ? 'e' : 'o'}-${session.script.history?.length || 0}`} session={session} save={save} onQuick={send} />
         : session.stage === 'filming' ? <FilmingStage session={session} save={save} />
         : session.stage === 'caption' ? <CaptionStage key={`${version}-${session.caption.chosen}-${session.caption.edited ? 'e' : 'o'}-${session.caption.history?.length || 0}`} session={session} save={save} />
@@ -354,6 +378,6 @@ export default function PlanWizard({ sessionId }) {
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
       </div>}
     </div>
-    <ChatPanel session={session} messages={data.messages} busy={chatBusy} onSend={send} onPickTopic={pickTopic} onApply={apply} appliedId={appliedId} open={chatOpen} setOpen={setChatOpen} />
+    <ChatPanel session={session} messages={data.messages} pending={pending} busy={chatBusy} onSend={send} onPickTopic={pickTopic} onApply={apply} appliedId={appliedId} open={chatOpen} setOpen={setChatOpen} />
   </div>
 }
