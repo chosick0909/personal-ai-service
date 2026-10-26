@@ -156,11 +156,22 @@
 .st-chat { position:fixed; top:0; right:0; bottom:0; z-index:30; width:400px; display:flex; flex-direction:column; border-left:1px solid var(--st-line); background:var(--st-panel); overflow:hidden; box-shadow:-8px 0 24px rgba(20,16,40,.06); transform:translateX(100%); visibility:hidden; transition:transform .25s ease, visibility .25s; }
 .st-chat.is-open { transform:none; visibility:visible; }
 .st-main { transition:margin-right .25s ease; }
-@media (min-width: 1101px) { .st-main:has(.st-chat.is-open) { margin-right:400px; } }
+@media (min-width: 1101px) {
+  .st-main:has(.st-chat.is-open) { margin-right:400px; }
+  /* Folding shrinks the chat into the 훅ai button at the bottom right (and opening grows it back out of it),
+     so students see where it went and where to open it again. */
+  .st-chat { transform-origin:calc(100% - 56px) calc(100% - 56px); transform:scale(.05); opacity:0; border-radius:40px;
+    transition:transform .42s cubic-bezier(.55,0,.8,.2), opacity .2s ease .22s, border-radius .42s, visibility 0s .42s; }
+  .st-chat.is-open { transform:none; opacity:1; border-radius:0; visibility:visible;
+    transition:transform .4s cubic-bezier(.2,.8,.25,1), opacity .15s ease, border-radius .4s, visibility 0s; }
+  .st-main { transition:margin-right .4s ease; }
+  .st-chat-launcher { animation:st-launcher-in .35s cubic-bezier(.3,1.5,.6,1) .36s both; }
+}
+@keyframes st-launcher-in { from { transform:scale(.4); opacity:0; } to { transform:none; opacity:1; } }
 .st-chat-head { min-height:64px; }
 .st-chat-fold { margin-left:auto; width:40px; height:40px; border:0; }
 .st-chat-launcher { position:fixed; right:24px; bottom:24px; z-index:40; display:grid; place-items:center; width:64px; height:64px; padding:0; border:1px solid var(--st-line); border-radius:50%; background:var(--st-panel); box-shadow:0 10px 28px rgba(20,16,40,.18); cursor:pointer; }
-.st-chat-launcher:hover { transform:translateY(-2px); }
+.st-chat-launcher:hover { box-shadow:0 14px 34px rgba(108,76,241,.32); border-color:var(--st-accent-soft-2); }
 .st-chat-launcher-dot { position:absolute; top:4px; right:4px; width:14px; height:14px; border:2px solid var(--st-panel); border-radius:50%; background:var(--st-accent); animation:st-blink 1.2s infinite; }
 .st-chat-notice { position:fixed; right:24px; bottom:100px; z-index:41; display:flex; align-items:flex-start; gap:4px; width:min(360px, calc(100vw - 32px)); padding:6px; border:1px solid var(--st-line); border-radius:18px; background:var(--st-panel); box-shadow:var(--st-shadow); animation:st-notice-in .25s ease; }
 .st-chat-notice-body { flex:1; min-width:0; display:flex; align-items:flex-start; gap:10px; padding:10px; border:0; border-radius:14px; background:none; text-align:left; color:var(--st-text); cursor:pointer; }
