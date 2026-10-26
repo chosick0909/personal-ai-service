@@ -201,7 +201,14 @@ async function readLookup(context, lookup) {
     return { result: { videoUrl: item.videoUrl, thumbnailUrl: item.thumbnailUrl, caption: item.caption, username: item.owner,
       views: item.views, likes: item.likes, comments: item.comments, postedAt: postedAt(item.code)?.toISOString() || null } }
   } catch (error) {
-    await log(`조회 ${lookup.shortcode} 오류: ${error?.message || error}`)
+    const message = String(error?.message || error)
+    await log(`조회 ${lookup.shortcode} 오류: ${message.split('\n')[0]}`)
+    // Instagram refusing the reel page itself (an HTTP error instead of the page) is its request limit: rest at once.
+    if (/ERR_HTTP_RESPONSE_CODE_FAILURE/.test(message)) {
+      misses = 0; restUntil = Date.now() + 60 * 60000
+      await log('⚠️ 인스타가 릴스 페이지 요청을 거절했습니다(요청 제한). 1시간 동안 조회를 쉽니다. 이 창을 닫지 말고 그대로 두세요.')
+      return { error: 'LOOKUP_BLOCKED' }
+    }
     return { error: 'LINK_UNAVAILABLE' }
   } finally { await page.close().catch(() => {}) }
 }
