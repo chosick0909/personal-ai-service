@@ -234,6 +234,11 @@
 .st-line { display:grid; grid-template-columns:84px minmax(0,1fr) 44px; gap:12px; align-items:start; padding:12px 14px; border:1px solid var(--st-line); border-radius:12px; background:var(--st-panel); }
 .st-line-part { display:grid; gap:2px; padding-top:6px; font-size:13px; font-weight:800; color:var(--st-accent-text); }
 .st-line-part small { color:var(--st-muted); font-weight:600; }
+.st-line-part { grid-template-columns:auto 1fr; align-items:center; gap:6px; }
+.st-line-grip { display:grid; place-items:center; width:30px; height:36px; padding:0; border:0; border-radius:8px; background:none; color:var(--st-faint); cursor:grab; touch-action:none; }
+.st-line-grip:hover { background:var(--st-bg); color:var(--st-accent-text); }
+.st-line-grip:active { cursor:grabbing; }
+.st-line.is-dragging { border-color:var(--st-accent); box-shadow:0 8px 24px rgba(108,76,241,.18); background:var(--st-accent-soft); }
 .st-line-part-cta { color:var(--st-success); }
 .st-line textarea { width:100%; min-height:44px; padding:8px 10px; border:1px solid transparent; border-radius:8px; background:transparent; font-size:17px; line-height:1.55; resize:none; }
 .st-line textarea:hover { border-color:var(--st-line); }

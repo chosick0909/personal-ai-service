@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, ChevronDown, History, Star } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS } from '../api'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
@@ -259,16 +259,40 @@ function ScriptEditor({ session, save, onQuick, title = '대본' }) {
   const edit = (i, patch) => setLines(ls => { const next = ls.map((l, j) => j === i ? { ...l, ...patch, seconds: estimateLineSeconds(patch.spoken ?? l.spoken) } : l); debounced(next); return next })
   const total = totalSeconds(lines)
   const [showHistory, setShowHistory] = useState(false)
+  // Lines change order by dragging their handle (or the arrow keys on it). While dragging, the list shows where the line
+  // will land; the order is saved when it is let go.
+  const list = useRef(null)
+  const [drag, setDrag] = useState(null)
+  const moveLine = (from, to) => setLines(ls => { if (from === to) return ls; const next = [...ls]; const [l] = next.splice(from, 1); next.splice(to, 0, l); debounced(next); return next })
+  // Rows keep their key (their place before the drag), so the row being dragged stays the same element on screen.
+  const order = lines.map((_, i) => i)
+  if (drag) { const [moved] = order.splice(drag.from, 1); order.splice(drag.to, 0, moved) }
+  const startDrag = (e, from) => {
+    e.preventDefault()
+    let to = from
+    setDrag({ from, to })
+    const move = ev => {
+      if (ev.clientY < 90) window.scrollBy(0, -14); else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 14)
+      const rows = [...list.current.children]
+      const others = rows.filter((_, k) => k !== to)
+      to = others.filter(r => { const b = r.getBoundingClientRect(); return b.top + b.height / 2 < ev.clientY }).length
+      setDrag({ from, to })
+    }
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); setDrag(null); moveLine(from, to) }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up)
+  }
   const versions = [{ note: s.edited ? '직접 수정' : OPTION_NAME[s.chosen ?? 0], at: session.updatedAt, text: scriptText(lines) },
     ...(s.history || []).map((h, i) => ({ note: h.note, at: h.at, text: scriptText(h.value), load: () => save({ script: { restore: i } }) }))]
   return <section className="st-card st-stack st-editor-anchor" id={title === '대본' ? 'st-script-editor' : undefined}>
     <div className="st-card-head"><h3>{title} <span className="st-pill st-pill-gray" style={{ marginLeft: 6 }}>예상 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.history?.length > 0 && <><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button><TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button></TopAction></>}{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
-    <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 고치면 자동으로 저장돼요. 초는 글자 수로 계산한 예상 길이라 고치는 대로 바뀌어요.</p>
-    <div className="st-lines">{lines.map((l, i) => <div className="st-line" key={i}>
-      <div className="st-line-part"><small>{estimateLineSeconds(l.spoken)}초</small></div>
+    <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 왼쪽 손잡이(⋮⋮)를 끌면 문장 순서가 바뀌어요. 고치면 자동으로 저장돼요. 초는 글자 수로 계산한 예상 길이라 고치는 대로 바뀌어요.</p>
+    <div className="st-lines" ref={list}>{order.map((orig, i) => { const l = lines[orig]; return <div className={`st-line${drag && drag.to === i ? ' is-dragging' : ''}`} key={orig}>
+      <div className="st-line-part"><button type="button" className="st-line-grip" aria-label={`${i + 1}번째 문장 순서 옮기기 (끌거나 위·아래 화살표)`} title="끌어서 순서 바꾸기"
+        onPointerDown={e => startDrag(e, i)} onKeyDown={e => { if (e.key === 'ArrowUp' && i > 0) { e.preventDefault(); moveLine(i, i - 1) } else if (e.key === 'ArrowDown' && i < lines.length - 1) { e.preventDefault(); moveLine(i, i + 1) } }}><GripVertical size={18} /></button>
+        <small>{estimateLineSeconds(l.spoken)}초</small></div>
       <div><textarea value={l.spoken} rows={Math.max(1, Math.ceil(l.spoken.length / 34))} onChange={e => edit(i, { spoken: e.target.value })} aria-label={`${i + 1}번째 문장`} /></div>
       <button type="button" className="st-icon-btn" style={{ width: 36, height: 36 }} aria-label="이 문장 삭제" onClick={() => setLines(ls => { const next = ls.filter((_, j) => j !== i); debounced(next); return next })}><X size={16} /></button>
-    </div>)}</div>
+    </div> })}</div>
     {/* The total again at the bottom, so it stays in sight after scrolling through a long script. */}
     <div className="st-quick"><span className="st-quick-total">전체 예상 {total}초</span>{onQuick && ['첫 문장 더 세게', '더 짧게', '더 길게', '더 친근하게', '마무리 멘트 바꾸기'].map(q => <button type="button" key={q} className="st-chip st-chip-soft" onClick={() => onQuick(q)}>{q}</button>)}</div>
     {showHistory && <HistoryModal title="대본" versions={versions} onClose={() => setShowHistory(false)} />}
