@@ -443,7 +443,7 @@ function Editor({ media, setMedia, feedback, plan, go, toast }) {
 
       <div className="st-ve-panel">
         {selClip && <article className="st-ve-inspect" aria-label="선택한 조각">
-          <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>조각 {selIndex + 1} <span className="st-muted st-small">{(selClip.end - selClip.start).toFixed(1)}초</span></strong><button type="button" className="st-btn st-btn-sm st-btn-ghost" onClick={() => setSel(null)}>닫기</button></div>
+          <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>조각 {selIndex + 1} <span className="st-muted st-small">{(Math.floor((selClip.end - selClip.start) * 10 + 1e-6) / 10).toFixed(1)}초</span></strong><button type="button" className="st-btn st-btn-sm st-btn-ghost" onClick={() => setSel(null)}>닫기</button></div>
           <div className="st-ve-times">
             <label>원본에서 시작(초)<input type="number" step="0.1" min="0" value={Number(selClip.start.toFixed(2))} onChange={e => setClipTime('start', Number(e.target.value))} /></label>
             <label>원본에서 끝(초)<input type="number" step="0.1" min="0" max={draft.duration} value={Number(selClip.end.toFixed(2))} onChange={e => setClipTime('end', Number(e.target.value))} /></label>

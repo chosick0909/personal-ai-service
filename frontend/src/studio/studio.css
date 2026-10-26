@@ -715,3 +715,4 @@
 .st .st-msg-files { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; }
 .st .st-msg-files small { display: inline-flex; align-items: center; gap: 3px; opacity: .85; }
 .st-ideas-chat .st-chat-input { align-items: center; }
+.st .st-tl-clip.is-sel, .st .st-tl-cue.is-sel { padding:0 18px; }
