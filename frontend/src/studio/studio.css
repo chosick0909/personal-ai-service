@@ -27,7 +27,8 @@
 .st-strong { font-weight:700; }
 
 /* ----- shell ----- */
-.st-side { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; gap:4px; padding:20px 16px; background:var(--st-panel); border-right:1px solid var(--st-line); }
+.st-side { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; gap:4px; padding:20px 16px; background:var(--st-panel); border-right:1px solid var(--st-line); overflow-y:auto; }
+/* On a short screen the menu scrolls inside itself; otherwise its bottom spills past the page onto the app's dark background. */
 .st-brand { display:flex; align-items:center; gap:12px; padding:8px 8px 20px; }
 .st-brand img { width:44px; height:44px; border-radius:12px; }
 .st-brand strong { display:block; font-size:18px; }
