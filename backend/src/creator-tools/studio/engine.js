@@ -1,12 +1,12 @@
 import { query } from '../store.js'
 import { fail } from '../domain.js'
 import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
-import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
 import { HOOK_TYPES, STORY_FORMATS, schedule } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint } from './copy-principles.js'
 import { fieldKnowledge } from './knowledge.js'
+import { libraryEntry, coverKnowledge } from './formula-study.js'
 
 const str = { type: 'string' }
 const num = { type: 'number' }
@@ -43,7 +43,7 @@ export async function resolveSources(db, userId, sources = {}) {
       if (!row) fail('SOURCE_NOT_FOUND', '저장한 공식을 찾을 수 없어요.', 404)
       resolved[slot] = { kind: 'formula', id: row.id, label: row.title, excerpt: row.spec }
     } else if (source.kind === 'library') {
-      const entry = slot === 'hook' ? HOOK_LIBRARY.find(h => h.id === source.id) : slot === 'structure' ? STRUCTURE_LIBRARY.find(s => s.id === source.id) : null
+      const entry = slot === 'hook' || slot === 'structure' ? await libraryEntry(db, slot, source.id) : null
       if (!entry) fail('SOURCE_NOT_FOUND', '공식 사전 항목을 찾을 수 없어요.', 404)
       resolved[slot] = { kind: 'library', id: entry.id, label: entry.title, excerpt: slot === 'hook' ? { type: entry.type, formula: entry.formula, example: entry.example } : { format: entry.format, segments: entry.segments } }
     }
@@ -194,6 +194,7 @@ const stagePrompts = {
   thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 훅ai가 직접 제안합니다. 레퍼런스는 이 단계에 쓰지 않습니다. 근거는 brief·topic·answers·attachments에 적힌 주제와 사실뿐입니다.
 1. plan을 먼저 채웁니다. terms: brief·답변의 핵심 단어(소재, 하려는 일)를 원문 그대로 word에 적고, meaning에 그 단어의 사전적인 뜻을 풀어 씁니다(외래어·줄임말은 원래 말의 뜻으로). purpose: terms의 뜻만으로 이 영상이 '누가 무엇을 하려는 영상인지' 한 문장. 이후 reader·promise·제목은 모두 purpose에서 출발하고, terms의 뜻에 없는 사건이나 상황을 새로 만들지 않습니다. quotes: 이번 커버들이 기대는 brief·답변·첨부의 구절을 한 글자도 바꾸지 않고 그대로 옮겨 적습니다(바꿔 쓰거나 요약하지 않음). reader: 이 커버를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 이 영상을 끝까지 보면 그 사람이 얻는 것 한 가지(한 영상에 약속 하나). reader와 promise, 그리고 모든 제목은 quotes에 적은 구절로 뒷받침되는 내용만 담습니다.
 successCovers는 실제로 조회수가 크게 나온 커버 문구들입니다. 각 문구가 어떤 원칙으로 먹혔는지(길이, 말투, 구어 표현, 숫자·장소·대상의 쓰임) 읽어 이번 커버의 감각을 맞춥니다. 그 문구의 단어·소재·문장 틀은 가져오지 않습니다.
+coverLessons는 훅ai가 분야와 상관없이 성공 릴스의 커버를 매일 공부해 쌓은 교훈입니다(lessons: 원칙이 실제로 쓰이는 방식과 이유, form: 성공한 커버의 겉모양). 원칙을 고르고 다듬는 근거로 쓰되, 이번 주제와 수강생이 쓴 말이 먼저입니다.
 2. 아래 커버 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격·할인·한정 같은 사실은 brief에 있을 때만.
@@ -250,7 +251,7 @@ export async function generateStage(deps, session, stage) {
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
   const knowledge = await knowledgeFor(deps.db, session)
-  const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category) } : sessionContext(session, resolved, knowledge)
+  const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category), coverLessons: await coverKnowledge(deps.db) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
   let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
   const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...list(q.chips, 40, 2), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)

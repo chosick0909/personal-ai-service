@@ -33,7 +33,7 @@ export default function LibraryPage() {
     </div>
   }
   return <div className="st-stack">
-    <div className="st-page-head"><p>터진 릴스가 공통으로 쓰는 첫 문장·전개 공식이에요. 예시는 매일 수집되는 성공 릴스에서 자동으로 채워져요.</p></div>
+    <div className="st-page-head"><p>터진 릴스가 공통으로 쓰는 첫 문장·전개 공식이에요. 훅ai가 매일 성공 릴스를 공부하면서 공식마다 그 공식을 쓴 릴스를 채우고, 여러 릴스에서 되풀이되는 새 공식을 찾으면 여기에 더해요.</p></div>
     <div className="st-chips"><button type="button" className="st-chip" aria-pressed={tab === 'structures'} onClick={() => setTab('structures')}>전개 공식 · {data.structures.length}</button><button type="button" className="st-chip" aria-pressed={tab === 'hooks'} onClick={() => setTab('hooks')}>첫 문장 공식 · {data.hooks.length}</button></div>
     <div className="st-lib">{items.map(item => <button type="button" key={item.id} className="st-lib-card" onClick={() => setOpen(item)}>
       <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>{item.title}</strong><span className="st-pill st-pill-gray">릴스 {item.count}개</span></div>

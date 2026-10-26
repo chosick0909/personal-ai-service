@@ -10,7 +10,6 @@ import { database, query, ownedMedia } from '../store.js'
 import { redisConnection } from '../queue.js'
 import { createProviders } from '../providers.js'
 import { studio2Enabled, canRecommend } from './access.js'
-import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
 import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk } from './engine.js'
@@ -22,6 +21,7 @@ import { probeVideo, ff } from '../media.js'
 import { requestReelAnalysis, runReelAnalysis, schedule } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
+import { libraryEntries, libraryEntry } from './formula-study.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
@@ -466,7 +466,7 @@ export function registerStudioRoutes(router) {
       draft = formulaFromReel(reel, kind)
       if (!draft) fail('FORMULA_EMPTY', '이 릴스 분석에는 저장할 내용이 없어요.', 409)
     } else if (req.body?.libraryId) {
-      const entry = kind === 'hook' ? HOOK_LIBRARY.find(h => h.id === req.body.libraryId) : kind === 'structure' ? STRUCTURE_LIBRARY.find(s => s.id === req.body.libraryId) : null
+      const entry = await libraryEntry(database(), kind, String(req.body.libraryId))
       if (!entry) fail('SOURCE_NOT_FOUND', '공식 사전 항목을 찾을 수 없어요.', 404)
       draft = { title: entry.title, spec: kind === 'hook' ? { type: entry.type, formula: entry.formula } : { format: entry.format, segments: entry.segments }, example: entry.example || entry.summary, source: { libraryId: entry.id } }
     } else fail('SOURCE_REQUIRED', '저장할 내용이 없어요.')
@@ -485,13 +485,16 @@ export function registerStudioRoutes(router) {
     enabled(req)
     const db = database()
     const rows = await query(db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,analysis').eq('visible', true).eq('analysis_status', 'ready').order('views', { ascending: false }).limit(400))
+    // Examples are the reels 훅ai's daily study filed under each entry; a reel it has not filed yet falls back to the analysis type.
+    const filed = new Map((await query(db.from('creator_reel_formulas').select('shortcode,hook_id,structure_id')).catch(() => [])).map(m => [m.shortcode, m]))
+    const library = await libraryEntries(db)
     const paths = rows.map(r => r.thumbnail_path).filter(Boolean)
     const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)) : []
     const urls = new Map(signed.filter(i => i.signedUrl).map(i => [i.path, i.signedUrl]))
     const example = r => ({ id: r.shortcode, username: r.username, views: r.views, thumbnailUrl: urls.get(r.thumbnail_path) || null, hook: r.analysis?.hook?.spokenHook || null, formula: r.analysis?.hook?.formula || null })
     res.set('Cache-Control', 'private, max-age=300').json({
-      hooks: HOOK_LIBRARY.map(h => { const hits = rows.filter(r => r.analysis?.hook?.category === h.type); return { ...h, count: hits.length, examples: hits.slice(0, 4).map(example) } }),
-      structures: STRUCTURE_LIBRARY.map(s => { const hits = rows.filter(r => r.analysis?.structure?.category === s.format); return { ...s, count: hits.length, examples: hits.slice(0, 4).map(example) } }),
+      hooks: library.hooks.map(h => { const hits = rows.filter(r => filed.has(r.shortcode) ? filed.get(r.shortcode).hook_id === h.id : !h.learned && r.analysis?.hook?.category === h.type); return { ...h, count: hits.length, examples: hits.slice(0, 8).map(example) } }),
+      structures: library.structures.map(s => { const hits = rows.filter(r => filed.has(r.shortcode) ? filed.get(r.shortcode).structure_id === s.id : !s.learned && r.analysis?.structure?.category === s.format); return { ...s, count: hits.length, examples: hits.slice(0, 8).map(example) } }),
     })
   }))
 
