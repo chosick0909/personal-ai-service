@@ -111,8 +111,10 @@ export function validateManifest(input, original, duration) {
   if (input.clips !== undefined) {
     if (!Array.isArray(input.clips) || !input.clips.length || input.clips.length > 100) fail('INVALID_CLIPS', '1~100개 클립을 남겨주세요.')
     clips = input.clips.map((clip) => {
-      if (typeof clip.id !== 'string' || clip.id.length > 100 || !Number.isFinite(clip.start) || !Number.isFinite(clip.end) || clip.start < 0 || clip.end > duration || clip.end - clip.start < 0.08) fail('INVALID_CLIPS', '클립 시간을 원본 범위 안에서 지정해주세요.')
-      return { id: clip.id, start: clip.start, end: clip.end }
+      // A clip may end a hair past the original through rounding on the page; within 10 ms it is the original's end.
+      const end = Number.isFinite(clip.end) && clip.end > duration && clip.end <= duration + 0.01 ? duration : clip.end
+      if (typeof clip.id !== 'string' || clip.id.length > 100 || !Number.isFinite(clip.start) || !Number.isFinite(end) || clip.start < 0 || end > duration || end - clip.start < 0.08) fail('INVALID_CLIPS', '클립 시간을 원본 범위 안에서 지정해주세요.')
+      return { id: clip.id, start: clip.start, end }
     })
     const length = clips.reduce((sum, clip) => sum + clip.end - clip.start, 0)
     if (new Set(clips.map(c => c.id)).size !== clips.length || length < 0.5 || length > 300) fail('INVALID_CLIPS', '중복 ID 없이 총 0.5초~5분의 편집을 구성해주세요.')

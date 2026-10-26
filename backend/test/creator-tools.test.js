@@ -72,6 +72,12 @@ test('only original safe cut candidates can be selected; words cannot be removed
   assert.throws(() => validateManifest({ cuts:[{id:'s1',enabled:true}],subtitles:[] },unsafe,7))
   assert.throws(() => validateManifest({ cuts:[],subtitles:[] },original,7))
 })
+test('edited clips may be reordered or duplicated; an end a hair past the original (rounding) is the original end', () => {
+  const clips = [{ id:'b', start:4, end:7.004 }, { id:'a', start:0, end:2 }, { id:'a2', start:0, end:2 }]
+  assert.deepEqual(validateManifest({ cuts:[{id:'s1',enabled:false}], subtitles:[], clips }, original, 7).clips, [{ id:'b', start:4, end:7 }, { id:'a', start:0, end:2 }, { id:'a2', start:0, end:2 }])
+  assert.throws(() => validateManifest({ cuts:[{id:'s1',enabled:false}], subtitles:[], clips:[{ id:'x', start:0, end:7.05 }] }, original, 7), /INVALID_CLIPS|클립/)
+  assert.throws(() => validateManifest({ cuts:[{id:'s1',enabled:false}], subtitles:[], clips:[{ id:'x', start:1, end:1.05 }] }, original, 7))
+})
 test('subtitle time validation rejects NaN, overlaps and out-of-bounds', () => {
   for (const subtitles of [[{start:0,end:NaN,text:'a'}],[{start:0,end:3,text:'a'},{start:2,end:5,text:'b'}],[{start:0,end:8,text:'a'}]]) {
     assert.throws(() => validateManifest({ cuts:original.cuts,subtitles }, original,7))
