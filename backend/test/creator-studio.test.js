@@ -296,3 +296,8 @@ test('before the first draft 훅ai sets the field and looks the topic up once; l
   assert.equal(searched, 1, 'research already on the topic is not repeated')
   assert.equal(db.tables.studio_sessions.get('s20').topic.category, '피부')
 })
+
+test('a cover may quote what 훅ai researched as well as what the student wrote', () => {
+  const session = { brief: '내돈내산 피지템', topic: { title: '피지템', research: { subject: '피지 연화 제품', facts: ['화장솜에 적셔 10분 올려 두는 제품'], viewerQuestions: [] } } }
+  assert.deepEqual(ungroundedQuotes(session, ['10분 올려 두는', '내돈내산', '모공이 사라지는']), ['모공이 사라지는'])
+})

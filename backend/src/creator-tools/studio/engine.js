@@ -204,7 +204,7 @@ successCovers는 실제로 조회수가 크게 나온 커버 문구들입니다.
 coverLessons는 훅ai가 분야와 상관없이 성공 릴스의 커버를 매일 공부해 쌓은 교훈입니다(lessons: 원칙이 실제로 쓰이는 방식과 이유, form: 성공한 커버의 겉모양). 원칙을 고르고 다듬는 근거로 쓰되, 이번 주제와 수강생이 쓴 말이 먼저입니다.
 2. 아래 커버 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
-3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격·할인·한정 같은 사실은 brief에 있을 때만.
+3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격·할인·한정·성분·사용법 같은 사실은 brief나 research(훅ai가 출처와 함께 조사한 사실)에 있을 때만. research의 구체적인 사실(무엇을 어떻게 해 주는지, 시청자가 궁금해하는 점)은 막연한 말 대신 쓸 재료입니다.
 4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황·사건이 purpose와 같은 일을 말하는지, quotes의 구절에 그 단어, 그 뜻 그대로 있는지 하나씩 대조합니다. 주어지지 않은 사실이나 원문을 다르게 읽은 내용이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
@@ -240,7 +240,7 @@ const HANGUL = /[\uAC00-\uD7A3]/
 // Quotes the student did not write: checked against their own words (brief, chat answers, attachments) and the topic
 // title they accepted; topic.facts is 훅ai's summary, so it does not count as a source. Spacing differences are ignored.
 export function ungroundedQuotes(session, quotes) {
-  const source = plain([session.brief, ...(session.topic?.answers || []).map(a => typeof a === 'string' ? a : `${a?.q || a?.question || ''} ${a?.a || a?.answer || ''}`), ...(session.attachments || []).map(a => a?.content), session.topic?.title].join(' \n '))
+  const source = plain([session.brief, ...(session.topic?.answers || []).map(a => typeof a === 'string' ? a : `${a?.q || a?.question || ''} ${a?.a || a?.answer || ''}`), ...(session.attachments || []).map(a => a?.content), session.topic?.title, session.topic?.research?.subject, ...(session.topic?.research?.facts || []), ...(session.topic?.research?.viewerQuestions || [])].join(' \n '))
   const grounded = quote => {
     const chars = [...plain(quote).replace(/ /g, '')]
     if (!chars.length) return true
