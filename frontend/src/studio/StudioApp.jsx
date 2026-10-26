@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Flame, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon, BookOpenCheck } from 'lucide-react'
+import { Flame, Lightbulb, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon, BookOpenCheck } from 'lucide-react'
 import { safeGetStorageItem, safeSetStorageItem } from '../lib/safeStorage'
 import hookLogo from '../Logo_1.webp'
 import { useAppState } from '../store/AppState'
@@ -8,6 +8,7 @@ import ReelsPage from './pages/ReelsPage'
 import ReferenceDetail from './pages/ReferenceDetail'
 import ReferencesPage from './pages/ReferencesPage'
 import PlansPage from './pages/PlansPage'
+import IdeasPage from './pages/IdeasPage'
 import PlanStart from './pages/PlanStart'
 import PlanWizard from './pages/PlanWizard'
 import FormulasPage from './pages/FormulasPage'
@@ -24,11 +25,11 @@ import { StudioContext } from './context'
 import { rotatingLine, ANALYSIS_TIPS } from './waitLines'
 
 const MENU = [
-  ['reels', '성공 릴스', Flame], ['references', '내 레퍼런스', FolderHeart], ['plans', '내 기획안', FileText], ['formulas', '내 공식', Wand2],
+  ['reels', '성공 릴스', Flame], ['ideas', '주제 찾기', Lightbulb], ['references', '내 레퍼런스', FolderHeart], ['plans', '내 기획안', FileText], ['formulas', '내 공식', Wand2],
   ['library', '공식 사전', BookOpen], ['edit', '영상 편집', Scissors], ['style', '내 말투', MessageSquareText],
 ]
 const TITLES = { manual: ['사용 설명서', '화면 사진의 번호를 따라 하나씩 해보세요'], reels: ['성공 릴스', '매일 쌓이는 터진 릴스. 마음에 드는 걸 분석해 보세요'], reference: ['레퍼런스 분석', ''], references: ['내 레퍼런스', '분석한 릴스가 여기 모여요'],
-  plans: ['내 기획안', '진행 중인 기획안을 이어서 만들어요'], new: ['내 기획안 만들기', '어떻게 시작할지 골라주세요'], plan: ['내 기획안', ''], formulas: ['내 공식', '저장한 후킹·전개·촬영·캡션 공식'],
+  ideas: ['주제 찾기', '훅ai와 대화하며 찍을 수 있을 만큼 구체적인 주제를 찾고 보관해요'], plans: ['내 기획안', '진행 중인 기획안을 이어서 만들어요'], new: ['내 기획안 만들기', '어떻게 시작할지 골라주세요'], plan: ['내 기획안', ''], formulas: ['내 공식', '저장한 후킹·전개·촬영·캡션 공식'],
   library: ['공식 사전', '터진 릴스가 쓰는 공식 모음'], edit: ['영상 편집', '훅ai 피드백 · 컷 편집 · 자막 · 완성 영상'], style: ['내 말투', '훅ai가 이 말투로 써드려요'], print: ['기획안 인쇄', ''] }
 
 function readRoute() {
@@ -158,6 +159,7 @@ export default function StudioApp() {
           {!features ? <p className="st-muted">불러오는 중…</p>
             : route.page === 'reels' ? <ReelsPage />
             : route.page === 'reference' ? <ReferenceDetail shortcode={route.params.ref} />
+            : route.page === 'ideas' ? <IdeasPage threadId={route.params.thread} />
             : route.page === 'references' ? <ReferencesPage />
             : route.page === 'plans' ? <PlansPage />
             : route.page === 'new' ? <PlanStart preset={route.params} />

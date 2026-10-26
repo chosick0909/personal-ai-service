@@ -27,6 +27,16 @@ export const studio = {
   style: () => creatorRequest('/creator-tools/studio/style'),
   saveStyle: body => creatorRequest('/creator-tools/studio/style', { method: 'PUT', body }),
   removeTopic: id => creatorRequest(`/creator-tools/studio/topics/${id}`, { method: 'DELETE' }),
+  // 주제 찾기: conversations about the topic only, and the 주제 보관함.
+  ideas: () => creatorRequest('/creator-tools/studio/ideas'),
+  ideaStart: text => creatorRequest('/creator-tools/studio/ideas/threads', { method: 'POST', body: { text } }),
+  ideaThread: id => creatorRequest(`/creator-tools/studio/ideas/threads/${id}`),
+  ideaChat: (id, text) => creatorRequest(`/creator-tools/studio/ideas/threads/${id}/chat`, { method: 'POST', body: { text } }),
+  removeIdeaThread: id => creatorRequest(`/creator-tools/studio/ideas/threads/${id}`, { method: 'DELETE' }),
+  saveIdea: (threadId, card) => creatorRequest('/creator-tools/studio/ideas/saved', { method: 'POST', body: { threadId, card } }),
+  updateIdea: (id, body) => creatorRequest(`/creator-tools/studio/ideas/saved/${id}`, { method: 'PATCH', body }),
+  removeIdea: id => creatorRequest(`/creator-tools/studio/ideas/saved/${id}`, { method: 'DELETE' }),
+  planFromIdea: id => creatorRequest(`/creator-tools/studio/ideas/saved/${id}/plan`, { method: 'POST' }),
   // 영상 편집: the existing media pipeline (upload → analyze → edit manifest → render), used in one-pass studio mode.
   jobs: () => creatorRequest('/creator-tools/jobs'),
   job: id => creatorRequest(`/creator-tools/jobs/${id}`),

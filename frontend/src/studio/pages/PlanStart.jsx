@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Sparkles, Layers, PenLine, Check, X, BookOpen, Wand2, FolderHeart } from 'lucide-react'
+import { Sparkles, Layers, PenLine, Check, X, BookOpen, Wand2, FolderHeart, Star } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, SLOT_LABELS } from '../api'
 
@@ -39,12 +39,15 @@ function SourceChip({ source }) {
 
 export default function PlanStart({ preset = {} }) {
   const { go, toast } = useStudio()
-  const [mode, setMode] = useState(preset.ref ? 'single' : preset.formula ? 'mix' : null)
+  const [mode, setMode] = useState(preset.ref ? 'single' : preset.formula ? 'mix' : preset.saved ? 'saved' : null)
+  const [savedTopics, setSavedTopics] = useState([])
+  const [savedPick, setSavedPick] = useState(preset.saved || null)
   const [sources, setSources] = useState(() => preset.ref ? { hook: { kind: 'reel', id: preset.ref, label: '' } } : preset.formula && preset.kind ? { [preset.kind]: { kind: 'formula', id: preset.formula, label: '' } } : {})
   const [picking, setPicking] = useState(null)
   const [data, setData] = useState({ refs: [], formulas: [], library: null })
   const [busy, setBusy] = useState(false)
   useEffect(() => {
+    studio.ideas().then(d => setSavedTopics((d.saved || []).filter(s => !s.sessionId))).catch(() => {})
     Promise.all([studio.references(), studio.formulas(), studio.library().catch(() => null)]).then(([r, f, l]) => {
       // Only analyzed references can feed a plan; the rest stay in 내 레퍼런스 until their analysis finishes.
       const refs = r.references.filter(x => x.analysisStatus === 'ready')
@@ -56,6 +59,8 @@ export default function PlanStart({ preset = {} }) {
   const start = async () => {
     setBusy(true)
     try {
+      // A saved topic starts its plan at the cover, carrying over what was said while finding it.
+      if (mode === 'saved') { const r = await studio.planFromIdea(savedPick); go('plan', { session: r.session.id }, { replace: true }); return }
       const body = { mode: mode || 'topic', sources: Object.fromEntries(Object.entries(sources).map(([k, v]) => [k, { kind: v.kind, id: v.id }])) }
       if (mode === 'single') { const one = sources.hook; body.sources = { hook: { kind: one.kind, id: one.id } } }
       const result = await studio.createSession(body)
@@ -66,8 +71,9 @@ export default function PlanStart({ preset = {} }) {
     ['single', '레퍼런스 하나로', '터진 릴스 하나의 공식을 내 주제에 적용해요', Sparkles],
     ['mix', '레퍼런스 조합', '첫 문장·전개·촬영·캡션을 각각 다른 곳에서 가져와 나만의 포맷을 만들어요', Layers],
     ['topic', '주제만으로', '레퍼런스 없이 훅ai와 대화하며 주제부터 잡아요', PenLine],
+    ['saved', '저장한 주제로', '주제 찾기에서 보관해 둔 주제로 바로 시작해요', Star],
   ]
-  const canStart = mode === 'topic' || (mode === 'single' && sources.hook) || (mode === 'mix' && Object.keys(sources).length > 0)
+  const canStart = (mode === 'saved' && savedPick) || mode === 'topic' || (mode === 'single' && sources.hook) || (mode === 'mix' && Object.keys(sources).length > 0)
   return <div className="st-stack" style={{ maxWidth: 860 }}>
     <div className="st-note">훅ai가 주제 → 썸네일 → 첫 문장 → 대본 → 촬영·편집 → 캡션 순서로 한 단계씩 같이 만들어요. 중간에 나가도 이어져요.</div>
     <div className="st-options">{modes.map(([id, title, desc, icon]) => { const Icon = icon; return <button type="button" key={id} className="st-option" aria-pressed={mode === id} onClick={() => { setMode(id); if (id === 'topic') setSources({}) }}>
@@ -85,6 +91,12 @@ export default function PlanStart({ preset = {} }) {
           <button type="button" className="st-btn st-btn-sm" onClick={() => setPicking(slot)}>{sources[slot] ? '바꾸기' : '고르기'}</button>
           {sources[slot] && <button type="button" className="st-icon-btn" style={{ width: 40, height: 40 }} aria-label="비우기" onClick={() => setSources(s => { const n = { ...s }; delete n[slot]; return n })}><X size={16} /></button>}</div>
       </div>)}
+    </section>}
+    {mode === 'saved' && <section className="st-card st-stack">
+      <div><h3>어떤 주제로 만들까요?</h3><p className="st-muted">주제 찾기에서 저장한 주제예요. 고르면 썸네일 단계부터 바로 시작해요.</p></div>
+      {!savedTopics.length ? <div className="st-stack"><p className="st-muted">아직 저장한 주제가 없어요.</p><button type="button" className="st-btn st-btn-soft" onClick={() => go('ideas')}>주제 찾기로 가기</button></div>
+        : <div className="st-options">{savedTopics.map(t => <button type="button" key={t.id} className="st-option" aria-pressed={savedPick === t.id} onClick={() => setSavedPick(t.id)}>
+          <div className="st-option-top">{t.category && <span className="st-pill">{t.category}</span>}<span className="st-option-check"><Check size={16} /></span></div><strong>{t.title}</strong>{t.angle && <span className="st-why">{t.angle}</span>}</button>)}</div>}
     </section>}
     {mode && <button type="button" className="st-btn st-btn-primary st-btn-big st-btn-block" disabled={!canStart || busy} onClick={start}>{busy ? '훅ai 부르는 중…' : '훅ai와 시작하기'}</button>}
     {picking && <SlotPicker slot={picking} refs={data.refs} formulas={data.formulas} library={data.library} onClose={() => setPicking(null)} onPick={src => { setSources(s => ({ ...s, [picking]: src })); setPicking(null) }} />}

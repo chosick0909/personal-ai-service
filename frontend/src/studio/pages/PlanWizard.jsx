@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, ChevronDown, History } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, ChevronDown, History, Star } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS } from '../api'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
 import HookLoader from '../HookLoader'
 import { CopyButton } from './ReferenceDetail'
 import HookAvatar from '../HookAvatar'
-import { rotatingLine, WAIT_LINES, QUIZZES, QUIZ_AFTER } from '../waitLines'
+import ChatWaitLine from '../ChatWait'
 import { estimateLineSeconds } from '../../lib/scriptText'
 
 const ORDER = STAGES.map(([id]) => id)
@@ -41,21 +41,6 @@ function ProposalPreview({ proposal, session, applied, onApply }) {
   </div>
 }
 
-// Under 훅ai's typing dots while it answers: the same witty lines and quiz as the big loader, sized for the chat.
-function ChatWaitLine() {
-  const [elapsed, setElapsed] = useState(0)
-  const [quiz] = useState(() => QUIZZES[Math.floor(Math.random() * QUIZZES.length)])
-  const [picked, setPicked] = useState(null)
-  useEffect(() => { const base = Date.now(); const t = setInterval(() => setElapsed(Math.round((Date.now() - base) / 1000)), 1000); return () => clearInterval(t) }, [])
-  const line = rotatingLine(WAIT_LINES, elapsed)
-  return <div className="st-chat-wait" aria-live="polite">
-    {line && <p>{line}</p>}
-    {elapsed >= QUIZ_AFTER && <div className="st-chat-quiz"><strong>기다리는 김에 퀴즈 하나! {quiz.q}</strong>
-      {picked === null ? <div className="st-quiz-opts">{quiz.options.map((o, i) => <button type="button" key={o} className="st-chip" onClick={() => setPicked(i)}>{i + 1}. {o}</button>)}</div>
-        : <p className="st-muted">{picked === quiz.answer ? quiz.right : quiz.wrong}</p>}</div>}
-  </div>
-}
-
 function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onApply, appliedId, open, setOpen }) {
   const log = useRef(null)
   const [text, setText] = useState('')
@@ -84,8 +69,24 @@ function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onAp
 }
 
 // ---------- stage views ----------
-function TopicStage({ session, save, onSuggest, onBrief }) {
+// 주제 보관함 inside a plan: pick a topic saved in 주제 찾기.
+function SavedTopicPicker({ onPick, onClose }) {
+  const { go } = useStudio()
+  const [items, setItems] = useState(null)
+  useEffect(() => { studio.ideas().then(d => setItems((d.saved || []).filter(s => !s.sessionId))).catch(() => setItems([])) }, [])
+  return <div className="st-modal" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="st-modal-box st-stack" role="dialog" aria-label="저장한 주제">
+      <div className="st-row" style={{ justifyContent: 'space-between' }}><h2><Star size={22} /> 저장한 주제</h2><button type="button" className="st-icon-btn" aria-label="닫기" onClick={onClose}><X size={20} /></button></div>
+      {items === null ? <p className="st-muted">불러오는 중…</p> : !items.length ? <div className="st-stack"><p className="st-muted">아직 저장한 주제가 없어요. 주제 찾기에서 훅ai와 이야기하며 주제를 모아 보세요.</p><button type="button" className="st-btn st-btn-soft" onClick={() => go('ideas')}>주제 찾기로 가기</button></div>
+        : <div className="st-options">{items.map(t => <button type="button" key={t.id} className="st-option" onClick={() => onPick(t)}>
+          <div className="st-option-top">{t.category && <span className="st-pill">{t.category}</span>}</div><strong>{t.title}</strong>{t.angle && <span className="st-why">{t.angle}</span>}</button>)}</div>}
+    </div>
+  </div>
+}
+
+function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
   const { toast } = useStudio()
+  const [pickingSaved, setPickingSaved] = useState(false)
   const [brief, setBrief] = useState(session.brief || '')
   const [attachments, setAttachments] = useState(session.attachments || [])
   const [uploading, setUploading] = useState(false)
@@ -120,7 +121,14 @@ function TopicStage({ session, save, onSuggest, onBrief }) {
         <button type="button" className="st-btn" onClick={speak} disabled={listening}><Mic size={18} />{listening ? '듣는 중…' : '말로 입력'}</button>
         <label className="st-btn" style={{ cursor: 'pointer' }}><Paperclip size={18} />{uploading ? '읽는 중…' : '자료 첨부'}<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.docx" style={{ display: 'none' }} disabled={uploading} onChange={e => upload([...e.target.files])} /></label>
         <button type="button" className="st-btn st-btn-soft" onClick={() => onSuggest(brief)}><Sparkles size={18} />주제 제안해줘</button>
+        {onPickSaved && <button type="button" className="st-btn" onClick={() => setPickingSaved(true)}><Star size={18} />저장한 주제에서 고르기</button>}
       </div>
+      {pickingSaved && <SavedTopicPicker onClose={() => setPickingSaved(false)} onPick={t => {
+        // What was said while finding the topic becomes what the student wrote, then the topic is set from it.
+        const text = [t.title, t.angle && `각도: ${t.angle}`, t.promise && `시청자가 얻는 것: ${t.promise}`, ...(t.facts || []).map(f => `- ${f}`), t.memo && `메모: ${t.memo}`].filter(Boolean).join('\n')
+        const next = brief.trim() ? `${brief}\n\n${text}` : text
+        setBrief(next); onBrief?.(next); save({ brief: next }); setPickingSaved(false); onPickSaved(t)
+      }} />}
       {attachments.length > 0 && <div className="st-chips">{attachments.map((a, i) => <span key={i} className="st-chip st-btn-sm" style={{ minHeight: 36 }}>{a.name}<button type="button" className="st-icon-btn" style={{ width: 24, height: 24, border: 0 }} aria-label="첨부 삭제" onClick={() => { const next = attachments.filter((_, j) => j !== i); setAttachments(next); save({ attachments: next }) }}><X size={14} /></button></span>)}</div>}
     </section>
   </div>
@@ -395,7 +403,8 @@ export default function PlanWizard({ sessionId }) {
       {session.ask && session.ask.stage === session.stage && !generating ? <AskCard ask={session.ask} busy={chatBusy} onAnswer={a => send(a, { openChat: false })} />
         : generating ? <HookLoader title={`훅ai가 ${STAGES.find(([id]) => id === session.stage)?.[1]} 만드는 중`} stages={GEN_STAGES} stageIndex={elapsed < 5 ? 0 : elapsed < 60 ? 1 : 2} startedAt={session.job.startedAt} />
         : failed ? <div className="st-card st-stack"><div className="st-error">{session.job.error}</div><button type="button" className="st-btn st-btn-primary" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시 만들기</button></div>
-        : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive} />
+        : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive}
+            onPickSaved={t => pickTopic({ title: t.title, angle: t.angle, promise: t.promise, category: t.category || '기타', facts: [] })} />
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
         : session.stage === 'thumbnail' ? <ThumbnailStage key={`${version}-${session.thumbnail.applied?.text || ''}`} session={session} save={save} restore={restorePick} />
         : session.stage === 'hook' ? <HookStage key={`${version}-${session.hook.applied?.text || ''}`} session={session} save={save} restore={restorePick} />

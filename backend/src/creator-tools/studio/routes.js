@@ -24,6 +24,7 @@ import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
 import { LOOKUP_PRIORITY } from '../instagram-lookup.js'
 import { createDemoLink, refreshDemoUsers, startDemoRefresh } from '../demo-links.js'
+import { ideaReply } from './ideas.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
@@ -216,6 +217,120 @@ export function registerStudioRoutes(router) {
     })()
     res.status(202).json({ messages: [publicMessage(mine)], pending: true })
   }))
+  // ----- 주제 찾기 -----
+  const addIdeaMessage = (threadId, userId, role, content, meta = {}) =>
+    query(database().from('studio_idea_messages').insert({ thread_id: threadId, user_id: userId, role, content, meta }).select('*').single())
+  const ownedThread = async req => {
+    const row = await query(database().from('studio_idea_threads').select('*').eq('id', uuid(req.params.id)).eq('user_id', req.auth.userId).maybeSingle())
+    if (!row) fail('THREAD_NOT_FOUND', '대화를 찾을 수 없어요.', 404)
+    return row
+  }
+  const publicThread = row => ({ id: row.id, title: row.title, category: row.category, createdAt: row.created_at, updatedAt: row.updated_at })
+  const publicSaved = row => ({ id: row.id, threadId: row.thread_id, title: row.title, angle: row.angle, promise: row.promise, why: row.why, materials: row.materials, facts: row.facts,
+    category: row.category, reels: row.reels, memo: row.memo, sessionId: row.session_id, createdAt: row.created_at })
+  // 훅ai answers in the background, like the plan chat; the page checks the conversation until the answer is in.
+  const answerIdea = (thread, userId, content) => {
+    void (async () => {
+      try {
+        const history = await query(database().from('studio_idea_messages').select('*').eq('thread_id', thread.id).order('created_at', { ascending: true }).limit(200))
+        const reply = await ideaReply(deps(), thread, history, content)
+        await addIdeaMessage(thread.id, userId, 'hookai', reply.content, reply.meta)
+        await query(database().from('studio_idea_threads').update({ category: reply.category, updated_at: new Date().toISOString() }).eq('id', thread.id))
+      } catch (error) {
+        console.error('[studio-ideas]', error?.code || 'FAILED')
+        await addIdeaMessage(thread.id, userId, 'hookai', '앗, 이번 답은 만들지 못했어요. 같은 말을 한 번만 다시 보내주세요.', { failed: true }).catch(() => {})
+      }
+    })()
+  }
+  router.get('/creator-tools/studio/ideas', asyncHandler(async (req, res) => {
+    enabled(req)
+    const db = database()
+    const [threads, saved] = await Promise.all([
+      query(db.from('studio_idea_threads').select('*').eq('user_id', req.auth.userId).order('updated_at', { ascending: false }).limit(30)),
+      query(db.from('studio_saved_topics').select('*').eq('user_id', req.auth.userId).order('created_at', { ascending: false }).limit(200)),
+    ])
+    res.set('Cache-Control', 'private, no-store').json({ threads: threads.map(publicThread), saved: saved.map(publicSaved) })
+  }))
+  router.post('/creator-tools/studio/ideas/threads', asyncHandler(async (req, res) => {
+    enabled(req)
+    const content = text(req.body?.text, 4000)
+    if (!content) fail('MESSAGE_REQUIRED', '이야기를 적어주세요.')
+    const thread = await query(database().from('studio_idea_threads').insert({ user_id: req.auth.userId, title: content.slice(0, 60) }).select('*').single())
+    const mine = await addIdeaMessage(thread.id, req.auth.userId, 'user', content)
+    answerIdea(thread, req.auth.userId, content)
+    res.status(202).json({ thread: publicThread(thread), messages: [publicMessage(mine)], pending: true })
+  }))
+  router.get('/creator-tools/studio/ideas/threads/:id', asyncHandler(async (req, res) => {
+    enabled(req)
+    const thread = await ownedThread(req)
+    const messages = await query(database().from('studio_idea_messages').select('*').eq('thread_id', thread.id).order('created_at', { ascending: true }).limit(200))
+    res.set('Cache-Control', 'private, no-store').json({ thread: publicThread(thread), messages: messages.map(publicMessage) })
+  }))
+  router.post('/creator-tools/studio/ideas/threads/:id/chat', asyncHandler(async (req, res) => {
+    enabled(req)
+    const thread = await ownedThread(req)
+    const content = text(req.body?.text, 4000)
+    if (!content) fail('MESSAGE_REQUIRED', '이야기를 적어주세요.')
+    const mine = await addIdeaMessage(thread.id, req.auth.userId, 'user', content)
+    answerIdea(thread, req.auth.userId, content)
+    res.status(202).json({ messages: [publicMessage(mine)], pending: true })
+  }))
+  router.delete('/creator-tools/studio/ideas/threads/:id', asyncHandler(async (req, res) => {
+    enabled(req)
+    const thread = await ownedThread(req)
+    await query(database().from('studio_idea_threads').delete().eq('id', thread.id))
+    res.json({ ok: true })
+  }))
+  // 주제 보관함: a topic card the student keeps, with what they told 훅ai and the research behind it.
+  router.post('/creator-tools/studio/ideas/saved', asyncHandler(async (req, res) => {
+    enabled(req)
+    const db = database(), c = req.body?.card || {}
+    const title = text(c.title, 120)
+    if (title.length < 2) fail('TOPIC_REQUIRED', '저장할 주제를 확인해주세요.')
+    let thread = null, facts = []
+    if (req.body?.threadId) {
+      thread = await query(db.from('studio_idea_threads').select('*').eq('id', uuid(req.body.threadId)).eq('user_id', req.auth.userId).maybeSingle())
+      if (thread) facts = (await query(db.from('studio_idea_messages').select('content').eq('thread_id', thread.id).eq('role', 'user').order('created_at', { ascending: true }).limit(20))).map(m => text(m.content, 600)).filter(Boolean)
+    }
+    const reels = (Array.isArray(c.reels) ? c.reels : []).filter(r => /^[A-Za-z0-9_-]{5,40}$/.test(String(r?.id || ''))).slice(0, 3).map(r => ({ id: r.id, username: text(r.username, 40), views: Number(r.views) || null }))
+    const row = await query(db.from('studio_saved_topics').insert({ user_id: req.auth.userId, thread_id: thread?.id || null, title, angle: text(c.angle, 240), promise: text(c.promise, 240), why: text(c.why, 400),
+      materials: (Array.isArray(c.materials) ? c.materials : []).map(m => text(m, 160)).filter(Boolean).slice(0, 6), facts,
+      category: SUCCESS_REEL_CATEGORIES.includes(c.category) ? c.category : thread?.category || null, reels, research: thread?.research || null }).select('*').single())
+    res.status(201).json({ saved: publicSaved(row) })
+  }))
+  router.patch('/creator-tools/studio/ideas/saved/:id', asyncHandler(async (req, res) => {
+    enabled(req)
+    const patch = { updated_at: new Date().toISOString() }
+    if (typeof req.body?.memo === 'string') patch.memo = text(req.body.memo, 2000)
+    if (typeof req.body?.title === 'string' && text(req.body.title, 120).length >= 2) patch.title = text(req.body.title, 120)
+    const row = await query(database().from('studio_saved_topics').update(patch).eq('id', uuid(req.params.id)).eq('user_id', req.auth.userId).select('*').maybeSingle())
+    if (!row) fail('TOPIC_NOT_FOUND', '저장한 주제를 찾을 수 없어요.', 404)
+    res.json({ saved: publicSaved(row) })
+  }))
+  router.delete('/creator-tools/studio/ideas/saved/:id', asyncHandler(async (req, res) => {
+    enabled(req)
+    await query(database().from('studio_saved_topics').delete().eq('id', uuid(req.params.id)).eq('user_id', req.auth.userId))
+    res.json({ ok: true })
+  }))
+  // A saved topic becomes a plan that starts at the cover: what the student said and the research carry over.
+  router.post('/creator-tools/studio/ideas/saved/:id/plan', asyncHandler(async (req, res) => {
+    enabled(req)
+    const db = database()
+    const saved = await query(db.from('studio_saved_topics').select('*').eq('id', uuid(req.params.id)).eq('user_id', req.auth.userId).maybeSingle())
+    if (!saved) fail('TOPIC_NOT_FOUND', '저장한 주제를 찾을 수 없어요.', 404)
+    const brief = [saved.title, saved.angle && `각도: ${saved.angle}`, saved.promise && `시청자가 얻는 것: ${saved.promise}`,
+      saved.facts?.length ? `주제를 찾으며 내가 한 말:\n${saved.facts.map(f => `- ${f}`).join('\n')}` : '', saved.memo && `메모: ${saved.memo}`].filter(Boolean).join('\n').slice(0, 8000)
+    const style = await query(db.from('studio_styles').select('card').eq('user_id', req.auth.userId).maybeSingle())
+    const research = saved.research ? { ...saved.research, brief: brief.slice(0, 3000) } : undefined
+    const topic = { title: saved.title, angle: saved.angle, promise: saved.promise, facts: [], audience: '', category: saved.category || '기타', answers: [], brief, ...(research ? { research } : {}), categoryChecked: Boolean(saved.category) }
+    const row = await query(db.from('studio_sessions').insert({ user_id: req.auth.userId, mode: 'topic', sources: {}, brief, title: saved.title, topic, style_snapshot: style?.card || null }).select('*').single())
+    await query(db.from('studio_topics').insert({ user_id: req.auth.userId, session_id: row.id, topic: saved.title, category: topic.category }))
+    await query(db.from('studio_saved_topics').update({ session_id: row.id, updated_at: new Date().toISOString() }).eq('id', saved.id))
+    await addMessage(row.id, req.auth.userId, 'hookai', 'thumbnail', STAGE_OPENERS.thumbnail)
+    const session = await startStage(deps(), row, 'thumbnail', { force: true })
+    res.status(201).json({ session: publicSession(session) })
+  }))
+
   // Apply a 훅ai proposal to the current stage.
   router.post('/creator-tools/studio/sessions/:id/apply', asyncHandler(async (req, res) => {
     enabled(req)

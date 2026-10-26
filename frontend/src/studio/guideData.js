@@ -17,14 +17,15 @@ export const popupHidden = () => safeGetStorageItem(POPUP_KEY) === 'hidden'
 export const TOUR_STEPS = [
   { target: 'reels', title: '① 성공 릴스', body: '매일 모으는 터진 릴스예요. 여기서 마음에 드는 릴스를 찾는 것부터 시작해요.' },
   { target: 'reel-card', title: '② 릴스 카드', body: '카드에 마우스를 올리면 영상이 재생되고 ‘분석하기’ 버튼이 나와요. 누르면 크게 볼 수 있어요.' },
-  { target: 'references', title: '③ 내 레퍼런스', body: '분석한 릴스가 자동으로 모여요. 인스타 링크·영상·대본을 직접 추가할 수도 있어요.' },
-  { target: 'new', title: '④ 내 기획안 만들기', body: '레퍼런스를 고르고 하고 싶은 말을 적으면, 훅ai와 함께 썸네일부터 캡션까지 만들어요.' },
-  { target: 'plans', title: '⑤ 내 기획안', body: '만들던 기획안이 여기 저장돼요. 중간에 나가도 그 자리에서 이어서 할 수 있어요.' },
-  { target: 'formulas', title: '⑥ 내 공식', body: '분석 결과에서 저장한 첫 문장·전개·캡션 공식이 모여요. 다음 기획안에 바로 써요.' },
-  { target: 'library', title: '⑦ 공식 사전', body: '터진 릴스가 쓰는 공식을 유형별로 모아 뒀어요. 예시와 함께 배울 수 있어요.' },
-  { target: 'edit', title: '⑧ 영상 편집', body: '찍은 영상을 올리면 훅ai가 고칠 점을 알려주고, 말한 문장 단위로 잘라 자막까지 넣은 완성 영상을 만들어요.' },
-  { target: 'style', title: '⑨ 내 말투', body: '평소 말투를 알려주면 훅ai가 그 말투로 대본을 써요. 비워두면 훅ai가 알아서 해요.' },
-  { target: 'manual', title: '⑩ 사용 설명서', body: '헷갈리면 언제든 여기를 누르세요. 화면 사진과 번호로 하나씩 따라 할 수 있게 정리했어요.' },
+  { target: 'ideas', title: '③ 주제 찾기', body: '훅ai와 편하게 대화하며 찍을 수 있을 만큼 구체적인 주제를 찾아요. 마음에 드는 주제는 보관함에 저장해 두고, 기획안을 만들 때 꺼내 쓰세요.' },
+  { target: 'references', title: '④ 내 레퍼런스', body: '분석한 릴스가 자동으로 모여요. 인스타 링크·영상·대본을 직접 추가할 수도 있어요.' },
+  { target: 'new', title: '⑤ 내 기획안 만들기', body: '레퍼런스를 고르고 하고 싶은 말을 적으면, 훅ai와 함께 썸네일부터 캡션까지 만들어요.' },
+  { target: 'plans', title: '⑥ 내 기획안', body: '만들던 기획안이 여기 저장돼요. 중간에 나가도 그 자리에서 이어서 할 수 있어요.' },
+  { target: 'formulas', title: '⑦ 내 공식', body: '분석 결과에서 저장한 첫 문장·전개·캡션 공식이 모여요. 다음 기획안에 바로 써요.' },
+  { target: 'library', title: '⑧ 공식 사전', body: '터진 릴스가 쓰는 공식을 유형별로 모아 뒀어요. 예시와 함께 배울 수 있어요.' },
+  { target: 'edit', title: '⑨ 영상 편집', body: '찍은 영상을 올리면 훅ai가 고칠 점을 알려주고, 말한 문장 단위로 잘라 자막까지 넣은 완성 영상을 만들어요.' },
+  { target: 'style', title: '⑩ 내 말투', body: '평소 말투를 알려주면 훅ai가 그 말투로 대본을 써요. 비워두면 훅ai가 알아서 해요.' },
+  { target: 'manual', title: '⑪ 사용 설명서', body: '헷갈리면 언제든 여기를 누르세요. 화면 사진과 번호로 하나씩 따라 할 수 있게 정리했어요.' },
 ]
 export const TOUR_KEY = 'hookai-studio-tour-v1'
 export const tourDone = () => safeGetStorageItem(TOUR_KEY) === 'done'

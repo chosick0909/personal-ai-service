@@ -87,7 +87,7 @@ const topicSchema = obj({
   topic: obj({ ready: bool, title: str, angle: str, promise: str, facts: arr(str), audience: str, category: str }),
 })
 // Suggested answers steer what students type, and what they type decides how good the plan can be.
-const CHIP_RULE = '추천 답변(chips)은 수강생이 누르기만 해도 기획안이 강해지는 답이어야 합니다. 서로 다른 방향의 답을 수강생 입장의 짧은 말로 씁니다. 각 답은 research(조사한 사실·구매자 후기·시청자 궁금증)와 fieldKnowledge(이 분야에서 터지는 주제·시청자 말투)에서 시청자를 붙잡을 재료가 되는 구체적인 내용으로 쓰고, 어떤 주제에나 붙는 막연한 답은 쓰지 않습니다. 수강생 본인의 경험·사실을 묻는 질문이면 수강생이 사실대로 고를 수 있도록 실제로 흔한 서로 다른 상황을 제시합니다(맞는 것이 없으면 수강생이 직접 적습니다).'
+export const CHIP_RULE = '추천 답변(chips)은 수강생이 누르기만 해도 기획안이 강해지는 답이어야 합니다. 서로 다른 방향의 답을 수강생 입장의 짧은 말로 씁니다. 각 답은 research(조사한 사실·구매자 후기·시청자 궁금증)와 fieldKnowledge(이 분야에서 터지는 주제·시청자 말투)에서 시청자를 붙잡을 재료가 되는 구체적인 내용으로 쓰고, 어떤 주제에나 붙는 막연한 답은 쓰지 않습니다. 수강생 본인의 경험·사실을 묻는 질문이면 수강생이 사실대로 고를 수 있도록 실제로 흔한 서로 다른 상황을 제시합니다(맞는 것이 없으면 수강생이 직접 적습니다).'
 const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 대화하며 이번 릴스의 주제를 확정합니다.
 - reply: 수강생에게 할 말(2~4문장). 질문은 한 번에 하나만.
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개. ${CHIP_RULE} 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
@@ -95,7 +95,7 @@ const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 
 - topic: 주제를 확정할 수 있을 만큼 정보가 모이면 ready=true와 함께 채웁니다. title, angle, promise, facts(수강생이 실제로 준 사실만, 없으면 []), audience(누구에게), category(분야). 아직이면 ready=false와 빈 값.
 규칙: brief가 있으면 그 소재가 곧 주제이고, 질문과 제안은 그 소재 안에서만 합니다. 레퍼런스(sources)가 있으면 첫 질문은 그 형식을 수강생의 소재에 살리는 데 필요한 재료(형식이 요구하는 비교 대상, 경험, 기준 등)를 묻습니다. 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 수강생이 답한 사실은 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어갑니다. facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
 
-async function trendingFor(db, category) {
+export async function trendingFor(db, category) {
   let request = db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready')
   if (category && SUCCESS_REEL_CATEGORIES.includes(category)) request = request.eq('category', category)
   const rows = await query(request.order('analysis_requests', { ascending: false }).order('views', { ascending: false }).limit(6))
