@@ -14,8 +14,11 @@ const str = { type: 'string' }
 const obj = properties => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties })
 const arr = items => ({ type: 'array', items })
 const category = { type: 'string', enum: SUCCESS_REEL_CATEGORIES }
-const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC').replace(/[ \t]+/g, ' ').trim().slice(0, max) : ''
+// A quote the model escaped with a backslash is shown as the plain quote.
+const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC').replace(/\\(['"])/g, '$1').replace(/[ \t]+/g, ' ').trim().slice(0, max) : ''
 const list = (value, max, count) => Array.isArray(value) ? value.map(v => clean(v, max)).filter(Boolean).slice(0, count) : []
+// A suggested answer is sent as the student's own message when pressed, so it is kept whole or left out, never cut mid-sentence.
+const chipList = (value, count) => (Array.isArray(value) ? value : []).map(v => clean(v, 1000)).filter(c => c && c.length <= 160).slice(0, count)
 
 export const ideaSchema = obj({
   lookup: str,
@@ -81,6 +84,6 @@ export async function ideaReply(deps, thread, messages, text) {
     return { title: clean(c?.title, 120), angle: clean(c?.angle, 240), promise: clean(c?.promise, 240), why: clean(c?.why, 400), evidence: list(c?.evidence, 160, 3),
       materials: list(c?.materials, 160, 4), category: field, reels: await reelsFor(db, field) }
   }))
-  return { content: clean(raw?.reply, 800) || '좋아요, 이어서 같이 찾아볼게요.', meta: { chips: list(raw?.chips, 40, 4), cards: cards.filter(c => c.title).slice(0, 3) },
+  return { content: clean(raw?.reply, 800) || '좋아요, 이어서 같이 찾아볼게요.', meta: { chips: chipList(raw?.chips, 4), cards: cards.filter(c => c.title).slice(0, 3) },
     category: thread.category || null }
 }

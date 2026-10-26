@@ -344,7 +344,7 @@ function DoneStage({ session, onSaveFormula, save, version }) {
 function AskCard({ ask, onAnswer, busy }) {
   const [text, setText] = useState('')
   const q = ask.questions[ask.index]
-  return <section className="st-card st-stack" style={{ borderColor: 'var(--st-accent-soft-2)' }}>
+  return <section className="st-card st-stack st-ask" style={{ borderColor: 'var(--st-accent-soft-2)' }}>
     <div className="st-row"><HookAvatar size={38} /><div><h3>훅ai가 먼저 물어봐요</h3><p className="st-muted st-small">지어내지 않으려고요. 답을 받으면 바로 만들어요. ({ask.index + 1}/{ask.questions.length})</p></div></div>
     <p style={{ fontSize: 19, fontWeight: 700 }}>{q.question}</p>
     {q.chips?.length > 0 && <div className="st-chips">{q.chips.map(c => <button type="button" key={c} className="st-chip" disabled={busy} onClick={() => onAnswer(c)}>{c}</button>)}</div>}

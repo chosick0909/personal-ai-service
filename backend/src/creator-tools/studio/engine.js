@@ -14,8 +14,11 @@ const num = { type: 'number' }
 const bool = { type: 'boolean' }
 const obj = properties => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties })
 const arr = items => ({ type: 'array', items })
-const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC').replace(/[ \t]+/g, ' ').trim().slice(0, max) : ''
+// A quote the model escaped with a backslash is shown as the plain quote.
+const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC').replace(/\\(['"])/g, '$1').replace(/[ \t]+/g, ' ').trim().slice(0, max) : ''
 const list = (value, max, count) => Array.isArray(value) ? value.map(v => clean(v, max)).filter(Boolean).slice(0, count) : []
+// A suggested answer is sent as the student's own message when pressed, so it is kept whole or left out, never cut mid-sentence.
+const chipList = (value, count) => (Array.isArray(value) ? value : []).map(v => clean(v, 1000)).filter(c => c && c.length <= 160).slice(0, count)
 export const SLOTS = ['hook', 'structure', 'filming', 'caption']
 const SLOT_LABELS = { hook: '첫 문장(후킹)', structure: '전개', filming: '촬영/편집', caption: '캡션' }
 const PARTS = ['hook', 'body', 'cta']
@@ -87,7 +90,7 @@ const topicSchema = obj({
   topic: obj({ ready: bool, title: str, angle: str, promise: str, facts: arr(str), audience: str, category: str }),
 })
 // Suggested answers steer what students type, and what they type decides how good the plan can be.
-export const CHIP_RULE = '추천 답변(chips)은 수강생이 누르기만 해도 기획안이 강해지는 답이어야 합니다. 서로 다른 방향의 답을 수강생 입장의 짧은 말로 씁니다. 각 답은 research(조사한 사실·구매자 후기·시청자 궁금증)와 fieldKnowledge(이 분야에서 터지는 주제·시청자 말투)에서 시청자를 붙잡을 재료가 되는 구체적인 내용으로 쓰고, 어떤 주제에나 붙는 막연한 답은 쓰지 않습니다. 수강생 본인의 경험·사실을 묻는 질문이면 수강생이 사실대로 고를 수 있도록 실제로 흔한 서로 다른 상황을 제시합니다(맞는 것이 없으면 수강생이 직접 적습니다).'
+export const CHIP_RULE = '추천 답변(chips)은 수강생이 누르기만 해도 기획안이 강해지는 답이어야 합니다. 누르면 그대로 수강생의 메시지로 보내지므로, 각 답은 그 자체로 끝나는 완결된 한 문장(40자 안팎)으로 씁니다. 서로 다른 방향의 답을 수강생 입장의 짧은 말로 씁니다. 각 답은 research(조사한 사실·구매자 후기·시청자 궁금증)와 fieldKnowledge(이 분야에서 터지는 주제·시청자 말투)에서 시청자를 붙잡을 재료가 되는 구체적인 내용으로 쓰고, 어떤 주제에나 붙는 막연한 답은 쓰지 않습니다. 수강생 본인의 경험·사실을 묻는 질문이면 수강생이 사실대로 고를 수 있도록 실제로 흔한 서로 다른 상황을 제시합니다(맞는 것이 없으면 수강생이 직접 적습니다).'
 const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 대화하며 이번 릴스의 주제를 확정합니다.
 - reply: 수강생에게 할 말(2~4문장). 질문은 한 번에 하나만.
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개. ${CHIP_RULE} 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
@@ -118,7 +121,7 @@ export async function openerMessage(deps, session) {
 function normalizeTopicReply(raw) {
   const topic = raw.topic?.ready && clean(raw.topic.title, 120) ? { title: clean(raw.topic.title, 120), angle: clean(raw.topic.angle, 200), promise: clean(raw.topic.promise, 200),
     facts: list(raw.topic.facts, 200, 12), audience: clean(raw.topic.audience, 120), category: SUCCESS_REEL_CATEGORIES.includes(raw.topic.category) ? raw.topic.category : '기타' } : null
-  return { content: clean(raw.reply, 600) || '좋아요, 이어서 볼게요.', meta: { chips: list(raw.chips, 30, 4),
+  return { content: clean(raw.reply, 600) || '좋아요, 이어서 볼게요.', meta: { chips: chipList(raw.chips, 4),
     proposals: (Array.isArray(raw.proposals) ? raw.proposals : []).map(p => ({ title: clean(p.title, 120), angle: clean(p.angle, 200), promise: clean(p.promise, 200), why: clean(p.why, 200),
       category: SUCCESS_REEL_CATEGORIES.includes(p.category) ? p.category : '기타' })).filter(p => p.title).slice(0, 3), topic } }
 }
@@ -148,7 +151,7 @@ export async function chat(deps, session, messages, text) {
   const misses = missed(raw)
   if (misses.length) raw = await providersJson(providers, 'studio-revise', `${revisePrompt(stage)}\n방금 쓴 결과를 대조했더니 이 조건을 지키지 못했습니다: ${misses.join(' / ')}. 결과를 처음부터 다시 써서 모든 조건을 지키고, 다시 대조합니다.`, input, reviseSchema)
   const proposal = raw.proposal?.has ? normalizeProposal(stage, raw.proposal) : null
-  return { content: clean(raw.reply, 800) || '네, 반영했어요.', meta: { chips: list(raw.chips, 30, 4), proposal } }
+  return { content: clean(raw.reply, 800) || '네, 반영했어요.', meta: { chips: chipList(raw.chips, 4), proposal } }
 }
 
 // Field order is writing order: the revision is written first, then checked against the student's conditions,
@@ -277,7 +280,7 @@ export async function generateStage(deps, session, stage) {
   const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category), coverLessons: await coverKnowledge(deps.db) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
   let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
-  const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...list(q.chips, 60, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
+  const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...chipList(q.chips, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
   let asks = parseAsks(raw)
   if (asks.length && asking) return { questions: asks, placeholders: [] }
   if (asks.length) {
