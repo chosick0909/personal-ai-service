@@ -28,7 +28,7 @@ const MENU = [
 ]
 const TITLES = { manual: ['사용 설명서', '화면 사진의 번호를 따라 하나씩 해보세요'], reels: ['성공 릴스', '매일 쌓이는 터진 릴스. 마음에 드는 걸 분석해 보세요'], reference: ['레퍼런스 분석', ''], references: ['내 레퍼런스', '분석한 릴스가 여기 모여요'],
   plans: ['내 기획안', '진행 중인 기획안을 이어서 만들어요'], new: ['내 기획안 만들기', '어떻게 시작할지 골라주세요'], plan: ['내 기획안', ''], formulas: ['내 공식', '저장한 후킹·전개·촬영·캡션 공식'],
-  library: ['공식 사전', '터진 릴스가 쓰는 공식 모음'], edit: ['영상 편집', '컷편집·자막, 영상·캡션 피드백'], style: ['내 말투', '훅ai가 이 말투로 써드려요'], print: ['기획안 인쇄', ''] }
+  library: ['공식 사전', '터진 릴스가 쓰는 공식 모음'], edit: ['영상 편집', '훅ai 피드백 · 컷 편집 · 자막 · 완성 영상'], style: ['내 말투', '훅ai가 이 말투로 써드려요'], print: ['기획안 인쇄', ''] }
 
 function readRoute() {
   const q = new URLSearchParams(window.location.search)
@@ -169,13 +169,13 @@ export default function StudioApp() {
             : route.page === 'plan' ? <PlanWizard key={route.params.session} sessionId={route.params.session} />
             : route.page === 'formulas' ? <FormulasPage />
             : route.page === 'library' ? <LibraryPage />
-            : route.page === 'edit' ? <EditPage />
+            : route.page === 'edit' ? <EditPage key={route.params.job || 'start'} jobId={route.params.job} />
             : route.page === 'style' ? <StylePage />
             : route.page === 'manual' ? <ManualPage onTour={() => { go('reels'); setTimeout(() => setGuide('tour'), 600) }} />
             : <ReelsPage />}
         </div>
       </div>
-      {route.page !== 'plan' && route.page !== 'new' && <button type="button" data-tour="new" className="st-fab" onClick={() => go('new')}><Sparkles size={22} />내 기획안 만들기</button>}
+      {route.page !== 'plan' && route.page !== 'new' && !(route.page === 'edit' && route.params.job) && <button type="button" data-tour="new" className="st-fab" onClick={() => go('new')}><Sparkles size={22} />내 기획안 만들기</button>}
       {guide === 'popup' && <UpdatePopup onClose={() => setGuide(g => g === 'popup' ? null : g)} onTour={() => { if (route.page !== 'reels') go('reels'); setTimeout(() => setGuide('tour'), 500) }} onManual={() => go('manual')} />}
       {guide === 'tour' && <Tour onClose={() => setGuide(null)} />}
       <div className="st-toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`st-toast st-toast-${t.kind}`}>

@@ -27,6 +27,15 @@ export const studio = {
   style: () => creatorRequest('/creator-tools/studio/style'),
   saveStyle: body => creatorRequest('/creator-tools/studio/style', { method: 'PUT', body }),
   removeTopic: id => creatorRequest(`/creator-tools/studio/topics/${id}`, { method: 'DELETE' }),
+  // 영상 편집: the existing media pipeline (upload → analyze → edit manifest → render), used in one-pass studio mode.
+  jobs: () => creatorRequest('/creator-tools/jobs'),
+  job: id => creatorRequest(`/creator-tools/jobs/${id}`),
+  createMedia: body => creatorRequest('/media-projects', { method: 'POST', body }),
+  analyzeMedia: (id, body) => creatorRequest(`/media-projects/${id}/analyze`, { method: 'POST', body: { ...body, studio: true, rightsConfirmed: true } }),
+  media: id => creatorRequest(`/media-projects/${id}`),
+  saveMedia: (id, revision, manifest) => creatorRequest(`/media-projects/${id}/edit-manifest`, { method: 'PATCH', body: { revision, manifest } }),
+  renderMedia: (id, revision) => creatorRequest(`/media-projects/${id}/render`, { method: 'POST', body: { confirmed: true, revision } }),
+  fixSubtitles: (id, planId) => creatorRequest(`/creator-tools/studio/media/${id}/fix-subtitles`, { method: 'POST', body: { planId } }),
 }
 
 export function compactCount(value) {

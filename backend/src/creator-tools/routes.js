@@ -13,6 +13,14 @@ import { referencePlayback } from './reference-playback.js'
 import { registerSuccessReelRoutes, successReelsEnabled } from './success-reels-routes.js'
 import { registerStudioRoutes } from './studio/routes.js'
 import { studio2Enabled } from './studio/access.js'
+import { planContextFor } from './studio/plan-context.js'
+
+// A direct, download-named link to the finished MP4 (older renders only have the ZIP, so a missing file gives null).
+async function signedVideo(db, path, originalName) {
+  const name = `${String(originalName || 'video').replace(/\.[^.]+$/, '').slice(0, 80)}-편집본.mp4`
+  const { data, error } = await db.storage.from(OUTPUT_BUCKET).createSignedUrl(path, 300, { download: name })
+  return error ? null : data?.signedUrl || null
+}
 
 export function createCreatorRouter() {
   const router = Router()
@@ -229,9 +237,13 @@ export function createCreatorRouter() {
     const db = database(), media = await ownedMedia(db, uuid(req.params.id), req.auth.userId)
     if (Date.parse(media.original_expires_at) <= Date.now()) fail('MEDIA_EXPIRED', '원본 보관 기간이 지났습니다.', 410)
     if (req.body.rightsConfirmed !== true) fail('RIGHTS_REQUIRED', '이번 영상의 분석·편집 권한을 확인해주세요.')
-    const caption = req.body.feedbackCaption === undefined ? null : textInput(req.body.feedbackCaption, '캡션', 1, 5000)
-    const input = { projectId: media.id, ...(caption !== null ? { feedbackCaption: caption } : {}) }
-    const key = caption !== null ? `${media.id}:feedback:${stableHash(caption)}` : media.id
+    // Studio 2 asks for everything in one pass (feedback + flow check + cuts); the caption is optional there and a plan can be linked.
+    const studio = req.body.studio === true && studio2Enabled(req.auth.userId)
+    const caption = studio ? String(req.body.feedbackCaption || '').normalize('NFC').trim().slice(0, 5000)
+      : req.body.feedbackCaption === undefined ? null : textInput(req.body.feedbackCaption, '캡션', 1, 5000)
+    const plan = studio && req.body.planId ? await planContextFor(db, req.auth.userId, uuid(req.body.planId)) : null
+    const input = { projectId: media.id, ...(caption !== null ? { feedbackCaption: caption } : {}), ...(studio ? { studio: true } : {}), ...(plan ? { plan } : {}) }
+    const key = studio ? `${media.id}:studio:${stableHash({ caption, plan: plan?.id || null })}` : caption !== null ? `${media.id}:feedback:${stableHash(caption)}` : media.id
     const row = await createJob(db, { userId: req.auth.userId, kind: 'media-analyze', key, hashInput: input,
       input: { ...input, rightsConfirmedAt: new Date().toISOString() } })
     await query(db.from('creator_media_projects').update({ job_id: row.id }).eq('id', media.id))
@@ -245,6 +257,7 @@ export function createCreatorRouter() {
       revision: media.revision, manifest: { ...(media.manifest.hookDiagnosis ? { hookDiagnosis: media.manifest.hookDiagnosis } : {}), ...(media.manifest.subtitleStyle ? { subtitleStyle: media.manifest.subtitleStyle } : {}), words: media.manifest.words || [], cuts: media.manifest.cuts, subtitles: media.manifest.subtitles, ...(media.manifest.clips ? { clips: media.manifest.clips } : {}) },
       previewUrl: Date.parse(media.original_expires_at) > Date.now() ? await signedDownload(db, media.preview_path) : null,
       downloadUrl: Date.parse(media.output_expires_at) > Date.now() && !media.output_deleted_at && media.output_path?.endsWith(`output-${media.revision}.zip`) ? await signedDownload(db, media.output_path, OUTPUT_BUCKET) : null,
+      videoUrl: Date.parse(media.output_expires_at) > Date.now() && !media.output_deleted_at && media.output_path?.endsWith(`output-${media.revision}.zip`) ? await signedVideo(db, media.output_path.replace(/\.zip$/, '.mp4'), media.original_name) : null,
       originalExpiresAt: media.original_expires_at, outputExpiresAt: media.output_expires_at, job: job ? publicJob(job) : null })
   }))
   router.patch('/media-projects/:id/edit-manifest', asyncHandler(async (req, res) => {

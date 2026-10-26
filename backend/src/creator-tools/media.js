@@ -109,7 +109,7 @@ export async function analyzeMedia(ctx) {
     const previewPath = `${job.user_id}/${media.id}/preview.mp4`
     await query(db.from('creator_media_artifacts').upsert({ path: previewPath, bucket: BUCKET, project_id: media.id, expires_at: media.original_expires_at }))
     await uploadFile(db, previewPath, preview, 'video/mp4')
-    const hookDiagnosis = job.input.feedbackCaption === undefined ? await diagnoseMediaHook(ctx, transcript, info.duration, startedAt) : null
+    const hookDiagnosis = job.input.feedbackCaption === undefined || job.input.studio ? await diagnoseMediaHook(ctx, transcript, info.duration, startedAt) : null
     const manifest = { ...(hookDiagnosis ? {hookDiagnosis} : {}), subtitles: groupSubtitles(transcript.subtitles, transcript.words), subtitleStyle: { preset: 'outline', burnIn: true }, words: transcript.words, cuts: safeCutCandidates(silences, transcript.words, info.duration) }
     await query(db.from('creator_media_projects').update({ status: 'ready', duration_seconds: info.duration, manifest,
       preview_path: previewPath, job_id: job.id }).eq('id', media.id).eq('revision', 0))
@@ -167,6 +167,10 @@ export async function renderMedia(ctx) {
     const expires = new Date(Date.now() + 7 * 86400000).toISOString()
     await query(db.from('creator_media_artifacts').upsert({ path, bucket: OUTPUT_BUCKET, project_id: media.id, expires_at: expires }))
     await uploadFile(db, path, zip, 'application/zip', { bucket: OUTPUT_BUCKET, limit: 800 * 1024 * 1024 })
+    // The finished MP4 on its own too: students (often on a phone) should get a playable video, not only a ZIP.
+    const videoPath = `${job.user_id}/${media.id}/output-${media.revision}.mp4`
+    await query(db.from('creator_media_artifacts').upsert({ path: videoPath, bucket: OUTPUT_BUCKET, project_id: media.id, expires_at: expires }))
+    await uploadFile(db, videoPath, output, 'video/mp4', { bucket: OUTPUT_BUCKET })
     const updated = await query(db.from('creator_media_projects').update({ status: 'completed', output_path: path,
       output_expires_at: expires, output_deleted_at: null, job_id: job.id }).eq('id', media.id).eq('revision', media.revision).select().maybeSingle())
     if (!updated) { await db.storage.from(OUTPUT_BUCKET).remove([path]); fail('EDIT_CONFLICT', '편집 내용이 변경되었습니다.', 409) }

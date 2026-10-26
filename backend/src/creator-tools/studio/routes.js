@@ -6,12 +6,13 @@ import { randomUUID } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import { asyncHandler } from '../../lib/errors.js'
 import { fail, uuid } from '../domain.js'
-import { database, query } from '../store.js'
+import { database, query, ownedMedia } from '../store.js'
 import { redisConnection } from '../queue.js'
 import { createProviders } from '../providers.js'
 import { studio2Enabled, canRecommend } from './access.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
-import { STAGE_OPENERS, STAGE_ORDER, nextStage } from './persona.js'
+import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
+import { planContextFor } from './plan-context.js'
 import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk } from './engine.js'
 import { THUMBNAIL_BUCKET } from '../success-reels.js'
 import { BUCKET } from '../store.js'
@@ -286,6 +287,23 @@ export function registerStudioRoutes(router) {
       for (const { shortcode } of pending) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, `https://www.instagram.com/reel/${shortcode}/`), 1)
     } catch (error) { console.error('[recommend-resume]', error?.code || 'FAILED') }
   }, 30000).unref?.()
+  // 영상 편집: speech-to-text mishears words; with the plan's script 훅ai fixes only the misheard words and keeps every cue's timing.
+  const fixSchema = { type: 'object', additionalProperties: false, required: ['cues'], properties: { cues: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['i', 'text'], properties: { i: { type: 'integer' }, text: { type: 'string' } } } } } }
+  router.post('/creator-tools/studio/media/:id/fix-subtitles', asyncHandler(async (req, res) => {
+    enabled(req)
+    const db = database(), media = await ownedMedia(db, uuid(req.params.id), req.auth.userId)
+    const cues = Array.isArray(media.manifest?.subtitles) ? media.manifest.subtitles : []
+    if (!cues.length) fail('NO_SUBTITLES', '고칠 자막이 없어요.', 409)
+    const plan = await planContextFor(db, req.auth.userId, uuid(req.body?.planId))
+    if (!plan.script.length && !plan.hook) fail('NO_SCRIPT', '이 기획안에는 아직 대본이 없어요.', 409)
+    const providers = deps().makeProviders(AbortSignal.timeout(120000))
+    const raw = await providers.json('studio-fix-subtitles', `${HOOKAI_SYSTEM}\n\n음성 받아쓰기로 만든 자막(cues)을 학생이 기획한 대본(script)과 견주어, 잘못 들려서 틀린 단어(제품명·고유명사·맞춤법·띄어쓰기)만 고칩니다. 학생이 실제로 대본과 다르게 말한 부분은 말한 그대로 둡니다. 자막을 합치거나 나누지 말고, 받은 i마다 고친 text 하나를 돌려줍니다. 고칠 것이 없으면 원래 text 그대로.`,
+      { script: [plan.hook, ...plan.script].filter(Boolean), cues: cues.map((c, i) => ({ i, text: c.text })) }, [], fixSchema)
+    const fixed = new Map((Array.isArray(raw?.cues) ? raw.cues : []).map(c => [c.i, String(c.text || '').trim().slice(0, 500)]))
+    const subtitles = cues.map((c, i) => ({ ...c, text: fixed.get(i) || c.text }))
+    res.json({ subtitles, changed: subtitles.filter((c, i) => c.text !== cues[i].text).length })
+  }))
+
   router.post('/creator-tools/studio/recommended', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 릴스는 관리자만 추가할 수 있어요.', 404)
     const db = database()
