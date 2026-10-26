@@ -76,6 +76,7 @@ export async function researchTopic(providers, session, { client = getOpenAIClie
   const reviewItems = results.filter(r => r.part === 'reviews').flatMap(r => r.items).slice(0, 8)
   const summary = await providers.json('studio-research-summary', synthesisPrompt, { subject: plan?.subject, facts: factItems, reviews: reviewItems.map(r => r.text) }, [], synthesisSchema).catch(() => null)
   return {
+    brief,
     kind,
     subject: clean(plan?.subject, 200),
     // Facts say where they come from, so a seller's wording is not mistaken for the maker's instructions.
@@ -91,19 +92,22 @@ export async function researchTopic(providers, session, { client = getOpenAIClie
   }
 }
 
+// Research belongs to the text it was done for: once the student rewrites what the reel is about, it is done again.
+export const researchFresh = session => Boolean(session.topic?.research) && (session.topic.research.brief === undefined || session.topic.research.brief === String(session.brief || '').slice(0, 3000))
+
 // Once per plan, before the first draft: the topic's field (a topic taken straight from the student's text has none)
 // and the web research. Saved on the topic; a failure leaves the plan as it was.
-export async function prepareTopic(deps, session, providers) {
+export async function prepareTopic(deps, session, providers, { research = true, category = true } = {}) {
   const topic = { ...(session.topic || {}) }
   let changed = false
-  if (!topic.categoryChecked && (!SUCCESS_REEL_CATEGORIES.includes(topic.category) || topic.category === '기타')) {
+  if (category && !topic.categoryChecked && (!SUCCESS_REEL_CATEGORIES.includes(topic.category) || topic.category === '기타')) {
     const raw = await providers.json('studio-category', `brief와 topic이 다루는 영상 한 편의 주제 분야를 고릅니다. 분야 구분은 성공 릴스와 같습니다: ${SUCCESS_REEL_CATEGORIES.join(', ')}. 맞는 분야가 없으면 기타.`,
       { brief: String(session.brief || '').slice(0, 2000), topic: topic.title || '' }, [], categorySchema).catch(() => null)
     if (SUCCESS_REEL_CATEGORIES.includes(raw?.category)) topic.category = raw.category
     topic.categoryChecked = true
     changed = true
   }
-  if (!topic.research) {
+  if (research && !researchFresh({ ...session, topic })) {
     topic.research = await researchTopic(providers, session).catch(() => ({ subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [], at: new Date().toISOString(), failed: true }))
     changed = true
   }

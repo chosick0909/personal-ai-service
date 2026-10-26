@@ -7,7 +7,7 @@ import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint, SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } from './copy-principles.js'
 import { fieldKnowledge } from './knowledge.js'
 import { libraryEntry, coverKnowledge, provenFormulas } from './formula-study.js'
-import { prepareTopic } from './research.js'
+import { prepareTopic, researchFresh } from './research.js'
 
 const str = { type: 'string' }
 const num = { type: 'number' }
@@ -86,9 +86,11 @@ const topicSchema = obj({
   proposals: arr(obj({ title: str, angle: str, promise: str, why: str, category: str })),
   topic: obj({ ready: bool, title: str, angle: str, promise: str, facts: arr(str), audience: str, category: str }),
 })
+// Suggested answers steer what students type, and what they type decides how good the plan can be.
+const CHIP_RULE = '추천 답변(chips)은 수강생이 누르기만 해도 기획안이 강해지는 답이어야 합니다. 서로 다른 방향의 답을 수강생 입장의 짧은 말로 씁니다. 각 답은 research(조사한 사실·구매자 후기·시청자 궁금증)와 fieldKnowledge(이 분야에서 터지는 주제·시청자 말투)에서 시청자를 붙잡을 재료가 되는 구체적인 내용으로 쓰고, 어떤 주제에나 붙는 막연한 답은 쓰지 않습니다. 수강생 본인의 경험·사실을 묻는 질문이면 수강생이 사실대로 고를 수 있도록 실제로 흔한 서로 다른 상황을 제시합니다(맞는 것이 없으면 수강생이 직접 적습니다).'
 const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 대화하며 이번 릴스의 주제를 확정합니다.
 - reply: 수강생에게 할 말(2~4문장). 질문은 한 번에 하나만.
-- chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개(짧게). 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
+- chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개. ${CHIP_RULE} 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
 - proposals: 주제 후보 3개(수강생이 주제를 못 정했거나 "제안해줘"를 원할 때). 각 후보는 title(주제 한 줄), angle(차별 관점), promise(시청자가 얻는 것), why(지금 이 분야에서 먹히는 이유; trending이 있으면 그 근거), category(분야). 후보를 낼 상황이 아니면 [].
 - topic: 주제를 확정할 수 있을 만큼 정보가 모이면 ready=true와 함께 채웁니다. title, angle, promise, facts(수강생이 실제로 준 사실만, 없으면 []), audience(누구에게), category(분야). 아직이면 ready=false와 빈 값.
 규칙: brief가 있으면 그 소재가 곧 주제이고, 질문과 제안은 그 소재 안에서만 합니다. 레퍼런스(sources)가 있으면 첫 질문은 그 형식을 수강생의 소재에 살리는 데 필요한 재료(형식이 요구하는 비교 대상, 경험, 기준 등)를 묻습니다. 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 수강생이 답한 사실은 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어갑니다. facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
@@ -101,8 +103,10 @@ async function trendingFor(db, category) {
 }
 
 export async function openerMessage(deps, session) {
+  // With something written already, 훅ai looks it up first, so its first question and suggested answers use the research.
+  if (String(session.brief || '').trim().length >= 4 && !researchFresh(session)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)), { research: true, category: false })
   const resolved = await resolveSources(deps.db, session.user_id, session.sources)
-  if (!Object.keys(resolved).length) {
+  if (!Object.keys(resolved).length && !session.topic?.research) {
     return { content: '어떤 릴스를 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요. 막막하면 "주제 제안해줘"를 눌러보세요.',
       meta: { chips: ['주제 제안해줘', '내 경험을 이야기하고 싶어요', '제품을 소개하고 싶어요'] } }
   }
@@ -124,6 +128,7 @@ export async function chat(deps, session, messages, text) {
   const providers = deps.makeProviders(AbortSignal.timeout(480000))
   const recent = messages.slice(-12).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content }))
   if (session.stage === 'topic') {
+    if (String(session.brief || '').trim().length >= 4 && !researchFresh(session)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)), { research: true, category: false })
     const style = await query(deps.db.from('studio_topics').select('topic,category').eq('user_id', session.user_id).order('created_at', { ascending: false }).limit(8))
     const wantsIdeas = /제안|추천|알아서|모르겠/.test(text)
     const trending = wantsIdeas || !Object.keys(resolved).length ? await trendingFor(deps.db, session.topic?.category) : []
@@ -159,7 +164,7 @@ const revisePrompt = stage => `지금은 '${({ thumbnail: '썸네일 카피', ho
 - proposal.requests: 다 쓴 결과를 수강생의 요청과 하나씩 대조합니다. 이번 요청과, 대화에서 수강생이 앞서 정해 두어 아직 유효한 조건을 각각 condition으로 적고, 방금 쓴 결과에서 그 조건이 어떻게 드러나는지 evidence에 실제 글자 그대로 옮긴 뒤 met을 판정합니다. 개수·위치·순서·길이·뺄 것·넣을 것처럼 글자로 확인할 수 있는 조건은 세어서 확인하고, 단어에 대한 조건은 그 단어가 다른 말과 붙어 쓰인 경우까지 겉모양 그대로 셉니다.
 - proposal.summary: 결과에서 실제로 바뀐 점 한 줄.
 - reply: 2~4문장. 결과에 실제로 반영된 것만 말합니다. met이 false인 조건이 있으면 무엇을 못 지켰고 왜인지 그대로 말합니다. 질문이면 그 답.
-- chips: 이어서 누를 만한 짧은 요청 0~3개(예: "더 짧게", "더 친근하게").
+- chips: 지금 결과를 시청자가 더 끝까지 보게 만들 다음 수정 요청 0~3개. 이 기획안에서 가장 약한 곳(넘길 위험이 있는 줄, 더 구체적일 수 있는 장면, 흐릿한 약속)을 짚은 이 기획안만의 구체적인 요청으로 쓰고, 어느 기획안에나 붙는 일반 요청은 쓰지 않습니다.
 규칙: 수강생이 고친 부분은 유지하고 요청한 부분만 바꿉니다. 수강생이 건 조건은 결과 전체에서 지킵니다. 없는 사실을 넣지 않습니다. 대본은 말하듯 짧게.`
 
 function normalizeProposal(stage, p) {
@@ -192,7 +197,7 @@ const stageSchemas = {
 const PROVEN_NOTE = 'provenFormulas는 훅ai가 성공 릴스를 매일 공부하며 확인한 첫 문장·전개 공식과 그 공식을 쓴 성공 릴스 수(reels)입니다. 공식의 작동 원리를 이번 소재에 옮기는 것이지, 공식 문장을 빈칸 채우기로 쓰는 것이 아닙니다.'
 // Self-check before finishing: the lines a viewer would swipe away on. What is still left after fixing triggers one rewrite.
 const SWIPE_CHECK = '다 쓴 뒤 시청자 입장에서 한 줄씩 다시 봅니다. 넘기고 싶어지는 줄(궁금한 게 없거나, 예고만 하거나, 누구나 할 수 있는 말이거나, 앞의 말을 반복하거나, 소리 내 읽었을 때 앞뒤가 이어지지 않아 말이 안 되는 줄)을 찾아 고친 최종본을 냅니다. 고치지 못하고 남은 줄만 check.swipeRisks에 그 줄과 이유로 적습니다.'
-const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
+const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. ${CHIP_RULE} questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
 
@@ -265,14 +270,14 @@ export async function successCovers(db, category, limit = 12) {
 export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !session.topic?.delegated
 export async function generateStage(deps, session, stage) {
   // The first draft of a plan waits for its field and web research; later stages reuse what is saved.
-  if (stage !== 'topic' && session.topic?.title && (!session.topic.research || !session.topic.categoryChecked)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)))
+  if (stage !== 'topic' && session.topic?.title && (!researchFresh(session) || !session.topic.categoryChecked)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)))
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
   const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'hook' || stage === 'script' ? { provenFormulas: await provenFormulas(deps.db) } : {}) }
   const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category), coverLessons: await coverKnowledge(deps.db) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
   let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
-  const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...list(q.chips, 40, 2), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
+  const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...list(q.chips, 60, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
   let asks = parseAsks(raw)
   if (asks.length && asking) return { questions: asks, placeholders: [] }
   if (asks.length) {

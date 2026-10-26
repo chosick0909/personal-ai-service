@@ -164,7 +164,9 @@ export function registerStudioRoutes(router) {
     const topic = { title: text(t.title, 120), angle: text(t.angle, 200), promise: text(t.promise, 200), facts: (Array.isArray(t.facts) ? t.facts : []).map(f => text(f, 200)).filter(Boolean).slice(0, 12),
       audience: text(t.audience, 120), category: SUCCESS_REEL_CATEGORIES.includes(t.category) ? t.category : '기타',
       // A topic taken straight from the student's text drops answers given for an earlier topic.
-      answers: t.fromBrief ? [] : row.topic?.answers || [], brief: text(row.brief, 8000) }
+      answers: t.fromBrief ? [] : row.topic?.answers || [], brief: text(row.brief, 8000),
+      // Research done while the topic was being found carries over, unless the student rewrote what the reel is about.
+      ...(row.topic?.research ? { research: row.topic.research } : {}) }
     if (topic.title.length < 2) fail('TOPIC_REQUIRED', '주제를 한 줄로 적어주세요.')
     await query(database().from('studio_sessions').update({ topic, title: row.title || topic.title, updated_at: new Date().toISOString() }).eq('id', row.id))
     await query(database().from('studio_topics').insert({ user_id: req.auth.userId, session_id: row.id, topic: topic.title, category: topic.category }))

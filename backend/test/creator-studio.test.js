@@ -321,3 +321,20 @@ test('every finished line has to make sense on its own, even when it follows a f
   assert.match(HOOKAI_SYSTEM, /따로 떼어 읽어도 말이 돼야/)
   assert.ok(HOOK_PRINCIPLES.some(p => /말이 돼야/.test(p)))
 })
+
+test('suggested answers are held to the plan-quality rule everywhere 훅ai offers them, and research follows the text it was done for', async () => {
+  const { researchFresh } = await import('../src/creator-tools/studio/research.js')
+  const db = fakeDb()
+  const seen = []
+  const makeProviders = () => ({ json: async (op, instructions) => { seen.push(instructions); return op === 'studio-topic'
+    ? { reply: 'r', chips: [], proposals: [], topic: { ready: false, title: '', angle: '', promise: '', facts: [], audience: '', category: '' } }
+    : { proposal: { has: false, text: '', onScreen: '', lines: [], hashtags: [], requests: [], summary: '' }, reply: 'r', chips: [] } } })
+  const fresh = { research: { brief: 'b', facts: [] }, categoryChecked: true }
+  await chat({ db, makeProviders }, { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'topic', brief: 'b', topic: fresh }, [], '주제 제안해줘')
+  await chat({ db, makeProviders }, { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'script', brief: 'b', topic: { title: 't', ...fresh }, script: { options: [{ lines: [] }], chosen: 0 } }, [], '더 짧게')
+  assert.match(seen[0], /누르기만 해도 기획안이 강해지는 답/)
+  assert.match(seen[1], /가장 약한 곳/)
+  assert.ok(!/더 친근하게/.test(seen[1]), 'no generic sample requests in the prompt')
+  assert.equal(researchFresh({ brief: 'b', topic: fresh }), true)
+  assert.equal(researchFresh({ brief: '다른 글', topic: fresh }), false, 'rewriting the text calls for new research')
+})
