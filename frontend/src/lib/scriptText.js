@@ -1,4 +1,4 @@
-export { estimateScriptSeconds } from '../../../shared/script-duration.mjs'
+export { estimateScriptSeconds, estimateLineSeconds } from '../../../shared/script-duration.mjs'
 export const SCRIPT_KEYS = ['hook', 'body', 'cta']
 
 // Preserve wording; only add visual sentence breaks. Intl avoids splitting decimal

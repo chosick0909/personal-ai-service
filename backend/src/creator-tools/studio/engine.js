@@ -4,6 +4,8 @@ import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
 import { HOOK_TYPES, STORY_FORMATS, schedule } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
+import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
+import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint } from './copy-principles.js'
 
 const str = { type: 'string' }
 const num = { type: 'number' }
@@ -148,16 +150,17 @@ function normalizeProposal(stage, p) {
 }
 const seconds = value => Number.isFinite(Number(value)) ? Math.max(1, Math.min(180, Math.round(Number(value)))) : 3
 function normalizeLines(lines) {
-  return (Array.isArray(lines) ? lines : []).map(l => ({ part: PARTS.includes(l?.part) ? l.part : 'body', spoken: clean(l?.spoken, 400), onScreen: clean(l?.onScreen, 60), seconds: seconds(l?.seconds) })).filter(l => l.spoken).slice(0, 24)
+  return (Array.isArray(lines) ? lines : []).map(l => ({ part: PARTS.includes(l?.part) ? l.part : 'body', spoken: clean(l?.spoken, 400), onScreen: clean(l?.onScreen, 60) })).filter(l => l.spoken).slice(0, 24)
+    // Seconds come from the words, not the model's guess, so the editor, print view and saved formulas agree.
+    .map(l => ({ ...l, seconds: estimateLineSeconds(l.spoken) }))
 }
 
 // ---------- stage generation ----------
 const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 // What 훅ai found when it re-read its own draft (persona rule 8); anything listed triggers one rewrite.
 const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str) })
-export const THUMB_LABELS = ['심리 차용형', '후킹 강화형', '3단공식 적용형']
 const stageSchemas = {
-  thumbnail: obj({ questions, mechanism: obj({ emotion: str, viewerMoment: str }), check, options: arr(obj({ label: { type: 'string', enum: THUMB_LABELS }, text: str, why: str })), placeholders: arr(str) }),
+  thumbnail: obj({ questions, plan: obj({ reader: str, promise: str }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
   hook: obj({ questions, check, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
   script: obj({ questions, check, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
   filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str,
@@ -170,13 +173,14 @@ const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
 
 const stagePrompts = {
-  thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 20자 이내, 한눈에 읽히게.
-먼저 mechanism을 채웁니다(원칙 7): emotion은 레퍼런스(sources.hook, 없으면 주제 자체)가 일으킨 감정·욕구, viewerMoment는 이번 소재를 사거나 쓰는 시청자가 그 감정을 느끼는 생활 속 순간.
-options는 정확히 3개이고 label을 이 순서로 씁니다.
-- "심리 차용형": viewerMoment를 제목으로.
-- "후킹 강화형": 같은 감정을 더 강하게.
-- "3단공식 적용형": 꾸미는 말 + 핵심 단어 + 끝맺는 말 구조. 레퍼런스와 무관하게 소재만으로.
-why는 이 제목을 왜 누르게 되는지 한 줄.`,
+  // Covers are 훅ai's own copywriting from the student's topic; references are not sent to this stage.
+  thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 훅ai가 직접 제안합니다. 레퍼런스는 이 단계에 쓰지 않습니다. 근거는 brief·topic·answers·attachments에 적힌 주제와 사실뿐입니다.
+1. plan을 먼저 채웁니다. reader: 이 커버를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 이 영상을 끝까지 보면 그 사람이 얻는 것 한 가지(한 영상에 약속 하나).
+2. 아래 커버 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
+${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
+3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 숫자·기간·가격·할인·한정 같은 사실은 brief에 있을 때만.
+4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 주어지지 않은 사실이 들어갔으면 check.unprovidedFacts에 적습니다.
+why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
 1안: sources.hook이 일으킨 감정(why·type)을 이번 소재로 옮긴 말. 2·3안: 다른 훅 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.`,
   script: `${ASK_RULE}\n'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
@@ -195,7 +199,7 @@ sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식
 // One round of questions per plan: afterwards (or once the student delegated) every stage drafts without asking.
 export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !session.topic?.delegated
 export async function generateStage(deps, session, stage) {
-  const resolved = await resolveSources(deps.db, session.user_id, session.sources)
+  const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
   const context = sessionContext(session, resolved)
   const asking = mayAsk(session)
@@ -212,14 +216,14 @@ export async function generateStage(deps, session, stage) {
   }
   const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6)] : []
   if (found.length) {
-    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. 원칙 7을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
+    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
   }
   const placeholders = list(raw.placeholders, 120, 12)
   if (stage === 'thumbnail') {
-    // 훅ai writes the covers itself from the hook's psychology; the old cover-preserving generator copied the reference's wording.
-    const options = (Array.isArray(raw.options) ? raw.options : []).map((o, i) => ({ text: clean(o.text, 40), why: clean(o.why, 200), label: THUMB_LABELS.includes(o.label) ? o.label : THUMB_LABELS[i] || '' })).filter(o => o.text).slice(0, 3)
+    // Each cover names the copy principle it uses; the hint tells a first-time student what that principle does.
+    const options = (Array.isArray(raw.options) ? raw.options : []).map(o => { const label = COVER_PRINCIPLE_NAMES.includes(o.label) ? o.label : ''; return { text: clean(o.text, 40), why: clean(o.why, 200), label, hint: coverHint(label) } }).filter(o => o.text).slice(0, 3)
     if (!options.length) fail('STAGE_EMPTY', '썸네일 카피를 만들지 못했어요. 다시 시도해주세요.', 422)
-    return { value: { options, chosen: 0, custom: null, mechanism: raw.mechanism ? { emotion: clean(raw.mechanism.emotion, 200), viewerMoment: clean(raw.mechanism.viewerMoment, 200) } : null }, placeholders }
+    return { value: { options, chosen: 0, custom: null, plan: raw.plan ? { reader: clean(raw.plan.reader, 200), promise: clean(raw.plan.promise, 200) } : null }, placeholders }
   }
   if (stage === 'hook') {
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ spoken: clean(o.spoken, 200), onScreen: clean(o.onScreen, 40), type: HOOK_TYPES.includes(o.type) ? o.type : '기타', why: clean(o.why, 200) })).filter(o => o.spoken).slice(0, 3)

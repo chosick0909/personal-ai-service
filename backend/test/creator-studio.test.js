@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { COVER_PRINCIPLE_NAMES } from '../src/creator-tools/studio/copy-principles.js'
 import { sessionHistory } from '../src/creator-tools/studio/routes.js'
 import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
@@ -63,7 +64,7 @@ test('stage generation normalizes 훅ai output and keeps placeholders', async ()
   assert.equal(calls[0].op, 'studio-script')
   assert.equal(calls[0].input.sources.hook.formula, analysis.hook.formula)
   assert.equal(calls[0].input.hook.spoken, '안 사요. 번들거리면 끝.')
-  assert.deepEqual(value.options[0].lines.map(l => [l.part, l.seconds]), [['hook', 3], ['body', 180]])
+  assert.deepEqual(value.options[0].lines.map(l => [l.part, l.seconds]), [['hook', 3], ['body', 2]], 'seconds come from the words, not the model guess')
   assert.deepEqual(placeholders, ['[제품 A]'])
   assert.ok(calls[0].schema.required.includes('options'))
 })
@@ -193,18 +194,20 @@ test('a student\'s own uploaded reel is a valid source once analyzed; unanalyzed
   await assert.rejects(resolveSources(db, 'u1', { hook: { kind: 'reel', id: 'Wait01' } }), /분석이 끝나지/)
 })
 
-test('thumbnail copies come from the hook psychology, labeled, without the cover-copying generator', async () => {
+test('thumbnail copies are 훅ai\'s own copywriting from the topic: no reference is sent, each option names its principle', async () => {
   const db = fakeDb()
   const session = { id: 's9', user_id: 'u1', mode: 'single', sources: { hook: { kind: 'reel', id: 'Aaaaa1' } }, brief: '쿠팡 냉동만두', topic: { title: '쿠팡 냉동만두', facts: [], category: '요리' }, placeholders: [] }
-  let seen = ''
-  const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { seen = instructions
-    return { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, mechanism: { emotion: '예상 못 한 위기의 긴장', viewerMoment: '저녁 준비를 깜빡한 날' }, options: [{ label: '심리 차용형', text: '완전 사고예요, 저녁 안 해놨어요', why: 'w' }, { label: '후킹 강화형', text: '애들 배고프다는데 냉장고 텅', why: 'w' }, { label: '3단공식 적용형', text: '5분이면 끝나는 만두 저녁', why: 'w' }], placeholders: [] } } }) }
+  let seen = '', input = null
+  const deps = { db, makeProviders: () => ({ json: async (_op, instructions, context) => { seen = instructions; input = context
+    return { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { reader: '퇴근 후 저녁이 급한 사람', promise: '5분 저녁 해결' }, options: [{ label: '내 얘기 장면', text: 'a', why: 'w' }, { label: '결과 약속', text: 'b', why: 'w' }, { label: '없는 원칙', text: 'c', why: 'w' }], placeholders: [] } } }) }
   const { value } = await generateStage(deps, session, 'thumbnail')
-  assert.ok(seen.includes('[레퍼런스를 쓰는 법]') && seen.includes('심리 차용형'), 'the system principles and the stage instructions both reach the model')
+  assert.deepEqual(input.sources, {}, 'the reference is not sent to the thumbnail stage')
+  for (const name of COVER_PRINCIPLE_NAMES) assert.ok(seen.includes(name), name)
   // Principles, not patches: no topic-specific wording or sample sentences in the shared prompts.
   for (const word of ['냉동만두', '방송사고', '쇼호스트', '완판', '선크림']) assert.ok(!seen.includes(word), word)
-  assert.deepEqual(value.options.map(o => o.label), ['심리 차용형', '후킹 강화형', '3단공식 적용형'])
-  assert.deepEqual(value.mechanism, { emotion: '예상 못 한 위기의 긴장', viewerMoment: '저녁 준비를 깜빡한 날' })
+  assert.deepEqual(value.options.map(o => o.label), ['내 얘기 장면', '결과 약속', ''])
+  assert.ok(value.options[0].hint && value.options[2].hint === '')
+  assert.deepEqual(value.plan, { reader: '퇴근 후 저녁이 급한 사람', promise: '5분 저녁 해결' })
 })
 
 test('a draft whose self-check finds reference traces or unprovided facts is rewritten once', async () => {
@@ -213,8 +216,8 @@ test('a draft whose self-check finds reference traces or unprovided facts is rew
   const prompts = []
   const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { prompts.push(instructions)
     return prompts.length === 1
-      ? { questions: [], check: { referenceTraces: ['레퍼런스 장면'], unprovidedFacts: ['지어낸 성과'] }, mechanism: { emotion: 'e', viewerMoment: 'm' }, options: [{ label: '심리 차용형', text: '첫 초안', why: 'w' }], placeholders: [] }
-      : { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, mechanism: { emotion: 'e', viewerMoment: 'm' }, options: [{ label: '심리 차용형', text: '고친 안', why: 'w' }], placeholders: [] } } }) }
+      ? { questions: [], check: { referenceTraces: ['레퍼런스 장면'], unprovidedFacts: ['지어낸 성과'] }, plan: { reader: 'r', promise: 'p' }, options: [{ label: '결과 약속', text: '첫 초안', why: 'w' }], placeholders: [] }
+      : { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { reader: 'r', promise: 'p' }, options: [{ label: '결과 약속', text: '고친 안', why: 'w' }], placeholders: [] } } }) }
   const { value } = await generateStage(deps, session, 'thumbnail')
   assert.equal(prompts.length, 2); assert.ok(prompts[1].includes('레퍼런스 장면') && prompts[1].includes('지어낸 성과'))
   assert.equal(value.options[0].text, '고친 안')

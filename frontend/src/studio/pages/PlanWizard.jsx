@@ -5,6 +5,7 @@ import { studio, STAGES, SLOT_LABELS } from '../api'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
 import HookLoader from '../HookLoader'
 import { CopyButton } from './ReferenceDetail'
+import { estimateLineSeconds } from '../../lib/scriptText'
 
 const ORDER = STAGES.map(([id]) => id)
 const GEN_STAGES = ['재료 모으는 중', '훅ai가 쓰는 중', '정리하는 중']
@@ -106,7 +107,7 @@ function TopicStage({ session, save, onSuggest, onBrief }) {
   </div>
 }
 
-// What each thumbnail-copy type means, in words a first-time student follows.
+// Hints for covers made before 훅ai named the copy principle on each option (newer options carry their own hint).
 const THUMB_KIND = {
   '심리 차용형': '레퍼런스가 시청자를 붙잡은 심리(긴장·공감·궁금증 등)를 내 주제의 일상 장면으로 옮겼어요',
   '원본 보존형': '레퍼런스 썸네일의 문장 구조(줄 수·질문/반전 말투)를 그대로 빌려 내 주제로 바꿨어요',
@@ -121,7 +122,7 @@ function ThumbnailStage({ session, save }) {
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>썸네일 카피 3안</h3><p className="st-muted">릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.</p></div>
       <div className="st-options">{t.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!t.custom && t.chosen === i} onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }}>
-        <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{OPTION_NAME[i]}</span>}{THUMB_KIND[o.label] && <span className="st-option-hint">{THUMB_KIND[o.label]}</span>}<span className="st-option-check"><Check size={16} /></span></div>
+        <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{OPTION_NAME[i]}</span>}{(o.hint || THUMB_KIND[o.label]) && <span className="st-option-hint">{o.hint || THUMB_KIND[o.label]}</span>}<span className="st-option-check"><Check size={16} /></span></div>
         <strong className="st-thumb-text">{o.text}</strong>{o.why && <span className="st-why">{o.why}</span>}</button>)}</div>
       <div className="st-field"><label>직접 쓸게요 <small>적으면 이게 썸네일 카피가 돼요</small></label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 썸네일 제목" /></div>
     </section>
@@ -157,6 +158,8 @@ function HistoryModal({ title, versions, onClose }) {
   </div>
 }
 const scriptText = lines => (lines || []).map(l => l.spoken).join('\n')
+// Same character-count estimate as the old 대본작업실, recomputed from the words as they are typed.
+const totalSeconds = lines => (lines || []).reduce((sum, l) => sum + estimateLineSeconds(l.spoken), 0)
 const captionText = c => c ? `${c.text || ''}${c.hashtags?.length ? `\n\n${c.hashtags.map(t => `#${t}`).join(' ')}` : ''}` : ''
 
 // Line editor shared by the 대본 stage and the finished plan: sentences, captions and seconds are editable in place.
@@ -164,16 +167,16 @@ function ScriptEditor({ session, save, onQuick, title = '대본' }) {
   const s = session.script
   const [lines, setLines] = useState(s.edited || s.options[s.chosen ?? 0]?.lines || [])
   const debounced = useDebouncedSave(v => save({ script: { edited: v } }))
-  const edit = (i, patch) => setLines(ls => { const next = ls.map((l, j) => j === i ? { ...l, ...patch } : l); debounced(next); return next })
-  const total = lines.reduce((sum, l) => sum + (l.seconds || 0), 0)
+  const edit = (i, patch) => setLines(ls => { const next = ls.map((l, j) => j === i ? { ...l, ...patch, seconds: estimateLineSeconds(patch.spoken ?? l.spoken) } : l); debounced(next); return next })
+  const total = totalSeconds(lines)
   const [showHistory, setShowHistory] = useState(false)
   const versions = [{ note: s.edited ? '직접 수정' : OPTION_NAME[s.chosen ?? 0], at: session.updatedAt, text: scriptText(lines) },
     ...(s.history || []).map((h, i) => ({ note: h.note, at: h.at, text: scriptText(h.value), load: () => save({ script: { restore: i } }) }))]
   return <section className="st-card st-stack">
     <div className="st-card-head"><h3>{title} <span className="st-pill st-pill-gray" style={{ marginLeft: 6 }}>예상 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.history?.length > 0 && <button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button>}{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
-    <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 고치면 자동으로 저장돼요. 초는 훅ai가 잡은 예상 길이예요.</p>
+    <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 고치면 자동으로 저장돼요. 초는 글자 수로 계산한 예상 길이라 고치는 대로 바뀌어요.</p>
     <div className="st-lines">{lines.map((l, i) => <div className="st-line" key={i}>
-      <div className="st-line-part"><small>{l.seconds}초</small></div>
+      <div className="st-line-part"><small>{estimateLineSeconds(l.spoken)}초</small></div>
       <div><textarea value={l.spoken} rows={Math.max(1, Math.ceil(l.spoken.length / 34))} onChange={e => edit(i, { spoken: e.target.value })} aria-label={`${i + 1}번째 문장`} /></div>
       <button type="button" className="st-icon-btn" style={{ width: 36, height: 36 }} aria-label="이 문장 삭제" onClick={() => setLines(ls => { const next = ls.filter((_, j) => j !== i); debounced(next); return next })}><X size={16} /></button>
     </div>)}</div>
@@ -187,7 +190,7 @@ function ScriptStage({ session, save, onQuick }) {
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>대본 3안</h3><p className="st-muted">같은 첫 문장, 다른 흐름이에요. 전체 대본을 비교해서 하나를 고르면 아래에서 바로 고칠 수 있어요.</p></div>
       <div className="st-options st-options-scripts">{s.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={s.chosen === i} onClick={() => save({ script: { chosen: i } })}>
-        <div className="st-option-top"><span className="st-pill">{OPTION_NAME[i]}</span><span className="st-muted st-small">예상 {o.lines.reduce((a, l) => a + l.seconds, 0)}초</span><span className="st-option-check"><Check size={16} /></span></div>
+        <div className="st-option-top"><span className="st-pill">{OPTION_NAME[i]}</span><span className="st-muted st-small">예상 {totalSeconds(o.lines)}초</span><span className="st-option-check"><Check size={16} /></span></div>
         <strong style={{ fontSize: 16 }}>{optionTitle(o.label)}</strong>
         <ol className="st-option-lines">{o.lines.map((l, j) => <li key={j}>{l.spoken}</li>)}</ol>
         <span className="st-why">{o.why}</span></button>)}</div></section>

@@ -19,3 +19,7 @@ export function durationCharacterRange(seconds) {
   const max = Math.round(Math.max(1, seconds - 2) * 4.5)
   return { min: Math.min(Math.round(seconds * 3.8), Math.floor(max * 0.9)), max }
 }
+// One spoken line (a sentence row in the studio script editor), rounded for display.
+export function estimateLineSeconds(text = '') {
+  return String(text).trim() ? Math.max(1, Math.round(estimateScriptSeconds(String(text)))) : 0
+}
