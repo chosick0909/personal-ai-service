@@ -284,12 +284,13 @@ test('before the first draft 훅ai sets the field and looks the topic up once; l
   db.tables.studio_sessions.set('s20', { id: 's20' })
   let searched = 0
   const client = () => ({ responses: { create: async ({ tools, input }) => { searched += 1; assert.equal(tools[0].type, 'web_search'); assert.match(input, /읽어 온 링크 내용/)
-    return { output_text: '{"subject":"피지 연화 제품","facts":["피지를 불려 닦아내는 제품"],"viewerQuestions":["매일 써도 되나"],"avoid":["모공이 사라진다"]}', output: [{ content: [{ annotations: [{ url_citation: { url: 'https://example.com/a', title: 'A' } }] }] }] } } } })
+    return { output_text: '{"subject":"피지 연화 제품","facts":[{"text":"피지를 불려 닦아내는 제품","source":"https://brand.example.com/p","official":true},{"text":"면봉으로 닦는다","source":"https://seller.example.com/x","official":false}],"unconfirmed":["구성품"],"viewerQuestions":["매일 써도 되나"],"avoid":["모공이 사라진다"]}', output: [{ content: [{ annotations: [{ url_citation: { url: 'https://example.com/a', title: 'A' } }] }] }] } } } })
   const providers = { call: (_p, _op, fn) => fn(), json: async () => ({ category: '피부' }) }
   const session = { id: 's20', brief: '내돈내산 피지템 https://shop.example.com/item?1', topic: { title: '피지템', facts: [], category: '기타' } }
   const research = await researchTopic(providers, session, { client, readPage: async () => '상품 상세 내용' })
-  assert.deepEqual(research.facts, ['피지를 불려 닦아내는 제품'])
-  assert.deepEqual(research.sources.map(s => s.url), ['https://example.com/a', 'https://shop.example.com/item?1'])
+  assert.deepEqual(research.facts, ['피지를 불려 닦아내는 제품', '(판매처·후기 정보) 면봉으로 닦는다'], 'a seller\'s wording is marked so it is not taken as the maker\'s')
+  assert.deepEqual(research.unconfirmed, ['구성품'])
+  assert.deepEqual(research.sources.map(s => s.url), ['https://brand.example.com/p', 'https://seller.example.com/x', 'https://example.com/a', 'https://shop.example.com/item?1'])
   assert.equal(searched, 1)
   const prepared = await prepareTopic({ db }, { ...session, topic: { ...session.topic, research } }, providers)
   assert.equal(prepared.topic.category, '피부', 'a topic taken from the brief gets its field')
