@@ -176,6 +176,7 @@ const stagePrompts = {
   // Covers are 훅ai's own copywriting from the student's topic; references are not sent to this stage.
   thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 훅ai가 직접 제안합니다. 레퍼런스는 이 단계에 쓰지 않습니다. 근거는 brief·topic·answers·attachments에 적힌 주제와 사실뿐입니다.
 1. plan을 먼저 채웁니다. reader: 이 커버를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 이 영상을 끝까지 보면 그 사람이 얻는 것 한 가지(한 영상에 약속 하나).
+successCovers는 실제로 조회수가 크게 나온 커버 문구들입니다. 각 문구가 어떤 원칙으로 먹혔는지(길이, 말투, 구어 표현, 숫자·장소·대상의 쓰임) 읽어 이번 커버의 감각을 맞춥니다. 그 문구의 단어·소재·문장 틀은 가져오지 않습니다.
 2. 아래 커버 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격·할인·한정 같은 사실은 brief에 있을 때만.
@@ -196,12 +197,19 @@ why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
 sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식을 따르고, sources.caption.original(원문)에 이모지가 쓰였으면 같은 느낌으로 이모지를 줄마다 자연스럽게 조합해 넣습니다(원문에 이모지가 없으면 넣지 않음). why는 이 캡션이 맞는 이유 한 줄. 없는 사실은 쓰지 않습니다.`,
 }
 
+// Cover titles that came with 추천 reels (proven covers), same field first, as worked examples for the thumbnail stage.
+export async function successCovers(db, category, limit = 12) {
+  const rows = await query(db.from('creator_success_reels').select('cover_title,category').eq('recommended', true).not('cover_title', 'is', null).limit(200)).catch(() => [])
+  const same = rows.filter(r => category && r.category === category), rest = rows.filter(r => !(category && r.category === category))
+  return [...same, ...rest].map(r => r.cover_title).filter(Boolean).slice(0, limit)
+}
+
 // One round of questions per plan: afterwards (or once the student delegated) every stage drafts without asking.
 export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !session.topic?.delegated
 export async function generateStage(deps, session, stage) {
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
-  const context = sessionContext(session, resolved)
+  const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved), successCovers: await successCovers(deps.db, session.topic?.category) } : sessionContext(session, resolved)
   const asking = mayAsk(session)
   let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
   const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...list(q.chips, 40, 2), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)

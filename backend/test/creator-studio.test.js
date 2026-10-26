@@ -22,7 +22,7 @@ function fakeDb() {
   const updates = []
   return { tables, updates, from(table) {
     const filters = []; let action = 'select', payload, single = false
-    const api = { select() { return api }, eq(k, v) { filters.push(r => r[k] === v); return api }, order() { return api }, limit() { return api },
+    const api = { select() { return api }, eq(k, v) { filters.push(r => r[k] === v); return api }, not(k, op, v) { filters.push(r => !(op === 'is' && (r[k] ?? null) === v)); return api }, order() { return api }, limit() { return api },
       maybeSingle() { single = true; return api }, single() { single = true; return api }, update(p) { action = 'update'; payload = p; return api }, insert(p) { action = 'insert'; payload = p; return api },
       then(resolve) {
         const rows = [...tables[table].values()].filter(r => filters.every(f => f(r)))
@@ -200,8 +200,12 @@ test('thumbnail copies are 훅ai\'s own copywriting from the topic: no reference
   let seen = '', input = null
   const deps = { db, makeProviders: () => ({ json: async (_op, instructions, context) => { seen = instructions; input = context
     return { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { reader: '퇴근 후 저녁이 급한 사람', promise: '5분 저녁 해결' }, options: [{ label: '내 얘기 장면', text: 'a', why: 'w' }, { label: '결과 약속', text: 'b', why: 'w' }, { label: '없는 원칙', text: 'c', why: 'w' }], placeholders: [] } } }) }
+  db.tables.creator_success_reels.set('C1', { shortcode: 'C1', recommended: true, cover_title: '다른 분야 커버', category: '살림' })
+  db.tables.creator_success_reels.set('C2', { shortcode: 'C2', recommended: true, cover_title: '같은 분야 커버', category: '요리' })
+  db.tables.creator_success_reels.set('C3', { shortcode: 'C3', recommended: false, cover_title: '추천 아님', category: '요리' })
   const { value } = await generateStage(deps, session, 'thumbnail')
   assert.deepEqual(input.sources, {}, 'the reference is not sent to the thumbnail stage')
+  assert.deepEqual(input.successCovers, ['같은 분야 커버', '다른 분야 커버'], 'proven 추천 covers go along as examples, same field first')
   for (const name of COVER_PRINCIPLE_NAMES) assert.ok(seen.includes(name), name)
   // Principles, not patches: no topic-specific wording or sample sentences in the shared prompts.
   for (const word of ['냉동만두', '방송사고', '쇼호스트', '완판', '선크림']) assert.ok(!seen.includes(word), word)

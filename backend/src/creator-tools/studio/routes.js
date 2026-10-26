@@ -278,13 +278,24 @@ export function registerStudioRoutes(router) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
     }
   }
+  // The background queue lives in memory, so a deploy drops it; after a restart the unread 추천 links are queued again.
+  if (process.env.NODE_ENV !== 'test') setTimeout(async () => {
+    try {
+      const db = database()
+      const pending = await query(db.from('creator_success_reels').select('shortcode').eq('recommended', true).eq('username', 'recommended').limit(300))
+      for (const { shortcode } of pending) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, `https://www.instagram.com/reel/${shortcode}/`), 1)
+    } catch (error) { console.error('[recommend-resume]', error?.code || 'FAILED') }
+  }, 30000).unref?.()
   router.post('/creator-tools/studio/recommended', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 릴스는 관리자만 추가할 수 있어요.', 404)
     const db = database()
-    const links = (Array.isArray(req.body?.links) ? req.body.links : []).slice(0, 200)
+    // items: [{ url, title }] — title is the cover copy written above the link (a proven success cover); links: plain URLs.
+    const items = [...(Array.isArray(req.body?.items) ? req.body.items : []), ...(Array.isArray(req.body?.links) ? req.body.links.map(url => ({ url })) : [])].slice(0, 200)
     const result = { added: [], updated: [], invalid: [] }
     const seen = new Set()
-    for (const raw of links) {
+    for (const item of items) {
+      const raw = item?.url
+      const title = text(item?.title, 80) || null
       const url = instagramPostUrl(String(raw || '').trim())
       const shortcode = url ? new URL(url).pathname.split('/')[2] : null
       if (!shortcode) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
@@ -292,13 +303,13 @@ export function registerStudioRoutes(router) {
       seen.add(shortcode)
       const existing = await query(db.from('creator_success_reels').select('shortcode,thumbnail_path').eq('shortcode', shortcode).maybeSingle())
       if (existing) {
-        await query(db.from('creator_success_reels').update({ recommended: true, ...(existing.thumbnail_path ? { visible: true } : {}) }).eq('shortcode', shortcode))
+        await query(db.from('creator_success_reels').update({ recommended: true, ...(title ? { cover_title: title } : {}), ...(existing.thumbnail_path ? { visible: true } : {}) }).eq('shortcode', shortcode))
         result.updated.push(shortcode)
         if (!existing.thumbnail_path) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
         continue
       }
       await query(db.from('creator_reel_accounts').upsert({ username: 'recommended', profile: { recommended: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
-      await query(db.from('creator_success_reels').insert({ shortcode, username: 'recommended', views: 0, posted_at: new Date().toISOString(), caption: '', source: 'recommended', recommended: true, visible: false }))
+      await query(db.from('creator_success_reels').insert({ shortcode, username: 'recommended', views: 0, posted_at: new Date().toISOString(), caption: '', source: 'recommended', recommended: true, cover_title: title, visible: false }))
       result.added.push(shortcode)
       schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
     }

@@ -1,5 +1,6 @@
 // Cover-copy principles 훅ai picks from when it writes thumbnail titles.
-// Distilled from 『꽂히는 글쓰기』, the client's 인캠 course materials and the client's own Claude skills (instagram-thumbnail-copy), written as working principles
+// Distilled from 『꽂히는 글쓰기』, the client's 인캠 course materials, the client's own Claude skills (instagram-thumbnail-copy)
+// and the success covers 지영 forwards with 추천 reels, written as working principles
 // (no sample sentences: the model copies examples). `hint` is what the student sees next to the option.
 export const COVER_PRINCIPLES = [
   { name: '결과 약속', hint: '끝까지 보면 얻는 결과를 제목에 먼저 내걸었어요',
@@ -20,6 +21,12 @@ export const COVER_PRINCIPLES = [
     how: '화자의 실제 경험 기간, 써본 개수, 후기, 경력처럼 믿을 근거를 제목에 세웁니다. 근거는 brief에 적힌 그대로만 쓰고 숫자를 만들지 않습니다.' },
   { name: '지금이어야 하는 이유', hint: '지금 봐야 하는 실제 이유(기간·시즌·수량)를 짚어서 미루지 않게 했어요',
     how: '공구 기간, 계절, 남은 수량처럼 지금이어야 하는 실제 이유가 brief에 있을 때만 그것을 제목에 세웁니다. 없는 마감·한정은 만들지 않습니다.' },
+  { name: '판정·비교', hint: '둘 중 무엇이 나은지, 무엇이 1등인지 판정해줘서 결론이 궁금해지게 했어요',
+    how: '두 가지를 맞붙이거나(이것 대 저것), 여러 개 중 순위를 매기거나, 해도 되는지 안 되는지 판정하는 구도로 씁니다. 판정 대상과 기준은 brief에 있는 것으로.' },
+  { name: '남의 말로 열기', hint: '주변 사람이 실제로 건넨 한마디로 시작해서 사연이 궁금해지게 했어요',
+    how: '화자가 주변 사람에게 실제로 들은 말(질문·놀람·핀잔)을 그대로 따옴말처럼 제목에 씁니다. 그 말과 상황이 brief에 있을 때만.' },
+  { name: '단정 한마디', hint: '망설임 없이 딱 잘라 말해서 확신이 전해지게 했어요',
+    how: '돌려 말하지 않고 짧게 단정하거나 권합니다(무엇을 하라/사라/하지 마라). 단정의 근거가 brief에 있어야 하고, 효능·결과를 보장하는 과장은 하지 않습니다.' },
   { name: '핵심 한 줄', hint: "'꾸미는 말 + 핵심 단어 + 끝맺는 말'을 한 문장으로 이어 한눈에 읽히게 했어요",
     how: '시청자가 얻는 이득을 꾸미는 말로, 영상의 핵심 단어(시청자가 실제로 검색할 말)를 가운데, 무엇을 주는지(방법·정리·N가지 등)로 끝맺습니다. 세 부분은 쉼표로 나열하지 않고 자연스러운 한 구절로 잇습니다. 숫자는 영상이 실제로 다루는 개수일 때만.' },
 ]
