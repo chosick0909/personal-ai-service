@@ -170,6 +170,15 @@ async function readLookup(context, lookup) {
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
     for (const text of inline) if (/"code"/.test(text)) bodies.push(...parseBodies(text))
     for (let i = 0; i < 3 && !found()?.videoUrl; i += 1) await pause(2000, 3000)
+    // A single reel page carries likes but not plays; the media info endpoint Instagram's own page uses has them.
+    if (found() && !found().views) {
+      const info = await page.evaluate(async id => {
+        const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''
+        const response = await fetch(`/api/v1/media/${id}/info/`, { credentials: 'include', headers: { 'x-ig-app-id': '936619743392459', 'x-csrftoken': csrf, 'x-requested-with': 'XMLHttpRequest' } })
+        return response.ok ? response.text() : null
+      }, mediaId(lookup.shortcode)).catch(() => null)
+      if (info) bodies.push(...parseBodies(info))
+    }
     const item = found()
     if (!item?.videoUrl) {
       const gone = await page.getByText(/사용할 수 없|isn.t available|not available/i).count().catch(() => 0)
@@ -229,6 +238,8 @@ function postedAt(code) {
   const id = [...code].reduce((value, char) => value * 64n + BigInt(ALPHABET.indexOf(char)), 0n)
   return new Date(Number(id >> 23n) + 1314220021721)
 }
+// The numeric media id is the shortcode read as base-64 digits.
+const mediaId = code => [...code].reduce((value, char) => value * 64n + BigInt(ALPHABET.indexOf(char)), 0n).toString()
 const num = value => Number.isSafeInteger(value) && value >= 0 ? value : null
 // Walk any captured Instagram JSON and merge every media object by its shortcode.
 function collectMedia(value, media, depth = 0) {
