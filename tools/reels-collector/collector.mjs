@@ -220,9 +220,10 @@ async function serve() {
   for (;;) {
     const now = new Date(), day = now.toLocaleDateString('sv-SE')
     const last = await readFile(LAST_COLLECT(), 'utf8').catch(() => '')
+    // The day is recorded only after the collection finishes, so a run cut short by a restart starts again the same day.
     if (last.trim() !== day && now.getHours() * 60 + now.getMinutes() >= 3 * 60 + 30) {
-      await writeFile(LAST_COLLECT(), day)
       await collectUntilDone(false, [], context).catch(error => log(`수집 오류: ${error.message}`))
+      await writeFile(LAST_COLLECT(), day)
     }
     await sleep(60000)
   }
