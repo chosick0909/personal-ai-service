@@ -4,6 +4,9 @@ import { SUCCESS_REEL_CATEGORIES } from './categories.js'
 import { obviousNonReferenceAccount } from './reference-quality.js'
 import { playbackUrl } from './reference-playback.js'
 
+// Whether a success reel teaches anything a student can reuse: the test is where its views came from.
+export const REFERENCE_FIT_RULE = `referenceFit은 이 릴스가 수강생이 자기 소재로 따라 만들 레퍼런스로 적합한지입니다. 기준은 조회수가 어디에서 나왔는지입니다. 크리에이터가 기획한 것(첫마디, 말하는 내용, 정보·관점, 구성, 편집)이 시청자를 붙잡았다면 true입니다. 조회수가 카메라에 찍힌 대상 자체의 볼거리나 유명세에서 나와서, 수강생이 같은 기획을 해도 그 대상 없이는 다시 만들 수 없다면 false입니다(예를 들어 그 자리에 있어야만 찍을 수 있는 공연·행사·풍경, 연예인·캐릭터·IP, 브랜드 콜라보의 화제성, 협찬받은 제공품을 보여주기만 하는 영상). 본인 제품 판매, 공동구매, 직접 써본 후기·정보처럼 크리에이터의 말과 구성이 중심이면 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).`
+
 // Success reels: public Instagram reels with 500k+ views uploaded in the last 3 months,
 // from individual creators whose production is reproducible at home. Domestic and overseas.
 export const SUCCESS_REEL_MIN_VIEWS = 500000
@@ -75,7 +78,7 @@ replicability는 일상 공간·스마트폰·일반인 경험으로 수강생�
 category는 특정 상품이나 영상 한 편이 아니라 최근 콘텐츠 전반의 주제로 고르세요. 맞는 분야가 없으면 기타입니다. 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만이며, 제품 공동구매·협찬 영상은 그 제품의 분야(옷·가방이면 패션, 청소용품·가전이면 살림, 식품·조리도구면 요리, 아이 용품이면 육아)입니다.
 분야 구분: 피부는 스킨케어(기초 화장품·피부 고민·성분·피부과 시술·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부)입니다. 먹방은 먹는 장면·맛집, 요리는 레시피·조리 과정입니다. 일상은 브이로그·일상 기록, 부업은 부업·N잡·온라인 수익, 부동산은 매매·청약·임대, 재테크는 저축·투자·절약, 크리스천은 신앙·교회·성경·묵상·찬양·기독교 일상이 주제인 콘텐츠입니다.
 region은 한국 이용자 대상 국내 활동 계정이면 domestic, 해외 이용자 대상이면 overseas, 근거 부족이면 unknown입니다. 한국어 사용만으로 단정하지 마세요.
-referenceFit은 이 릴스가 수강생이 따라 만들 레퍼런스로 적합한지입니다. 조회수가 기획·내용이 아니라 유명 캐릭터·IP·연예인·유명 브랜드 콜라보의 화제성, 또는 협찬으로 받은 시딩 박스·제공품을 보여주기만 하는 데서 나온 것으로 보이면 false입니다. 본인 제품 판매, 공동구매, 직접 써본 후기·정보는 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).
+${REFERENCE_FIT_RULE}
 reels에는 제공된 터진 릴스 각각에 대해 faceVisibility(이미지에서 크리에이터 얼굴이 대부분 보이면 visible, 일부만 mixed, 손·제품·화면만 hidden, 판단 불가 unknown), captionKo(캡션이 한국어가 아니면 첫 문장을 자연스러운 한국어로 번역, 한국어면 빈 문자열), category(그 릴스 한 편의 주제 분야. 계정 분야와 달라도 캡션·썸네일이 말하는 그 릴스의 주제를 따릅니다. 예: 피부 계정이 올린 운동 영상은 다이어트·운동)를 반환하세요.
 각 판정의 근거는 관찰한 사실로 짧게 적으세요.`
 const list = { type: 'array', items: { type: 'string' } }
@@ -196,7 +199,7 @@ export async function cacheVideoUrl(redis, shortcode, url, now = Date.now()) {
 
 // Per-reel category from the caption. The account review guessed from the profile while captions were still empty.
 export const reelCategoryPrompt = `각 릴스의 캡션(과 계정명)을 보고 그 릴스 한 편의 주제 분야를 고르세요. 계정 전체가 아니라 그 영상의 내용입니다.
-분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그, 크리스천은 신앙·교회·성경·묵상·찬양·기독교 일상이 주제일 때. 피부는 스킨케어(기초 화장품·피부 고민·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부). 맞는 분야가 없으면 기타.\nreferenceFit은 이 릴스가 수강생이 따라 만들 레퍼런스로 적합한지입니다. 조회수가 기획·내용이 아니라 유명 캐릭터·IP·연예인·유명 브랜드 콜라보의 화제성, 또는 협찬으로 받은 시딩 박스·제공품을 보여주기만 하는 데서 나온 것으로 보이면 false입니다. 본인 제품 판매, 공동구매, 직접 써본 후기·정보는 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).`
+분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그, 크리스천은 신앙·교회·성경·묵상·찬양·기독교 일상이 주제일 때. 피부는 스킨케어(기초 화장품·피부 고민·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부). 맞는 분야가 없으면 기타.\n${REFERENCE_FIT_RULE}`
 export const reelCategorySchema = { type: 'object', additionalProperties: false, required: ['reels'], properties: {
   reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'referenceFit', 'fitReason'], properties: {
     shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } } } }

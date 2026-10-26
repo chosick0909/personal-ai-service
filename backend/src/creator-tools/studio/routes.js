@@ -13,7 +13,7 @@ import { studio2Enabled, canRecommend } from './access.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
 import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk } from './engine.js'
-import { THUMBNAIL_BUCKET } from '../success-reels.js'
+import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
 import { readPublicImage } from '../network.js'
@@ -360,6 +360,17 @@ export function registerStudioRoutes(router) {
     res.status(202).json({ started: true, limit })
   }))
   if (process.env.NODE_ENV !== 'test') startDailyStudy(deps())
+  // Re-judge every listed reel's field and reference fit after the judging rule changes (admins only), 30 per call.
+  router.post('/creator-tools/studio/rejudge-reels', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
+    const db = database()
+    const rows = (await query(db.from('creator_success_reels').select('shortcode,username,caption,source').eq('visible', true).neq('caption', '').order('views', { ascending: false }).limit(2000)))
+      .filter(row => !String(row.source || '').startsWith('upload-'))
+    schedule('rejudge-reels', async () => {
+      for (let i = 0; i < rows.length; i += 30) await classifyReelCategories(db, deps().makeProviders(AbortSignal.timeout(180000)), rows.slice(i, i + 30)).catch(error => console.error('[rejudge-reels]', error?.code || 'FAILED'))
+    }, 3)
+    res.status(202).json({ started: true, reels: rows.length })
+  }))
 
   router.post('/creator-tools/studio/recommended', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 릴스는 관리자만 추가할 수 있어요.', 404)

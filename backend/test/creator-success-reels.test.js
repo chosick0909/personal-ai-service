@@ -341,3 +341,11 @@ test('추천 reels show with a tag even when judged unfit, the 추천 filter lis
   await storeReelCaptions(db, { captions: [{ shortcode: 'DdP6KGYTlRy', caption: '새 추천', views: 3000 }] }, null, { now: NOW })
   assert.equal(db.tables.creator_success_reels.get('DdP6KGYTlRy').visible, true, 'old, low-view 추천 reel still joins once it has a cover')
 })
+
+test('reference fit is judged by where the views came from, in both the account review and the per-reel check', async () => {
+  const { REFERENCE_FIT_RULE, reelCategoryPrompt } = await import('../src/creator-tools/success-reels.js')
+  assert.ok(reelCategoryPrompt.includes(REFERENCE_FIT_RULE))
+  assert.match(REFERENCE_FIT_RULE, /조회수가 어디에서 나왔는지/)
+  // Principles, not patches: no specific place, brand or person in the rule.
+  for (const word of ['롯데월드', '불꽃놀이', '디즈니']) assert.ok(!REFERENCE_FIT_RULE.includes(word), word)
+})
