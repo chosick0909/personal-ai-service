@@ -418,11 +418,6 @@
 .st-modal-box h2 { font-size:22px; }
 
 /* ----- print ----- */
-.st-print { max-width:820px; margin:0 auto; padding:32px 24px; display:grid; gap:24px; background:#fff; color:#111; }
-.st-print h1 { font-size:26px; }
-.st-print h2 { font-size:18px; padding-bottom:6px; border-bottom:2px solid #111; }
-.st-print table { width:100%; border-collapse:collapse; font-size:14px; }
-.st-print td, .st-print th { padding:8px; border:1px solid #ddd; vertical-align:top; text-align:left; }
 @media print { .st-side, .st-top, .st-fab, .st-no-print, .st-chat, .st-chat-launcher, .st-chat-notice { display:none !important; } .st-main { margin-right:0 !important; } .st { display:block; background:#fff; } .st-content { padding:0; max-width:none; } }
 
 /* ----- responsive ----- */
@@ -775,3 +770,47 @@
 .st .st-msg-files small { display: inline-flex; align-items: center; gap: 3px; opacity: .85; }
 .st-ideas-chat .st-chat-input { align-items: center; }
 .st .st-tl-clip.is-sel, .st .st-tl-cue.is-sel { padding:0 18px; }
+
+/* 기획안 PDF: a clean A4 paper, only what is needed to shoot and post. */
+.pp-wrap { max-width:880px; }
+.pp-sheet { width:100%; border-collapse:collapse; background:#fff; border-radius:14px; box-shadow:0 8px 30px rgba(20,16,40,.08); }
+.pp-sheet > thead td, .pp-sheet > tfoot td, .pp-sheet > tbody > tr > td { padding:0; border:0; }
+.pp-gap { height:0; }
+.pp { display:grid; gap:28px; padding:44px 52px; color:#1b1825; font-size:14px; line-height:1.65; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+.pp p { margin:0; }
+.pp-cover { display:grid; gap:10px; padding-bottom:22px; border-bottom:2px solid #6C4CF1; }
+.pp-brand { display:flex; justify-content:space-between; gap:12px; font-size:12px; font-weight:800; color:#6C4CF1; letter-spacing:.02em; }
+.pp-brand span:last-child { color:#8A85A0; font-weight:600; }
+.pp-cover h1 { margin:0; font-size:26px; line-height:1.35; font-weight:800; }
+.pp-promise { font-size:15px; color:#5F5A70; }
+.pp-section { display:grid; gap:12px; }
+.pp-section h2 { display:flex; align-items:center; gap:9px; margin:0; font-size:16px; font-weight:800; break-after:avoid; }
+.pp-section h2 b { display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#6C4CF1; color:#fff; font-size:12px; }
+.pp-section h2 span { font-size:12.5px; font-weight:600; color:#8A85A0; }
+.pp-thumb { padding:16px 20px; border-radius:12px; background:#F3F0FF; font-size:21px; font-weight:800; line-height:1.4; }
+.pp-hook { margin:0; padding:2px 0 2px 16px; border-left:4px solid #6C4CF1; font-size:18px; font-weight:700; line-height:1.5; }
+.pp-onscreen { margin-top:6px !important; font-size:12.5px; color:#5A3DE0; }
+.pp-onscreen i { font-style:normal; font-weight:800; margin-right:6px; padding:1px 6px; border-radius:4px; background:#EFEBFF; }
+.pp-script, .pp-board { list-style:none; margin:0; padding:0; display:grid; }
+.pp-script li, .pp-board li { display:grid; grid-template-columns:62px minmax(0,1fr); gap:12px; padding:11px 0; border-bottom:1px solid #EEECF4; break-inside:avoid; }
+.pp-script li:first-child, .pp-board li:first-child { border-top:1px solid #EEECF4; }
+.pp-sec { padding-top:2px; font-size:12.5px; font-weight:800; color:#8A85A0; }
+.pp-board strong { font-size:14px; }
+.pp-board p { margin-top:2px; color:#4A4658; font-size:13.5px; }
+.pp-facts { margin:0; display:grid; }
+.pp-facts > div { display:grid; grid-template-columns:62px minmax(0,1fr); gap:12px; padding:9px 0; border-bottom:1px solid #EEECF4; break-inside:avoid; }
+.pp-facts > div:first-child { border-top:1px solid #EEECF4; }
+.pp-facts dt { font-size:12.5px; font-weight:800; color:#8A85A0; padding-top:2px; }
+.pp-facts dd { margin:0; }
+.pp-caption { padding:16px 18px; border:1px solid #E6E4EE; border-radius:12px; break-inside:avoid; }
+.pp-caption p { white-space:pre-wrap; line-height:1.75; }
+.pp-tags { margin-top:10px !important; color:#5A3DE0; font-weight:600; }
+.pp-memo { white-space:pre-wrap; }
+@media (max-width:640px) { .pp { padding:28px 20px; } }
+@media print {
+  @page { size:A4; margin:0; }
+  .st-content.pp-wrap { padding:0; max-width:none; }
+  .pp-sheet { border-radius:0; box-shadow:none; }
+  .pp-gap { height:14mm; }
+  .pp { padding:0 16mm; }
+}

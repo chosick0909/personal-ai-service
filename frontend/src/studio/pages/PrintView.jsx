@@ -2,9 +2,16 @@ import { estimateLineSeconds } from '../../lib/scriptText'
 import { useEffect, useState } from 'react'
 import { Printer, ArrowLeft } from 'lucide-react'
 import { useStudio } from '../context'
-import { studio, SLOT_LABELS } from '../api'
+import { studio } from '../api'
 
 const chosenOf = f => f ? (f.custom ? { text: f.custom } : f.options?.[f.chosen ?? 0]) : null
+
+// The finished plan as a clean A4 document with only what is needed to shoot and post: cover copy, first line,
+// script, shooting setup, storyboard and caption. The sheet is a table whose empty head and foot repeat on every
+// printed page, which gives each page its margins while the page itself has none (so the browser adds no header).
+function Section({ n, title, extra, children }) {
+  return <section className="pp-section"><h2><b>{n}</b>{title}{extra && <span>{extra}</span>}</h2>{children}</section>
+}
 
 export default function PrintView({ sessionId }) {
   const { go } = useStudio()
@@ -15,19 +22,50 @@ export default function PrintView({ sessionId }) {
   if (!data) return <div className="st-content"><p className="st-muted">불러오는 중…</p></div>
   const s = data.session
   const thumb = chosenOf(s.thumbnail), hook = chosenOf(s.hook), lines = s.script?.edited || chosenOf(s.script)?.lines || [], cap = s.caption?.edited || chosenOf(s.caption)
-  return <div className="st-content" style={{ maxWidth: 900 }}>
-    <div className="st-row st-no-print" style={{ justifyContent: 'space-between', marginBottom: 16 }}><button type="button" className="st-btn st-btn-ghost" onClick={() => go('plan', { session: s.id })}><ArrowLeft size={20} />기획안으로</button><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => window.print()}><Printer size={20} />인쇄 · PDF로 저장</button></div>
+  const total = lines.reduce((a, l) => a + estimateLineSeconds(l.spoken), 0)
+  const f = s.filming
+  const setting = f ? [['장소', f.location], ['카메라', f.camera], ['조명', f.lighting]].filter(([, v]) => v) : []
+  let n = 0
+  const next = () => ++n
+  return <div className="st-content pp-wrap">
+    <div className="st-row st-no-print" style={{ justifyContent: 'space-between', marginBottom: 12 }}><button type="button" className="st-btn st-btn-ghost" onClick={() => go('plan', { session: s.id })}><ArrowLeft size={20} />기획안으로</button><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => window.print()}><Printer size={20} />인쇄 · PDF로 저장</button></div>
     <p className="st-muted st-small st-no-print" style={{ marginBottom: 16 }}>인쇄 창에서 '대상'을 'PDF로 저장'으로 고르면 파일로 받을 수 있어요. 휴대폰은 공유 → 'PDF로 저장'.</p>
-    <article className="st-print" style={{ border: '1px solid var(--st-line)', borderRadius: 16 }}>
-      <header><span className="st-muted st-small">HookAI 기획안 · {new Date(s.updatedAt).toLocaleDateString('ko-KR')}</span><h1>{s.title || s.topic?.title}</h1>{s.topic?.promise && <p className="st-muted">{s.topic.promise}</p>}
-        {data.sources && Object.keys(data.sources).length > 0 && <p className="st-small st-muted">참고: {Object.entries(data.sources).map(([slot, src]) => `${SLOT_LABELS[slot]} ${src.label}`).join(' · ')}</p>}</header>
-      {thumb && <section><h2>썸네일 카피</h2><p style={{ fontSize: 22, fontWeight: 800 }}>{thumb.text}</p></section>}
-      {hook && <section><h2>첫 문장</h2><p style={{ fontSize: 18, fontWeight: 700 }}>“{hook.spoken || hook.text}”</p>{hook.onScreen && <p className="st-small st-muted">화면 자막: {hook.onScreen}</p>}</section>}
-      {lines.length > 0 && <section><h2>대본 <span className="st-small st-muted">약 {lines.reduce((a, l) => a + estimateLineSeconds(l.spoken), 0)}초</span></h2><table><tbody>{lines.map((l, i) => <tr key={i}><th style={{ width: 60 }}><span className="st-muted" style={{ fontWeight: 400 }}>{estimateLineSeconds(l.spoken)}초</span></th><td>{l.spoken}{l.onScreen && <div className="st-small st-muted">자막: {l.onScreen}</div>}</td></tr>)}</tbody></table></section>}
-      {s.filming && <section><h2>촬영·편집</h2><table><thead><tr><th>#</th><th>초</th><th>구도</th><th>행동</th><th>자막</th><th>대사</th></tr></thead><tbody>{s.filming.storyboard.map(b => <tr key={b.scene}><td>{b.scene}</td><td>{b.seconds}</td><td>{b.shot}</td><td>{b.action}</td><td>{b.onScreen}</td><td>{b.spoken}</td></tr>)}</tbody></table>
-        <table style={{ marginTop: 12 }}><tbody><tr><th style={{ width: 90 }}>장소</th><td>{s.filming.location}</td></tr><tr><th>준비물</th><td>{(s.filming.props || []).join(', ')}</td></tr><tr><th>카메라</th><td>{s.filming.camera}</td></tr><tr><th>조명</th><td>{s.filming.lighting}</td></tr><tr><th>편집</th><td>{s.filming.editing}</td></tr>{s.filming.checklist?.length > 0 && <tr><th>체크</th><td>{s.filming.checklist.map((c, i) => <div key={i}>☐ {c}</div>)}</td></tr>}{s.filming.editingPlan && <><tr><th>자막</th><td>{s.filming.editingPlan.subtitleStyle}</td></tr><tr><th>컷·템포</th><td>{s.filming.editingPlan.cuts}</td></tr><tr><th>전환·효과</th><td>{[s.filming.editingPlan.transitions, s.filming.editingPlan.effects].filter(Boolean).join(' / ')}</td></tr><tr><th>사운드</th><td>{s.filming.editingPlan.sound}</td></tr></>}{s.memo && <tr><th>메모</th><td style={{ whiteSpace: 'pre-wrap' }}>{s.memo}</td></tr>}</tbody></table></section>}
-      {cap && <section><h2>캡션</h2><p style={{ whiteSpace: 'pre-wrap' }}>{cap.text}</p><p className="st-muted">{(cap.hashtags || []).map(t => `#${t}`).join(' ')}</p></section>}
-      {s.placeholders?.length > 0 && <section><h2>촬영 전에 채울 빈칸</h2><p>{s.placeholders.join(' · ')}</p></section>}
-    </article>
+    <table className="pp-sheet"><thead><tr><td><div className="pp-gap" /></td></tr></thead><tfoot><tr><td><div className="pp-gap" /></td></tr></tfoot><tbody><tr><td>
+      <article className="pp">
+        <header className="pp-cover">
+          <div className="pp-brand"><span>HookAI 기획안</span><span>{new Date(s.updatedAt).toLocaleDateString('ko-KR')}{total > 0 ? ` · 약 ${total}초` : ''}</span></div>
+          <h1>{s.title || s.topic?.title}</h1>
+          {s.topic?.promise && <p className="pp-promise">{s.topic.promise}</p>}
+        </header>
+
+        {thumb && <Section n={next()} title="썸네일 카피"><div className="pp-thumb">{thumb.text}</div></Section>}
+
+        {hook && <Section n={next()} title="첫 문장"><blockquote className="pp-hook">“{hook.spoken || hook.text}”</blockquote>{hook.onScreen && <p className="pp-onscreen"><i>자막</i>{hook.onScreen}</p>}</Section>}
+
+        {lines.length > 0 && <Section n={next()} title="대본" extra={`약 ${total}초`}>
+          <ol className="pp-script">{lines.map((l, i) => <li key={i}>
+            <span className="pp-sec">{estimateLineSeconds(l.spoken)}초</span>
+            <div><p>{l.spoken}</p>{l.onScreen && <p className="pp-onscreen"><i>자막</i>{l.onScreen}</p>}</div>
+          </li>)}</ol>
+        </Section>}
+
+        {f && (setting.length > 0 || f.props?.length > 0) && <Section n={next()} title="촬영 세팅">
+          <dl className="pp-facts">{setting.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+            {f.props?.length > 0 && <div><dt>준비물</dt><dd>{f.props.join(', ')}</dd></div>}</dl>
+        </Section>}
+
+        {f?.storyboard?.length > 0 && <Section n={next()} title="스토리보드" extra={`${f.storyboard.length}컷`}>
+          <ol className="pp-board">{f.storyboard.map(b => <li key={b.scene}>
+            <span className="pp-sec">#{b.scene}{b.seconds ? ` · ${b.seconds}초` : ''}</span>
+            <div><strong>{b.shot}</strong>{b.action && <p>{b.action}</p>}</div>
+          </li>)}</ol>
+        </Section>}
+
+        {cap && <Section n={next()} title="캡션"><div className="pp-caption"><p>{cap.text}</p>{cap.hashtags?.length > 0 && <p className="pp-tags">{cap.hashtags.map(t => `#${t}`).join(' ')}</p>}</div></Section>}
+
+        {s.placeholders?.length > 0 && <Section n={next()} title="촬영 전에 채울 빈칸"><p>{s.placeholders.join(' · ')}</p></Section>}
+        {s.memo && <Section n={next()} title="내 메모"><p className="pp-memo">{s.memo}</p></Section>}
+      </article>
+    </td></tr></tbody></table>
   </div>
 }
