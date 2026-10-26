@@ -2,9 +2,16 @@
 const writing = new Set(['reference-analysis', 'media-hook-diagnosis'])
 // Success-reel analysis and plans are headline output, so they default to the script-writing model.
 export const premiumOperations = new Set(['success-reel-analysis', 'success-reel-plan'])
+// CREATOR_STUDIO_MODEL moves every 훅ai (Creator Studio 2) call to one model; a Claude model needs its API key,
+// and without one the stages stay on the premium OpenAI model.
+export function studioModel(env = process.env) {
+  const model = env.CREATOR_STUDIO_MODEL?.trim()
+  return model && (!model.startsWith('claude-') || env.ANTHROPIC_API_KEY?.trim()) ? model : null
+}
 export function operationModel(operation, fallback, env = process.env, premiumFallback = fallback) {
   const key = `CREATOR_MODEL_${String(operation).toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
-  if (premiumOperations.has(operation) || String(operation).startsWith('studio-')) return env[key]?.trim() || premiumFallback
+  if (String(operation).startsWith('studio-')) return env[key]?.trim() || studioModel(env) || premiumFallback
+  if (premiumOperations.has(operation)) return env[key]?.trim() || premiumFallback
   return env[key]?.trim() || (writing.has(operation) && env.CREATOR_WRITING_MODEL?.trim()) || env.CREATOR_TEXT_MODEL || fallback
 }
 export function parseJsonCompletion(response) {

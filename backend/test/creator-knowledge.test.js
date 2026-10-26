@@ -168,3 +168,14 @@ test('the study leaves half of the day\'s Instagram lookups to students', async 
   assert.equal(stats.stopped, 'budget')
   assert.equal(db.tables.creator_success_reels.get('N1').analysis_status, 'none', 'nothing was started')
 })
+
+test('CREATOR_STUDIO_MODEL moves only 훅ai (studio) calls, and a Claude model needs its key', async () => {
+  const { operationModel } = await import('../src/creator-tools/operation-model.js')
+  const env = { CREATOR_STUDIO_MODEL: 'claude-opus-5-5', ANTHROPIC_API_KEY: 'k' }
+  assert.equal(operationModel('studio-script', 'gpt-a', env, 'gpt-premium'), 'claude-opus-5-5')
+  assert.equal(operationModel('studio-revise', 'gpt-a', env, 'gpt-premium'), 'claude-opus-5-5')
+  assert.equal(operationModel('success-reel-analysis', 'gpt-a', env, 'gpt-premium'), 'gpt-premium', 'other features keep their model')
+  assert.equal(operationModel('reference-analysis', 'gpt-a', env, 'gpt-premium'), 'gpt-a')
+  assert.equal(operationModel('studio-script', 'gpt-a', { CREATOR_STUDIO_MODEL: 'claude-opus-5-5' }, 'gpt-premium'), 'gpt-premium', 'no key, no switch')
+  assert.equal(operationModel('studio-script', 'gpt-a', { ...env, CREATOR_MODEL_STUDIO_SCRIPT: 'gpt-x' }, 'gpt-premium'), 'gpt-x', 'a per-stage override still wins')
+})
