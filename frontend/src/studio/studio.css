@@ -400,20 +400,6 @@
 /* 추천: 지영·클라이언트가 고른 릴스 */
 .st-reel-rec { background:var(--st-accent); color:#fff; }
 
-/* 성공 릴스 상단 안내: 레퍼런스란? / 활용법 */
-.st-guide { display:grid; grid-template-columns:1fr 1.3fr; gap:18px 28px; padding:22px 24px; border-radius:16px; background:var(--st-accent-soft); border:1px solid var(--st-accent-soft-2); }
-.st-guide h3 { margin:0 0 8px; font-size:18px; color:var(--st-accent-text); }
-.st-guide p { margin:0 0 6px; font-size:16px; line-height:1.6; color:var(--st-text); }
-.st-guide b { color:var(--st-accent-text); }
-.st-guide-note { color:var(--st-muted) !important; font-size:15px !important; }
-.st-guide-steps { list-style:none; margin:8px 0 10px; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
-.st-guide-steps li { display:flex; align-items:center; gap:8px; font-size:16px; font-weight:700; color:var(--st-text); }
-.st-guide-steps svg { color:var(--st-accent); flex:none; }
-
-.st-guide-wide { grid-column:1 / -1; padding-top:16px; border-top:1px solid var(--st-accent-soft-2); }
-.st-guide-quote { font-size:20px !important; font-weight:800; color:var(--st-accent-text) !important; margin:4px 0 8px !important; }
-@media (max-width: 760px) { .st-guide { grid-template-columns:1fr; padding:18px; } .st-guide-steps { grid-template-columns:1fr; } }
-
 /* 성공 릴스 필터: 분야 칩 + 이름표가 붙은 선택 묶음(보기·정렬·얼굴·지역) */
 .st-filter-panel { display:flex; flex-direction:column; gap:14px; padding:18px 20px; border:1px solid var(--st-line); border-radius:16px; background:var(--st-panel); }
 .st-filter-row { display:flex; align-items:flex-start; gap:14px; }
@@ -451,13 +437,14 @@
 .st-whatsnew-dots button[aria-current=true] { width:24px; border-radius:6px; background:#fff; }
 .st-whatsnew-copy { position:relative; display:flex; flex-direction:column; padding:56px 44px 28px; color:#fff; }
 .st-whatsnew-close { position:absolute; top:20px; right:20px; width:46px; height:46px; border-radius:50%; border:0; background:rgba(255,255,255,.12); color:#fff; display:grid; place-items:center; cursor:pointer; }
-.st-whatsnew-badge { align-self:flex-start; padding:8px 14px; border-radius:999px; background:#22c55e; color:#06240f; font-size:14.5px; font-weight:800; }
+.st-whatsnew-badge { align-self:flex-start; padding:8px 14px; border-radius:999px; background:var(--st-accent); color:#fff; font-size:14.5px; font-weight:800; }
+.st .st-whatsnew-badge { color:#fff; }
 .st-whatsnew-step { margin-top:18px; font-size:15px; font-weight:700; color:#b9b2dd; }
 .st-whatsnew-copy h2 { margin:10px 0 14px; font-size:38px; line-height:1.25; font-weight:900; white-space:pre-line; letter-spacing:-.5px; }
 .st-whatsnew-copy p { margin:0; font-size:17.5px; line-height:1.7; color:#d6d2ea; }
-.st-whatsnew-actions { display:grid; gap:12px; margin-top:auto; }
 .st-whatsnew-actions .st-btn:not(.st-btn-primary) { background:transparent; border-color:rgba(255,255,255,.3); color:#fff; }
 .st .st-whatsnew-actions .st-btn:not(.st-btn-primary) * { color:#fff; }
+.st-whatsnew-actions { display:grid; gap:12px; margin-top:auto; }
 .st-whatsnew-foot { display:flex; justify-content:center; gap:14px; margin-top:18px; padding-top:16px; border-top:1px solid rgba(255,255,255,.12); color:#8f89ad; }
 .st-whatsnew-foot button { border:0; background:none; color:#c9c4e4; font-size:15.5px; cursor:pointer; }
 @media (max-width: 860px) { .st-whatsnew { grid-template-columns:1fr; height:auto; max-height:calc(100vh - 24px); overflow-y:auto; } .st-whatsnew-media { padding:20px 20px 76px; } .st-whatsnew-copy { padding:28px 22px 22px; } .st-whatsnew-copy h2 { font-size:28px; } }
@@ -509,7 +496,26 @@
 .st-man-tip p { margin:0 0 4px; font-size:16.5px; line-height:1.6; color:var(--st-text); }
 @media (max-width: 960px) { .st-manual { grid-template-columns:1fr; } .st-man-toc { position:static; grid-template-columns:1fr 1fr; } .st-man-toc > strong { grid-column:1 / -1; } .st-man-section { padding:18px; } .st-man-num { width:26px; height:26px; font-size:14px; } }
 
-/* 성공 릴스 메인 카피: 안내 박스 아래, 가운데 크게 */
-.st-reels-hero { margin:26px 0 14px; text-align:center; font-size:32px; line-height:1.35; font-weight:900; letter-spacing:-.6px; color:var(--st-text); word-break:keep-all; }
+/* 성공 릴스 상단: 메인 카피 + 접히는 안내(제목만 보이고 누르면 펼침) */
+.st-guide { display:grid; gap:12px; justify-items:center; }
+.st-reels-hero { margin:4px 0 0; text-align:center; font-size:27px; line-height:1.35; font-weight:900; letter-spacing:-.5px; color:var(--st-text); text-wrap:balance; }
 .st-reels-hero em { font-style:normal; color:var(--st-accent-text); }
-@media (max-width: 760px) { .st-reels-hero { font-size:23px; margin:6px 0 2px; } }
+.st-guide-tabs { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
+.st-guide-tabs button { display:inline-flex; align-items:center; gap:6px; min-height:42px; padding:0 16px; border:1px solid var(--st-accent-soft-2); border-radius:999px; background:var(--st-accent-soft); color:var(--st-accent-text); font-size:15.5px; font-weight:800; cursor:pointer; }
+.st-guide-tabs button svg { transition:transform .2s; }
+.st-guide-tabs button[aria-expanded=true] { background:var(--st-accent); border-color:var(--st-accent); }
+.st .st-guide-tabs button[aria-expanded=true], .st .st-guide-tabs button[aria-expanded=true] * { color:#fff; }
+.st-guide-tabs button[aria-expanded=true] svg { transform:rotate(180deg); }
+.st-guide-panel { width:min(860px, 100%); padding:18px 22px; border-radius:16px; background:var(--st-accent-soft); border:1px solid var(--st-accent-soft-2); }
+.st-guide-panel p { margin:0 0 6px; font-size:16px; line-height:1.65; color:var(--st-text); }
+.st-guide-panel b { color:var(--st-accent-text); }
+.st-guide-note { color:var(--st-muted) !important; font-size:15px !important; }
+.st-guide-steps { list-style:none; margin:8px 0 10px; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+.st-guide-steps li { display:flex; align-items:center; gap:8px; font-size:16px; font-weight:700; color:var(--st-text); }
+.st-guide-steps svg { color:var(--st-accent); flex:none; }
+@media (max-width: 760px) { .st-reels-hero { font-size:21px; } .st-guide-steps { grid-template-columns:1fr; } .st-guide-tabs button { font-size:14.5px; } }
+
+/* 한국어 줄바꿈: 단어(어절) 단위로 끊고, 제목은 줄 길이를 고르게 */
+.st { word-break:keep-all; overflow-wrap:break-word; }
+.st h1, .st h2, .st h3, .st-whatsnew-copy h2, .st-tour-card h3 { text-wrap:balance; }
+.st p, .st li, .st-option-hint, .st-why { text-wrap:pretty; }

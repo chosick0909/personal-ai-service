@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSearch, CircleCheck } from 'lucide-react'
+import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSearch, CircleCheck, ChevronDown } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount, day, when } from '../api'
 
@@ -99,24 +99,27 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
 
 // 지영's guide for students (2026-10-26), shown above the archive so every visit starts from how to read a reference.
 const REFERENCE_STEPS = ['첫 3초는 어떻게 시작했는지', '어떤 스토리와 흐름으로 이어지는지', '왜 끝까지 보게 되는지', '내 주제라면 어떻게 응용할 수 있을지']
+// Main copy first; the two guide topics stay folded to one line so the reels show without scrolling.
 function ReferenceGuide() {
-  return <>
-    <section className="st-guide" aria-label="레퍼런스 활용 안내">
-      <div className="st-guide-col">
-        <h3>레퍼런스란?</h3>
-        <p>조회수가 잘 나오거나 사람들이 오래 머무는 콘텐츠를 분석하기 위한 <b>‘좋은 예시’</b>입니다.</p>
-        <p className="st-guide-note">따라 하는 것이 아니라, 잘되는 구조와 흐름을 배우기 위한 자료예요.</p>
-      </div>
-      <div className="st-guide-col">
-        <h3>레퍼런스를 어떻게 활용하나요?</h3>
-        <p>그냥 보는 것으로 끝내지 마세요. 이렇게 생각하며 분석해 보세요.</p>
-        <ul className="st-guide-steps">{REFERENCE_STEPS.map(step => <li key={step}><CircleCheck size={18} aria-hidden="true" />{step}</li>)}</ul>
-        <p>주제는 내 것으로 바꾸고, 타깃도 내 고객으로 바꾸고, 내 경험이나 정보를 넣어보는 거예요.</p>
-        <p className="st-guide-note">많이 볼수록 ‘잘되는 콘텐츠의 감각’이 쌓이고, 그 감각이 결국 내 콘텐츠를 바꿔줍니다 ❤️‍🔥</p>
-      </div>
-    </section>
+  const [open, setOpen] = useState(null)
+  const toggle = id => setOpen(o => o === id ? null : id)
+  return <section className="st-guide" aria-label="레퍼런스 활용 안내">
     <p className="st-reels-hero">레퍼런스는 정답지가 아니라<br /><em>내 아이디어를 꺼내기 위한 재료</em>입니다</p>
-  </>
+    <div className="st-guide-tabs">
+      <button type="button" aria-expanded={open === 'what'} onClick={() => toggle('what')}>레퍼런스란?<ChevronDown size={18} /></button>
+      <button type="button" aria-expanded={open === 'how'} onClick={() => toggle('how')}>레퍼런스를 어떻게 활용하나요?<ChevronDown size={18} /></button>
+    </div>
+    {open === 'what' && <div className="st-guide-panel">
+      <p>조회수가 잘 나오거나 사람들이 오래 머무는 콘텐츠를 분석하기 위한 <b>‘좋은 예시’</b>입니다.</p>
+      <p className="st-guide-note">따라 하는 것이 아니라, 잘되는 구조와 흐름을 배우기 위한 자료예요.</p>
+    </div>}
+    {open === 'how' && <div className="st-guide-panel">
+      <p>그냥 보는 것으로 끝내지 마세요. 이렇게 생각하며 분석해 보세요.</p>
+      <ul className="st-guide-steps">{REFERENCE_STEPS.map(step => <li key={step}><CircleCheck size={18} aria-hidden="true" />{step}</li>)}</ul>
+      <p>주제는 내 것으로 바꾸고, 타깃도 내 고객으로 바꾸고, 내 경험이나 정보를 넣어보는 거예요.</p>
+      <p className="st-guide-note">많이 볼수록 ‘잘되는 콘텐츠의 감각’이 쌓이고, 그 감각이 결국 내 콘텐츠를 바꿔줍니다 ❤️‍🔥</p>
+    </div>}
+  </section>
 }
 
 export default function ReelsPage() {
