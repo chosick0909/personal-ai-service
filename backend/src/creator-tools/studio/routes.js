@@ -21,6 +21,7 @@ import { readPublicImage } from '../network.js'
 import { probeVideo, ff } from '../media.js'
 import { requestReelAnalysis, runReelAnalysis, schedule } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
+import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
@@ -300,12 +301,29 @@ export function registerStudioRoutes(router) {
     const plan = await planContextFor(db, req.auth.userId, uuid(req.body?.planId))
     if (!plan.script.length && !plan.hook) fail('NO_SCRIPT', '이 기획안에는 아직 대본이 없어요.', 409)
     const providers = deps().makeProviders(AbortSignal.timeout(120000))
-    const raw = await providers.json('studio-fix-subtitles', `${HOOKAI_SYSTEM}\n\n음성 받아쓰기로 만든 자막(cues)을 학생이 기획한 대본(script)과 견주어, 잘못 들려서 틀린 단어(제품명·고유명사·맞춤법·띄어쓰기)만 고칩니다. 학생이 실제로 대본과 다르게 말한 부분은 말한 그대로 둡니다. 자막을 합치거나 나누지 말고, 받은 i마다 고친 text 하나를 돌려줍니다. 고칠 것이 없으면 원래 text 그대로.`,
-      { script: [plan.hook, ...plan.script].filter(Boolean), cues: cues.map((c, i) => ({ i, text: c.text })) }, [], fixSchema)
+    const fieldTerms = ((await fieldKnowledge(db, plan.category))?.terms || []).map(t => t.word)
+    const raw = await providers.json('studio-fix-subtitles', `${HOOKAI_SYSTEM}\n\n음성 받아쓰기로 만든 자막(cues)을 학생이 기획한 대본(script)과 견주어, 잘못 들려서 틀린 단어(제품명·고유명사·분야 용어·맞춤법·띄어쓰기)만 고칩니다. fieldTerms는 이 분야에서 자주 쓰는 말이라, 받아쓰기가 비슷한 소리의 다른 말로 적었는지 가릴 때 참고합니다. 학생이 실제로 대본과 다르게 말한 부분은 말한 그대로 둡니다. 자막을 합치거나 나누지 말고, 받은 i마다 고친 text 하나를 돌려줍니다. 고칠 것이 없으면 원래 text 그대로.`,
+      { script: [plan.hook, ...plan.script].filter(Boolean), fieldTerms, cues: cues.map((c, i) => ({ i, text: c.text })) }, [], fixSchema)
     const fixed = new Map((Array.isArray(raw?.cues) ? raw.cues : []).map(c => [c.i, String(c.text || '').trim().slice(0, 500)]))
     const subtitles = cues.map((c, i) => ({ ...c, text: fixed.get(i) || c.text }))
     res.json({ subtitles, changed: subtitles.filter((c, i) => c.text !== cues[i].text).length })
   }))
+
+  // 훅ai's daily study: what it knows per field and the latest runs (admins only), and a manual run for checking.
+  router.get('/creator-tools/studio/knowledge', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 볼 수 있어요.', 404)
+    const db = database()
+    const fields = await query(db.from('creator_field_knowledge').select('category,knowledge,reel_count,built_at').order('built_at', { ascending: false }))
+    const runs = await query(db.from('creator_study_runs').select('day,started_at,finished_at,stats,error').order('started_at', { ascending: false }).limit(10))
+    res.json({ fields, runs })
+  }))
+  router.post('/creator-tools/studio/knowledge/study', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
+    const limit = Math.max(0, Math.min(60, Number(req.body?.limit ?? 10)))
+    schedule('daily-study:manual', () => studyOnce(deps(), { limit }), 1)
+    res.status(202).json({ started: true, limit })
+  }))
+  if (process.env.NODE_ENV !== 'test') startDailyStudy(deps())
 
   router.post('/creator-tools/studio/recommended', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 릴스는 관리자만 추가할 수 있어요.', 404)

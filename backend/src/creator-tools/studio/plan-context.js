@@ -13,6 +13,7 @@ export async function planContextFor(db, userId, sessionId) {
   return {
     id: row.id,
     title: String(row.title || row.topic?.title || '').slice(0, 200),
+    category: row.topic?.category || null,
     thumbnail: text(chosen(row.thumbnail)).slice(0, 200),
     hook: text(chosen(row.hook)).slice(0, 400),
     script: lines.map(l => String(l?.spoken || '').slice(0, 400)).filter(Boolean).slice(0, 40),

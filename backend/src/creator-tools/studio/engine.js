@@ -6,6 +6,7 @@ import { HOOK_TYPES, STORY_FORMATS, schedule } from '../success-reel-analysis.js
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint } from './copy-principles.js'
+import { fieldKnowledge } from './knowledge.js'
 
 const str = { type: 'string' }
 const num = { type: 'number' }
@@ -71,6 +72,9 @@ function sessionContext(session, resolved, extras = {}) {
   }
 }
 
+// What 훅ai has learned about the plan's field from its daily study; null until the field is known and studied.
+const knowledgeFor = async (db, session) => ({ fieldKnowledge: await fieldKnowledge(db, session.topic?.category) })
+
 const providersJson = (providers, op, instructions, input, schema) => providers.json(op, `${HOOKAI_SYSTEM}\n\n${instructions}`, input, [], schema)
 
 // ---------- topic chat ----------
@@ -100,7 +104,7 @@ export async function openerMessage(deps, session) {
       meta: { chips: ['주제 제안해줘', '내 경험을 이야기하고 싶어요', '제품을 소개하고 싶어요'] } }
   }
   const providers = deps.makeProviders(new AbortController().signal)
-  const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved), event: '세션 시작. 레퍼런스 포맷을 한 문장으로 짚고 첫 질문을 하세요.' }, topicSchema)
+  const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), event: '세션 시작. 레퍼런스 포맷을 한 문장으로 짚고 첫 질문을 하세요.' }, topicSchema)
   return normalizeTopicReply(raw)
 }
 
@@ -124,12 +128,12 @@ export async function chat(deps, session, messages, text) {
     const answered = messages.filter(m => m.role === 'user').length
     const mustDecide = answered >= 3 || /충분|정해|확정|그만|알아서|그냥 해|바로 해|넘어가/.test(text)
     const directive = mustDecide ? '지금까지 모인 정보로 더 묻지 말고 topic.ready=true로 주제를 확정하세요. 빠진 사실은 facts에 넣지 말고(뒤 단계에서 묻습니다) title·promise는 아는 사실만으로 씁니다. chips는 [].' : '질문은 한 번에 하나. 이미 답을 받은 내용은 다시 묻지 않습니다.'
-    const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved), recentTopics: style.map(t => t.topic), trending, conversation: recent, userMessage: text, directive }, topicSchema)
+    const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), recentTopics: style.map(t => t.topic), trending, conversation: recent, userMessage: text, directive }, topicSchema)
     return normalizeTopicReply(raw)
   }
   // On the finished plan the student says what to change; the request decides which part is revised.
   const stage = session.stage === 'done' ? (/캡션|해시태그/.test(text) ? 'caption' : /썸네일|커버|제목/.test(text) ? 'thumbnail' : /첫 ?문장|훅/.test(text) && !/대본/.test(text) ? 'hook' : 'script') : session.stage
-  const raw = await providersJson(providers, 'studio-revise', revisePrompt(stage), { ...sessionContext(session, resolved), conversation: recent, userMessage: text }, reviseSchema)
+  const raw = await providersJson(providers, 'studio-revise', revisePrompt(stage), { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), conversation: recent, userMessage: text }, reviseSchema)
   const proposal = raw.proposal?.has ? normalizeProposal(stage, raw.proposal) : null
   return { content: clean(raw.reply, 800) || '네, 반영했어요.', meta: { chips: list(raw.chips, 30, 4), proposal } }
 }
@@ -234,7 +238,8 @@ export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !s
 export async function generateStage(deps, session, stage) {
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
-  const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved), successCovers: await successCovers(deps.db, session.topic?.category) } : sessionContext(session, resolved)
+  const knowledge = await knowledgeFor(deps.db, session)
+  const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
   let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
   const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...list(q.chips, 40, 2), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
@@ -243,7 +248,7 @@ export async function generateStage(deps, session, stage) {
   if (asks.length) {
     // 훅ai asked anyway: the unanswered points become its own call, and it drafts once more.
     const facts = [...(session.topic?.facts || []), ...asks.map(q => `${q.key}: 훅ai 재량(묻지 않고 정함)`)]
-    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}`, sessionContext({ ...session, topic: { ...(session.topic || {}), facts } }, resolved), stageSchemas[stage])
+    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}`, sessionContext({ ...session, topic: { ...(session.topic || {}), facts } }, resolved, knowledge), stageSchemas[stage])
     asks = parseAsks(raw)
     if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
   }
