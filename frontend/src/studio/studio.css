@@ -158,6 +158,7 @@
 .st-main { transition:margin-right .25s ease; }
 @media (min-width: 1101px) {
   .st-main:has(.st-chat.is-open) { margin-right:400px; }
+  .st:has(.st-chat.is-open) .st-toasts { right:424px; }
   /* Folding shrinks the chat into the 훅ai button at the bottom right (and opening grows it back out of it),
      so students see where it went and where to open it again. */
   .st-chat { transform-origin:calc(100% - 56px) calc(100% - 56px); transform:scale(.05); opacity:0; border-radius:40px;

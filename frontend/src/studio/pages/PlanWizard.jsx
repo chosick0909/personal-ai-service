@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, ChevronDown, History, Star } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS } from '../api'
@@ -175,6 +176,7 @@ function ThumbnailStage({ session, save, restore }) {
   const debounced = useDebouncedSave(v => save({ thumbnail: { custom: v } }))
   const history = <PickHistory field="thumbnail" title="썸네일" session={session} restore={restore} />
   return <div className="st-stack">
+    <PickHistory field="thumbnail" title="썸네일" session={session} restore={restore} top />
     {applied && <AppliedPick label="썸네일" text={applied.text} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} history={history} />}
     {open && <section className="st-card st-stack"><div>{!applied && <div style={{ float: 'right' }}>{history}</div>}<h3>{applied ? '처음 받은 썸네일 3안' : '썸네일 카피 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.'}</p></div>
       <div className="st-options">{t.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!t.custom && t.chosen === i} onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }}>
@@ -193,6 +195,7 @@ function HookStage({ session, save, restore }) {
   const debounced = useDebouncedSave(v => save({ hook: { custom: v } }))
   const history = <PickHistory field="hook" title="첫 문장" session={session} restore={restore} />
   return <div className="st-stack">
+    <PickHistory field="hook" title="첫 문장" session={session} restore={restore} top />
     {applied && <AppliedPick label="첫 문장" text={`“${applied.text}”`} sub={applied.onScreen ? `자막 · ${applied.onScreen}` : ''} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} history={history} />}
     {open && <section className="st-card st-stack"><div>{!applied && <div style={{ float: 'right' }}>{history}</div>}<h3>{applied ? '처음 받은 첫 문장 3안' : '첫 문장 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '영상 첫 3초에 말할 문장이에요. 썸네일이 한 약속을 이어받아요.'}</p></div>
       <div className="st-options">{h.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!h.custom && h.chosen === i} onClick={() => { setCustom(''); save({ hook: { chosen: i } }) }}>
@@ -202,9 +205,16 @@ function HookStage({ session, save, restore }) {
   </div>
 }
 
+// 저장 내역 also sits in the top bar (next to the theme switch), so it stays in reach however far the student scrolls.
+// Stages mount after the plan loads, so the top bar's slot is already on the page.
+function TopAction({ children }) {
+  const [slot] = useState(() => document.getElementById('st-top-actions'))
+  return slot ? createPortal(children, slot) : children
+}
+
 // 저장 내역 for the cover and the first line: the version in use plus every version it replaced (chat revisions, own text, other options).
 const pickText = (field, v) => v ? `${v.text || ''}${field === 'hook' && v.onScreen ? `\n자막 · ${v.onScreen}` : ''}` : ''
-function PickHistory({ field, title, session, restore }) {
+function PickHistory({ field, title, session, restore, top = false }) {
   const [show, setShow] = useState(false)
   const f = session[field]
   if (!f?.history?.length) return null
@@ -213,7 +223,8 @@ function PickHistory({ field, title, session, restore }) {
   const current = applied ? { note: '훅ai와 고친 안', text: pickText(field, f.applied) } : f.custom ? { note: '직접 쓴 안', text: f.custom } : { note: OPTION_NAME[f.chosen ?? 0], text: pickText(field, field === 'hook' ? { text: option?.spoken, onScreen: option?.onScreen } : option) }
   const versions = [{ ...current, at: session.updatedAt }, ...f.history.map((h, i) => ({ note: h.note, at: h.at, text: pickText(field, h.value), load: () => restore(field, i) }))]
   return <>
-    <button type="button" className="st-btn st-btn-sm" onClick={() => setShow(true)}><History size={15} />저장 내역 · {versions.length}</button>
+    {top ? <TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShow(true)}><History size={15} />저장 내역 · {versions.length}</button></TopAction>
+      : <button type="button" className="st-btn st-btn-sm" onClick={() => setShow(true)}><History size={15} />저장 내역 · {versions.length}</button>}
     {show && <HistoryModal title={title} versions={versions} onClose={() => setShow(false)} />}
   </>
 }
@@ -251,7 +262,7 @@ function ScriptEditor({ session, save, onQuick, title = '대본' }) {
   const versions = [{ note: s.edited ? '직접 수정' : OPTION_NAME[s.chosen ?? 0], at: session.updatedAt, text: scriptText(lines) },
     ...(s.history || []).map((h, i) => ({ note: h.note, at: h.at, text: scriptText(h.value), load: () => save({ script: { restore: i } }) }))]
   return <section className="st-card st-stack">
-    <div className="st-card-head"><h3>{title} <span className="st-pill st-pill-gray" style={{ marginLeft: 6 }}>예상 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.history?.length > 0 && <button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button>}{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
+    <div className="st-card-head"><h3>{title} <span className="st-pill st-pill-gray" style={{ marginLeft: 6 }}>예상 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.history?.length > 0 && <><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button><TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button></TopAction></>}{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
     <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 고치면 자동으로 저장돼요. 초는 글자 수로 계산한 예상 길이라 고치는 대로 바뀌어요.</p>
     <div className="st-lines">{lines.map((l, i) => <div className="st-line" key={i}>
       <div className="st-line-part"><small>{estimateLineSeconds(l.spoken)}초</small></div>
@@ -305,7 +316,7 @@ function CaptionStage({ session, save }) {
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>캡션 3안</h3><p className="st-muted">하나를 고르고 아래에서 고쳐요.</p></div>
       <div className="st-options">{c.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!c.edited && c.chosen === i} onClick={() => save({ caption: { chosen: i } })}><div className="st-option-top"><span className="st-pill">{OPTION_NAME[i]}</span><span className="st-option-check"><Check size={16} /></span></div><strong style={{ fontSize: 16, whiteSpace: 'pre-wrap' }}>{o.text}</strong><span className="st-why">{o.why}</span></button>)}</div></section>
-    <section className="st-card st-stack"><div className="st-card-head"><h3>캡션</h3><div className="st-row"><CopyButton text={`${text}\n\n${tags.split(/[\s,]+/).filter(Boolean).map(t => t.startsWith('#') ? t : `#${t}`).join(' ')}`} />{c.history?.length > 0 && <button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {c.history.length + 1}</button>}</div></div>
+    <section className="st-card st-stack"><div className="st-card-head"><h3>캡션</h3><div className="st-row"><CopyButton text={`${text}\n\n${tags.split(/[\s,]+/).filter(Boolean).map(t => t.startsWith('#') ? t : `#${t}`).join(' ')}`} />{c.history?.length > 0 && <><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {c.history.length + 1}</button><TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {c.history.length + 1}</button></TopAction></>}</div></div>
       <textarea className="st-textarea" value={text} onChange={e => { setText(e.target.value); debounced(e.target.value, tags) }} aria-label="캡션 본문" />
       <div className="st-field"><label>해시태그</label><input className="st-input" value={tags} onChange={e => { setTags(e.target.value); debounced(text, e.target.value) }} placeholder="#선크림추천 #지성피부" /></div>
       {showHistory && <HistoryModal title="캡션" versions={versions} onClose={() => setShowHistory(false)} />}</section>
