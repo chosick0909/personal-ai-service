@@ -259,3 +259,21 @@ test('a chat revision is written before it is described, and one that misses a s
   const p = Object.keys(calls[0].schema.properties.proposal.properties)
   assert.ok(p.indexOf('requests') > p.indexOf('text') && p.indexOf('summary') > p.indexOf('requests'), 'the check reads the finished text')
 })
+
+test('first lines and scripts are written by the script principles, with the formulas success reels proved, and a line viewers would swipe on is rewritten', async () => {
+  const { SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } = await import('../src/creator-tools/studio/copy-principles.js')
+  const db = fakeDb()
+  const calls = []
+  const line = (part, spoken) => ({ part, spoken, onScreen: '', seconds: 3 })
+  const draft = risks => ({ questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: risks }, options: [{ label: 'a', why: 'w', lines: [line('hook', '첫 줄'), line('body', '둘째 줄'), line('cta', '끝')] }], placeholders: [] })
+  const deps = { db, makeProviders: () => ({ json: async (_op, instructions, input) => { calls.push({ instructions, input }); return calls.length === 1 ? draft(['쓰는 모습 보여드릴게요: 예고만 함']) : draft([]) } }) }
+  const session = { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, brief: 'b', topic: { title: 't', facts: [], category: '피부' }, hook: { options: [{ spoken: '첫 줄' }], chosen: 0 }, placeholders: [] }
+  const { value } = await generateStage(deps, session, 'script')
+  for (const p of SCRIPT_PRINCIPLES) assert.ok(calls[0].instructions.includes(p.name), p.name)
+  assert.ok(calls[0].input.provenFormulas.structures.length > 0, 'the 공식 사전 goes along even before reels are filed')
+  assert.equal(calls.length, 2, 'a line left that viewers would swipe on triggers one rewrite')
+  assert.match(calls[1].instructions, /예고만 함/)
+  assert.equal(value.options.length, 1)
+  for (const word of ['피지', '선크림', '냉동만두']) assert.ok(!calls[0].instructions.includes(word), word)
+  assert.ok(HOOK_PRINCIPLES.length >= 4)
+})

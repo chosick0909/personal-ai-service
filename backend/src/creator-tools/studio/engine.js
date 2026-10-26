@@ -4,9 +4,9 @@ import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
 import { HOOK_TYPES, STORY_FORMATS, schedule } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
-import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint } from './copy-principles.js'
+import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint, SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } from './copy-principles.js'
 import { fieldKnowledge } from './knowledge.js'
-import { libraryEntry, coverKnowledge } from './formula-study.js'
+import { libraryEntry, coverKnowledge, provenFormulas } from './formula-study.js'
 
 const str = { type: 'string' }
 const num = { type: 'number' }
@@ -175,7 +175,7 @@ function normalizeLines(lines) {
 // ---------- stage generation ----------
 const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 // What 훅ai found when it re-read its own draft (persona rule 8); anything listed triggers one rewrite.
-const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str) })
+const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str), swipeRisks: arr(str) })
 const stageSchemas = {
   thumbnail: obj({ questions, plan: obj({ terms: arr(obj({ word: str, meaning: str })), purpose: str, reader: str, promise: str, quotes: arr(str) }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
   hook: obj({ questions, check, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
@@ -185,6 +185,10 @@ const stageSchemas = {
   caption: obj({ questions, check, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
 // Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
+// What 훅ai learned in common from success reels (공식 사전 entries with how many success reels use each).
+const PROVEN_NOTE = 'provenFormulas는 훅ai가 성공 릴스를 매일 공부하며 확인한 첫 문장·전개 공식과 그 공식을 쓴 성공 릴스 수(reels)입니다. 공식의 작동 원리를 이번 소재에 옮기는 것이지, 공식 문장을 빈칸 채우기로 쓰는 것이 아닙니다.'
+// Self-check before finishing: the lines a viewer would swipe away on. What is still left after fixing triggers one rewrite.
+const SWIPE_CHECK = '다 쓴 뒤 시청자 입장에서 한 줄씩 다시 봅니다. 넘기고 싶어지는 줄(궁금한 게 없거나, 예고만 하거나, 누구나 할 수 있는 말이거나, 앞의 말을 반복하는 줄)을 찾아 고친 최종본을 냅니다. 고치지 못하고 남은 줄만 check.swipeRisks에 그 줄과 이유로 적습니다.'
 const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
@@ -201,12 +205,21 @@ ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황·사건이 purpose와 같은 일을 말하는지, quotes의 구절에 그 단어, 그 뜻 그대로 있는지 하나씩 대조합니다. 주어지지 않은 사실이나 원문을 다르게 읽은 내용이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
-1안: sources.hook이 일으킨 감정(why·type)을 이번 소재로 옮긴 말. 2·3안: 다른 훅 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.`,
+1안: sources.hook이 있으면 그것이 일으킨 감정(why·type)을 이번 소재로 옮긴 말, 없으면 provenFormulas.hooks 중 이번 약속에 가장 맞는 공식의 작동 원리를 이번 소재로 옮긴 말. 2·3안: 서로 다른 훅 유형.
+첫 문장의 기준:
+${HOOK_PRINCIPLES.map(p => `- ${p}`).join('\n')}
+${PROVEN_NOTE}
+spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.
+${SWIPE_CHECK}`,
   script: `${ASK_RULE}\n'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
-- sources.structure가 있으면 1안은 그 구간들의 역할과 순서·리듬을 이번 소재에 적용합니다(각 구간이 시청자에게 하는 일을 옮기는 것이지 그 구간의 문장을 옮기는 것이 아닙니다). 2·3안은 같은 첫 문장에서 시작하는 다른 전개 방식.
+- sources.structure가 있으면 1안은 그 구간들의 역할과 순서·리듬을 이번 소재에 적용합니다(각 구간이 시청자에게 하는 일을 옮기는 것이지 그 구간의 문장을 옮기는 것이 아닙니다). 2·3안은 같은 첫 문장에서 시작하는 다른 전개 방식. sources.structure가 없으면 provenFormulas.structures 중 이번 소재·약속에 맞는 서로 다른 공식을 골라 안마다 하나씩 적용합니다.
+- 모든 안은 아래 대본 원칙을 지킵니다.
+${SCRIPT_PRINCIPLES.map(p => `  - ${p.name}: ${p.how}`).join('\n')}
+${PROVEN_NOTE}
 - label은 그 안의 전개 방식을 짧게, why는 어떤 시청자에게 맞는지 한 줄.
 - lines: part는 hook/body/cta, spoken은 말할 문장(짧고 구어체), onScreen은 그 구간 자막, seconds는 구간 길이. 전체 길이는 sources.structure.durationSeconds와 비슷하게, 없으면 30~50초.
-- 마무리는 sources의 마무리 장치를 옮기거나, 이 영상을 저장·공유할 이유가 되는 말로 씁니다.`,
+- 마무리는 sources의 마무리 장치를 옮기거나, 이 영상을 저장·공유할 이유가 되는 말로 씁니다.
+${SWIPE_CHECK}`,
   filming: `${ASK_RULE}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
 - sources.filming.filming이 있으면 그 구도·화면 장치를 적용합니다. storyboard: scene 번호, seconds, shot(구도·거리), action(화면 속 행동·보여줄 것), onScreen(자막), spoken(그 장면 대사; script에서 그대로).
 - 촬영: location, props(준비물), camera(거치·각도), lighting, checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로. editing에는 편집 방향 한 줄.
@@ -250,7 +263,7 @@ export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !s
 export async function generateStage(deps, session, stage) {
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
-  const knowledge = await knowledgeFor(deps.db, session)
+  const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'hook' || stage === 'script' ? { provenFormulas: await provenFormulas(deps.db) } : {}) }
   const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category), coverLessons: await coverKnowledge(deps.db) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
   let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
@@ -264,12 +277,12 @@ export async function generateStage(deps, session, stage) {
     asks = parseAsks(raw)
     if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
   }
-  const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6)] : []
+  const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6), ...(stage === 'hook' || stage === 'script' ? list(raw.check.swipeRisks, 120, 6).map(r => `시청자가 넘길 줄: ${r}`) : [])] : []
   // Grounding: a cover may only lean on words the student actually wrote. A "quote" that is not in their text
   // means 훅ai re-read a word as something else, so the draft is rewritten from the original words.
   if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, [...(raw.plan?.quotes || []), ...(raw.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
   if (found.length) {
-    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
+    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : stage === 'hook' || stage === 'script' ? '이 단계의 기준과 원칙 7' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
   }
   const placeholders = list(raw.placeholders, 120, 12)
   if (stage === 'thumbnail') {

@@ -177,3 +177,22 @@ export async function buildCoverKnowledge(deps) {
   coverCache = null
   return knowledge
 }
+
+// ---------- what planning reads ----------
+let provenCache = null
+// The 공식 사전 entries success reels were filed under, most used first, for the first-line and script stages.
+export async function provenFormulas(db, limit = 6) {
+  if (provenCache && provenCache.at > Date.now() - 10 * 60000) return provenCache.value
+  const library = await libraryEntries(db)
+  const filed = await query(db.from('creator_reel_formulas').select('hook_id,structure_id')).catch(() => [])
+  const tally = key => filed.reduce((m, row) => (row[key] ? m.set(row[key], (m.get(row[key]) || 0) + 1) : m), new Map())
+  const hookCount = tally('hook_id'), structureCount = tally('structure_id')
+  // Before any reel is filed the whole 공식 사전 goes along (reels: 0), so planning never runs without formulas.
+  const ranked = (items, used) => { const hit = items.filter(i => i.reels > 0).sort((a, b) => b.reels - a.reels); return (used ? hit : items).slice(0, used ? limit : items.length) }
+  const value = {
+    hooks: ranked(library.hooks.map(h => ({ title: h.title, type: h.type, formula: h.formula, when: h.when, reels: hookCount.get(h.id) || 0 })), hookCount.size > 0),
+    structures: ranked(library.structures.map(s => ({ title: s.title, format: s.format, flow: (s.segments || []).map(([name, desc]) => `${name}: ${desc}`), when: s.when, reels: structureCount.get(s.id) || 0 })), structureCount.size > 0),
+  }
+  provenCache = { at: Date.now(), value }
+  return value
+}
