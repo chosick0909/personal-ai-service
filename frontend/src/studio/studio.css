@@ -593,3 +593,9 @@
 .st-applied-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .st-applied-text { font-size:24px; line-height:1.4; font-weight:900; color:var(--st-text); }
 .st-applied-toggle { justify-self:start; }
+
+/* 훅ai answering in the chat: a line under the typing dots that changes every few seconds */
+.st .st-chat-wait { margin: -4px 0 0 4px; font-size: 14px; color: var(--st-muted); }
+/* The script total again next to the quick requests */
+.st .st-quick { align-items: center; }
+.st .st-quick-total { font-size: 15px; font-weight: 700; color: var(--st-accent-text); padding: 8px 14px; border-radius: 999px; background: var(--st-accent-soft, rgba(108, 77, 255, .1)); white-space: nowrap; }

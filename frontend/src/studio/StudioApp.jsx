@@ -21,6 +21,7 @@ import { popupHidden, tourDone } from './guideData'
 import './studio.css'
 
 import { StudioContext } from './context'
+import { rotatingLine, ANALYSIS_TIPS } from './waitLines'
 
 const MENU = [
   ['reels', '성공 릴스', Flame], ['references', '내 레퍼런스', FolderHeart], ['plans', '내 기획안', FileText], ['formulas', '내 공식', Wand2],
@@ -35,13 +36,7 @@ function readRoute() {
   return { page: q.get('p') || 'reels', params: Object.fromEntries([...q.entries()].filter(([k]) => k !== 'p')) }
 }
 
-// While an analysis runs, the toast keeps talking so the wait does not feel stuck: the tip changes with the time elapsed.
-const WAIT_TIPS = [
-  [12, '기다리는 동안 다른 릴스도 둘러보세요. 끝나면 여기서 알려드릴게요.'],
-  [40, '영상의 말과 자막을 읽는 중이에요. 조금만 더요.'],
-  [80, '첫 문장·전개·촬영·캡션을 정리하는 중. 거의 다 됐어요.'],
-  [140, '오래 걸리네요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드려요.'],
-]
+// While an analysis runs, the toast keeps talking so the wait does not feel stuck: the tip changes every few seconds.
 function WaitingBody({ body, startedAt }) {
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
@@ -49,7 +44,7 @@ function WaitingBody({ body, startedAt }) {
     const timer = setInterval(() => setElapsed(Math.round((Date.now() - base) / 1000)), 1000)
     return () => clearInterval(timer)
   }, [startedAt])
-  const tip = [...WAIT_TIPS].reverse().find(([at]) => elapsed >= at)?.[1]
+  const tip = rotatingLine(ANALYSIS_TIPS, elapsed)
   return <>{body}{tip && <em className="st-toast-tip">{tip}</em>}</>
 }
 

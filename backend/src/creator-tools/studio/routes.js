@@ -88,9 +88,12 @@ export function registerStudioRoutes(router) {
     await resolveSources(database(), req.auth.userId, sources)
     const style = await query(database().from('studio_styles').select('card').eq('user_id', req.auth.userId).maybeSingle())
     const row = await query(database().from('studio_sessions').insert({ user_id: req.auth.userId, mode, sources, brief: text(req.body?.brief, 8000), style_snapshot: style?.card || null }).select('*').single())
-    const opener = await openerMessage(deps(), row).catch(() => ({ content: '어떤 릴스를 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요.', meta: { chips: ['주제 제안해줘'] } }))
-    const msg = await addMessage(row.id, req.auth.userId, 'hookai', 'topic', opener.content, opener.meta)
-    res.status(201).json({ session: publicSession(row), messages: [publicMessage(msg)] })
+    // The plan opens at once; 훅ai's first message is written in the background and appears in the chat when ready.
+    void (async () => {
+      const opener = await openerMessage(deps(), row).catch(() => ({ content: '어떤 릴스를 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요.', meta: { chips: ['주제 제안해줘'] } }))
+      await addMessage(row.id, req.auth.userId, 'hookai', 'topic', opener.content, opener.meta).catch(() => {})
+    })()
+    res.status(201).json({ session: publicSession(row), messages: [] })
   }))
   router.get('/creator-tools/studio/sessions/:id', asyncHandler(async (req, res) => {
     enabled(req)
@@ -193,13 +196,22 @@ export function registerStudioRoutes(router) {
       const theirs = await addMessage(row.id, req.auth.userId, 'hookai', row.stage, reply.content, reply.meta)
       return res.json({ messages: [publicMessage(mine), publicMessage(theirs)] })
     }
-    const reply = await chat(deps(), row, history, content)
-    if (row.stage === 'topic' && !reply.meta.topic && !reply.meta.proposals?.length) {
-      const answers = [...(row.topic?.answers || []), { q: history.filter(m => m.role === 'hookai').at(-1)?.content || '', a: content }].slice(-6)
-      await query(database().from('studio_sessions').update({ topic: { ...(row.topic || {}), answers }, updated_at: new Date().toISOString() }).eq('id', row.id))
-    }
-    const theirs = await addMessage(row.id, req.auth.userId, 'hookai', row.stage, reply.content, reply.meta)
-    res.json({ messages: [publicMessage(mine), publicMessage(theirs)] })
+    // 훅ai answers in the background and the screen polls the conversation, so a long revision never hits a request
+    // timeout. A failed answer is saved as 훅ai's message (meta.failed), so the screen always gets an answer to show.
+    void (async () => {
+      try {
+        const reply = await chat(deps(), row, history, content)
+        if (row.stage === 'topic' && !reply.meta.topic && !reply.meta.proposals?.length) {
+          const answers = [...(row.topic?.answers || []), { q: history.filter(m => m.role === 'hookai').at(-1)?.content || '', a: content }].slice(-6)
+          await query(database().from('studio_sessions').update({ topic: { ...(row.topic || {}), answers }, updated_at: new Date().toISOString() }).eq('id', row.id))
+        }
+        await addMessage(row.id, req.auth.userId, 'hookai', row.stage, reply.content, reply.meta)
+      } catch (error) {
+        console.error('[studio-chat]', error?.code || 'FAILED')
+        await addMessage(row.id, req.auth.userId, 'hookai', row.stage, '앗, 이번 답은 만들지 못했어요. 같은 말을 한 번만 다시 보내주세요.', { failed: true }).catch(() => {})
+      }
+    })()
+    res.status(202).json({ messages: [publicMessage(mine)], pending: true })
   }))
   // Apply a 훅ai proposal to the current stage.
   router.post('/creator-tools/studio/sessions/:id/apply', asyncHandler(async (req, res) => {

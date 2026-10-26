@@ -118,7 +118,7 @@ function normalizeTopicReply(raw) {
 
 export async function chat(deps, session, messages, text) {
   const resolved = await resolveSources(deps.db, session.user_id, session.sources)
-  const providers = deps.makeProviders(AbortSignal.timeout(120000))
+  const providers = deps.makeProviders(AbortSignal.timeout(480000))
   const recent = messages.slice(-12).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content }))
   if (session.stage === 'topic') {
     const style = await query(deps.db.from('studio_topics').select('topic,category').eq('user_id', session.user_id).order('created_at', { ascending: false }).limit(8))

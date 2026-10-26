@@ -1,15 +1,8 @@
 import { useEffect, useState } from 'react'
 import HookAvatar from './HookAvatar'
+import { rotatingLine, WORK_LINES } from './waitLines'
 
-// Shared "훅ai 작업 중" panel: a gauge that follows real stages, a typed line after 10 s, a quiz later.
-const LINES = [
-  [10, '생각보다 오래 걸리죠? 훅ai가 지금 열심히 일하는 중이에요.'],
-  [20, '따끈따끈한 결과가 구워지는 중. 기지개 한 번 켜볼까요?'],
-  [60, '보통 1~2분 걸려요. 간식 챙겨 오셔도 돼요.'],
-  [90, '설마… 지금 끌까 말까 고민 중이세요? 진짜요…? ㅠㅠ'],
-  [120, '조금만 더요. 끝나면 바로 보여드릴게요.'],
-  [180, '오래 걸리네요. 이 화면을 떠나도 계속 만들어지니 걱정 마세요.'],
-]
+// Shared "훅ai 작업 중" panel: a gauge that follows real stages, a waiting line that changes every few seconds, a quiz later.
 const QUIZZES = [
   { q: '콘텐츠 수익화에서 가장 중요한 건?', options: ['광고비', '기획', '조회수'], answer: 1, right: '정답! 수익화의 핵심은 "사람 마음을 사로잡는 기획"이에요. 지금 그걸 만드는 중이고요.', wrong: '앗, 아쉬워요. 정답은 "기획". 기획 없는 광고비는 밑 빠진 독이거든요.' },
   { q: '릴스에서 시청자가 넘길지 정하는 시간은?', options: ['3초', '10초', '30초'], answer: 0, right: '정답! 그래서 첫 문장이 제일 중요해요.', wrong: '정답은 3초예요. 그래서 첫 문장을 그렇게 공들이는 거예요.' },
@@ -26,7 +19,7 @@ function Typed({ text }) {
   return <span>{shown}<i className="st-cursor" /></span>
 }
 
-export default function HookLoader({ title = '훅ai가 만드는 중', stages = [], stageIndex = 0, startedAt, note = '이 화면을 떠나도 계속 만들어져요. 끝나면 알려드릴게요.' }) {
+export default function HookLoader({ title = '훅ai가 만드는 중', stages = [], stageIndex = 0, startedAt, lines = WORK_LINES, note = '이 화면을 떠나도 계속 만들어져요. 끝나면 알려드릴게요.' }) {
   const [elapsed, setElapsed] = useState(0)
   const [quiz] = useState(() => QUIZZES[Math.floor(Math.random() * QUIZZES.length)])
   const [picked, setPicked] = useState(null)
@@ -39,7 +32,7 @@ export default function HookLoader({ title = '훅ai가 만드는 중', stages = 
   }, [startedAt])
   const total = Math.max(1, stages.length)
   const percent = Math.min(96, Math.round(((stageIndex + Math.min(0.8, elapsed / 90)) / total) * 100))
-  const line = [...LINES].reverse().find(([at]) => elapsed >= at)?.[1]
+  const line = rotatingLine(lines, elapsed)
   const showQuiz = elapsed >= 35 && elapsed < 120
   return <div className="st-loader" role="status" aria-live="polite">
     <div className="st-loader-top"><HookAvatar size={38} />{title}</div>
