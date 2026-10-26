@@ -3,6 +3,7 @@
 // Edit here to change what the Mac mini searches; no collector reinstall is needed.
 export const SUCCESS_REEL_KEYWORDS = [
   { category: '피부', domestic: ['피부관리', '여드름 관리', '모공 관리', '스킨케어 루틴', '피부과 시술'], overseas: ['skincare routine', 'acne tips'] },
+  { category: '건강', domestic: ['약사 추천', '영양제 추천', '약국 꿀팁', '건강 정보', '건강 습관'], overseas: ['pharmacist tips', 'health tips'] },
   { category: '뷰티', domestic: ['메이크업 꿀팁', '다이소 뷰티템', '올리브영 추천', '헤어 스타일링', '네일'], overseas: ['makeup tips', 'hair tutorial'] },
   { category: '먹방', domestic: ['먹방', '맛집 추천', '편의점 신상', '디저트 맛집', '대식가'], overseas: ['food review', 'mukbang'] },
   { category: '일상', domestic: ['일상 브이로그', '자취 일상', '직장인 브이로그', '주말 루틴', '모닝루틴'], overseas: ['day in my life', 'morning routine'] },

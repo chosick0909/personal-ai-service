@@ -9,6 +9,7 @@ export const HOOK_LIBRARY = [
   { id: 'empathy', type: '공감', title: '내 얘기 같은 공감', formula: '[상황]일 때 진짜 [감정]하죠', when: '감정으로 먼저 붙잡을 때', example: '화장 다 했는데 선크림 때문에 밀릴 때 진짜 허무하죠' },
   { id: 'curiosity', type: '호기심', title: '궁금하게', formula: '[의외의 것]이 [결과]를 바꿨어요', when: '예상 밖 원인·방법을 보여줄 때', example: '선크림 바르는 순서 하나가 피부를 바꿨어요' },
   { id: 'verdict', type: '순위·평가', title: '판정', formula: '[주제] [전문가]가 안 사요/사요로 판정', when: '여러 대상을 빠르게 평가할 때', example: '선크림 3개, 피부과 실장이 안 사요/사요' },
+  { id: 'survive', type: '순위·평가', title: '생존 or 사망', formula: '[제품군] 생존 or 사망', when: '여러 개를 직접 써보고 남길 것과 버릴 것을 가를 때', example: '립펜슬 생존 or 사망' },
   { id: 'compare', type: '비교', title: 'A vs B', formula: '[A] vs [B], 뭐가 나을까요?', when: '두 선택지 사이 고민을 겨냥할 때', example: '무기자차 vs 유기자차, 지성은 뭐가 나을까요?' },
   { id: 'warning', type: '경고', title: '경고', formula: '[대상]은 [행동] 절대 하지 마세요', when: '실수를 막는 정보일 때', example: '여드름 피부는 이 선크림 절대 바르지 마세요' },
   { id: 'number', type: '숫자·리스트', title: 'N가지', formula: '[타깃]을 위한 [주제] [N]가지', when: '정보를 깔끔하게 약속할 때', example: '지성 피부를 위한 선크림 고르는 기준 3가지' },
@@ -17,8 +18,8 @@ export const HOOK_LIBRARY = [
 export const STRUCTURE_LIBRARY = [
   { id: 'problem-solution', format: '문제-해결', title: '문제 → 해결', summary: '이게 문제예요 → 이렇게 하세요', when: '시청자의 고민 하나를 콕 집어 해결할 때',
     segments: [['문제 제기', '시청자가 겪는 상황을 한 문장으로'], ['왜 그런지', '원인 한 줄'], ['해결 방법', '바로 따라 할 수 있는 행동'], ['마무리 멘트', '저장·팔로우 이유']] },
-  { id: 'verdict', format: '비교·평가', title: '비교·판정', summary: '사요/안 사요, A vs B, 순위', when: '제품·방법을 여러 개 빠르게 평가할 때',
-    segments: [['판정 선언', '무엇을 어떤 기준으로 판정하는지'], ['판정 반복', '대상마다 판정 + 한 줄 이유'], ['기준 정리', '시청자가 스스로 고를 기준'], ['마무리 멘트', '다음 편·팔로우']] },
+  { id: 'verdict', format: '비교·평가', title: '비교·판정', summary: '사요/안 사요, 생존/사망, A vs B, 순위', when: '제품·방법을 여러 개 빠르게 평가할 때',
+    segments: [['판정 선언', '무엇을 어떤 기준으로 판정하는지(사요/안 사요, 생존/사망)'], ['판정 반복', '대상마다 판정 + 한 줄 이유'], ['기준 정리', '시청자가 스스로 고를 기준'], ['마무리 멘트', '다음 편·팔로우']] },
   { id: 'list', format: '리스트', title: 'N가지 정리', summary: '숫자가 약속이 되는 정보 정리', when: '팁·기준·실수를 여러 개 전달할 때',
     segments: [['숫자 약속', 'N가지를 알려준다고 선언'], ['항목 반복', '번호 + 핵심 + 짧은 이유'], ['가장 중요한 하나', '마지막에 강조'], ['마무리 멘트', '저장 유도']] },
   { id: 'before-after', format: '비포·애프터', title: '비포 → 애프터', summary: '변화를 먼저 보여주고 과정을 설명', when: '눈에 보이는 결과가 있을 때',

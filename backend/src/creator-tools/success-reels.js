@@ -73,8 +73,9 @@ ordinaryCreator는 연예인 여부만 봅니다. 연예인·방송인·아이�
 monetizationEvidence는 확인된 쇼핑몰/제휴 링크, 공동구매·체험단, #광고/#협찬/#유료광고 협업, 자체 제품·클래스 판매만 적으세요. 링크 내용이 제공되지 않았다면 확인했다고 추측하지 마세요. 없으면 []입니다.
 replicability는 일상 공간·스마트폰·일반인 경험으로 수강생이 비슷하게 만들 수 있는 정도 0~100입니다.
 category는 특정 상품이나 영상 한 편이 아니라 최근 콘텐츠 전반의 주제로 고르세요. 맞는 분야가 없으면 기타입니다. 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만이며, 제품 공동구매·협찬 영상은 그 제품의 분야(옷·가방이면 패션, 청소용품·가전이면 살림, 식품·조리도구면 요리, 아이 용품이면 육아)입니다.
-분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템입니다. 먹방은 먹는 장면·맛집, 요리는 레시피·조리 과정입니다. 일상은 브이로그·일상 기록, 부업은 부업·N잡·온라인 수익, 부동산은 매매·청약·임대, 재테크는 저축·투자·절약입니다.
+분야 구분: 피부는 스킨케어(기초 화장품·피부 고민·성분·피부과 시술·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부)입니다. 먹방은 먹는 장면·맛집, 요리는 레시피·조리 과정입니다. 일상은 브이로그·일상 기록, 부업은 부업·N잡·온라인 수익, 부동산은 매매·청약·임대, 재테크는 저축·투자·절약입니다.
 region은 한국 이용자 대상 국내 활동 계정이면 domestic, 해외 이용자 대상이면 overseas, 근거 부족이면 unknown입니다. 한국어 사용만으로 단정하지 마세요.
+referenceFit은 이 릴스가 수강생이 따라 만들 레퍼런스로 적합한지입니다. 조회수가 기획·내용이 아니라 유명 캐릭터·IP·연예인·유명 브랜드 콜라보의 화제성, 또는 협찬으로 받은 시딩 박스·제공품을 보여주기만 하는 데서 나온 것으로 보이면 false입니다. 본인 제품 판매, 공동구매, 직접 써본 후기·정보는 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).
 reels에는 제공된 터진 릴스 각각에 대해 faceVisibility(이미지에서 크리에이터 얼굴이 대부분 보이면 visible, 일부만 mixed, 손·제품·화면만 hidden, 판단 불가 unknown), captionKo(캡션이 한국어가 아니면 첫 문장을 자연스러운 한국어로 번역, 한국어면 빈 문자열), category(그 릴스 한 편의 주제 분야. 계정 분야와 달라도 캡션·썸네일이 말하는 그 릴스의 주제를 따릅니다. 예: 피부 계정이 올린 운동 영상은 다이어트·운동)를 반환하세요.
 각 판정의 근거는 관찰한 사실로 짧게 적으세요.`
 const list = { type: 'array', items: { type: 'string' } }
@@ -88,8 +89,9 @@ export const successReelReviewSchema = { type: 'object', additionalProperties: f
     monetizationEvidence: list, replicability: { type: 'number', minimum: 0, maximum: 100 }, replicabilityEvidence: list,
     category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] }, regionEvidence: list,
     language: { type: 'string', enum: ['ko', 'en', 'ja', 'other', 'unknown'] },
-    reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'faceVisibility', 'captionKo', 'category'], properties: {
-      shortcode: { type: 'string' }, faceVisibility: { type: 'string', enum: ['visible', 'hidden', 'mixed', 'unknown'] }, captionKo: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES } } } },
+    reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'faceVisibility', 'captionKo', 'category', 'referenceFit', 'fitReason'], properties: {
+      shortcode: { type: 'string' }, faceVisibility: { type: 'string', enum: ['visible', 'hidden', 'mixed', 'unknown'] }, captionKo: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES },
+      referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } },
   } }
 
 // Same exclusion policy as the account recommendations; undecidable accounts never pass.
@@ -150,7 +152,7 @@ export async function ingestAccount(deps, body) {
   let saved = 0
   for (const reel of qualified) {
     const judged = review.reels?.find(r => r.shortcode === reel.shortcode)
-    const current = await query(db.from('creator_success_reels').select('thumbnail_path,visible,analysis_status,caption').eq('shortcode', reel.shortcode).maybeSingle())
+    const current = await query(db.from('creator_success_reels').select('thumbnail_path,visible,analysis_status,caption,reference_fit').eq('shortcode', reel.shortcode).maybeSingle())
     // A reel a student saved or analyzed stays listed even if its account is later rejected.
     const kept = current?.visible && (current.analysis_status !== 'none'
       || (await query(db.from('creator_reel_saves').select('shortcode').eq('shortcode', reel.shortcode).limit(1))).length > 0)
@@ -170,7 +172,9 @@ export async function ingestAccount(deps, body) {
       caption: reel.caption || current?.caption || '', caption_ko: judged?.captionKo?.trim() || null, language: review.language, region: review.region === 'unknown' ? null : review.region,
       audio: reel.audio, category: SUCCESS_REEL_CATEGORIES.includes(judged?.category) ? judged.category : review.category, face_visibility: judged?.faceVisibility || 'unknown', thumbnail_path: thumbnailPath,
       source: input.source, visible: Boolean(kept) || (decision.eligible && Boolean(thumbnailPath)), last_collected_at: new Date(now).toISOString(),
-      ...(reel.caption ? { category_checked_at: new Date(now).toISOString() } : {}) }, { onConflict: 'shortcode' }))
+      // A fresh fit judgment from a caption also counts as the caption check; a cached review without one leaves it to the classifier.
+      ...(typeof judged?.referenceFit === 'boolean' ? { reference_fit: judged.referenceFit, reference_fit_reason: judged.referenceFit ? null : text(judged.fitReason, 200) || null } : {}),
+      ...(reel.caption && typeof judged?.referenceFit === 'boolean' ? { category_checked_at: new Date(now).toISOString() } : {}) }, { onConflict: 'shortcode' }))
     if (reel.videoUrl) await cacheVideoUrl(deps.redis, reel.shortcode, reel.videoUrl, now)
     saved += 1
   }
@@ -192,19 +196,20 @@ export async function cacheVideoUrl(redis, shortcode, url, now = Date.now()) {
 
 // Per-reel category from the caption. The account review guessed from the profile while captions were still empty.
 export const reelCategoryPrompt = `각 릴스의 캡션(과 계정명)을 보고 그 릴스 한 편의 주제 분야를 고르세요. 계정 전체가 아니라 그 영상의 내용입니다.
-분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그. 맞는 분야가 없으면 기타.`
+분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그. 피부는 스킨케어(기초 화장품·피부 고민·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부). 맞는 분야가 없으면 기타.\nreferenceFit은 이 릴스가 수강생이 따라 만들 레퍼런스로 적합한지입니다. 조회수가 기획·내용이 아니라 유명 캐릭터·IP·연예인·유명 브랜드 콜라보의 화제성, 또는 협찬으로 받은 시딩 박스·제공품을 보여주기만 하는 데서 나온 것으로 보이면 false입니다. 본인 제품 판매, 공동구매, 직접 써본 후기·정보는 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).`
 export const reelCategorySchema = { type: 'object', additionalProperties: false, required: ['reels'], properties: {
-  reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category'], properties: {
-    shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES } } } } } }
+  reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'referenceFit', 'fitReason'], properties: {
+    shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } } } }
 export async function classifyReelCategories(db, providers, rows, now = Date.now()) {
   const input = rows.filter(r => text(r.caption, 1).trim()).map(r => ({ shortcode: r.shortcode, username: r.username, caption: text(r.caption, 700) }))
   if (!input.length) return 0
   const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: input }, [], reelCategorySchema)
   let changed = 0
   for (const row of input) {
-    const category = judged?.reels?.find(j => j.shortcode === row.shortcode)?.category
+    const verdict = judged?.reels?.find(j => j.shortcode === row.shortcode)
     const patch = { category_checked_at: new Date(now).toISOString() }
-    if (SUCCESS_REEL_CATEGORIES.includes(category)) { patch.category = category; changed += 1 }
+    if (SUCCESS_REEL_CATEGORIES.includes(verdict?.category)) { patch.category = verdict.category; changed += 1 }
+    if (typeof verdict?.referenceFit === 'boolean') { patch.reference_fit = verdict.referenceFit; patch.reference_fit_reason = verdict.referenceFit ? null : text(verdict.fitReason, 200) || null }
     await query(db.from('creator_success_reels').update(patch).eq('shortcode', row.shortcode))
   }
   return changed
@@ -289,7 +294,7 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   const limit = 48
   const page = Math.max(0, Math.min(50, Number.parseInt(filters.page, 10) || 0))
   let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests')
-    .eq('visible', true)
+    .eq('visible', true).not('reference_fit', 'is', false)
   if (SUCCESS_REEL_CATEGORIES.includes(filters.category)) request = request.eq('category', filters.category)
   if (['visible', 'hidden', 'mixed'].includes(filters.face)) request = request.eq('face_visibility', filters.face)
   if (['domestic', 'overseas'].includes(filters.region)) request = request.eq('region', filters.region)

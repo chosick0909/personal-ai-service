@@ -93,6 +93,7 @@ function fakeDb() {
       select() { return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
       upsert(row) { action = 'upsert'; payload = row; return api }, update(row) { action = 'update'; payload = row; return api },
       in(k, values) { filters.push([null, row => values.includes(row[k])]); return api },
+      not(k, op, v) { filters.push([null, row => !(op === 'is' && row[k] === v)]); return api },
       order(k) { order = k; return api }, range(a, b) { range = [a, b]; return api }, limit(n) { limit = n; return api },
       // Supports the "field.ilike.%term%,field.ilike.%term%" form used for search.
       or(expr) { const parts = expr.split(',').map(p => p.match(/^(\w+)\.ilike\.%(.*)%$/)); filters.push([null, row => parts.some(([, f, t]) => String(row[f] ?? '').toLowerCase().includes(t.toLowerCase()))]); return api },
@@ -311,4 +312,15 @@ test('a student link read from its page gets real counts, a cover, and joins the
   db.tables.creator_success_reels.set('DcdnugUTjcE', { shortcode: 'DcdnugUTjcE', username: 'x', caption: 'c', views: 0, thumbnail_path: null, source: 'upload-link', visible: false, analysis_status: 'none', posted_at: '2026-10-01T00:00:00Z' })
   await storeReelCaptions(db, { captions: [{ shortcode: 'DcdnugUTjcE', views: 12000 }] }, null, { now: NOW })
   assert.equal(db.tables.creator_success_reels.get('DcdnugUTjcE').views, 12000); assert.equal(db.tables.creator_success_reels.get('DcdnugUTjcE').visible, false)
+})
+
+test('reels whose views come from a character IP or a seeding box are judged unfit and left out of the list', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('A', { shortcode: 'A', username: 'manpick', caption: '미쳤어... #더샘 #먼작귀 #시딩깡', category: '부업', visible: true, posted_at: '2026-10-17T00:00:00Z', views: 830000 })
+  db.tables.creator_success_reels.set('B', { shortcode: 'B', username: 'good.yaksa', caption: '비염약의 모든 것 정리본', category: '피부', visible: true, posted_at: '2026-10-11T00:00:00Z', views: 673000 })
+  const providers = { json: async () => ({ reels: [{ shortcode: 'A', category: '뷰티', referenceFit: false, fitReason: '먼작귀 콜라보 시딩 언박싱' }, { shortcode: 'B', category: '건강', referenceFit: true, fitReason: '' }] }) }
+  await classifyReelCategories(db, providers, [...db.tables.creator_success_reels.values()], NOW)
+  assert.equal(db.tables.creator_success_reels.get('A').category, '뷰티'); assert.equal(db.tables.creator_success_reels.get('A').reference_fit, false)
+  assert.equal(db.tables.creator_success_reels.get('B').category, '건강')
+  assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['B'])
 })
