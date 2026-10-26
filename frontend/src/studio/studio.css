@@ -700,6 +700,9 @@
 .st-ideas-start > p { max-width: 620px; margin: 0; }
 .st-ideas-composer { width: min(760px, 100%); display: grid; gap: 8px; padding: 16px 16px 12px; border: 1px solid var(--st-line); border-radius: 22px; background: var(--st-panel); box-shadow: 0 6px 24px rgba(20, 16, 40, .06); text-align: left; }
 .st-ideas-composer textarea { width: 100%; border: 0; outline: 0; resize: none; background: transparent; font: inherit; font-size: 17px; line-height: 1.55; color: inherit; min-height: 80px; }
+/* Focus shows on the whole rounded box (as in Claude), not as a square ring around the bare textarea. */
+.st .st-ideas-composer textarea:focus-visible { outline:none; }
+.st-ideas-composer:focus-within { border-color:var(--st-accent-soft-2); box-shadow:0 0 0 3px var(--st-accent-soft), 0 6px 24px rgba(20, 16, 40, .06); }
 .st-ideas-composer-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .st-ideas-composer-foot .st-btn { width: 44px; height: 44px; padding: 0; border-radius: 14px; }
 .st-ideas-home .st-ideas-saved { margin-top: 10vh; }
