@@ -7,6 +7,8 @@ import ChatWaitLine from '../ChatWait'
 
 // 주제 찾기: talk with 훅ai only about the topic, save the good ones to 주제 보관함, and start a plan from a saved topic.
 const STARTERS = ['제 제품·서비스로 주제를 찾고 싶어요', '제 경험·일상으로 주제를 찾고 싶어요', '요즘 터지는 주제로 추천해 주세요']
+// The prompt asks for material a creator has (a product, something lived through, something known well): topics come from it.
+const START_PLACEHOLDER = '어떤 걸 찍어 보고 싶으세요? 소개하고 싶은 제품, 직접 겪은 일, 잘 아는 것 무엇이든 좋아요'
 const sameCard = (a, b) => a.title === b.title
 
 function IdeaCard({ card, saved, onSave, onPlan, onAsk }) {
@@ -91,6 +93,33 @@ export default function IdeasPage({ threadId: initialThread }) {
   }
   const newThread = () => { setThreadId(null); setMessages([]); go('ideas', {}, { replace: true }) }
   const last = messages.at(-1)
+  const starting = !threadId && !messages.length && !pending && !busy
+  const savedPanel = <aside className="st-card st-ideas-saved" data-tour="ideas-saved">
+    <h3><Star size={18} /> 주제 보관함 <span className="st-muted st-small">· {saved.length}</span></h3>
+    {!saved.length ? <p className="st-muted st-small">마음에 드는 주제 카드에서 [이 주제 저장]을 누르면 여기에 모여요. 나중에 기획안 만들 때 꺼내 쓸 수 있어요.</p>
+      : saved.map(item => <SavedTopic key={item.id} item={item} onPlan={() => planFrom(item)}
+        onRemove={async () => { try { await studio.removeIdea(item.id); setSaved(s => s.filter(x => x.id !== item.id)) } catch (e) { toast({ kind: 'failed', title: '지우지 못했어요', body: e.message }) } }}
+        onMemo={async memo => { try { const r = await studio.updateIdea(item.id, { memo }); setSaved(s => s.map(x => x.id === item.id ? r.saved : x)) } catch { /* the memo stays as typed */ } }} />)}
+  </aside>
+
+  // Before any conversation: a clean start like a chat app's home, no boxes, the input in the middle.
+  if (starting) return <div className={`st-ideas st-ideas-home${saved.length ? '' : ' is-alone'}`}>
+    <section className="st-ideas-start">
+      <div className="st-ideas-hero"><HookAvatar size={64} /><h2>좋은 기획안은 구체적인 주제에서 시작해요</h2></div>
+      <p className="st-muted">팔고 싶은 것, 보여주고 싶은 것, 요즘 고민, 막연한 관심사도 괜찮아요. 훅ai가 하나씩 물어보면서 찍을 수 있을 만큼 구체적인 주제로 좁혀 드려요.</p>
+      <form className="st-ideas-composer" onSubmit={e => { e.preventDefault(); send() }}>
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={START_PLACEHOLDER} aria-label="훅ai에게 보낼 메시지"
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} />
+        <div className="st-ideas-composer-foot">
+          {threads.length > 0 ? <select className="st-input st-ideas-threads" value="" onChange={e => e.target.value && setThreadId(e.target.value)} aria-label="지난 대화">
+            <option value="">지난 대화 열기</option>{threads.map(t => <option key={t.id} value={t.id}>{t.title || '제목 없는 대화'}</option>)}</select> : <span />}
+          <button type="submit" className="st-btn st-btn-primary" disabled={!text.trim()} aria-label="보내기"><Send size={18} /></button>
+        </div>
+      </form>
+      <div className="st-ideas-starters">{STARTERS.map(s => <button type="button" key={s} className="st-chip" onClick={() => send(s)}><Sparkles size={15} />{s}</button>)}</div>
+    </section>
+    {saved.length > 0 && savedPanel}
+  </div>
 
   return <div className="st-ideas">
     <section className="st-card st-ideas-chat">
@@ -103,11 +132,6 @@ export default function IdeasPage({ threadId: initialThread }) {
         </div>
       </div>
       <div className="st-ideas-log" ref={log}>
-        {!messages.length && !pending && <div className="st-ideas-intro">
-          <h3>좋은 기획안은 구체적인 주제에서 시작해요</h3>
-          <p className="st-muted">팔고 싶은 것, 보여주고 싶은 것, 요즘 고민, 막연한 관심사도 괜찮아요. 훅ai가 하나씩 물어보면서 찍을 수 있을 만큼 구체적인 주제로 좁혀 드려요.</p>
-          <div className="st-ideas-starters">{STARTERS.map(s => <button type="button" key={s} className="st-chip" onClick={() => send(s)}><Sparkles size={15} />{s}</button>)}</div>
-        </div>}
         {messages.map(m => <div key={m.id} style={{ display: 'contents' }}>
           <div className={`st-msg st-msg-${m.role}`}>{m.content}</div>
           {m.role === 'hookai' && m.meta?.cards?.length > 0 && <div className="st-idea-cards">{m.meta.cards.map(c => <IdeaCard key={c.title} card={c} saved={saved.some(s => sameCard(s, c))}
@@ -118,17 +142,11 @@ export default function IdeasPage({ threadId: initialThread }) {
         {busy && <><div className="st-chat-typing"><i /><i /><i /></div><ChatWaitLine /></>}
       </div>
       <form className="st-chat-input" onSubmit={e => { e.preventDefault(); send() }}>
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={1} placeholder={messages.length ? '답을 적거나, 원하는 걸 말해주세요' : '요즘 뭐가 고민이세요? 편하게 적어주세요'}
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={1} placeholder="답을 적거나, 원하는 걸 말해주세요"
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} aria-label="훅ai에게 보낼 메시지" />
         <button type="submit" className="st-btn st-btn-primary" disabled={busy || !text.trim()} aria-label="보내기"><Send size={18} /></button>
       </form>
     </section>
-    <aside className="st-card st-ideas-saved" data-tour="ideas-saved">
-      <h3><Star size={18} /> 주제 보관함 <span className="st-muted st-small">· {saved.length}</span></h3>
-      {!saved.length ? <p className="st-muted st-small">마음에 드는 주제 카드에서 [이 주제 저장]을 누르면 여기에 모여요. 나중에 기획안 만들 때 꺼내 쓸 수 있어요.</p>
-        : saved.map(item => <SavedTopic key={item.id} item={item} onPlan={() => planFrom(item)}
-          onRemove={async () => { try { await studio.removeIdea(item.id); setSaved(s => s.filter(x => x.id !== item.id)) } catch (e) { toast({ kind: 'failed', title: '지우지 못했어요', body: e.message }) } }}
-          onMemo={async memo => { try { const r = await studio.updateIdea(item.id, { memo }); setSaved(s => s.map(x => x.id === item.id ? r.saved : x)) } catch { /* the memo stays as typed */ } }} />)}
-    </aside>
+    {savedPanel}
   </div>
 }
