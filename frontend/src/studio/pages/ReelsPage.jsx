@@ -3,8 +3,8 @@ import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSear
 import { useStudio } from '../context'
 import { studio, compactCount, day, when } from '../api'
 
-const FACE = [['any', '얼굴 전체'], ['visible', '얼굴 공개'], ['mixed', '얼굴 일부'], ['hidden', '얼굴 비공개']]
-const REGION = [['any', '국내·해외'], ['domestic', '국내'], ['overseas', '해외']]
+const FACE = [['any', '전체'], ['visible', '공개'], ['mixed', '일부'], ['hidden', '비공개']]
+const REGION = [['any', '전체'], ['domestic', '국내'], ['overseas', '해외']]
 const SORT = [['latest', '최신순'], ['views', '조회수순'], ['popular', '인기순']]
 // Playback links are short-lived and the server resolves them one at a time, so a miss is retried on the next hover.
 const playbackCache = new Map()
@@ -16,6 +16,12 @@ const playbackUrl = shortcode => {
 
 export function InstagramIcon({ size = 20 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r=".6" fill="currentColor" /></svg>
+}
+// A labeled group of 2–3 choices that sit together like one switch, so each filter reads as its own control.
+export function Segmented({ label, options, value, onChange }) {
+  return <div className="st-seg-group"><span className="st-filter-label">{label}</span>
+    <div className="st-seg" role="group" aria-label={label}>{options.map(([id, text]) =>
+      <button type="button" key={id} aria-pressed={value === id} onClick={() => onChange(id)}>{text}</button>)}</div></div>
 }
 export function Chips({ label, options, value, onChange, scroll }) {
   return <div className={`st-chips${scroll ? ' st-chips-scroll' : ''}`} role="group" aria-label={label}>{options.map(([id, text]) =>
@@ -155,13 +161,16 @@ export default function ReelsPage() {
       <input type="search" value={draft} maxLength={40} onChange={e => { setDraft(e.target.value); if (!e.target.value && filters.q) change({ q: '' }) }} placeholder="키워드로 찾기 (예: 다이소, 여드름, 자취요리)" aria-label="키워드 검색" />
       <button type="submit" className="st-btn st-btn-primary st-btn-sm">검색</button>
     </form>
-    <Chips label="분야" scroll options={[['all', '전체'], ...categories.map(c => [c, c])]} value={filters.category} onChange={category => change({ category })} />
-    <div className="st-row" style={{ gap: '8px 20px' }}>
-      <button type="button" className="st-chip" aria-pressed={filters.recommended} onClick={() => change({ recommended: !filters.recommended })}>추천 보기</button>
-      <Chips label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort })} />
-      <Chips label="얼굴" options={FACE} value={filters.face} onChange={face => change({ face })} />
-      <Chips label="지역" options={REGION} value={filters.region} onChange={region => change({ region })} />
-    </div>
+    <section className="st-filter-panel" aria-label="필터">
+      <div className="st-filter-row"><span className="st-filter-label">분야</span>
+        <Chips label="분야" options={[['all', '전체'], ...categories.map(c => [c, c])]} value={filters.category} onChange={category => change({ category })} /></div>
+      <div className="st-filter-row st-filter-groups">
+        <Segmented label="보기" options={[['all', '전체'], ['recommended', '추천만']]} value={filters.recommended ? 'recommended' : 'all'} onChange={v => change({ recommended: v === 'recommended' })} />
+        <Segmented label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort })} />
+        <Segmented label="얼굴" options={FACE} value={filters.face} onChange={face => change({ face })} />
+        <Segmented label="지역" options={REGION} value={filters.region} onChange={region => change({ region })} />
+      </div>
+    </section>
     {error && <div className="st-error" role="alert">{error}</div>}
     {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : filters.recommended ? '추천 릴스를 준비하고 있어요' : '조건에 맞는 릴스가 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
     <div className="st-reels">{shown.map(reel => <ReelCard key={reel.shortcode} reel={reel} onPlay={() => setOpen(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>

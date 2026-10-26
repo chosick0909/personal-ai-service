@@ -206,7 +206,8 @@
 .st-quick { display:flex; gap:8px; flex-wrap:wrap; }
 
 /* ----- reels grid ----- */
-.st-reels { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; }
+.st-reels { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:20px; }
+@media (max-width: 1100px) { .st-reels { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 .st-reel { display:grid; gap:8px; min-width:0; }
 .st-reel-thumb { position:relative; aspect-ratio:9/16; overflow:hidden; border-radius:14px; background:#1b1825; }
 .st-reel-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
@@ -412,3 +413,17 @@
 .st-guide-wide { grid-column:1 / -1; padding-top:16px; border-top:1px solid var(--st-accent-soft-2); }
 .st-guide-quote { font-size:20px !important; font-weight:800; color:var(--st-accent-text) !important; margin:4px 0 8px !important; }
 @media (max-width: 760px) { .st-guide { grid-template-columns:1fr; padding:18px; } .st-guide-steps { grid-template-columns:1fr; } }
+
+/* 성공 릴스 필터: 분야 칩 + 이름표가 붙은 선택 묶음(보기·정렬·얼굴·지역) */
+.st-filter-panel { display:flex; flex-direction:column; gap:14px; padding:18px 20px; border:1px solid var(--st-line); border-radius:16px; background:var(--st-panel); }
+.st-filter-row { display:flex; align-items:flex-start; gap:14px; }
+.st-filter-row > .st-chips { flex:1; min-width:0; }
+.st-filter-label { flex:none; min-width:40px; padding-top:11px; font-size:15px; font-weight:800; color:var(--st-muted); }
+.st-filter-groups { flex-wrap:wrap; gap:12px 28px; padding-top:14px; border-top:1px solid var(--st-line); }
+.st-seg-group { display:flex; align-items:center; gap:10px; }
+.st-seg-group .st-filter-label { padding-top:0; min-width:0; }
+.st-seg { display:inline-flex; padding:4px; gap:2px; border-radius:12px; background:var(--st-bg); border:1px solid var(--st-line); }
+.st-seg button { min-height:40px; padding:0 16px; border:0; border-radius:9px; background:transparent; color:var(--st-muted); font-size:15.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.st-seg button:hover { color:var(--st-text); }
+.st .st-seg button[aria-pressed=true] { background:var(--st-panel); color:var(--st-accent-text); box-shadow:0 1px 4px rgba(20,16,40,.14); }
+@media (max-width: 760px) { .st-filter-panel { padding:14px; } .st-filter-row { flex-direction:column; gap:8px; } .st-filter-label { padding-top:0; } .st-filter-groups { gap:12px; } .st-seg button { padding:0 12px; } }
