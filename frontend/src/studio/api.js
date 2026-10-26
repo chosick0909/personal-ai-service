@@ -29,9 +29,9 @@ export const studio = {
   removeTopic: id => creatorRequest(`/creator-tools/studio/topics/${id}`, { method: 'DELETE' }),
   // 주제 찾기: conversations about the topic only, and the 주제 보관함.
   ideas: () => creatorRequest('/creator-tools/studio/ideas'),
-  ideaStart: text => creatorRequest('/creator-tools/studio/ideas/threads', { method: 'POST', body: { text } }),
+  ideaStart: (text, attachments = []) => creatorRequest('/creator-tools/studio/ideas/threads', { method: 'POST', body: { text, attachments } }),
   ideaThread: id => creatorRequest(`/creator-tools/studio/ideas/threads/${id}`),
-  ideaChat: (id, text) => creatorRequest(`/creator-tools/studio/ideas/threads/${id}/chat`, { method: 'POST', body: { text } }),
+  ideaChat: (id, text, attachments = []) => creatorRequest(`/creator-tools/studio/ideas/threads/${id}/chat`, { method: 'POST', body: { text, attachments } }),
   removeIdeaThread: id => creatorRequest(`/creator-tools/studio/ideas/threads/${id}`, { method: 'DELETE' }),
   saveIdea: (threadId, card) => creatorRequest('/creator-tools/studio/ideas/saved', { method: 'POST', body: { threadId, card } }),
   updateIdea: (id, body) => creatorRequest(`/creator-tools/studio/ideas/saved/${id}`, { method: 'PATCH', body }),

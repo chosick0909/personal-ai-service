@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Send, Star, Sparkles, Trash2, Plus, ArrowRight, Check, Lightbulb, FileText } from 'lucide-react'
+import { Send, Star, Sparkles, Trash2, Plus, ArrowRight, Check, Lightbulb, FileText, Paperclip, X, LoaderCircle } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount } from '../api'
 import HookAvatar from '../HookAvatar'
 import ChatWaitLine from '../ChatWait'
+import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
 
 // 주제 찾기: talk with 훅ai only about the topic, save the good ones to 주제 보관함, and start a plan from a saved topic.
 const STARTERS = ['제 제품·서비스로 주제를 찾고 싶어요', '제 경험·일상으로 주제를 찾고 싶어요', '요즘 터지는 주제로 추천해 주세요']
 // The prompt asks for material a creator has (a product, something lived through, something known well): topics come from it.
 const START_PLACEHOLDER = '어떤 걸 찍어 보고 싶으세요? 소개하고 싶은 제품, 직접 겪은 일, 잘 아는 것 무엇이든 좋아요'
 const sameCard = (a, b) => a.title === b.title
+const FILE_TYPES = '.pdf,.png,.jpg,.jpeg,.webp,.txt,.docx'
+
+// 📎 in the conversation: files are read into text by the studio and sent along with the next message.
+function AttachButton({ uploading, onFiles }) {
+  return <label className="st-icon-btn st-attach-btn" title="파일 올리기 (PDF·이미지·텍스트·워드, 5개까지)" aria-label="파일 올리기">
+    {uploading ? <LoaderCircle size={18} className="st-spin" /> : <Paperclip size={18} />}
+    <input type="file" multiple accept={FILE_TYPES} style={{ display: 'none' }} disabled={uploading} onChange={e => { onFiles([...e.target.files]); e.target.value = '' }} />
+  </label>
+}
+function AttachChips({ items, onRemove }) {
+  if (!items.length) return null
+  return <div className="st-attach-chips">{items.map((a, i) => <span key={`${a.name}-${i}`} className="st-chip"><Paperclip size={13} />{a.name}{onRemove && <button type="button" aria-label="빼기" onClick={() => onRemove(i)}><X size={13} /></button>}</span>)}</div>
+}
 
 function IdeaCard({ card, saved, onSave, onPlan, onAsk }) {
   const { go } = useStudio()
@@ -56,19 +70,33 @@ export default function IdeasPage({ threadId: initialThread }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState(null)
+  const [files, setFiles] = useState([])
+  const [uploading, setUploading] = useState(false)
   const log = useRef(null)
   const loadList = useCallback(() => studio.ideas().then(d => { setThreads(d.threads || []); setSaved(d.saved || []) }).catch(() => {}), [])
   useEffect(() => { loadList() }, [loadList])
   useEffect(() => { if (!threadId) { setMessages([]); return } studio.ideaThread(threadId).then(d => setMessages(d.messages || [])).catch(e => toast({ kind: 'failed', title: '대화를 불러오지 못했어요', body: e.message })) }, [threadId, toast])
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }) }, [messages, pending, busy])
 
+  const upload = async picked => {
+    if (!picked.length) return
+    setUploading(true)
+    try {
+      const form = new FormData(); picked.slice(0, 5).forEach(f => form.append('files', f))
+      const response = await apiFetch('/api/creator-tools/studio/materials', { method: 'POST', body: form, timeoutMs: 180000 })
+      const payload = await parseApiResponse(response)
+      if (!response.ok) throw createApiError(response, payload, '파일을 읽지 못했어요.')
+      setFiles(f => [...f, ...payload.items.filter(i => i.status === 'ready').map(i => ({ name: i.name, content: i.content }))].slice(0, 5))
+      for (const i of payload.items.filter(i => i.status !== 'ready')) toast({ kind: 'failed', title: i.name, body: i.error })
+    } catch (e) { toast({ kind: 'failed', title: '파일을 올리지 못했어요', body: e.message }) } finally { setUploading(false) }
+  }
   // 훅ai answers in the background; the conversation is checked every 2 s until the answer to this message is in.
   const send = async value => {
-    const t = (value ?? text).trim()
-    if (!t || busy) return
-    setText(''); setBusy(true); setPending(t)
+    const t = (value ?? text).trim(), attached = files
+    if ((!t && !attached.length) || busy || uploading) return
+    setText(''); setFiles([]); setBusy(true); setPending(t || `자료 ${attached.length}개를 올렸어요`)
     try {
-      const r = threadId ? await studio.ideaChat(threadId, t) : await studio.ideaStart(t)
+      const r = threadId ? await studio.ideaChat(threadId, t, attached) : await studio.ideaStart(t, attached)
       const id = threadId || r.thread.id
       if (!threadId) { setThreadId(id); go('ideas', { thread: id }, { replace: true }) }
       setMessages(m => [...m, ...r.messages]); setPending(null)
@@ -82,7 +110,7 @@ export default function IdeasPage({ threadId: initialThread }) {
         if (Date.now() > until) { toast({ kind: 'failed', title: '답이 늦어지고 있어요', body: '잠시 뒤 다시 열면 답이 보일 거예요.' }); break }
       }
       loadList()
-    } catch (e) { setText(t); toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: e.message }) } finally { setBusy(false); setPending(null) }
+    } catch (e) { setText(t); setFiles(attached); toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: e.message }) } finally { setBusy(false); setPending(null) }
   }
   const saveCard = async card => {
     try { const r = await studio.saveIdea(threadId, card); setSaved(s => [r.saved, ...s]); toast({ kind: 'ready', title: '주제 보관함에 저장했어요', body: card.title }); return r.saved }
@@ -110,10 +138,12 @@ export default function IdeasPage({ threadId: initialThread }) {
       <form className="st-ideas-composer" onSubmit={e => { e.preventDefault(); send() }}>
         <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={START_PLACEHOLDER} aria-label="훅ai에게 보낼 메시지"
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} />
+        <AttachChips items={files} onRemove={i => setFiles(f => f.filter((_, j) => j !== i))} />
         <div className="st-ideas-composer-foot">
+          <div className="st-row" style={{ gap: 4 }}><AttachButton uploading={uploading} onFiles={upload} />
           {threads.length > 0 ? <select className="st-input st-ideas-threads" value="" onChange={e => e.target.value && setThreadId(e.target.value)} aria-label="지난 대화">
-            <option value="">지난 대화 열기</option>{threads.map(t => <option key={t.id} value={t.id}>{t.title || '제목 없는 대화'}</option>)}</select> : <span />}
-          <button type="submit" className="st-btn st-btn-primary" disabled={!text.trim()} aria-label="보내기"><Send size={18} /></button>
+            <option value="">지난 대화 열기</option>{threads.map(t => <option key={t.id} value={t.id}>{t.title || '제목 없는 대화'}</option>)}</select> : null}</div>
+          <button type="submit" className="st-btn st-btn-primary" disabled={(!text.trim() && !files.length) || uploading} aria-label="보내기"><Send size={18} /></button>
         </div>
       </form>
       <div className="st-ideas-starters">{STARTERS.map(s => <button type="button" key={s} className="st-chip" onClick={() => send(s)}><Sparkles size={15} />{s}</button>)}</div>
@@ -133,7 +163,7 @@ export default function IdeasPage({ threadId: initialThread }) {
       </div>
       <div className="st-ideas-log" ref={log}>
         {messages.map(m => <div key={m.id} style={{ display: 'contents' }}>
-          <div className={`st-msg st-msg-${m.role}`}>{m.content}</div>
+          <div className={`st-msg st-msg-${m.role}`}>{m.content}{m.meta?.attachments?.length > 0 && <span className="st-msg-files">{m.meta.attachments.map(a => <small key={a.name}><Paperclip size={12} />{a.name}</small>)}</span>}</div>
           {m.role === 'hookai' && m.meta?.cards?.length > 0 && <div className="st-idea-cards">{m.meta.cards.map(c => <IdeaCard key={c.title} card={c} saved={saved.some(s => sameCard(s, c))}
             onSave={() => saveCard(c)} onPlan={async () => { const item = saved.find(s => sameCard(s, c)) || await saveCard(c); if (item) planFrom(item) }} onAsk={send} />)}</div>}
           {m.role === 'hookai' && m === last && m.meta?.chips?.length > 0 && !busy && <div className="st-msg-chips">{m.meta.chips.map(c => <button type="button" key={c} className="st-chip" onClick={() => send(c)}>{c}</button>)}</div>}
@@ -141,10 +171,12 @@ export default function IdeasPage({ threadId: initialThread }) {
         {pending && <div className="st-msg st-msg-user">{pending}</div>}
         {busy && <><div className="st-chat-typing"><i /><i /><i /></div><ChatWaitLine /></>}
       </div>
+      <AttachChips items={files} onRemove={i => setFiles(f => f.filter((_, j) => j !== i))} />
       <form className="st-chat-input" onSubmit={e => { e.preventDefault(); send() }}>
+        <AttachButton uploading={uploading} onFiles={upload} />
         <textarea value={text} onChange={e => setText(e.target.value)} rows={1} placeholder="답을 적거나, 원하는 걸 말해주세요"
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} aria-label="훅ai에게 보낼 메시지" />
-        <button type="submit" className="st-btn st-btn-primary" disabled={busy || !text.trim()} aria-label="보내기"><Send size={18} /></button>
+        <button type="submit" className="st-btn st-btn-primary" disabled={busy || uploading || (!text.trim() && !files.length)} aria-label="보내기"><Send size={18} /></button>
       </form>
     </section>
     {savedPanel}

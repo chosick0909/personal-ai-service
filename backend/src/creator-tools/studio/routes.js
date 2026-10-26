@@ -25,11 +25,13 @@ import { libraryEntries, libraryEntry } from './formula-study.js'
 import { LOOKUP_PRIORITY } from '../instagram-lookup.js'
 import { createDemoLink, refreshDemoUsers, startDemoRefresh } from '../demo-links.js'
 import { ideaReply } from './ideas.js'
+import { extractSupportingMaterials } from '../../lib/supporting-materials.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
 const deps = () => ({ db: database(), redis: sharedRedis(), makeProviders: signal => createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal }) })
 const TAGS = ['hook', 'structure', 'filming', 'caption']
+const uploadMaterials = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 5, fields: 1, fieldSize: 4096 } })
 const uploadVideo = multer({ storage: multer.diskStorage({ destination: (_req, _file, cb) => cb(null, tmpdir()), filename: (_req, _file, cb) => cb(null, `studio-${randomUUID()}.upload`) }), limits: { fileSize: 150 * 1024 * 1024, files: 1 } })
 const UPLOADS_PER_DAY = 10
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
@@ -218,6 +220,21 @@ export function registerStudioRoutes(router) {
     res.status(202).json({ messages: [publicMessage(mine)], pending: true })
   }))
   // ----- 주제 찾기 -----
+  // Files dropped into the conversation (notes, product pages, screenshots) are read into text here, under the studio's
+  // own access check, so trial accounts can attach too.
+  const materialTries = new Map()
+  router.post('/creator-tools/studio/materials', (req, res, next) => uploadMaterials.array('files', 5)(req, res, error => next(error ? Object.assign(new Error('파일은 최대 5개, 파일당 10MB까지 올릴 수 있어요.'), { code: 'INVALID_SUPPORTING_FILES', statusCode: 400, exposeMessage: true }) : undefined)), asyncHandler(async (req, res) => {
+    enabled(req)
+    const now = Date.now(), recent = (materialTries.get(req.auth.userId) || []).filter(t => t > now - 3600000)
+    if (recent.length >= 30) fail('TOO_MANY_REQUESTS', '잠시 후 다시 올려주세요.', 429)
+    materialTries.set(req.auth.userId, [...recent, now])
+    const controller = new AbortController()
+    res.once('close', () => { if (!res.writableEnded) controller.abort() })
+    res.json({ items: await extractSupportingMaterials(req.files, { userId: req.auth.userId, signal: controller.signal, readingContext: '주제 찾기 대화에 수강생이 올린 자료' }) })
+  }))
+  const ideaAttachments = value => (Array.isArray(value) ? value : []).map(a => ({ name: text(a?.name, 120), content: text(a?.content, 6000) })).filter(a => a.name && a.content).slice(0, 5)
+  // The conversation shows attachment names; their text stays on the server for 훅ai.
+  const publicIdeaMessage = row => ({ ...publicMessage(row), meta: { ...row.meta, attachments: (row.meta?.attachments || []).map(a => ({ name: a.name })) } })
   const addIdeaMessage = (threadId, userId, role, content, meta = {}) =>
     query(database().from('studio_idea_messages').insert({ thread_id: threadId, user_id: userId, role, content, meta }).select('*').single())
   const ownedThread = async req => {
@@ -253,27 +270,29 @@ export function registerStudioRoutes(router) {
   }))
   router.post('/creator-tools/studio/ideas/threads', asyncHandler(async (req, res) => {
     enabled(req)
-    const content = text(req.body?.text, 4000)
+    const attachments = ideaAttachments(req.body?.attachments)
+    const content = text(req.body?.text, 4000) || (attachments.length ? `자료 ${attachments.length}개를 올렸어요` : '')
     if (!content) fail('MESSAGE_REQUIRED', '이야기를 적어주세요.')
-    const thread = await query(database().from('studio_idea_threads').insert({ user_id: req.auth.userId, title: content.slice(0, 60) }).select('*').single())
-    const mine = await addIdeaMessage(thread.id, req.auth.userId, 'user', content)
+    const thread = await query(database().from('studio_idea_threads').insert({ user_id: req.auth.userId, title: (text(req.body?.text, 60) || attachments[0]?.name || content).slice(0, 60) }).select('*').single())
+    const mine = await addIdeaMessage(thread.id, req.auth.userId, 'user', content, attachments.length ? { attachments } : {})
     answerIdea(thread, req.auth.userId, content)
-    res.status(202).json({ thread: publicThread(thread), messages: [publicMessage(mine)], pending: true })
+    res.status(202).json({ thread: publicThread(thread), messages: [publicIdeaMessage(mine)], pending: true })
   }))
   router.get('/creator-tools/studio/ideas/threads/:id', asyncHandler(async (req, res) => {
     enabled(req)
     const thread = await ownedThread(req)
     const messages = await query(database().from('studio_idea_messages').select('*').eq('thread_id', thread.id).order('created_at', { ascending: true }).limit(200))
-    res.set('Cache-Control', 'private, no-store').json({ thread: publicThread(thread), messages: messages.map(publicMessage) })
+    res.set('Cache-Control', 'private, no-store').json({ thread: publicThread(thread), messages: messages.map(publicIdeaMessage) })
   }))
   router.post('/creator-tools/studio/ideas/threads/:id/chat', asyncHandler(async (req, res) => {
     enabled(req)
     const thread = await ownedThread(req)
-    const content = text(req.body?.text, 4000)
+    const attachments = ideaAttachments(req.body?.attachments)
+    const content = text(req.body?.text, 4000) || (attachments.length ? `자료 ${attachments.length}개를 올렸어요` : '')
     if (!content) fail('MESSAGE_REQUIRED', '이야기를 적어주세요.')
-    const mine = await addIdeaMessage(thread.id, req.auth.userId, 'user', content)
+    const mine = await addIdeaMessage(thread.id, req.auth.userId, 'user', content, attachments.length ? { attachments } : {})
     answerIdea(thread, req.auth.userId, content)
-    res.status(202).json({ messages: [publicMessage(mine)], pending: true })
+    res.status(202).json({ messages: [publicIdeaMessage(mine)], pending: true })
   }))
   router.delete('/creator-tools/studio/ideas/threads/:id', asyncHandler(async (req, res) => {
     enabled(req)
@@ -290,7 +309,8 @@ export function registerStudioRoutes(router) {
     let thread = null, facts = []
     if (req.body?.threadId) {
       thread = await query(db.from('studio_idea_threads').select('*').eq('id', uuid(req.body.threadId)).eq('user_id', req.auth.userId).maybeSingle())
-      if (thread) facts = (await query(db.from('studio_idea_messages').select('content').eq('thread_id', thread.id).eq('role', 'user').order('created_at', { ascending: true }).limit(20))).map(m => text(m.content, 600)).filter(Boolean)
+      if (thread) facts = (await query(db.from('studio_idea_messages').select('content,meta').eq('thread_id', thread.id).eq('role', 'user').order('created_at', { ascending: true }).limit(20)))
+        .flatMap(m => [text(m.content, 600), ...(m.meta?.attachments || []).map(a => `올린 자료 「${text(a.name, 80)}」: ${text(a.content, 800)}`)]).filter(Boolean)
     }
     const reels = (Array.isArray(c.reels) ? c.reels : []).filter(r => /^[A-Za-z0-9_-]{5,40}$/.test(String(r?.id || ''))).slice(0, 3).map(r => ({ id: r.id, username: text(r.username, 40), views: Number(r.views) || null }))
     const row = await query(db.from('studio_saved_topics').insert({ user_id: req.auth.userId, thread_id: thread?.id || null, title, angle: text(c.angle, 240), promise: text(c.promise, 240), why: text(c.why, 400),

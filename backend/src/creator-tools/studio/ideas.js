@@ -31,6 +31,7 @@ export const ideaPrompt = `지금은 '주제 찾기' 대화입니다. 기획안�
 - lookup: 수강생이 특정 제품·서비스·장소·정보 주제를 꺼냈는데 research가 그 대상을 다루지 않으면, 그 대상을 검색할 정확한 이름을 적고 cards는 비웁니다(훅ai가 조사한 뒤 다시 답합니다). 그 밖에는 빈 문자열.
 - category: 지금까지 대화로 보이는 분야(모르면 기타).
 - cards: 주제 후보 3개, 서로 다른 각도. title은 영상이 무엇인지 바로 보이는 한 줄, angle은 같은 소재의 다른 영상과 다른 점, promise는 시청자가 얻는 것, why는 지금 이 주제가 먹히는 이유를 실제 근거로(fieldKnowledge.topics, trending의 최근 터진 릴스, research의 사실·구매자 후기·시청자 궁금증 중), evidence는 why의 근거를 짧게 2~3개, materials는 이 주제를 찍으려면 수강생에게 필요한 경험·사실·장면 2~4개(수강생이 이미 말한 것은 빼고), category는 분야. cards를 낼 상황이 아니면 [].
+- 이 대화는 떠오른 아이디어를 적어 두는 곳이기도 합니다. 수강생이 아이디어·메모·자료(conversation의 attachments)를 그냥 남기면 질문을 쌓지 말고 그 내용을 받아, 바로 저장해 둘 수 있게 주제 카드로 다듬어 냅니다. 첨부 자료는 수강생이 준 재료입니다.
 - 수강생이 말하지 않은 경험·성과·수치를 주제에 넣지 않습니다. 필요한 것은 materials에 적어 둡니다.
 - savedTopics와 recentTopics는 수강생이 이미 저장했거나 만든 주제입니다. 같은 주제를 다시 내지 않습니다.
 - reply: 수강생에게 할 말 2~4문장. cards를 냈으면 무엇을 보고 골랐는지 짧게.
@@ -55,7 +56,9 @@ export async function ideaReply(deps, thread, messages, text) {
     query(db.from('studio_topics').select('topic').eq('user_id', thread.user_id).order('created_at', { ascending: false }).limit(10)).catch(() => []),
     query(db.from('studio_saved_topics').select('title').eq('user_id', thread.user_id).order('created_at', { ascending: false }).limit(20)).catch(() => []),
   ])
-  const conversation = messages.slice(-16).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content }))
+  // Files the student attached travel with their message as their own material (data, never instructions).
+  const conversation = messages.slice(-16).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content,
+    ...(m.meta?.attachments?.length ? { attachments: m.meta.attachments.map(a => ({ name: a.name, content: String(a.content || '').slice(0, 3000) })) } : {}) }))
   let research = thread.research || null
   const ask = async () => {
     const field = SUCCESS_REEL_CATEGORIES.includes(thread.category) ? thread.category : null
