@@ -7,6 +7,7 @@ import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint, SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } from './copy-principles.js'
 import { fieldKnowledge } from './knowledge.js'
 import { libraryEntry, coverKnowledge, provenFormulas } from './formula-study.js'
+import { prepareTopic } from './research.js'
 
 const str = { type: 'string' }
 const num = { type: 'number' }
@@ -60,6 +61,8 @@ function sessionContext(session, resolved, extras = {}) {
     brief: session.brief, attachments: (session.attachments || []).map(a => ({ name: a.name, content: String(a.content || '').slice(0, 3000) })),
     answers: session.topic?.answers || [],
     topic: session.topic ? { title: session.topic.title, angle: session.topic.angle, promise: session.topic.promise, facts: session.topic.facts, audience: session.topic.audience, category: session.topic.category } : null,
+    // What 훅ai looked up on the web about the topic before planning (public facts with sources).
+    research: session.topic?.research && !session.topic.research.failed ? { subject: session.topic.research.subject, facts: session.topic.research.facts, viewerQuestions: session.topic.research.viewerQuestions, avoid: session.topic.research.avoid } : null,
     // How 훅ai read the student's key words at the cover stage, so every later stage keeps the same meaning.
     briefReading: session.thumbnail?.plan?.terms?.length ? { terms: session.thumbnail.plan.terms, purpose: session.thumbnail.plan.purpose } : null,
     thumbnail: chosen('thumbnail'), hook: chosen('hook'),
@@ -261,6 +264,8 @@ export async function successCovers(db, category, limit = 12) {
 // One round of questions per plan: afterwards (or once the student delegated) every stage drafts without asking.
 export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !session.topic?.delegated
 export async function generateStage(deps, session, stage) {
+  // The first draft of a plan waits for its field and web research; later stages reuse what is saved.
+  if (stage !== 'topic' && session.topic?.title && (!session.topic.research || !session.topic.categoryChecked)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)))
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   const providers = deps.makeProviders(AbortSignal.timeout(240000))
   const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'hook' || stage === 'script' ? { provenFormulas: await provenFormulas(deps.db) } : {}) }

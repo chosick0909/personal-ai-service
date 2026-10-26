@@ -116,7 +116,7 @@ test('formulas are saved as structure, and the library matches analysis categori
 
 test('a stage that needs facts asks first, then resumes with the answers as facts', async () => {
   const db = fakeDb()
-  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'script', topic: { title: '선크림 3개 판정', facts: [] }, hook: { options: [{ spoken: 'x' }], chosen: 0 }, job_status: 'idle', placeholders: [], ask: null })
+  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'script', topic: { title: '선크림 3개 판정', facts: [], research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, hook: { options: [{ spoken: 'x' }], chosen: 0 }, job_status: 'idle', placeholders: [], ask: null })
   let calls = 0
   const jobs = []
   const deps = { db, schedule: (_k, task) => { const p = task(); jobs.push(p); return p }, makeProviders: () => ({ json: async () => { calls += 1
@@ -217,7 +217,7 @@ test('thumbnail copies are 훅ai\'s own copywriting from the topic: no reference
 
 test('a draft whose self-check finds reference traces or unprovided facts is rewritten once', async () => {
   const db = fakeDb()
-  const session = { id: 's10', user_id: 'u1', mode: 'single', sources: {}, brief: '소재', topic: { title: '소재', facts: [], category: '기타' }, placeholders: [] }
+  const session = { id: 's10', user_id: 'u1', mode: 'single', sources: {}, brief: '소재', topic: { title: '소재', facts: [], category: '기타', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, placeholders: [] }
   const prompts = []
   const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { prompts.push(instructions)
     return prompts.length === 1
@@ -276,4 +276,23 @@ test('first lines and scripts are written by the script principles, with the for
   assert.equal(value.options.length, 1)
   for (const word of ['피지', '선크림', '냉동만두']) assert.ok(!calls[0].instructions.includes(word), word)
   assert.ok(HOOK_PRINCIPLES.length >= 4)
+})
+
+test('before the first draft 훅ai sets the field and looks the topic up once; later stages reuse it', async () => {
+  const { prepareTopic, researchTopic } = await import('../src/creator-tools/studio/research.js')
+  const db = fakeDb()
+  db.tables.studio_sessions.set('s20', { id: 's20' })
+  let searched = 0
+  const client = () => ({ responses: { create: async ({ tools, input }) => { searched += 1; assert.equal(tools[0].type, 'web_search'); assert.match(input, /읽어 온 링크 내용/)
+    return { output_text: '{"subject":"피지 연화 제품","facts":["피지를 불려 닦아내는 제품"],"viewerQuestions":["매일 써도 되나"],"avoid":["모공이 사라진다"]}', output: [{ content: [{ annotations: [{ url_citation: { url: 'https://example.com/a', title: 'A' } }] }] }] } } } })
+  const providers = { call: (_p, _op, fn) => fn(), json: async () => ({ category: '피부' }) }
+  const session = { id: 's20', brief: '내돈내산 피지템 https://shop.example.com/item?1', topic: { title: '피지템', facts: [], category: '기타' } }
+  const research = await researchTopic(providers, session, { client, readPage: async () => '상품 상세 내용' })
+  assert.deepEqual(research.facts, ['피지를 불려 닦아내는 제품'])
+  assert.deepEqual(research.sources.map(s => s.url), ['https://example.com/a', 'https://shop.example.com/item?1'])
+  assert.equal(searched, 1)
+  const prepared = await prepareTopic({ db }, { ...session, topic: { ...session.topic, research } }, providers)
+  assert.equal(prepared.topic.category, '피부', 'a topic taken from the brief gets its field')
+  assert.equal(searched, 1, 'research already on the topic is not repeated')
+  assert.equal(db.tables.studio_sessions.get('s20').topic.category, '피부')
 })

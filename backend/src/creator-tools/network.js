@@ -105,3 +105,41 @@ export async function fetchJson(url, init = {}, signal, maxBytes = 2 * 1024 * 10
   body += decoder.decode()
   return JSON.parse(body)
 }
+
+// A public web page a student linked in their brief (a product page, an article), reduced to readable text:
+// title, descriptions, product data and the visible body text. Same address checks as media downloads.
+export function pageText(html) {
+  const meta = name => html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]*content=["']([^"']*)["']`, 'i'))?.[1]
+    || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:name|property)=["']${name}["']`, 'i'))?.[1] || ''
+  const decode = text => text.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+  const products = [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)].flatMap(m => { try { return [JSON.parse(m[1])].flat() } catch { return [] } })
+    .filter(item => /product/i.test(String(item?.['@type'] || ''))).map(item => [item.name, item.description, item.brand?.name].filter(Boolean).join(' / '))
+  const body = decode(html.replace(/<(script|style|noscript|svg|head)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+  return [decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').trim(), decode(meta('og:title')), decode(meta('description')), decode(meta('og:description')), ...products, body]
+    .filter(Boolean).filter((part, i, all) => all.indexOf(part) === i).join('\n').slice(0, 6000)
+}
+export async function readPublicPage(value, signal, limit = 2 * 1024 * 1024) {
+  let current = value
+  for (let hop = 0; hop <= 3; hop += 1) {
+    const { url, addresses } = await resolvePublicUrl(current)
+    const agent = new Agent({ connect: { lookup: (_host, options, done) => options.all
+      ? done(null, addresses) : done(null, addresses[0].address, addresses[0].family) } })
+    try {
+      const response = await fetch(url, { dispatcher: agent, redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (Macintosh) HookAI', accept: 'text/html' },
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) })
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location'); await response.body?.cancel()
+        if (!location) fail('PAGE_UNAVAILABLE', '링크를 열 수 없어요.', 422)
+        current = new URL(location, url).href; continue
+      }
+      if (!response.ok || !/text\/html/i.test(response.headers.get('content-type') || '')) { await response.body?.cancel(); fail('PAGE_UNAVAILABLE', '링크를 열 수 없어요.', 422) }
+      const chunks = []; let size = 0
+      for await (const chunk of response.body) {
+        size += chunk.length; chunks.push(chunk)
+        if (size > limit) { await response.body.cancel().catch(() => {}); break }
+      }
+      return pageText(Buffer.concat(chunks).toString('utf8'))
+    } finally { await agent.close() }
+  }
+  fail('TOO_MANY_REDIRECTS', '링크 이동 횟수를 초과했어요.')
+}
