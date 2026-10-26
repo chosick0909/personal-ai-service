@@ -301,3 +301,10 @@ test('a cover may quote what 훅ai researched as well as what the student wrote'
   const session = { brief: '내돈내산 피지템', topic: { title: '피지템', research: { subject: '피지 연화 제품', facts: ['화장솜에 적셔 10분 올려 두는 제품'], viewerQuestions: [] } } }
   assert.deepEqual(ungroundedQuotes(session, ['10분 올려 두는', '내돈내산', '모공이 사라지는']), ['모공이 사라지는'])
 })
+
+test('the student\'s own words and the slang viewers really use are kept, only jargon is made plain', async () => {
+  const { HOOKAI_SYSTEM } = await import('../src/creator-tools/studio/persona.js')
+  assert.match(HOOKAI_SYSTEM, /실제로 즐겨 쓰는 말/)
+  assert.match(HOOKAI_SYSTEM, /전문 용어뿐/)
+  for (const word of ['내돈내산', '찐템', '찐꿀템']) assert.ok(!HOOKAI_SYSTEM.includes(word), word)
+})
