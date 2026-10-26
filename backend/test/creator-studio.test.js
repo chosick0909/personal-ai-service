@@ -192,3 +192,15 @@ test('a student\'s own uploaded reel is a valid source once analyzed; unanalyzed
   await assert.rejects(resolveSources(db, 'u2', { hook: { kind: 'reel', id: 'Mine01' } }), /찾을 수 없어요/)
   await assert.rejects(resolveSources(db, 'u1', { hook: { kind: 'reel', id: 'Wait01' } }), /분석이 끝나지/)
 })
+
+test('thumbnail copies come from the hook psychology, labeled, without the cover-copying generator', async () => {
+  const db = fakeDb()
+  const session = { id: 's9', user_id: 'u1', mode: 'single', sources: { hook: { kind: 'reel', id: 'Aaaaa1' } }, brief: '쿠팡 냉동만두', topic: { title: '쿠팡 냉동만두', facts: [], category: '요리' }, placeholders: [] }
+  let seen = ''
+  const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { seen = instructions
+    return { questions: [], mechanism: '돌발 사고의 긴장 → 저녁 준비를 깜빡한 날', options: [{ label: '심리 차용형', text: '완전 사고예요, 저녁 안 해놨어요', why: 'w' }, { label: '후킹 강화형', text: '애들 배고프다는데 냉장고 텅', why: 'w' }, { label: '3단공식 적용형', text: '5분이면 끝나는 만두 저녁', why: 'w' }], placeholders: [] } } }) }
+  const { value } = await generateStage(deps, session, 'thumbnail')
+  assert.ok(seen.includes('레퍼런스 활용 규칙') && seen.includes('심리 차용형'))
+  assert.deepEqual(value.options.map(o => o.label), ['심리 차용형', '후킹 강화형', '3단공식 적용형'])
+  assert.equal(value.mechanism, '돌발 사고의 긴장 → 저녁 준비를 깜빡한 날')
+})

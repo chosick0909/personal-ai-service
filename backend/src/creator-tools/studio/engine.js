@@ -2,7 +2,7 @@ import { query } from '../store.js'
 import { fail } from '../domain.js'
 import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
-import { HOOK_TYPES, STORY_FORMATS, planThumbnailTitles, schedule } from '../success-reel-analysis.js'
+import { HOOK_TYPES, STORY_FORMATS, schedule } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 
 const str = { type: 'string' }
@@ -154,8 +154,9 @@ function normalizeLines(lines) {
 
 // ---------- stage generation ----------
 const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
+export const THUMB_LABELS = ['심리 차용형', '후킹 강화형', '3단공식 적용형']
 const stageSchemas = {
-  thumbnail: obj({ questions, options: arr(obj({ text: str, why: str })), placeholders: arr(str) }),
+  thumbnail: obj({ questions, mechanism: str, options: arr(obj({ label: { type: 'string', enum: THUMB_LABELS }, text: str, why: str })), placeholders: arr(str) }),
   hook: obj({ questions, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
   script: obj({ questions, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
   filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str,
@@ -163,16 +164,22 @@ const stageSchemas = {
   caption: obj({ questions, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
 // Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
-const ASK_RULE = `소재 규칙: 영상의 소재·제품·상황은 topic·brief·attachments에서만 가져오고, sources(레퍼런스)에서는 형식만 빌립니다. 레퍼런스 영상의 소재(그 영상 속 사건·제품·인물)를 쓰지 않습니다.\n사실 확인 규칙: 영상이 바로 그것에 대한 내용이라 없으면 대본이 성립하지 않는 사실(비교할 제품명·브랜드, 영상의 핵심이 되는 수치나 경험)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(타깃 표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. answers나 facts에 "모름/없음/알아서/훅ai 재량"으로 답한 사실은 절대 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
+const ASK_RULE = `소재 규칙: 영상의 소재·제품·상황은 topic·brief·attachments에서만 가져오고, sources(레퍼런스)에서는 형식만 빌립니다. 레퍼런스 영상의 소재(그 영상 속 사건·제품·인물)를 쓰지 않습니다.
+레퍼런스 활용 규칙: 레퍼런스의 문장 틀에 단어만 바꿔 끼우지 않습니다. 먼저 그 훅·전개가 왜 먹혔는지 심리(돌발 상황의 긴장, 나도 겪는 공감, 손해 볼까 하는 불안, 궁금증, 반전 등)를 파악하고, 그 심리를 수강생 주제 안의 평범한 일상 장면으로 다시 만듭니다. 수강생은 대부분 일반인입니다. brief에 직업·상황(쇼호스트, 사장님, 라이브 방송, 매장 등)이 적혀 있지 않으면 그런 장면을 가정하지 않습니다. 판매 실적·완판·수치·후기 같은 결과는 facts·brief에 없으면 쓰지 않습니다. 예: 레퍼런스가 '방송사고'의 돌발 긴장으로 붙잡았고 주제가 쿠팡 냉동만두라면 → "완전 사고예요. 애들이 배고프다는데 밥을 하나도 안 해놨어요" 같은 일상의 돌발 상황으로 열고, 냉동만두가 그 상황을 해결하는 흐름(간편함·준비 시간)으로 잇습니다.
+사실 확인 규칙: 영상이 바로 그것에 대한 내용이라 없으면 대본이 성립하지 않는 사실(비교할 제품명·브랜드, 영상의 핵심이 되는 수치나 경험)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(타깃 표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. answers나 facts에 "모름/없음/알아서/훅ai 재량"으로 답한 사실은 절대 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 없는 사실은 지어내지 말고 "첫 번째 제품"처럼 일반 표현으로 쓰되 [대괄호] 빈칸은 남기지 않고, 반드시 완성된 안을 냅니다.`
 
 const stagePrompts = {
-  thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 15자 안팎, 한눈에 읽히게.
-1안: sources.hook의 화면 훅·공식(visualHook, formula)을 topic에 적용. 2안: 같은 주제에서 손실 회피·결과 먼저·통념 반박 중 다른 장치. 3안: 혜택+키워드+숫자(예: "백탁 없이 고르는 선크림 3가지 기준").
-why는 눌러보고 싶게 만드는 이유 한 줄. topic.facts에 없는 수치·효능은 쓰지 않습니다. placeholders는 제목에 남긴 [빈칸] 목록.`,
+  thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 20자 이내, 한눈에 읽히게.
+먼저 mechanism에 한 줄로 적습니다: sources.hook(없으면 공식 사전·주제)이 시청자를 붙잡은 심리 → 이번 주제(brief)에서 그 심리를 일으킬 평범한 일상 장면.
+options는 정확히 3개이고 label을 이 순서로 씁니다.
+- "심리 차용형": mechanism의 일상 장면을 그대로 제목으로(레퍼런스 단어·문장 틀을 옮기지 않음).
+- "후킹 강화형": 같은 심리를 더 세게(더 급하거나 더 궁금하게).
+- "3단공식 적용형": 꾸미는 말 + 핵심 단어 + 끝맺는 말(예: "5분이면 끝나는 냉동만두 저녁"). 레퍼런스와 무관하게 주제만으로.
+why는 이 제목을 왜 누르게 되는지 한 줄. facts·brief에 없는 수치·효능·실적은 쓰지 않습니다. placeholders는 제목에 남긴 [빈칸] 목록.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
-1안: sources.hook의 훅 장치(formula, type)를 topic에 적용. 2·3안: 다른 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄. 뻔한 질문("진짜 차이 알죠?")과 과장은 금지.`,
+1안: sources.hook이 시청자를 붙잡은 심리(why·type)를 이번 주제의 일상 장면으로 옮긴 말(formula의 단어를 그대로 채우는 방식이 아님). 2·3안: 다른 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄. 뻔한 질문("진짜 차이 알죠?")과 과장은 금지.`,
   script: `${ASK_RULE}\n'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
 - sources.structure가 있으면 1안은 그 전개 순서·구간 역할·리듬을 그대로 topic에 적용합니다(판정형이면 판정 문형을 반복, 리스트면 번호를 약속). 2·3안은 같은 첫 문장에서 다른 전개(예: 경험담으로 설득, 3가지로 정리).
 - label은 그 안의 성격(예: "판정으로 설득", "경험담으로 설득"), why는 어떤 시청자에게 맞는지 한 줄.
@@ -206,12 +213,10 @@ export async function generateStage(deps, session, stage) {
   }
   const placeholders = list(raw.placeholders, 120, 12)
   if (stage === 'thumbnail') {
-    const own = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ text: clean(o.text, 40), why: clean(o.why, 200), label: '' })).filter(o => o.text)
-    const hookSource = resolved.hook?.kind === 'reel' ? await query(deps.db.from('creator_success_reels').select('category,analysis').eq('shortcode', resolved.hook.id).single()) : null
-    const tool = await planThumbnailTitles({}, { topic: `${session.topic?.title}\n${session.topic?.promise || ''}\n${session.brief}`, category: hookSource?.category || session.topic?.category, cover: hookSource?.analysis?.cover || null })
-    const options = [...tool, ...own.filter(o => !tool.some(t => t.text === o.text))].slice(0, 3)
+    // 훅ai writes the covers itself from the hook's psychology; the old cover-preserving generator copied the reference's wording.
+    const options = (Array.isArray(raw.options) ? raw.options : []).map((o, i) => ({ text: clean(o.text, 40), why: clean(o.why, 200), label: THUMB_LABELS.includes(o.label) ? o.label : THUMB_LABELS[i] || '' })).filter(o => o.text).slice(0, 3)
     if (!options.length) fail('STAGE_EMPTY', '썸네일 카피를 만들지 못했어요. 다시 시도해주세요.', 422)
-    return { value: { options, chosen: 0, custom: null }, placeholders }
+    return { value: { options, chosen: 0, custom: null, mechanism: clean(raw.mechanism, 300) }, placeholders }
   }
   if (stage === 'hook') {
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ spoken: clean(o.spoken, 200), onScreen: clean(o.onScreen, 40), type: HOOK_TYPES.includes(o.type) ? o.type : '기타', why: clean(o.why, 200) })).filter(o => o.spoken).slice(0, 3)

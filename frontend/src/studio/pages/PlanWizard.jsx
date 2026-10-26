@@ -108,8 +108,9 @@ function TopicStage({ session, save, onSuggest, onBrief }) {
 
 // What each thumbnail-copy type means, in words a first-time student follows.
 const THUMB_KIND = {
+  '심리 차용형': '레퍼런스가 시청자를 붙잡은 심리(긴장·공감·궁금증 등)를 내 주제의 일상 장면으로 옮겼어요',
   '원본 보존형': '레퍼런스 썸네일의 문장 구조(줄 수·질문/반전 말투)를 그대로 빌려 내 주제로 바꿨어요',
-  '후킹 강화형': '원본 구조는 유지하고 궁금증·반전을 더 세게 넣었어요',
+  '후킹 강화형': '같은 심리를 더 급하게·더 궁금하게 세게 만들었어요',
   '3단공식 적용형': "'꾸미는 말 + 핵심 단어 + 끝맺는 말' 공식으로 한눈에 읽히게 만들었어요",
 }
 
