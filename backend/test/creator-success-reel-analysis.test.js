@@ -100,14 +100,14 @@ test('plans need an analyzed reel and a real brief', async () => {
   assert.equal(db.tables.creator_reel_plans.get(created.id).user_id, 'u1')
 })
 
-test('video links fall back to Bright Data and are cached until shortly before expiry', async () => {
+test('video links fall back to the Mac mini lookup and are cached until shortly before expiry', async () => {
   const now = Date.parse('2026-10-25T00:00:00Z')
   const store = new Map(), sets = []
   const redis = { get: async k => store.get(k) ?? null, set: async (k, v, _ex, ttl) => { store.set(k, v); sets.push(ttl) } }
   const oe = Math.floor(now / 1000 + 6 * 3600).toString(16).toUpperCase()
   const cdn = `https://scontent.cdninstagram.com/v/reel.mp4?oe=${oe}`
   let paid = 0
-  const providers = { brightData: async () => { paid += 1; return { videoUrl: cdn } } }
+  const providers = { instagramReel: async () => { paid += 1; return { videoUrl: cdn } } }
   const playback = { resolve: async () => null }
   assert.equal(await reelVideoUrl({ providers, redis, playback }, 'Aaaaa1', now), cdn)
   assert.deepEqual(sets, [5 * 3600])
@@ -116,10 +116,10 @@ test('video links fall back to Bright Data and are cached until shortly before e
   const free = { resolve: async () => ({ url: 'https://x.fbcdn.net/a.mp4', caption: ' 택배비 4,500원만 내세요 ' }) }
   assert.deepEqual(await reelMedia({ providers, redis, playback: free }, 'Bbbbb2', now), { url: 'https://x.fbcdn.net/a.mp4', caption: '택배비 4,500원만 내세요' })
   assert.equal(paid, 1)
-  const described = { brightData: async () => ({ videoUrl: cdn, caption: '브라이트 캡션' }) }
+  const described = { instagramReel: async () => ({ videoUrl: cdn, caption: '브라이트 캡션' }) }
   assert.equal((await reelMedia({ providers: described, redis, playback }, 'Ddddd4', now)).caption, '브라이트 캡션')
   assert.equal((await reelMedia({ providers: described, redis, playback }, 'Ddddd4', now)).caption, '', 'a cached link carries no caption')
-  const bad = { brightData: async () => ({ videoUrl: 'https://evil.example/a.mp4' }) }
+  const bad = { instagramReel: async () => ({ videoUrl: 'https://evil.example/a.mp4' }) }
   await assert.rejects(reelVideoUrl({ providers: bad, redis, playback }, 'Ccccc3', now), /영상을 불러오지/)
 })
 

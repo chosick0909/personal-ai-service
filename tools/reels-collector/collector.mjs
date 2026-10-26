@@ -149,6 +149,76 @@ async function probe(keyword, account) {
   console.log(`===== 끝 (응답 ${report.length}개) =====`)
 }
 
+// ---------- Instagram lookups for the server ----------
+// The server no longer pays a data service to read a reel: it queues the link, and this Mac reads the reel page in
+// its own tab and reports back. Lookups come first: while one runs, the daily collection waits at its next pause.
+let lookupBusy = false
+const collectPause = async (min, max) => { await pause(min, max); while (lookupBusy) await sleep(1000) }
+
+async function readLookup(context, lookup) {
+  const page = await context.newPage()
+  const bodies = []
+  page.on('response', async response => {
+    if (!/^https:\/\/www\.instagram\.com\/(api\/|graphql)/.test(response.url())) return
+    try { bodies.push(...parseBodies(await response.text())) } catch { /* Body unavailable. */ }
+  })
+  const found = () => { const media = new Map(); bodies.forEach(body => collectMedia(body, media)); return media.get(lookup.shortcode) }
+  try {
+    await page.goto(lookup.url, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    await pause(3000, 5000)
+    if (BLOCKED.test(page.url())) return { error: 'LOOKUP_BLOCKED' }
+    const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
+    for (const text of inline) if (/"code"/.test(text)) bodies.push(...parseBodies(text))
+    for (let i = 0; i < 3 && !found()?.videoUrl; i += 1) await pause(2000, 3000)
+    const item = found()
+    if (!item?.videoUrl) {
+      const gone = await page.getByText(/사용할 수 없|isn.t available|not available/i).count().catch(() => 0)
+      return { error: gone ? 'LINK_DELETED' : 'LINK_UNAVAILABLE' }
+    }
+    return { result: { videoUrl: item.videoUrl, thumbnailUrl: item.thumbnailUrl, caption: item.caption, username: item.owner,
+      views: item.views, likes: item.likes, comments: item.comments, postedAt: postedAt(item.code)?.toISOString() || null } }
+  } catch {
+    return { error: 'LINK_UNAVAILABLE' }
+  } finally { await page.close().catch(() => {}) }
+}
+
+// Answers every queued lookup, most urgent first, until the queue is empty.
+async function serveLookups(config, context) {
+  for (;;) {
+    let lookup = null
+    try { lookup = (await api(config, 'POST', '/lookups/claim')).lookup } catch (error) { await log(`조회 요청 확인 실패: ${error.message}`); return }
+    if (!lookup) return
+    lookupBusy = true
+    try {
+      const outcome = await readLookup(context, lookup)
+      await api(config, 'POST', `/lookups/${lookup.id}`, outcome).catch(error => log(`조회 결과 전송 실패: ${error.message}`))
+      await log(`조회 ${lookup.shortcode}: ${outcome.error || '완료'}`)
+      if (outcome.error === 'LOOKUP_BLOCKED') await log('⚠️ 인스타가 로그인·확인 화면을 띄웠습니다. login을 다시 실행해주세요.')
+    } finally { lookupBusy = false }
+    await pause(1500, 3000)
+  }
+}
+
+// Always on (launchd keeps it running): answers lookups every few seconds and runs the daily collection
+// once a day after 03:30, sharing one Chrome window.
+const LAST_COLLECT = () => join(HOME, 'last-collect.txt')
+async function serve() {
+  const config = await loadConfig()
+  if (!config?.server) throw new Error('config.json이 없습니다. 설치 안내를 확인하세요.')
+  const context = await openBrowser()
+  await log('인스타 조회 대기 시작')
+  ;(async () => { for (;;) { await serveLookups(config, context); await sleep(3000) } })()
+  for (;;) {
+    const now = new Date(), day = now.toLocaleDateString('sv-SE')
+    const last = await readFile(LAST_COLLECT(), 'utf8').catch(() => '')
+    if (last.trim() !== day && now.getHours() * 60 + now.getMinutes() >= 3 * 60 + 30) {
+      await writeFile(LAST_COLLECT(), day)
+      await collectUntilDone(false, [], context).catch(error => log(`수집 오류: ${error.message}`))
+    }
+    await sleep(60000)
+  }
+}
+
 // ---------- Daily collection ----------
 const MIN_VIEWS = 500000
 const MAX_AGE_DAYS = 90
@@ -224,7 +294,7 @@ async function log(line) {
   await appendFile(join(HOME, 'logs', `${stamp.slice(0, 10)}.log`), `${stamp} ${line}\n`)
 }
 
-async function collect(dry, dryKeywords) {
+async function collect(dry, dryKeywords, shared = null) {
   const config = dry ? null : await loadConfig()
   if (!dry && !config?.server) throw new Error('config.json이 없습니다. 설치 안내를 확인하세요.')
   const plan = dry
@@ -233,7 +303,7 @@ async function collect(dry, dryKeywords) {
   const run = dry ? null : await api(config, 'POST', '/success-reels/runs')
   const stats = { keywords: 0, accounts: 0, qualified: 0, saved: 0, eligible: 0, errors: 0, captions: 0 }
   const skip = new Set(plan.skipAccounts)
-  const context = await openBrowser()
+  const context = shared || await openBrowser()
   const page = context.pages()[0] || await context.newPage()
   let bodies = []
   page.on('response', async response => {
@@ -244,11 +314,11 @@ async function collect(dry, dryKeywords) {
   const visit = async (url, scrolls, keepScrolling = () => true) => {
     bodies = []
     await page.goto(url, { waitUntil: 'domcontentloaded' })
-    await pause(6000, 9000)
+    await collectPause(6000, 9000)
     if (BLOCKED.test(page.url())) throw Object.assign(new Error(`인스타 확인 화면: ${page.url()}`), { blocked: true })
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
     for (const text of inline) if (/"code"/.test(text)) bodies.push(...parseBodies(text))
-    for (let i = 0; i < scrolls && keepScrolling(bodies); i += 1) { await page.mouse.wheel(0, 2200); await pause(3000, 5000) }
+    for (let i = 0; i < scrolls && keepScrolling(bodies); i += 1) { await page.mouse.wheel(0, 2200); await collectPause(3000, 5000) }
     return bodies
   }
   const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 86400000)
@@ -278,7 +348,7 @@ async function collect(dry, dryKeywords) {
       const captions = []
       for (const code of missing) {
         try { const read = await readReel(code); if (read.caption || read.videoUrl || read.views) captions.push({ shortcode: code, ...read }) } catch (error) { if (error.blocked) throw error }
-        await pause(5000, 9000)
+        await collectPause(5000, 9000)
       }
       const result = captions.length ? await api(config, 'POST', '/success-reels/captions', { captions }) : { saved: 0 }
       stats.captions = result.saved || 0
@@ -300,7 +370,7 @@ async function collect(dry, dryKeywords) {
         .map(item => item.owner?.toLowerCase()).filter(owner => owner && !skip.has(owner)))]
       perKeyword.push({ source: `${region === 'overseas' ? '해외' : '국내'} 키워드:${keyword}`, owners })
       await log(`키워드 "${keyword}": 후보 계정 ${owners.length}개`)
-      await pause(8000, 15000)
+      await collectPause(8000, 15000)
     }
     for (let i = 0; perKeyword.some(k => i < k.owners.length); i += 1) {
       for (const { source, owners } of perKeyword) if (owners[i] && !candidates.has(owners[i])) candidates.set(owners[i], source)
@@ -322,7 +392,7 @@ async function collect(dry, dryKeywords) {
         for (const hit of hits) {
           if (hit.caption && hit.videoUrl) continue
           try { const read = await readReel(hit.shortcode); hit.caption = hit.caption || read.caption; hit.videoUrl = hit.videoUrl || read.videoUrl } catch (error) { if (error.blocked) throw error }
-          await pause(4000, 7000)
+          await collectPause(4000, 7000)
         }
         stats.accounts += 1
         stats.qualified += hits.length
@@ -349,13 +419,13 @@ async function collect(dry, dryKeywords) {
         await log(`@${username}: 오류 ${error.message}`)
       }
       queue.splice(0, queue.length, ...queue.filter(row => row.username !== username))
-      await pause(20000, 40000)
+      await collectPause(20000, 40000)
     }
   } catch (error) {
     fatal = error.message
     await log(`⚠️ 수집 중단: ${error.message}`)
   }
-  await context.close()
+  if (!shared) await context.close()
   if (!dry) await saveQueue(queue)
   stats.queued = queue.length
   await log(`완료: ${JSON.stringify(stats)}`)
@@ -365,9 +435,9 @@ async function collect(dry, dryKeywords) {
 }
 
 // Catch-up runs: while the server still reports short categories, rest briefly and go again (bounded per launch).
-async function collectUntilDone(dry, dryKeywords) {
+async function collectUntilDone(dry, dryKeywords, shared = null) {
   for (let round = 1; round <= 8; round += 1) {
-    const { fatal, more } = await collect(dry, dryKeywords)
+    const { fatal, more } = await collect(dry, dryKeywords, shared)
     if (fatal || !more) return
     await log(`아직 부족한 분야가 있어 5분 뒤 ${round + 1}회차를 시작합니다.`)
     await sleep(5 * 60000)
@@ -378,4 +448,5 @@ const [command, ...args] = process.argv.slice(2)
 if (command === 'login') await login()
 else if (command === 'probe') await probe(args[0] || '피부관리', args[1] || 'ojirapper_')
 else if (command === 'collect') await collectUntilDone(args[0] === '--dry', args.slice(1))
-else console.log('사용법: node collector.mjs login | probe [키워드] [계정] | collect [--dry 키워드...]  (--dry는 서버 심사 없이 숫자만 확인)')
+else if (command === 'serve') await serve()
+else console.log('사용법: node collector.mjs login | serve | probe [키워드] [계정] | collect [--dry 키워드...]  (serve는 항상 켜 두는 모드: 인스타 조회 요청을 먼저 처리하고 매일 03:30 이후 수집, --dry는 서버 심사 없이 숫자만 확인)')

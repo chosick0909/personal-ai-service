@@ -181,7 +181,7 @@ test('uploaded videos bypass link collection and enter the shared transcription 
   const stages = [], calls = []
   const result = await collectImportTranscript({
     db:{ name:'database' }, job:{ user_id:'member', input:{ projectId:'project-1' } },
-    providers:{ brightData:async()=>assert.fail('uploaded files must not call the link provider') },
+    providers:{ instagramReel:async()=>assert.fail('uploaded files must not call the link provider') },
     stage:async value=>stages.push(value), signal:new AbortController().signal,
   }, {
     workspace:async callback=>callback('/private/workspace'),
@@ -242,7 +242,7 @@ test('silent uploaded references opt in to subtitle reading, then use the existi
 test('link downloads and uploaded files share the same silent-video subtitle path',async()=>{
   const calls=[]
   const result=await collectImportTranscript({job:{input:{url:'https://www.instagram.com/reel/synthetic/'}},
-    providers:{brightData:async url=>{calls.push('collect');return{videoUrl:'https://example.org/synthetic.mp4'}}},
+    providers:{instagramReel:async url=>{calls.push('collect');return{videoUrl:'https://example.org/synthetic.mp4'}}},
     stage:async()=>{},signal:new AbortController().signal,
   },{
     workspace:async fn=>fn('/test'),downloadPublicMedia:async()=>calls.push('download'),

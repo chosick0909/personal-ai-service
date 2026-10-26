@@ -160,12 +160,11 @@ test('only billable Bright Data requests count toward the daily budget', async (
   } finally { if (before === undefined) delete process.env.CREATOR_PROVIDER_DAILY_CALLS; else process.env.CREATOR_PROVIDER_DAILY_CALLS = before }
 })
 
-test('the study leaves half of the day\'s Instagram lookups to students', async () => {
-  const { budgetKey } = await import('../src/creator-tools/providers.js')
+test('with the Mac mini off the study analyzes nothing today and still files what it has', async () => {
   const db = fakeDb({ creator_success_reels: new Map([['N1', { shortcode: 'N1', visible: true, reference_fit: true, username: 'a', analysis_status: 'none' }]]), creator_study_runs: new Map() })
-  const redis = { get: async k => k === budgetKey('brightdata') ? '250' : null }
+  const redis = { get: async () => null }
   const stats = await studyOnce({ db, redis, makeProviders: () => ({ json: async () => ({ reels: [] }) }) }, { limit: 5 })
-  assert.equal(stats.stopped, 'budget')
+  assert.equal(stats.stopped, 'offline')
   assert.equal(db.tables.creator_success_reels.get('N1').analysis_status, 'none', 'nothing was started')
 })
 

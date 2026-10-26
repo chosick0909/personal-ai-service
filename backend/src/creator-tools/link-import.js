@@ -171,7 +171,7 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
       await dependencies.downloadStored(db, media.original_path, path, signal)
     } else {
       await stage('collecting_video')
-      const media = await providers.brightData(job.input.url, ctx.checkpoint)
+      const media = await providers.instagramReel(job.input.url, ctx.checkpoint)
       await dependencies.downloadPublicMedia(media.videoUrl, path, signal)
     }
     const info = await dependencies.probeVideo(path, signal, { allowSilent: true })

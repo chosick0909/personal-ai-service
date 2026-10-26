@@ -25,7 +25,7 @@ function context({ language = 'ko', json = async () => valid(), saved = {}, dead
   const ctx = {
     job: { id: 'test-job', user_id: 'PRIVATE_USER_ID', account_id: 'PRIVATE_ACCOUNT_ID', input: { handle: 'PRIVATE_HANDLE' }, checkpoint, deadline_at: deadline },
     signal: new AbortController().signal,
-    providers: { json: async (...args) => { calls.push(args); return json(...args) }, brightData: () => assert.fail('must reuse transcription') },
+    providers: { json: async (...args) => { calls.push(args); return json(...args) }, instagramReel: () => assert.fail('must reuse transcription') },
     stage: async name => { stages.push(name); if (name === 'analyzing_reference' && stageError) throw stageError },
     checkpoint: async (name, fn) => {
       if (Object.hasOwn(checkpoint, name)) return checkpoint[name]

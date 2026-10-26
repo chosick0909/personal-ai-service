@@ -182,10 +182,10 @@ export function schedule(key, task, limit = 2) {
 }
 const message = error => error?.exposeMessage ? error.message : '분석을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.'
 
-// Free extractor first; Bright Data (already used for link analysis) when it is missing or blocked.
+// Free extractor first; the Mac mini's Instagram lookup when it is missing or blocked.
 // CDN links expire, so they are cached only until shortly before their own expiry. The caption comes
 // back with a fresh lookup so a reel the collector stored without one can be completed.
-export async function reelMedia({ providers, redis, playback = referencePlayback }, shortcode, now = Date.now()) {
+export async function reelMedia({ providers, redis, playback = referencePlayback, lookupPriority }, shortcode, now = Date.now()) {
   const key = `success-reel-video:${shortcode}`
   const cached = await redis?.get(key).catch(() => null)
   if (cached) return { url: cached, caption: '' }
@@ -193,7 +193,7 @@ export async function reelMedia({ providers, redis, playback = referencePlayback
   const free = await playback.resolve(href).catch(() => null)
   let url = free?.url, caption = String(free?.caption || '')
   if (!url) {
-    const record = await providers.brightData(href, (_key, task) => task())
+    const record = await providers.instagramReel(href, undefined, lookupPriority)
     url = playbackUrl(record.videoUrl); caption = String(record.caption || '')
   }
   if (!url) fail('REEL_VIDEO_UNAVAILABLE', '영상을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.', 422)
@@ -212,7 +212,7 @@ async function textMedia(providers, text) {
   return { duration: 0, language: hangul ? 'ko' : 'unknown', source: 'text', frames: [], original, korean }
 }
 
-export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
+export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority }, shortcode) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 12 * 60000)
   const signal = controller.signal
@@ -224,7 +224,7 @@ export async function runReelAnalysis({ db, redis, makeProviders }, shortcode) {
       if (reel.source === 'upload-video') await downloadStored(db, reel.source_path, path, signal)
       else {
         const fetchMedia = async () => {
-          const found = await reelMedia({ providers, redis }, shortcode)
+          const found = await reelMedia({ providers, redis, lookupPriority }, shortcode)
           // The collector reads the reels tab, which carries no captions; fill the row from the reel itself.
           if (!reel.caption && found.caption) { reel.caption = found.caption; await query(db.from('creator_success_reels').update({ caption: found.caption }).eq('shortcode', shortcode)) }
           return found.url

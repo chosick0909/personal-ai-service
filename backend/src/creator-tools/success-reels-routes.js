@@ -10,6 +10,7 @@ import { readPublicImage } from './network.js'
 import { ingestAccount, listSuccessReels, reelsMissingCaptions, storeReelCaptions, classifyReelCategories, reelsNeedingCategory } from './success-reels.js'
 import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
+import { markCollectorSeen, lookupResult, lookupError } from './instagram-lookup.js'
 
 export function successReelsEnabled(userId, env = process.env) {
   if (env.CREATOR_SUCCESS_REELS_ENABLED === 'true') return true
@@ -37,6 +38,20 @@ export function createReelIngestRouter() {
   router.use(asyncHandler(async (req, _res, next) => {
     if (!ingestTokenValid(req.headers.authorization)) fail('UNAUTHORIZED', '수집기 인증에 실패했습니다.', 401)
     next()
+  }))
+  // Instagram lookups: the Mac mini asks for the most urgent queued reel every few seconds (which also marks it online)
+  // and reports what the reel page showed.
+  router.post('/lookups/claim', asyncHandler(async (_req, res) => {
+    await markCollectorSeen(sharedRedis())
+    const [row] = await query(database().rpc('creator_claim_lookup'))
+    res.json({ lookup: row ? { id: row.id, url: row.url, shortcode: row.shortcode } : null })
+  }))
+  router.post('/lookups/:id', asyncHandler(async (req, res) => {
+    const db = database(), id = uuid(req.params.id)
+    const result = req.body?.result ? lookupResult(req.body.result) : null
+    const patch = result?.videoUrl ? { status: 'done', result, error: null } : { status: 'failed', error: lookupError(req.body?.error), result }
+    await query(db.from('creator_instagram_lookups').update({ ...patch, finished_at: new Date().toISOString() }).eq('id', id).eq('status', 'claimed'))
+    res.json({ ok: true })
   }))
   router.get('/success-reels/plan', asyncHandler(async (_req, res) => {
     // Days roll over at midnight KST so the 03:30 run always starts a new rotation.

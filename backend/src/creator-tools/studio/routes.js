@@ -22,6 +22,7 @@ import { requestReelAnalysis, runReelAnalysis, schedule } from '../success-reel-
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
+import { LOOKUP_PRIORITY } from '../instagram-lookup.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
@@ -268,9 +269,9 @@ export function registerStudioRoutes(router) {
 
   // Reads the reel behind a link (account, counts, caption, cover) into its row. Throws when the link can't be read.
   // A caption or cover the row already has is kept when the link returns none.
-  const fillFromLink = async (db, shortcode, url) => {
+  const fillFromLink = async (db, shortcode, url, priority = LOOKUP_PRIORITY.student) => {
     const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(180000) })
-    const media = await providers.brightData(url, (_key, task) => task())
+    const media = await providers.instagramReel(url, undefined, priority)
     const username = String(media.username || '').replace(/^@/, '').toLowerCase()
     if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
     await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
@@ -300,7 +301,7 @@ export function registerStudioRoutes(router) {
   const recommendLink = async (shortcode, url) => {
     const db = database()
     try {
-      const { thumbnail } = await fillFromLink(db, shortcode, url)
+      const { thumbnail } = await fillFromLink(db, shortcode, url, LOOKUP_PRIORITY.recommend)
       if (thumbnail) await query(db.from('creator_success_reels').update({ visible: true }).eq('shortcode', shortcode))
     } catch (error) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
