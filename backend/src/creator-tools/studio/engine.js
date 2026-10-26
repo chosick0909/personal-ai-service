@@ -29,7 +29,7 @@ export async function resolveSources(db, userId, sources = {}) {
       if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
       if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
       const a = reel.analysis
-      const excerpt = slot === 'hook' ? { formula: a.hook?.formula, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook, type: a.hook?.category, why: a.hook?.analysis }
+      const excerpt = slot === 'hook' ? { type: a.hook?.category, why: a.hook?.analysis, formula: a.hook?.formula, original: { note: '레퍼런스 원문(작동 원리를 이해하는 참고용, 단어·장면을 옮기지 않음)', spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook } }
         : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis }
         : slot === 'filming' ? { filming: { location: a.filming?.location, shotType: a.filming?.shotType, onScreen: a.filming?.onScreen, guide: a.filming?.guide },
           editing: a.editing || { subtitleStyle: a.filming?.textOverlay, cuts: a.filming?.editing, transitions: '확인되지 않음', effects: '확인되지 않음', sound: '확인되지 않음', guide: [] } }
@@ -153,14 +153,16 @@ function normalizeLines(lines) {
 
 // ---------- stage generation ----------
 const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
+// What 훅ai found when it re-read its own draft (persona rule 8); anything listed triggers one rewrite.
+const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str) })
 export const THUMB_LABELS = ['심리 차용형', '후킹 강화형', '3단공식 적용형']
 const stageSchemas = {
-  thumbnail: obj({ questions, mechanism: str, options: arr(obj({ label: { type: 'string', enum: THUMB_LABELS }, text: str, why: str })), placeholders: arr(str) }),
-  hook: obj({ questions, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
-  script: obj({ questions, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
+  thumbnail: obj({ questions, mechanism: obj({ emotion: str, viewerMoment: str }), check, options: arr(obj({ label: { type: 'string', enum: THUMB_LABELS }, text: str, why: str })), placeholders: arr(str) }),
+  hook: obj({ questions, check, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
+  script: obj({ questions, check, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
   filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str,
     editingPlan: obj({ subtitleStyle: str, cuts: str, transitions: str, effects: str, sound: str, checklist: arr(str) }), checklist: arr(str), placeholders: arr(str) }),
-  caption: obj({ questions, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
+  caption: obj({ questions, check, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
 // Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
 const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
@@ -169,9 +171,9 @@ const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 �
 
 const stagePrompts = {
   thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 20자 이내, 한눈에 읽히게.
-먼저 mechanism에 한 줄로 적습니다: 레퍼런스(sources.hook, 없으면 주제 자체)가 시청자에게 일으킨 감정 → 이번 소재의 시청자가 그 감정을 느끼는 실제 순간.
+먼저 mechanism을 채웁니다(원칙 7): emotion은 레퍼런스(sources.hook, 없으면 주제 자체)가 일으킨 감정·욕구, viewerMoment는 이번 소재를 사거나 쓰는 시청자가 그 감정을 느끼는 생활 속 순간.
 options는 정확히 3개이고 label을 이 순서로 씁니다.
-- "심리 차용형": mechanism의 순간을 제목으로.
+- "심리 차용형": viewerMoment를 제목으로.
 - "후킹 강화형": 같은 감정을 더 강하게.
 - "3단공식 적용형": 꾸미는 말 + 핵심 단어 + 끝맺는 말 구조. 레퍼런스와 무관하게 소재만으로.
 why는 이 제목을 왜 누르게 되는지 한 줄.`,
@@ -208,12 +210,16 @@ export async function generateStage(deps, session, stage) {
     asks = parseAsks(raw)
     if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
   }
+  const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6)] : []
+  if (found.length) {
+    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. 원칙 7을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
+  }
   const placeholders = list(raw.placeholders, 120, 12)
   if (stage === 'thumbnail') {
     // 훅ai writes the covers itself from the hook's psychology; the old cover-preserving generator copied the reference's wording.
     const options = (Array.isArray(raw.options) ? raw.options : []).map((o, i) => ({ text: clean(o.text, 40), why: clean(o.why, 200), label: THUMB_LABELS.includes(o.label) ? o.label : THUMB_LABELS[i] || '' })).filter(o => o.text).slice(0, 3)
     if (!options.length) fail('STAGE_EMPTY', '썸네일 카피를 만들지 못했어요. 다시 시도해주세요.', 422)
-    return { value: { options, chosen: 0, custom: null, mechanism: clean(raw.mechanism, 300) }, placeholders }
+    return { value: { options, chosen: 0, custom: null, mechanism: raw.mechanism ? { emotion: clean(raw.mechanism.emotion, 200), viewerMoment: clean(raw.mechanism.viewerMoment, 200) } : null }, placeholders }
   }
   if (stage === 'hook') {
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ spoken: clean(o.spoken, 200), onScreen: clean(o.onScreen, 40), type: HOOK_TYPES.includes(o.type) ? o.type : '기타', why: clean(o.why, 200) })).filter(o => o.spoken).slice(0, 3)
