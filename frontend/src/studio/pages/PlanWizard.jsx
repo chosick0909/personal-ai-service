@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, ChevronDown, History, Star } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, ChevronDown, History, Star } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS } from '../api'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
@@ -10,6 +10,8 @@ import ChatWaitLine from '../ChatWait'
 import { estimateLineSeconds } from '../../lib/scriptText'
 
 const ORDER = STAGES.map(([id]) => id)
+// Wide screens dock the chat to the right edge (open by default, folds away); narrow screens use a bottom sheet.
+const wide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1101px)').matches
 const GEN_STAGES = ['재료 모으는 중', '훅ai가 쓰는 중', '정리하는 중']
 const mergeMessages = (a, b) => { const seen = new Set(a.map(m => m.id)); return [...a, ...b.filter(m => !seen.has(m.id))] }
 const chosenOf = f => f ? (f.custom ? { text: f.custom, custom: true } : f.options?.[f.chosen ?? 0]) : null
@@ -48,8 +50,15 @@ function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onAp
   // A message that failed to send goes back into the box, so nothing typed is lost.
   const send = async (value) => { const t = (value ?? text).trim(); if (!t || busy) return; setText(''); if (!(await onSend(t))) setText(prev => prev || t) }
   const last = messages.at(-1)
-  return <aside className={`st-chat${open ? ' is-open' : ''}`}>
-    <div className="st-chat-head" onClick={() => setOpen(o => !o)}><HookAvatar size={40} />훅ai에게 말하기<button type="button" className="st-icon-btn st-chat-toggle" aria-label="채팅 열기/닫기" style={{ width: 36, height: 36, border: 0 }}><ChevronUp size={18} style={{ transform: open ? 'rotate(180deg)' : 'none' }} /></button></div>
+  // While the chat is folded away, 훅ai's new message pops up at the bottom right; pressing it opens the chat again.
+  const [seenId, setSeenId] = useState(last?.id ?? null)
+  if (open && last && last.id !== seenId) setSeenId(last.id)
+  const [dismissed, setDismissed] = useState(null)
+  const notice = !open && last?.role === 'hookai' && last.id !== seenId && last.id !== dismissed ? last : null
+  return <>
+  <aside className={`st-chat${open ? ' is-open' : ''}`} aria-label="훅ai에게 말하기">
+    <div className="st-chat-head" onClick={() => { if (!wide()) setOpen(o => !o) }}><HookAvatar size={40} />훅ai에게 말하기<button type="button" className="st-icon-btn st-chat-toggle" aria-label="채팅 열기/닫기" style={{ width: 36, height: 36, border: 0 }}><ChevronUp size={18} style={{ transform: open ? 'rotate(180deg)' : 'none' }} /></button>
+      <button type="button" className="st-icon-btn st-chat-fold" aria-label="채팅 접기" title="채팅 접기" onClick={() => setOpen(false)}><PanelRightClose size={20} /></button></div>
     <div className="st-chat-log" ref={log}>
       {messages.map(m => <div key={m.id} style={{ display: 'contents' }}>
         <div className={`st-msg st-msg-${m.role}`}>{m.content}</div>
@@ -66,6 +75,12 @@ function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onAp
       <button type="submit" className="st-btn st-btn-primary" disabled={busy || !text.trim()} aria-label="보내기"><Send size={18} /></button>
     </form>
   </aside>
+  {!open && <button type="button" className="st-chat-launcher" aria-label="훅ai 채팅 펼치기" title="훅ai 채팅 펼치기" onClick={() => setOpen(true)}><HookAvatar size={48} />{busy && <i className="st-chat-launcher-dot" />}</button>}
+  {notice && <div className="st-chat-notice" role="status">
+    <button type="button" className="st-chat-notice-body" onClick={() => setOpen(true)}><HookAvatar size={36} /><span><strong>훅ai</strong><span>{notice.content}</span></span></button>
+    <button type="button" className="st-chat-notice-close" aria-label="알림 닫기" onClick={() => setDismissed(notice.id)}><X size={16} /></button>
+  </div>}
+  </>
 }
 
 // ---------- stage views ----------
@@ -335,7 +350,7 @@ export default function PlanWizard({ sessionId }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
-  const [chatOpen, setChatOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(wide)
   const [version, setVersion] = useState(0)
   const [appliedId, setAppliedId] = useState(null)
   const [pending, setPending] = useState(null)
@@ -368,8 +383,8 @@ export default function PlanWizard({ sessionId }) {
       }
     } catch (e) { toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: e.message }); return false } finally { setChatBusy(false); setPending(null) }
   }
-  const pickTopic = async topic => { setChatOpen(false); try { const r = await studio.setTopic(sessionId, topic); setData(d => ({ ...d, session: r.session })); load() } catch (e) { toast({ kind: 'failed', title: '주제를 정하지 못했어요', body: e.message }) } }
-  const toStage = async (stage, regenerate = false) => { setChatOpen(false); try { const r = await studio.stage(sessionId, stage, regenerate); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load(); window.scrollTo(0, 0) } catch (e) { toast({ kind: 'failed', title: '이동하지 못했어요', body: e.message }) } }
+  const pickTopic = async topic => { if (!wide()) setChatOpen(false); try { const r = await studio.setTopic(sessionId, topic); setData(d => ({ ...d, session: r.session })); load() } catch (e) { toast({ kind: 'failed', title: '주제를 정하지 못했어요', body: e.message }) } }
+  const toStage = async (stage, regenerate = false) => { if (!wide()) setChatOpen(false); try { const r = await studio.stage(sessionId, stage, regenerate); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load(); window.scrollTo(0, 0) } catch (e) { toast({ kind: 'failed', title: '이동하지 못했어요', body: e.message }) } }
   const apply = async messageId => { try { const r = await studio.apply(sessionId, messageId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); setAppliedId(messageId); toast({ kind: 'ready', title: '적용했어요', body: '화면에 반영됐어요.' }) } catch (e) { toast({ kind: 'failed', title: '적용 실패', body: e.message }) } }
   // Loading a saved cover or first line redraws the stage so every box shows the loaded version.
   const restorePick = async (field, index) => { await save({ [field]: { restore: index } }); setVersion(v => v + 1) }
