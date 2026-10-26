@@ -5,6 +5,7 @@ import { studio, STAGES, SLOT_LABELS } from '../api'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
 import HookLoader from '../HookLoader'
 import { CopyButton } from './ReferenceDetail'
+import HookAvatar from '../HookAvatar'
 import { estimateLineSeconds } from '../../lib/scriptText'
 
 const ORDER = STAGES.map(([id]) => id)
@@ -46,7 +47,7 @@ function ChatPanel({ session, messages, busy, onSend, onPickTopic, onApply, appl
   const send = (value) => { const t = (value ?? text).trim(); if (!t || busy) return; setText(''); onSend(t) }
   const last = messages.at(-1)
   return <aside className={`st-chat${open ? ' is-open' : ''}`}>
-    <div className="st-chat-head" onClick={() => setOpen(o => !o)}><span className="st-avatar">훅</span>훅ai에게 말하기<button type="button" className="st-icon-btn st-chat-toggle" aria-label="채팅 열기/닫기" style={{ width: 36, height: 36, border: 0 }}><ChevronUp size={18} style={{ transform: open ? 'rotate(180deg)' : 'none' }} /></button></div>
+    <div className="st-chat-head" onClick={() => setOpen(o => !o)}><HookAvatar size={40} />훅ai에게 말하기<button type="button" className="st-icon-btn st-chat-toggle" aria-label="채팅 열기/닫기" style={{ width: 36, height: 36, border: 0 }}><ChevronUp size={18} style={{ transform: open ? 'rotate(180deg)' : 'none' }} /></button></div>
     <div className="st-chat-log" ref={log}>
       {messages.map(m => <div key={m.id} style={{ display: 'contents' }}>
         <div className={`st-msg st-msg-${m.role}`}>{m.content}</div>
@@ -255,7 +256,7 @@ function AskCard({ ask, onAnswer, busy }) {
   const [text, setText] = useState('')
   const q = ask.questions[ask.index]
   return <section className="st-card st-stack" style={{ borderColor: 'var(--st-accent-soft-2)' }}>
-    <div className="st-row"><span className="st-avatar" style={{ width: 38, height: 38, borderRadius: 999, background: 'var(--st-accent)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900 }}>훅</span><div><h3>훅ai가 먼저 물어봐요</h3><p className="st-muted st-small">지어내지 않으려고요. 답을 받으면 바로 만들어요. ({ask.index + 1}/{ask.questions.length})</p></div></div>
+    <div className="st-row"><HookAvatar size={38} /><div><h3>훅ai가 먼저 물어봐요</h3><p className="st-muted st-small">지어내지 않으려고요. 답을 받으면 바로 만들어요. ({ask.index + 1}/{ask.questions.length})</p></div></div>
     <p style={{ fontSize: 19, fontWeight: 700 }}>{q.question}</p>
     {q.chips?.length > 0 && <div className="st-chips">{q.chips.map(c => <button type="button" key={c} className="st-chip" disabled={busy} onClick={() => onAnswer(c)}>{c}</button>)}</div>}
     <form className="st-row" onSubmit={e => { e.preventDefault(); if (text.trim()) { onAnswer(text.trim()); setText('') } }}>

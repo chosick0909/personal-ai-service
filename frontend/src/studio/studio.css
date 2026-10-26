@@ -520,3 +520,6 @@
 .st h1, .st h2, .st h3, .st-whatsnew-copy h2, .st-tour-card h3 { text-wrap:balance; }
 .st p, .st li, .st-option-hint, .st-why { text-wrap:pretty; }
 .st-page-head.st-reels-info { margin:14px 0 -6px; }
+
+/* 훅ai 캐릭터 프로필 */
+.st-avatar-img { flex:none; display:block; border-radius:999px; object-fit:cover; background:#160f2a; box-shadow:0 0 0 2px var(--st-accent-soft); }

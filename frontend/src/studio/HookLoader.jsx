@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import HookAvatar from './HookAvatar'
 
 // Shared "훅ai 작업 중" panel: a gauge that follows real stages, a typed line after 10 s, a quiz later.
 const LINES = [
@@ -41,7 +42,7 @@ export default function HookLoader({ title = '훅ai가 만드는 중', stages = 
   const line = [...LINES].reverse().find(([at]) => elapsed >= at)?.[1]
   const showQuiz = elapsed >= 35 && elapsed < 120
   return <div className="st-loader" role="status" aria-live="polite">
-    <div className="st-loader-top"><span className="st-avatar">훅</span>{title}</div>
+    <div className="st-loader-top"><HookAvatar size={38} />{title}</div>
     <div className="st-gauge"><i style={{ width: `${percent}%` }} /></div>
     <div className="st-loader-stage"><span>{stages[stageIndex] || '준비 중'}</span><span>{elapsed}초</span></div>
     {line && <div className="st-loader-msg"><Typed key={line} text={line} /></div>}
