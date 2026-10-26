@@ -10,7 +10,7 @@ export default function ChatWaitLine() {
   const line = rotatingLine(WAIT_LINES, elapsed)
   return <div className="st-chat-wait" aria-live="polite">
     {line && <p>{line}</p>}
-    {elapsed >= QUIZ_AFTER && <div className="st-chat-quiz"><strong>기다리는 김에 퀴즈 하나! {quiz.q}</strong>
+    {elapsed >= QUIZ_AFTER && <div className="st-chat-quiz"><strong>🧩 기다리는 김에 퀴즈 하나! {quiz.q}</strong>
       {picked === null ? <div className="st-quiz-opts">{quiz.options.map((o, i) => <button type="button" key={o} className="st-chip" onClick={() => setPicked(i)}>{i + 1}. {o}</button>)}</div>
         : <p className="st-muted">{picked === quiz.answer ? quiz.right : quiz.wrong}</p>}</div>}
   </div>

@@ -34,7 +34,7 @@ export default function HookLoader({ title = '훅ai가 만드는 중', stages = 
     <div className="st-loader-stage"><span>{stages[stageIndex] || '준비 중'}</span><span>{elapsed}초</span></div>
     {line && <div className="st-loader-msg"><Typed key={line} text={line} /></div>}
     {showQuiz && <div className="st-quiz">
-      <strong>기다리는 김에 퀴즈 하나! {quiz.q}</strong>
+      <strong>🧩 기다리는 김에 퀴즈 하나! {quiz.q}</strong>
       {picked === null ? <div className="st-quiz-opts">{quiz.options.map((o, i) => <button type="button" key={o} className="st-chip" onClick={() => setPicked(i)}>{i + 1}. {o}</button>)}</div>
         : <p className="st-muted">{picked === quiz.answer ? quiz.right : quiz.wrong}</p>}
     </div>}
