@@ -597,7 +597,11 @@
 .st-applied-toggle { justify-self:start; }
 
 /* 훅ai answering in the chat: a line under the typing dots that changes every few seconds */
-.st .st-chat-wait { margin: -4px 0 0 4px; font-size: 14px; color: var(--st-muted); }
+.st .st-chat-wait { margin: -4px 0 0 4px; display: grid; gap: 8px; max-width: 92%; }
+.st .st-chat-wait > p { margin: 0; font-size: 14px; color: var(--st-muted); }
+.st .st-chat-quiz { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--st-accent-soft, rgba(108, 77, 255, .08)); font-size: 14px; }
+.st .st-chat-quiz .st-quiz-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.st .st-chat-quiz p { margin: 0; }
 /* The script total again next to the quick requests */
 .st .st-quick { align-items: center; }
 .st .st-quick-total { font-size: 15px; font-weight: 700; color: var(--st-accent-text); padding: 8px 14px; border-radius: 999px; background: var(--st-accent-soft, rgba(108, 77, 255, .1)); white-space: nowrap; }

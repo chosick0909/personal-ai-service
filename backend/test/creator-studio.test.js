@@ -58,7 +58,7 @@ test('stage generation normalizes 훅ai output and keeps placeholders', async ()
   const db = fakeDb()
   const calls = []
   const session = { id: 's1', user_id: 'u1', mode: 'single', brief: '선크림 3개 비교', sources: { hook: { kind: 'reel', id: 'Aaaaa1' }, structure: { kind: 'reel', id: 'Aaaaa1' } },
-    topic: { title: '지성 피부 선크림 3개 판정', facts: ['백탁 없음'], category: '피부' }, thumbnail: { options: [{ text: '선크림 안 사요 사요' }], chosen: 0 }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.' }], chosen: 0 } }
+    topic: { title: '지성 피부 선크림 3개 판정', facts: ['백탁 없음'], category: '피부', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, thumbnail: { options: [{ text: '선크림 안 사요 사요' }], chosen: 0 }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.' }], chosen: 0 } }
   const makeProviders = () => ({ json: async (op, _i, input, _f, schema) => { calls.push({ op, input, schema })
     return { options: [{ label: '판정으로 설득', why: '빠름', lines: [{ part: 'hook', spoken: '안 사요. 번들거리면 끝.', onScreen: '안 사요', seconds: 3 }, { part: 'body', spoken: '[제품 A]? 안 사요.', onScreen: '', seconds: 500 }, { part: 'weird', spoken: '', onScreen: '', seconds: 2 }] }], placeholders: ['[제품 A]', ''] } } })
   const { value, placeholders } = await generateStage({ db, makeProviders }, session, 'script')
@@ -230,7 +230,7 @@ test('a draft whose self-check finds reference traces or unprovided facts is rew
 
 test('a thumbnail draft that quotes words the student never wrote is rewritten from the original words', async () => {
   const db = fakeDb()
-  const session = { id: 's11', user_id: 'u1', mode: 'single', sources: {}, brief: '쿠팡 냉동만두 세일즈', topic: { title: '쿠팡 냉동만두 세일즈', facts: ['세일 기간'], category: '요리' }, placeholders: [] }
+  const session = { id: 's11', user_id: 'u1', mode: 'single', sources: {}, brief: '쿠팡 냉동만두 세일즈', topic: { title: '쿠팡 냉동만두 세일즈', facts: ['세일 기간'], category: '요리', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, placeholders: [] }
   const prompts = []
   const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { prompts.push(instructions)
     return prompts.length === 1
@@ -267,7 +267,7 @@ test('first lines and scripts are written by the script principles, with the for
   const line = (part, spoken) => ({ part, spoken, onScreen: '', seconds: 3 })
   const draft = risks => ({ questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: risks }, options: [{ label: 'a', why: 'w', lines: [line('hook', '첫 줄'), line('body', '둘째 줄'), line('cta', '끝')] }], placeholders: [] })
   const deps = { db, makeProviders: () => ({ json: async (_op, instructions, input) => { calls.push({ instructions, input }); return calls.length === 1 ? draft(['쓰는 모습 보여드릴게요: 예고만 함']) : draft([]) } }) }
-  const session = { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, brief: 'b', topic: { title: 't', facts: [], category: '피부' }, hook: { options: [{ spoken: '첫 줄' }], chosen: 0 }, placeholders: [] }
+  const session = { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, brief: 'b', topic: { title: 't', facts: [], category: '피부', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, hook: { options: [{ spoken: '첫 줄' }], chosen: 0 }, placeholders: [] }
   const { value } = await generateStage(deps, session, 'script')
   for (const p of SCRIPT_PRINCIPLES) assert.ok(calls[0].instructions.includes(p.name), p.name)
   assert.ok(calls[0].input.provenFormulas.structures.length > 0, 'the 공식 사전 goes along even before reels are filed')
@@ -278,23 +278,28 @@ test('first lines and scripts are written by the script principles, with the for
   assert.ok(HOOK_PRINCIPLES.length >= 4)
 })
 
-test('before the first draft 훅ai sets the field and looks the topic up once; later stages reuse it', async () => {
+test('before the first draft 훅ai sets the field and looks the topic up once by kind (a product: its sales page and real buyers\' reviews); later stages reuse it', async () => {
   const { prepareTopic, researchTopic } = await import('../src/creator-tools/studio/research.js')
   const db = fakeDb()
   db.tables.studio_sessions.set('s20', { id: 's20' })
-  let searched = 0
-  const client = () => ({ responses: { create: async ({ tools, input }) => { searched += 1; assert.equal(tools[0].type, 'web_search'); assert.match(input, /읽어 온 링크 내용/)
-    return { output_text: '{"subject":"피지 연화 제품","facts":[{"text":"피지를 불려 닦아내는 제품","source":"https://brand.example.com/p","official":true},{"text":"면봉으로 닦는다","source":"https://seller.example.com/x","official":false}],"unconfirmed":["구성품"],"viewerQuestions":["매일 써도 되나"],"avoid":["모공이 사라진다"]}', output: [{ content: [{ annotations: [{ url_citation: { url: 'https://example.com/a', title: 'A' } }] }] }] } } } })
-  const providers = { call: (_p, _op, fn) => fn(), json: async () => ({ category: '피부' }) }
+  const searches = []
+  const client = () => ({ responses: { create: async ({ tools, input }) => { searches.push(input); assert.equal(tools[0].type, 'web_search'); assert.match(input, /수강생이 붙인 링크에서 읽은 내용/)
+    const reviews = /후기/.test(input.split('\n')[1])
+    return { output_text: JSON.stringify({ findings: reviews ? [{ text: '전용 스크래퍼가 편하다는 후기가 많다', source: 'https://blog.example.com/r', official: false }]
+      : [{ text: '본품에 전용 스크래퍼가 들어 있다', source: 'https://brand.example.com/p', official: true }, { text: '면봉으로 닦는다', source: 'https://seller.example.com/x', official: false }] }), output: [] } } } })
+  const providers = { call: (_p, _op, fn) => fn(), json: async op => op === 'studio-research-kind' ? { kind: 'product', subject: '피지 연화 제품', searchName: '일소 피지연화제' }
+    : op === 'studio-research-summary' ? { viewerQuestions: ['매일 써도 되나'], avoid: ['모공이 사라진다'], unconfirmed: [] } : { category: '피부' } }
   const session = { id: 's20', brief: '내돈내산 피지템 https://shop.example.com/item?1', topic: { title: '피지템', facts: [], category: '기타' } }
   const research = await researchTopic(providers, session, { client, readPage: async () => '상품 상세 내용' })
-  assert.deepEqual(research.facts, ['피지를 불려 닦아내는 제품', '(판매처·후기 정보) 면봉으로 닦는다'], 'a seller\'s wording is marked so it is not taken as the maker\'s')
-  assert.deepEqual(research.unconfirmed, ['구성품'])
-  assert.deepEqual(research.sources.map(s => s.url), ['https://brand.example.com/p', 'https://seller.example.com/x', 'https://example.com/a', 'https://shop.example.com/item?1'])
-  assert.equal(searched, 1)
+  assert.equal(searches.length, 2, 'a product is searched twice: its sales page and its buyers\' reviews')
+  assert.equal(research.kind, 'product')
+  assert.deepEqual(research.facts, ['본품에 전용 스크래퍼가 들어 있다', '(판매처·후기 정보) 면봉으로 닦는다'], 'a seller\'s wording is marked so it is not taken as the maker\'s')
+  assert.deepEqual(research.reviews, ['전용 스크래퍼가 편하다는 후기가 많다'])
+  assert.deepEqual(research.viewerQuestions, ['매일 써도 되나'])
+  assert.ok(research.sources.some(s => s.url === 'https://brand.example.com/p') && research.sources.some(s => s.url === 'https://shop.example.com/item?1'))
   const prepared = await prepareTopic({ db }, { ...session, topic: { ...session.topic, research } }, providers)
   assert.equal(prepared.topic.category, '피부', 'a topic taken from the brief gets its field')
-  assert.equal(searched, 1, 'research already on the topic is not repeated')
+  assert.equal(searches.length, 2, 'research already on the topic is not repeated')
   assert.equal(db.tables.studio_sessions.get('s20').topic.category, '피부')
 })
 

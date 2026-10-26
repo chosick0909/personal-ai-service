@@ -62,7 +62,7 @@ function sessionContext(session, resolved, extras = {}) {
     answers: session.topic?.answers || [],
     topic: session.topic ? { title: session.topic.title, angle: session.topic.angle, promise: session.topic.promise, facts: session.topic.facts, audience: session.topic.audience, category: session.topic.category } : null,
     // What 훅ai looked up on the web about the topic before planning (public facts with sources).
-    research: session.topic?.research && !session.topic.research.failed ? { subject: session.topic.research.subject, facts: session.topic.research.facts, unconfirmed: session.topic.research.unconfirmed || [], viewerQuestions: session.topic.research.viewerQuestions, avoid: session.topic.research.avoid } : null,
+    research: session.topic?.research && !session.topic.research.failed ? { subject: session.topic.research.subject, facts: session.topic.research.facts, reviews: session.topic.research.reviews || [], unconfirmed: session.topic.research.unconfirmed || [], viewerQuestions: session.topic.research.viewerQuestions, avoid: session.topic.research.avoid } : null,
     // How 훅ai read the student's key words at the cover stage, so every later stage keeps the same meaning.
     briefReading: session.thumbnail?.plan?.terms?.length ? { terms: session.thumbnail.plan.terms, purpose: session.thumbnail.plan.purpose } : null,
     thumbnail: chosen('thumbnail'), hook: chosen('hook'),

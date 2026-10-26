@@ -6,7 +6,7 @@ import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
 import HookLoader from '../HookLoader'
 import { CopyButton } from './ReferenceDetail'
 import HookAvatar from '../HookAvatar'
-import { rotatingLine, CHAT_LINES, OPENER_LINES, PLAN_LINES } from '../waitLines'
+import { rotatingLine, WAIT_LINES, QUIZZES, QUIZ_AFTER } from '../waitLines'
 import { estimateLineSeconds } from '../../lib/scriptText'
 
 const ORDER = STAGES.map(([id]) => id)
@@ -41,15 +41,22 @@ function ProposalPreview({ proposal, session, applied, onApply }) {
   </div>
 }
 
-// Under 훅ai's typing dots while it answers: a short line that changes every few seconds.
-function ChatWaitLine({ lines }) {
-  const [elapsed, setElapsed] = useState(1)
-  useEffect(() => { const base = Date.now() - 1000; const t = setInterval(() => setElapsed(Math.round((Date.now() - base) / 1000)), 1000); return () => clearInterval(t) }, [])
-  const line = rotatingLine(lines, elapsed)
-  return line ? <p className="st-chat-wait" aria-live="polite">{line}</p> : null
+// Under 훅ai's typing dots while it answers: the same witty lines and quiz as the big loader, sized for the chat.
+function ChatWaitLine() {
+  const [elapsed, setElapsed] = useState(0)
+  const [quiz] = useState(() => QUIZZES[Math.floor(Math.random() * QUIZZES.length)])
+  const [picked, setPicked] = useState(null)
+  useEffect(() => { const base = Date.now(); const t = setInterval(() => setElapsed(Math.round((Date.now() - base) / 1000)), 1000); return () => clearInterval(t) }, [])
+  const line = rotatingLine(WAIT_LINES, elapsed)
+  return <div className="st-chat-wait" aria-live="polite">
+    {line && <p>{line}</p>}
+    {elapsed >= QUIZ_AFTER && <div className="st-chat-quiz"><strong>기다리는 김에 퀴즈 하나! {quiz.q}</strong>
+      {picked === null ? <div className="st-quiz-opts">{quiz.options.map((o, i) => <button type="button" key={o} className="st-chip" onClick={() => setPicked(i)}>{i + 1}. {o}</button>)}</div>
+        : <p className="st-muted">{picked === quiz.answer ? quiz.right : quiz.wrong}</p>}</div>}
+  </div>
 }
 
-function ChatPanel({ session, messages, pending, busy, waitLines = CHAT_LINES, onSend, onPickTopic, onApply, appliedId, open, setOpen }) {
+function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onApply, appliedId, open, setOpen }) {
   const log = useRef(null)
   const [text, setText] = useState('')
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }) }, [messages, pending, busy])
@@ -67,7 +74,7 @@ function ChatPanel({ session, messages, pending, busy, waitLines = CHAT_LINES, o
         {m.role === 'hookai' && m === last && m.meta?.chips?.length > 0 && !busy && <div className="st-msg-chips">{m.meta.chips.map(c => <button type="button" key={c} className="st-chip" onClick={() => send(c)}>{c}</button>)}</div>}
       </div>)}
       {pending && <div className="st-msg st-msg-user">{pending}</div>}
-      {busy && <><div className="st-chat-typing"><i /><i /><i /></div><ChatWaitLine lines={waitLines} /></>}
+      {busy && <><div className="st-chat-typing"><i /><i /><i /></div><ChatWaitLine /></>}
     </div>
     <form className="st-chat-input" onSubmit={e => { e.preventDefault(); send() }}>
       <textarea value={text} onChange={e => setText(e.target.value)} placeholder={session.stage === 'topic' ? '답을 적거나, 원하는 걸 말해주세요' : '고치고 싶은 점을 말해주세요'} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} aria-label="훅ai에게 보낼 메시지" />
@@ -386,7 +393,7 @@ export default function PlanWizard({ sessionId }) {
       <nav className="st-stepper" aria-label="기획 단계">{STAGES.map(([id, label], i) => <span key={id} style={{ display: 'contents' }}>{i > 0 && <span className="st-step-gap" />}<button type="button" className={`st-step${i < idx ? ' is-done' : ''}`} aria-current={id === session.stage ? 'step' : undefined} disabled={i > idx} onClick={() => i < idx && toStage(id)}><i>{i < idx ? <Check size={15} /> : i + 1}</i>{label}</button></span>)}</nav>
       {Object.keys(session.sources || {}).length > 0 && data.sources && <div className="st-chips">{Object.entries(data.sources).map(([slot, s]) => <span key={slot} className="st-pill st-pill-gray" style={{ fontSize: 14 }}>{SLOT_LABELS[slot]} · {s.label}</span>)}</div>}
       {session.ask && session.ask.stage === session.stage && !generating ? <AskCard ask={session.ask} busy={chatBusy} onAnswer={a => send(a, { openChat: false })} />
-        : generating ? <HookLoader title={`훅ai가 ${STAGES.find(([id]) => id === session.stage)?.[1]} 만드는 중`} stages={GEN_STAGES} stageIndex={elapsed < 5 ? 0 : elapsed < 60 ? 1 : 2} startedAt={session.job.startedAt} lines={PLAN_LINES} />
+        : generating ? <HookLoader title={`훅ai가 ${STAGES.find(([id]) => id === session.stage)?.[1]} 만드는 중`} stages={GEN_STAGES} stageIndex={elapsed < 5 ? 0 : elapsed < 60 ? 1 : 2} startedAt={session.job.startedAt} />
         : failed ? <div className="st-card st-stack"><div className="st-error">{session.job.error}</div><button type="button" className="st-btn st-btn-primary" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시 만들기</button></div>
         : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive} />
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
@@ -404,6 +411,6 @@ export default function PlanWizard({ sessionId }) {
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
       </div>}
     </div>
-    <ChatPanel session={session} messages={data.messages} pending={pending} busy={chatBusy || awaitingOpener} waitLines={awaitingOpener ? OPENER_LINES : CHAT_LINES} onSend={send} onPickTopic={pickTopic} onApply={apply} appliedId={appliedId} open={chatOpen} setOpen={setChatOpen} />
+    <ChatPanel session={session} messages={data.messages} pending={pending} busy={chatBusy || awaitingOpener} onSend={send} onPickTopic={pickTopic} onApply={apply} appliedId={appliedId} open={chatOpen} setOpen={setChatOpen} />
   </div>
 }
