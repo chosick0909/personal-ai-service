@@ -650,7 +650,7 @@ export function registerStudioRoutes(router) {
     } else if (req.body?.libraryId) {
       const entry = await libraryEntry(database(), kind, String(req.body.libraryId))
       if (!entry) fail('SOURCE_NOT_FOUND', '공식 사전 항목을 찾을 수 없어요.', 404)
-      draft = { title: entry.title, spec: kind === 'hook' ? { type: entry.type, formula: entry.formula } : { format: entry.format, segments: entry.segments }, example: entry.example || entry.summary, source: { libraryId: entry.id } }
+      draft = { title: entry.title, spec: kind === 'hook' ? { type: entry.type, formula: entry.formula } : { format: entry.format, segments: entry.segments, ...(entry.lines ? { lines: entry.lines } : {}) }, example: entry.example || entry.summary, source: { libraryId: entry.id } }
     } else fail('SOURCE_REQUIRED', '저장할 내용이 없어요.')
     const title = text(req.body?.title, 80) || draft.title
     const row = await query(database().from('studio_formulas').insert({ user_id: req.auth.userId, kind, title, spec: draft.spec, example: draft.example || '', source: draft.source || {} }).select('id,kind,title,spec,example,source,created_at').single())
@@ -673,10 +673,23 @@ export function registerStudioRoutes(router) {
     const paths = rows.map(r => r.thumbnail_path).filter(Boolean)
     const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)) : []
     const urls = new Map(signed.filter(i => i.signedUrl).map(i => [i.path, i.signedUrl]))
+    // Entries from course material name their own example reels; they come first, shown from 성공 릴스 when the reel is
+    // there and otherwise as a link to Instagram.
+    const curatedCodes = [...new Set(library.structures.flatMap(s => s.template ? s.examples || [] : []))]
+    const curatedRows = curatedCodes.length ? await query(db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,analysis').in('shortcode', curatedCodes)) : []
+    const extraPaths = curatedRows.map(r => r.thumbnail_path).filter(p => p && !urls.has(p))
+    if (extraPaths.length) for (const i of await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(extraPaths, 3600))) if (i.signedUrl) urls.set(i.path, i.signedUrl)
+    const curated = new Map(curatedRows.map(r => [r.shortcode, r]))
     const example = r => ({ id: r.shortcode, username: r.username, views: r.views, thumbnailUrl: urls.get(r.thumbnail_path) || null, hook: r.analysis?.hook?.spokenHook || null, formula: r.analysis?.hook?.formula || null })
+    const named = code => curated.has(code) ? example(curated.get(code)) : { id: code, username: null, views: null, thumbnailUrl: null, hook: null, formula: null, instagramUrl: `https://www.instagram.com/reel/${code}/` }
     res.set('Cache-Control', 'private, max-age=300').json({
       hooks: library.hooks.map(h => { const hits = rows.filter(r => filed.has(r.shortcode) ? filed.get(r.shortcode).hook_id === h.id : !h.learned && r.analysis?.hook?.category === h.type); return { ...h, count: hits.length, examples: hits.slice(0, 8).map(example) } }),
-      structures: library.structures.map(s => { const hits = rows.filter(r => filed.has(r.shortcode) ? filed.get(r.shortcode).structure_id === s.id : !s.learned && r.analysis?.structure?.category === s.format); return { ...s, count: hits.length, examples: hits.slice(0, 8).map(example) } }),
+      structures: library.structures.map(s => {
+        const own = (s.template ? s.examples || [] : []).map(named)
+        // A template is matched only by the daily study's filing, never by the broad analysis type.
+        const hits = rows.filter(r => !own.some(o => o.id === r.shortcode) && (filed.has(r.shortcode) ? filed.get(r.shortcode).structure_id === s.id : !s.learned && !s.template && r.analysis?.structure?.category === s.format))
+        return { ...s, count: own.length + hits.length, examples: [...own, ...hits.slice(0, 8).map(example)] }
+      }),
     })
   }))
 

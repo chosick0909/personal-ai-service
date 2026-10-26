@@ -314,6 +314,15 @@
 .st-role-cta { background:var(--st-success-soft); color:var(--st-success); }
 .st-formula { font-size:18px; font-weight:700; line-height:1.7; }
 .st-formula mark, .st-blank { padding:1px 7px; border-radius:6px; background:var(--st-accent-soft); color:var(--st-accent-text); }
+.st-story-lines { display:grid; gap:12px; }
+.st-story-line { display:grid; gap:8px; padding:16px 18px; border:1px solid var(--st-line); border-radius:14px; background:var(--st-bg); }
+.st-story-step { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.st-story-step b { font-size:13px; font-weight:800; color:var(--st-accent-text); }
+.st-story-step strong { font-size:17px; }
+.st-story-line .st-formula { margin:0; font-size:17px; }
+.st-story-example { margin:0; display:flex; gap:8px; font-size:15.5px; line-height:1.6; color:var(--st-muted); }
+.st-story-example span { flex:none; padding:0 7px; border-radius:6px; background:var(--st-panel); border:1px solid var(--st-line); font-size:12.5px; font-weight:800; line-height:22px; height:22px; }
+.st-example-ig { display:grid; place-content:center; justify-items:center; gap:6px; aspect-ratio:9/16; border-radius:10px; background:linear-gradient(160deg,#833ab4,#fd1d1d 60%,#fcb045); color:#fff; font-size:13px; font-weight:800; }
 .st-steps { margin:0; padding-left:0; list-style:none; counter-reset:step; display:grid; gap:10px; }
 .st-steps li { position:relative; padding-left:38px; font-size:16px; line-height:1.6; }
 .st-steps li::before { counter-increment:step; content:counter(step); position:absolute; left:0; top:1px; display:grid; place-items:center; width:26px; height:26px; border-radius:999px; background:var(--st-accent-soft); color:var(--st-accent-text); font-size:13px; font-weight:800; }

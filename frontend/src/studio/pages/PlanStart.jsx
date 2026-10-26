@@ -39,10 +39,10 @@ function SourceChip({ source }) {
 
 export default function PlanStart({ preset = {} }) {
   const { go, toast } = useStudio()
-  const [mode, setMode] = useState(preset.ref ? 'single' : preset.formula ? 'mix' : preset.saved ? 'saved' : null)
+  const [mode, setMode] = useState(preset.ref ? 'single' : preset.formula || preset.lib ? 'mix' : preset.saved ? 'saved' : null)
   const [savedTopics, setSavedTopics] = useState([])
   const [savedPick, setSavedPick] = useState(preset.saved || null)
-  const [sources, setSources] = useState(() => preset.ref ? { hook: { kind: 'reel', id: preset.ref, label: '' } } : preset.formula && preset.kind ? { [preset.kind]: { kind: 'formula', id: preset.formula, label: '' } } : {})
+  const [sources, setSources] = useState(() => preset.ref ? { hook: { kind: 'reel', id: preset.ref, label: '' } } : preset.formula && preset.kind ? { [preset.kind]: { kind: 'formula', id: preset.formula, label: '' } } : preset.lib && preset.kind ? { [preset.kind]: { kind: 'library', id: preset.lib, label: '' } } : {})
   const [picking, setPicking] = useState(null)
   const [data, setData] = useState({ refs: [], formulas: [], library: null })
   const [busy, setBusy] = useState(false)
@@ -53,9 +53,11 @@ export default function PlanStart({ preset = {} }) {
       const refs = r.references.filter(x => x.analysisStatus === 'ready')
       setData({ refs, formulas: f.formulas, library: l })
       if (preset.formula && preset.kind) { const found = f.formulas.find(x => x.id === preset.formula); if (found) setSources({ [preset.kind]: { kind: 'formula', id: found.id, label: found.title } }) }
+      // From 공식 사전: the chosen formula or story template fills its slot.
+      if (preset.lib && preset.kind && l) { const found = (preset.kind === 'hook' ? l.hooks : l.structures).find(x => x.id === preset.lib); if (found) setSources({ [preset.kind]: { kind: 'library', id: found.id, label: found.title } }) }
       if (preset.ref) { const found = refs.find(x => x.id === preset.ref); if (found) setSources({ hook: { kind: 'reel', id: found.id, label: found.title || `@${found.username}`, thumbnailUrl: found.thumbnailUrl } }) }
     }).catch(() => {})
-  }, [preset.ref, preset.formula, preset.kind])
+  }, [preset.ref, preset.formula, preset.kind, preset.lib])
   const start = async () => {
     setBusy(true)
     try {

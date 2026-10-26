@@ -1,3 +1,5 @@
+import { STORY_TEMPLATES } from './story-templates.js'
+
 // 공식 사전: the built-in hook and story-structure formulas. Live examples come from
 // analyzed success reels whose analysis uses the same categories (HOOK_TYPES / STORY_FORMATS).
 
@@ -15,7 +17,7 @@ export const HOOK_LIBRARY = [
   { id: 'number', type: '숫자·리스트', title: 'N가지', formula: '[타깃]을 위한 [주제] [N]가지', when: '정보를 깔끔하게 약속할 때', example: '지성 피부를 위한 선크림 고르는 기준 3가지' },
 ]
 
-export const STRUCTURE_LIBRARY = [
+const BASE_STRUCTURES = [
   { id: 'problem-solution', format: '문제-해결', title: '문제 → 해결', summary: '이게 문제예요 → 이렇게 하세요', when: '시청자의 고민 하나를 콕 집어 해결할 때',
     segments: [['문제 제기', '시청자가 겪는 상황을 한 문장으로'], ['왜 그런지', '원인 한 줄'], ['해결 방법', '바로 따라 할 수 있는 행동'], ['마무리 멘트', '저장·팔로우 이유']] },
   { id: 'verdict', format: '비교·평가', title: '비교·판정', summary: '사요/안 사요, 생존/사망, A vs B, 순위', when: '제품·방법을 여러 개 빠르게 평가할 때',
@@ -33,6 +35,9 @@ export const STRUCTURE_LIBRARY = [
   { id: 'test', format: '리뷰·후기', title: '직접 해봤습니다', summary: '실험·검증 → 결과 공개', when: '궁금한 걸 대신 해봐 줄 때',
     segments: [['실험 선언', '무엇을 왜 해보는지'], ['조건', '기간·방법'], ['과정', '중간 장면 1~2개'], ['결과', '솔직한 판정'], ['마무리 멘트', '다음 실험 예고']] },
 ]
+
+// The course's 30 storytelling script templates are 전개 공식 too, each with its fill-in lines and example reels.
+export const STRUCTURE_LIBRARY = [...BASE_STRUCTURES, ...STORY_TEMPLATES]
 
 export function libraryStructure(format) {
   return STRUCTURE_LIBRARY.find(item => item.format === format) || null
