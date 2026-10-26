@@ -170,8 +170,9 @@ async function readLookup(context, lookup) {
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
     for (const text of inline) if (/"code"/.test(text)) bodies.push(...parseBodies(text))
     for (let i = 0; i < 3 && !found()?.videoUrl; i += 1) await pause(2000, 3000)
-    // A single reel page carries likes but not plays; the media info endpoint Instagram's own page uses has them.
-    if (found() && !found().views) {
+    // A single reel page carries likes but not plays, and some reel pages never list the video file at all;
+    // the media info endpoint Instagram's own page uses has both, so it is asked whenever either is missing.
+    if (!found()?.videoUrl || !found().views) {
       const info = await page.evaluate(async id => {
         const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''
         const response = await fetch(`/api/v1/media/${id}/info/`, { credentials: 'include', headers: { 'x-ig-app-id': '936619743392459', 'x-csrftoken': csrf, 'x-requested-with': 'XMLHttpRequest' } })
