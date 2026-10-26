@@ -162,7 +162,8 @@ let misses = 0, restUntil = 0
 async function readLookup(context, lookup) {
   if (!(await loggedIn(context))) { await log('⚠️ 수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행해주세요.'); return { error: 'LOOKUP_BLOCKED' } }
   if (Date.now() < restUntil) return { error: 'LOOKUP_BLOCKED' }
-  const page = await context.newPage()
+  let page
+  try { page = await context.newPage() } catch (error) { await log(`조회 ${lookup.shortcode} 창 열기 실패: ${error?.message || error}`); return { error: 'LOOKUP_BLOCKED' } }
   const bodies = []
   page.on('response', async response => {
     if (!/^https:\/\/www\.instagram\.com\/(api\/|graphql)/.test(response.url())) return
@@ -199,7 +200,8 @@ async function readLookup(context, lookup) {
     misses = 0
     return { result: { videoUrl: item.videoUrl, thumbnailUrl: item.thumbnailUrl, caption: item.caption, username: item.owner,
       views: item.views, likes: item.likes, comments: item.comments, postedAt: postedAt(item.code)?.toISOString() || null } }
-  } catch {
+  } catch (error) {
+    await log(`조회 ${lookup.shortcode} 오류: ${error?.message || error}`)
     return { error: 'LINK_UNAVAILABLE' }
   } finally { await page.close().catch(() => {}) }
 }
@@ -228,6 +230,8 @@ async function serve() {
   const config = await loadConfig()
   if (!config?.server) throw new Error('config.json이 없습니다. 설치 안내를 확인하세요.')
   const context = await openBrowser()
+  // If the Chrome window is closed, every lookup after it would fail; launchd starts the collector again with a new window.
+  context.on('close', () => { void log('수집 전용 크롬 창이 닫혀 수집기를 다시 시작합니다').finally(() => process.exit(1)) })
   await log('인스타 조회 대기 시작')
   ;(async () => { for (;;) { await serveLookups(config, context); await sleep(3000) } })()
   for (;;) {
