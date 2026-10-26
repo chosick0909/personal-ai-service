@@ -6,3 +6,9 @@ export function studio2Enabled(userId, env = process.env) {
   const listed = String(env.CREATOR_STUDIO2_USER_IDS || '').split(',').map(id => id.trim()).filter(Boolean)
   return (listed.length ? listed : DEFAULT_PREVIEW_USER_IDS).includes(userId)
 }
+
+// Who may mark reels as 추천 (links 지영 or the client hand over). Defaults to 지영's account.
+export function canRecommend(userId, env = process.env) {
+  const listed = String(env.CREATOR_RECOMMENDER_IDS || '').split(',').map(id => id.trim()).filter(Boolean)
+  return (listed.length ? listed : DEFAULT_PREVIEW_USER_IDS).includes(userId)
+}

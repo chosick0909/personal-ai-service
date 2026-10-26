@@ -213,7 +213,8 @@
 .st-reel-thumb::after { content:''; position:absolute; left:0; right:0; bottom:0; height:46%; background:linear-gradient(transparent, rgba(0,0,0,.72)); pointer-events:none; }
 .st-reel-open { position:absolute; inset:0; border:0; background:none; padding:0; }
 .st-reel-date { position:absolute; top:10px; right:10px; z-index:1; color:#fff; font-size:13px; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,.6); }
-.st-reel-badge { position:absolute; top:10px; left:10px; z-index:1; padding:3px 9px; border-radius:8px; background:rgba(255,255,255,.92); color:var(--st-accent-text); font-size:12px; font-weight:800; }
+.st-reel-tags { position:absolute; top:10px; left:10px; z-index:1; display:flex; gap:6px; }
+.st-reel-badge { padding:3px 9px; border-radius:8px; background:rgba(255,255,255,.92); color:var(--st-accent-text); font-size:12px; font-weight:800; }
 .st-reel-stats { position:absolute; left:12px; bottom:12px; z-index:1; display:flex; gap:10px; color:#fff; font-size:15px; font-weight:800; text-shadow:0 1px 3px rgba(0,0,0,.6); }
 .st-reel-stats span { display:flex; align-items:center; gap:4px; }
 /* uploads without a cover */
@@ -394,3 +395,17 @@
   .st-wizard-foot .st-btn-primary { flex:1 1 100%; order:2; }
   .st-wizard-foot .st-btn-ghost { flex:1 1 auto; order:1; min-height:48px; font-size:16px; padding:0 14px; }
 }
+
+/* 추천: 지영·클라이언트가 고른 릴스 */
+.st-reel-rec { background:var(--st-accent); color:#fff; }
+
+/* 성공 릴스 상단 안내: 레퍼런스란? / 활용법 */
+.st-guide { display:grid; grid-template-columns:1fr 1.3fr; gap:18px 28px; padding:22px 24px; border-radius:16px; background:var(--st-accent-soft); border:1px solid var(--st-accent-soft-2); }
+.st-guide h3 { margin:0 0 8px; font-size:18px; color:var(--st-accent-text); }
+.st-guide p { margin:0 0 6px; font-size:16px; line-height:1.6; color:var(--st-text); }
+.st-guide b { color:var(--st-accent-text); }
+.st-guide-note { color:var(--st-muted) !important; font-size:15px !important; }
+.st-guide-steps { list-style:none; margin:8px 0 10px; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+.st-guide-steps li { display:flex; align-items:center; gap:8px; font-size:16px; font-weight:700; color:var(--st-text); }
+.st-guide-steps svg { color:var(--st-accent); flex:none; }
+@media (max-width: 760px) { .st-guide { grid-template-columns:1fr; padding:18px; } .st-guide-steps { grid-template-columns:1fr; } }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSearch } from 'lucide-react'
+import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSearch, CircleCheck } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount, day, when } from '../api'
 
@@ -77,7 +77,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
       {hover && (loadingPreview || (preview && !playing)) && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
-      {badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}
+      <div className="st-reel-tags">{reel.recommended && <span className="st-reel-badge st-reel-rec">추천</span>}{badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}</div>
       <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{compactCount(reel.views)}</span></div>
       <div className="st-reel-hover">
         <button type="button" className="st-reel-analyze" disabled={busy} onClick={ready ? onOpenAnalysis : onAnalyze}>
@@ -91,9 +91,27 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
   </article>
 }
 
+// 지영's guide for students (2026-10-26), shown above the archive so every visit starts from how to read a reference.
+const REFERENCE_STEPS = ['첫 3초는 어떻게 시작했는지', '어떤 스토리와 흐름으로 이어지는지', '왜 끝까지 보게 되는지', '내 주제라면 어떻게 응용할 수 있을지']
+function ReferenceGuide() {
+  return <section className="st-guide" aria-label="레퍼런스 활용 안내">
+    <div className="st-guide-col">
+      <h3>레퍼런스란?</h3>
+      <p>조회수가 잘 나오거나 사람들이 오래 머무는 콘텐츠를 분석하기 위한 <b>‘좋은 예시’</b>입니다.</p>
+      <p className="st-guide-note">따라 하는 것이 아니라, 잘되는 구조와 흐름을 배우기 위한 자료예요.</p>
+    </div>
+    <div className="st-guide-col">
+      <h3>레퍼런스를 어떻게 활용하나요?</h3>
+      <p>그냥 보는 것으로 끝내지 마세요. 이렇게 생각하며 분석해 보세요.</p>
+      <ul className="st-guide-steps">{REFERENCE_STEPS.map(step => <li key={step}><CircleCheck size={18} aria-hidden="true" />{step}</li>)}</ul>
+      <p className="st-guide-note">많이 볼수록 ‘잘되는 콘텐츠의 감각’이 쌓이고, 그 감각이 결국 내 콘텐츠를 바꿔줍니다 ❤️‍🔥</p>
+    </div>
+  </section>
+}
+
 export default function ReelsPage() {
   const { go, analyze, tracking, categories } = useStudio()
-  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: 'latest', q: '' })
+  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: 'latest', q: '', recommended: false })
   const [draft, setDraft] = useState('')
   const [reels, setReels] = useState([])
   const [page, setPage] = useState(0)
@@ -109,6 +127,7 @@ export default function ReelsPage() {
     if (filters.face !== 'any') params.set('face', filters.face)
     if (filters.region !== 'any') params.set('region', filters.region)
     if (filters.q) params.set('q', filters.q)
+    if (filters.recommended) params.set('recommended', '1')
     studio.reels(params).then(data => { if (controller.signal.aborted) return; setReels(prev => page === 0 ? data.reels : [...prev, ...data.reels]); setHasMore(data.hasMore); if (page === 0 && data.lastUpdatedAt) setLastUpdatedAt(data.lastUpdatedAt) })
       .catch(e => { if (!controller.signal.aborted) setError(e.message) }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -123,6 +142,7 @@ export default function ReelsPage() {
   const change = patch => { setFilters(f => ({ ...f, ...patch })); setPage(0); setLoading(true); setError('') }
   const shown = reels.map(r => tracking[r.shortcode] ? { ...r, analysisStatus: 'running' } : r)
   return <div className="st-stack">
+    <ReferenceGuide />
     <div className="st-page-head"><p>최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 릴스를 매일 모아요. 분석하면 '내 레퍼런스'에 자동으로 저장돼요.</p>{lastUpdatedAt && <span className="st-pill st-pill-gray">업데이트 {when(lastUpdatedAt)}</span>}</div>
     <form className="st-search" role="search" onSubmit={e => { e.preventDefault(); change({ q: draft.trim().slice(0, 40) }) }}>
       <Search size={20} className="st-muted" aria-hidden="true" />
@@ -131,12 +151,13 @@ export default function ReelsPage() {
     </form>
     <Chips label="분야" scroll options={[['all', '전체'], ...categories.map(c => [c, c])]} value={filters.category} onChange={category => change({ category })} />
     <div className="st-row" style={{ gap: '8px 20px' }}>
+      <button type="button" className="st-chip" aria-pressed={filters.recommended} onClick={() => change({ recommended: !filters.recommended })}>추천 보기</button>
       <Chips label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort })} />
       <Chips label="얼굴" options={FACE} value={filters.face} onChange={face => change({ face })} />
       <Chips label="지역" options={REGION} value={filters.region} onChange={region => change({ region })} />
     </div>
     {error && <div className="st-error" role="alert">{error}</div>}
-    {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : '조건에 맞는 릴스가 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
+    {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : filters.recommended ? '추천 릴스를 준비하고 있어요' : '조건에 맞는 릴스가 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
     <div className="st-reels">{shown.map(reel => <ReelCard key={reel.shortcode} reel={reel} onPlay={() => setOpen(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>
     {loading && <p className="st-muted" role="status">불러오는 중…</p>}
     {hasMore && !loading && <button type="button" className="st-btn st-btn-block" onClick={() => { setPage(p => p + 1); setLoading(true) }}>더 보기</button>}

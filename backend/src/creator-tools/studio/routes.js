@@ -9,7 +9,7 @@ import { fail, uuid } from '../domain.js'
 import { database, query } from '../store.js'
 import { redisConnection } from '../queue.js'
 import { createProviders } from '../providers.js'
-import { studio2Enabled } from './access.js'
+import { studio2Enabled, canRecommend } from './access.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from './library.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage } from './persona.js'
 import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk } from './engine.js'
@@ -238,21 +238,28 @@ export function registerStudioRoutes(router) {
   }
   const startAnalysis = (shortcode, userId) => requestReelAnalysis({ ...deps(), schedule: undefined }, shortcode, Date.now(), userId)
 
+  // Reads the reel behind a link (account, counts, caption, cover) into its row. Throws when the link can't be read.
+  // A caption or cover the row already has is kept when the link returns none.
+  const fillFromLink = async (db, shortcode, url) => {
+    const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(180000) })
+    const media = await providers.brightData(url, (_key, task) => task())
+    const username = String(media.username || '').replace(/^@/, '').toLowerCase()
+    if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
+    await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
+    const image = media.thumbnailUrl ? await readPublicImage(media.thumbnailUrl, AbortSignal.timeout(20000)).catch(() => null) : null
+    const thumbnailPath = image ? await storeThumbnail(db, shortcode, image) : null
+    await query(db.from('creator_success_reels').update({ username, views: media.views ?? 0, likes: media.likes, comments: media.comments,
+      posted_at: media.postedAt || new Date().toISOString(), ...(media.caption ? { caption: media.caption } : {}), ...(thumbnailPath ? { thumbnail_path: thumbnailPath } : {}) }).eq('shortcode', shortcode))
+    // The link fetch already paid for the video URL; keep it for the analysis download.
+    if (media.videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, media.videoUrl, 'EX', 3600).catch(() => {})
+    return { thumbnail: Boolean(thumbnailPath) }
+  }
   // Bright Data takes a minute or more, so the row is created at once and filled in the background;
   // the student watches the same analysis tracker as for any other reel.
   const importLink = async (shortcode, url, userId) => {
     const db = database()
     try {
-      const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(180000) })
-      const media = await providers.brightData(url, (_key, task) => task())
-      const username = String(media.username || '').replace(/^@/, '').toLowerCase()
-      if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
-      await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
-      const thumbnail = media.thumbnailUrl ? await readPublicImage(media.thumbnailUrl, AbortSignal.timeout(20000)).catch(() => null) : null
-      await query(db.from('creator_success_reels').update({ username, views: media.views ?? 0, likes: media.likes, comments: media.comments,
-        posted_at: media.postedAt || new Date().toISOString(), caption: media.caption || '', thumbnail_path: thumbnail ? await storeThumbnail(db, shortcode, thumbnail) : null }).eq('shortcode', shortcode))
-      // The link fetch already paid for the video URL; keep it for the analysis download.
-      if (media.videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, media.videoUrl, 'EX', 3600).catch(() => {})
+      await fillFromLink(db, shortcode, url)
     } catch (error) {
       const text = error?.exposeMessage ? error.message : '영상을 가져오지 못했어요. 링크를 확인하고 다시 시도해주세요.'
       await query(db.from('creator_success_reels').update({ analysis_status: 'failed', analysis_error: text, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
@@ -260,6 +267,44 @@ export function registerStudioRoutes(router) {
     }
     await runReelAnalysis(deps(), shortcode)
   }
+  // 추천 릴스: links 지영 or the client hand over join 성공 릴스 with a '추천' tag, whatever their views or age.
+  // New links are read one after another in the background; the Mac mini collector refreshes counts and covers later.
+  const recommendLink = async (shortcode, url) => {
+    const db = database()
+    try {
+      const { thumbnail } = await fillFromLink(db, shortcode, url)
+      if (thumbnail) await query(db.from('creator_success_reels').update({ visible: true }).eq('shortcode', shortcode))
+    } catch (error) {
+      console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
+    }
+  }
+  router.post('/creator-tools/studio/recommended', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 릴스는 관리자만 추가할 수 있어요.', 404)
+    const db = database()
+    const links = (Array.isArray(req.body?.links) ? req.body.links : []).slice(0, 200)
+    const result = { added: [], updated: [], invalid: [] }
+    const seen = new Set()
+    for (const raw of links) {
+      const url = instagramPostUrl(String(raw || '').trim())
+      const shortcode = url ? new URL(url).pathname.split('/')[2] : null
+      if (!shortcode) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
+      if (seen.has(shortcode)) continue
+      seen.add(shortcode)
+      const existing = await query(db.from('creator_success_reels').select('shortcode,thumbnail_path').eq('shortcode', shortcode).maybeSingle())
+      if (existing) {
+        await query(db.from('creator_success_reels').update({ recommended: true, ...(existing.thumbnail_path ? { visible: true } : {}) }).eq('shortcode', shortcode))
+        result.updated.push(shortcode)
+        if (!existing.thumbnail_path) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
+        continue
+      }
+      await query(db.from('creator_reel_accounts').upsert({ username: 'recommended', profile: { recommended: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
+      await query(db.from('creator_success_reels').insert({ shortcode, username: 'recommended', views: 0, posted_at: new Date().toISOString(), caption: '', source: 'recommended', recommended: true, visible: false }))
+      result.added.push(shortcode)
+      schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
+    }
+    res.status(201).json(result)
+  }))
+
   router.post('/creator-tools/studio/references/link', asyncHandler(async (req, res) => {
     enabled(req)
     const db = database(), userId = req.auth.userId

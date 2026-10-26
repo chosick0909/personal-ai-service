@@ -96,7 +96,12 @@ function fakeDb() {
       not(k, op, v) { filters.push([null, row => !(op === 'is' && row[k] === v)]); return api },
       order(k) { order = k; return api }, range(a, b) { range = [a, b]; return api }, limit(n) { limit = n; return api },
       // Supports the "field.ilike.%term%,field.ilike.%term%" form used for search.
-      or(expr) { const parts = expr.split(',').map(p => p.match(/^(\w+)\.ilike\.%(.*)%$/)); filters.push([null, row => parts.some(([, f, t]) => String(row[f] ?? '').toLowerCase().includes(t.toLowerCase()))]); return api },
+      or(expr) {
+        const value = v => v === 'true' ? true : v === 'false' ? false : v
+        const parts = expr.split(',').map(p => p.match(/^(\w+)\.(ilike|is|eq)\.(.*)$/))
+        const hit = (row, [, f, op, t]) => op === 'ilike' ? String(row[f] ?? '').toLowerCase().includes(t.replace(/^%|%$/g, '').toLowerCase())
+          : op === 'is' ? (row[f] ?? null) === (t === 'null' ? null : value(t)) : row[f] === value(t)
+        filters.push([null, row => parts.some(part => hit(row, part))]); return api },
       then(resolve) { resolve({ data: run(), error: null }) },
     }
     return api
@@ -323,4 +328,16 @@ test('reels whose views come from a character IP or a seeding box are judged unf
   assert.equal(db.tables.creator_success_reels.get('A').category, '뷰티'); assert.equal(db.tables.creator_success_reels.get('A').reference_fit, false)
   assert.equal(db.tables.creator_success_reels.get('B').category, '건강')
   assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['B'])
+})
+
+test('추천 reels show with a tag even when judged unfit, the 추천 filter lists only them, and a cover makes a new one visible', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('R', { shortcode: 'R', username: 'pick', caption: '추천', category: '살림', visible: true, recommended: true, reference_fit: false, posted_at: '2026-01-01T00:00:00Z', views: 1200 })
+  db.tables.creator_success_reels.set('N', { shortcode: 'N', username: 'other', caption: '일반', category: '살림', visible: true, posted_at: '2026-10-11T00:00:00Z', views: 673000 })
+  const all = await listSuccessReels(db, {})
+  assert.deepEqual(all.reels.map(r => [r.shortcode, r.recommended]).sort(), [['N', false], ['R', true]])
+  assert.deepEqual((await listSuccessReels(db, { recommended: '1' })).reels.map(r => r.shortcode), ['R'])
+  db.tables.creator_success_reels.set('DdP6KGYTlRy', { shortcode: 'DdP6KGYTlRy', username: 'pick2', caption: '', visible: false, recommended: true, source: 'recommended', posted_at: '2025-01-01T00:00:00Z', views: 0, thumbnail_path: 'DdP6KGYTlRy.jpg' })
+  await storeReelCaptions(db, { captions: [{ shortcode: 'DdP6KGYTlRy', caption: '새 추천', views: 3000 }] }, null, { now: NOW })
+  assert.equal(db.tables.creator_success_reels.get('DdP6KGYTlRy').visible, true, 'old, low-view 추천 reel still joins once it has a cover')
 })

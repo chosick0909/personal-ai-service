@@ -238,7 +238,7 @@ export async function storeReelCaptions(db, body, redis = null, { readImage = nu
   let saved = 0
   for (const item of captions) {
     const { shortcode, caption, videoUrl } = item
-    const row = await query(db.from('creator_success_reels').select('shortcode,username,caption,analysis_status,source,views,thumbnail_path,visible,posted_at').eq('shortcode', shortcode).maybeSingle())
+    const row = await query(db.from('creator_success_reels').select('shortcode,username,caption,analysis_status,source,views,thumbnail_path,visible,posted_at,recommended').eq('shortcode', shortcode).maybeSingle())
     if (!row) continue
     saved += 1
     if (videoUrl) await cacheVideoUrl(redis, shortcode, videoUrl, now)
@@ -262,6 +262,8 @@ export async function storeReelCaptions(db, body, redis = null, { readImage = nu
     // A student's link that turns out to be a success reel joins the archive like a collected one.
     if (row.source === 'upload-link' && !row.visible && (patch.views ?? row.views) >= SUCCESS_REEL_MIN_VIEWS
       && Date.parse(row.posted_at) >= now - SUCCESS_REEL_MAX_AGE_DAYS * DAY && (patch.thumbnail_path || row.thumbnail_path)) patch.visible = true
+    // A 추천 reel shows as soon as it has a cover, whatever its views or age.
+    if (row.recommended && !row.visible && row.username !== 'recommended' && (patch.thumbnail_path || row.thumbnail_path)) patch.visible = true
     if (Object.keys(patch).length) await query(db.from('creator_success_reels').update(patch).eq('shortcode', shortcode))
   }
   return { saved, reanalyze, filled }
@@ -270,7 +272,7 @@ export async function storeReelCaptions(db, body, redis = null, { readImage = nu
 // Reel pages worth a visit: students' Instagram links first (their counts and cover come from the page), then
 // listed reels still missing a caption or a cached video link, most watched first.
 export async function reelsMissingCaptions(db, limit = 40, redis = null) {
-  const links = await query(db.from('creator_success_reels').select('shortcode,views,thumbnail_path,first_collected_at').eq('source', 'upload-link').order('first_collected_at', { ascending: false }).limit(60))
+  const links = await query(db.from('creator_success_reels').select('shortcode,views,thumbnail_path,first_collected_at').or('source.eq.upload-link,recommended.eq.true').order('first_collected_at', { ascending: false }).limit(200))
   const out = links.filter(row => !row.views || !row.thumbnail_path).map(row => row.shortcode).slice(0, limit)
   const rows = (await query(db.from('creator_success_reels').select('shortcode,source,caption').eq('visible', true).order('views', { ascending: false }).limit(400)))
     .filter(row => !String(row.source || '').startsWith('upload-'))
@@ -293,8 +295,9 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   const sort = LIST_SORTS[filters.sort] ? filters.sort : 'latest'
   const limit = 48
   const page = Math.max(0, Math.min(50, Number.parseInt(filters.page, 10) || 0))
-  let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests')
-    .eq('visible', true).not('reference_fit', 'is', false)
+  let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests,recommended')
+    .eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
+  if (filters.recommended === '1') request = request.eq('recommended', true)
   if (SUCCESS_REEL_CATEGORIES.includes(filters.category)) request = request.eq('category', filters.category)
   if (['visible', 'hidden', 'mixed'].includes(filters.face)) request = request.eq('face_visibility', filters.face)
   if (['domestic', 'overseas'].includes(filters.region)) request = request.eq('region', filters.region)
@@ -325,6 +328,6 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
     username: row.username, views: row.views, likes: row.likes, comments: row.comments, postedAt: row.posted_at,
     caption: row.caption, captionKo: row.caption_ko, language: row.language, region: row.region, audio: row.audio,
     category: row.category, faceVisibility: row.face_visibility, thumbnailUrl: urls.get(row.thumbnail_path) || null,
-    analysisStatus: analyzedCodes.has(row.shortcode) ? row.analysis_status || 'none' : 'none', analysisRequests: row.analysis_requests || 0, saved: savedCodes.has(row.shortcode) })),
+    analysisStatus: analyzedCodes.has(row.shortcode) ? row.analysis_status || 'none' : 'none', analysisRequests: row.analysis_requests || 0, saved: savedCodes.has(row.shortcode), recommended: Boolean(row.recommended) })),
   page, hasMore: rows.length === limit, sort, q }
 }
