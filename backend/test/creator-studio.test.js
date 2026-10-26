@@ -200,7 +200,9 @@ test('thumbnail copies come from the hook psychology, labeled, without the cover
   const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { seen = instructions
     return { questions: [], mechanism: '돌발 사고의 긴장 → 저녁 준비를 깜빡한 날', options: [{ label: '심리 차용형', text: '완전 사고예요, 저녁 안 해놨어요', why: 'w' }, { label: '후킹 강화형', text: '애들 배고프다는데 냉장고 텅', why: 'w' }, { label: '3단공식 적용형', text: '5분이면 끝나는 만두 저녁', why: 'w' }], placeholders: [] } } }) }
   const { value } = await generateStage(deps, session, 'thumbnail')
-  assert.ok(seen.includes('레퍼런스 활용 규칙') && seen.includes('심리 차용형'))
+  assert.ok(seen.includes('[레퍼런스를 쓰는 법]') && seen.includes('심리 차용형'), 'the system principles and the stage instructions both reach the model')
+  // Principles, not patches: no topic-specific wording or sample sentences in the shared prompts.
+  for (const word of ['냉동만두', '방송사고', '쇼호스트', '완판', '선크림']) assert.ok(!seen.includes(word), word)
   assert.deepEqual(value.options.map(o => o.label), ['심리 차용형', '후킹 강화형', '3단공식 적용형'])
   assert.equal(value.mechanism, '돌발 사고의 긴장 → 저녁 준비를 깜빡한 날')
 })

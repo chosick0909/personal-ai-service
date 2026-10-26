@@ -80,8 +80,7 @@ const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개(짧게). 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
 - proposals: 주제 후보 3개(수강생이 주제를 못 정했거나 "제안해줘"를 원할 때). 각 후보는 title(주제 한 줄), angle(차별 관점), promise(시청자가 얻는 것), why(지금 이 분야에서 먹히는 이유; trending이 있으면 그 근거), category(분야). 후보를 낼 상황이 아니면 [].
 - topic: 주제를 확정할 수 있을 만큼 정보가 모이면 ready=true와 함께 채웁니다. title, angle, promise, facts(수강생이 실제로 준 사실만, 없으면 []), audience(누구에게), category(분야). 아직이면 ready=false와 빈 값.
-가장 중요한 규칙: 주제(무엇에 대한 영상인가)는 항상 수강생이 적은 brief·attachments·답변에서 나옵니다. 레퍼런스(sources)는 형식(첫 문장 장치·전개·촬영·캡션 방식)만 빌려 오는 것이고, 레퍼런스 영상의 소재·사건·제품·상황(예: 방송사고, 특정 화장품)을 주제나 질문에 끌어오지 않습니다. brief가 있으면 그 소재를 그대로 주제로 삼고, 레퍼런스 형식을 그 소재에 입히는 방향으로만 제안합니다.
-규칙: 레퍼런스(sources)가 있으면 첫 질문은 그 포맷을 수강생의 소재에 살리는 데 필요한 재료를 묻습니다(예: 판정형이면 "비교할 제품 이름을 알려주세요", 경험담이면 "들려줄 경험을 한 줄로 말해주세요"). 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 제품명·경험·수치처럼 대본에 들어갈 사실은 반드시 묻고 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어가되, 사실을 지어내지 않습니다(없는 사실은 뒤 단계에서 다시 묻습니다). facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
+규칙: brief가 있으면 그 소재가 곧 주제이고, 질문과 제안은 그 소재 안에서만 합니다. 레퍼런스(sources)가 있으면 첫 질문은 그 형식을 수강생의 소재에 살리는 데 필요한 재료(형식이 요구하는 비교 대상, 경험, 기준 등)를 묻습니다. 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 수강생이 답한 사실은 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어갑니다. facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
 
 async function trendingFor(db, category) {
   let request = db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready')
@@ -164,27 +163,25 @@ const stageSchemas = {
   caption: obj({ questions, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
 // Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
-const ASK_RULE = `소재 규칙: 영상의 소재·제품·상황은 topic·brief·attachments에서만 가져오고, sources(레퍼런스)에서는 형식만 빌립니다. 레퍼런스 영상의 소재(그 영상 속 사건·제품·인물)를 쓰지 않습니다.
-레퍼런스 활용 규칙: 레퍼런스의 문장 틀에 단어만 바꿔 끼우지 않습니다. 먼저 그 훅·전개가 왜 먹혔는지 심리(돌발 상황의 긴장, 나도 겪는 공감, 손해 볼까 하는 불안, 궁금증, 반전 등)를 파악하고, 그 심리를 수강생 주제 안의 평범한 일상 장면으로 다시 만듭니다. 수강생은 대부분 일반인입니다. brief에 직업·상황(쇼호스트, 사장님, 라이브 방송, 매장 등)이 적혀 있지 않으면 그런 장면을 가정하지 않습니다. 판매 실적·완판·수치·후기 같은 결과는 facts·brief에 없으면 쓰지 않습니다. 예: 레퍼런스가 '방송사고'의 돌발 긴장으로 붙잡았고 주제가 쿠팡 냉동만두라면 → "완전 사고예요. 애들이 배고프다는데 밥을 하나도 안 해놨어요" 같은 일상의 돌발 상황으로 열고, 냉동만두가 그 상황을 해결하는 흐름(간편함·준비 시간)으로 잇습니다.
-사실 확인 규칙: 영상이 바로 그것에 대한 내용이라 없으면 대본이 성립하지 않는 사실(비교할 제품명·브랜드, 영상의 핵심이 되는 수치나 경험)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(타깃 표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. answers나 facts에 "모름/없음/알아서/훅ai 재량"으로 답한 사실은 절대 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
+const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
-const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 없는 사실은 지어내지 말고 "첫 번째 제품"처럼 일반 표현으로 쓰되 [대괄호] 빈칸은 남기지 않고, 반드시 완성된 안을 냅니다.`
+const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
 
 const stagePrompts = {
   thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 만듭니다. 각 20자 이내, 한눈에 읽히게.
-먼저 mechanism에 한 줄로 적습니다: sources.hook(없으면 공식 사전·주제)이 시청자를 붙잡은 심리 → 이번 주제(brief)에서 그 심리를 일으킬 평범한 일상 장면.
+먼저 mechanism에 한 줄로 적습니다: 레퍼런스(sources.hook, 없으면 주제 자체)가 시청자에게 일으킨 감정 → 이번 소재의 시청자가 그 감정을 느끼는 실제 순간.
 options는 정확히 3개이고 label을 이 순서로 씁니다.
-- "심리 차용형": mechanism의 일상 장면을 그대로 제목으로(레퍼런스 단어·문장 틀을 옮기지 않음).
-- "후킹 강화형": 같은 심리를 더 세게(더 급하거나 더 궁금하게).
-- "3단공식 적용형": 꾸미는 말 + 핵심 단어 + 끝맺는 말(예: "5분이면 끝나는 냉동만두 저녁"). 레퍼런스와 무관하게 주제만으로.
-why는 이 제목을 왜 누르게 되는지 한 줄. facts·brief에 없는 수치·효능·실적은 쓰지 않습니다. placeholders는 제목에 남긴 [빈칸] 목록.`,
+- "심리 차용형": mechanism의 순간을 제목으로.
+- "후킹 강화형": 같은 감정을 더 강하게.
+- "3단공식 적용형": 꾸미는 말 + 핵심 단어 + 끝맺는 말 구조. 레퍼런스와 무관하게 소재만으로.
+why는 이 제목을 왜 누르게 되는지 한 줄.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
-1안: sources.hook이 시청자를 붙잡은 심리(why·type)를 이번 주제의 일상 장면으로 옮긴 말(formula의 단어를 그대로 채우는 방식이 아님). 2·3안: 다른 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄. 뻔한 질문("진짜 차이 알죠?")과 과장은 금지.`,
+1안: sources.hook이 일으킨 감정(why·type)을 이번 소재로 옮긴 말. 2·3안: 다른 훅 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.`,
   script: `${ASK_RULE}\n'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
-- sources.structure가 있으면 1안은 그 전개 순서·구간 역할·리듬을 그대로 topic에 적용합니다(판정형이면 판정 문형을 반복, 리스트면 번호를 약속). 2·3안은 같은 첫 문장에서 다른 전개(예: 경험담으로 설득, 3가지로 정리).
-- label은 그 안의 성격(예: "판정으로 설득", "경험담으로 설득"), why는 어떤 시청자에게 맞는지 한 줄.
+- sources.structure가 있으면 1안은 그 구간들의 역할과 순서·리듬을 이번 소재에 적용합니다(각 구간이 시청자에게 하는 일을 옮기는 것이지 그 구간의 문장을 옮기는 것이 아닙니다). 2·3안은 같은 첫 문장에서 시작하는 다른 전개 방식.
+- label은 그 안의 전개 방식을 짧게, why는 어떤 시청자에게 맞는지 한 줄.
 - lines: part는 hook/body/cta, spoken은 말할 문장(짧고 구어체), onScreen은 그 구간 자막, seconds는 구간 길이. 전체 길이는 sources.structure.durationSeconds와 비슷하게, 없으면 30~50초.
-- topic.facts에 없는 제품명·수치·경험은 [제품 A 이름]처럼 빈칸으로 두고 placeholders에 적습니다. 마무리 멘트는 "댓글 남겨주세요" 대신 sources의 마무리 장치나 저장·팔로우 이유를 씁니다.`,
+- 마무리는 sources의 마무리 장치를 옮기거나, 이 영상을 저장·공유할 이유가 되는 말로 씁니다.`,
   filming: `${ASK_RULE}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
 - sources.filming.filming이 있으면 그 구도·화면 장치를 적용합니다. storyboard: scene 번호, seconds, shot(구도·거리), action(화면 속 행동·보여줄 것), onScreen(자막), spoken(그 장면 대사; script에서 그대로).
 - 촬영: location, props(준비물), camera(거치·각도), lighting, checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로. editing에는 편집 방향 한 줄.
