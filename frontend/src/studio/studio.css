@@ -500,6 +500,7 @@
 .st-guide { display:grid; gap:12px; justify-items:center; }
 .st-reels-hero { margin:4px 0 0; text-align:center; font-size:27px; line-height:1.35; font-weight:900; letter-spacing:-.5px; color:var(--st-text); text-wrap:balance; }
 .st-reels-hero em { font-style:normal; color:var(--st-accent-text); }
+.st-reels-sub { margin:-4px 0 8px; text-align:center; font-size:16.5px; line-height:1.6; color:var(--st-muted); text-wrap:balance; }
 .st-guide-tabs { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
 .st-guide-tabs button { display:inline-flex; align-items:center; gap:6px; min-height:42px; padding:0 16px; border:1px solid var(--st-accent-soft-2); border-radius:999px; background:var(--st-accent-soft); color:var(--st-accent-text); font-size:15.5px; font-weight:800; cursor:pointer; }
 .st-guide-tabs button svg { transition:transform .2s; }
@@ -513,7 +514,7 @@
 .st-guide-steps { list-style:none; margin:8px 0 10px; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
 .st-guide-steps li { display:flex; align-items:center; gap:8px; font-size:16px; font-weight:700; color:var(--st-text); }
 .st-guide-steps svg { color:var(--st-accent); flex:none; }
-@media (max-width: 760px) { .st-reels-hero { font-size:21px; } .st-guide-steps { grid-template-columns:1fr; } .st-guide-tabs button { font-size:14.5px; } }
+@media (max-width: 760px) { .st-reels-hero { font-size:21px; } .st-reels-sub { font-size:14.5px; } .st-guide-steps { grid-template-columns:1fr; } .st-guide-tabs button { font-size:14.5px; } }
 
 /* 한국어 줄바꿈: 단어(어절) 단위로 끊고, 제목은 줄 길이를 고르게 */
 .st { word-break:keep-all; overflow-wrap:break-word; }

@@ -105,6 +105,7 @@ function ReferenceGuide() {
   const toggle = id => setOpen(o => o === id ? null : id)
   return <section className="st-guide" aria-label="레퍼런스 활용 안내">
     <p className="st-reels-hero">레퍼런스는 정답지가 아니라<br /><em>내 아이디어를 꺼내기 위한 재료</em>입니다</p>
+    <p className="st-reels-sub">많이 볼수록 ‘잘되는 콘텐츠의 감각’이 쌓이고, 그 감각이 결국 내 콘텐츠를 바꿔줍니다 ❤️‍🔥</p>
     <div className="st-guide-tabs">
       <button type="button" aria-expanded={open === 'what'} onClick={() => toggle('what')}>레퍼런스란?<ChevronDown size={18} /></button>
       <button type="button" aria-expanded={open === 'how'} onClick={() => toggle('how')}>레퍼런스를 어떻게 활용하나요?<ChevronDown size={18} /></button>
@@ -117,7 +118,6 @@ function ReferenceGuide() {
       <p>그냥 보는 것으로 끝내지 마세요. 이렇게 생각하며 분석해 보세요.</p>
       <ul className="st-guide-steps">{REFERENCE_STEPS.map(step => <li key={step}><CircleCheck size={18} aria-hidden="true" />{step}</li>)}</ul>
       <p>주제는 내 것으로 바꾸고, 타깃도 내 고객으로 바꾸고, 내 경험이나 정보를 넣어보는 거예요.</p>
-      <p className="st-guide-note">많이 볼수록 ‘잘되는 콘텐츠의 감각’이 쌓이고, 그 감각이 결국 내 콘텐츠를 바꿔줍니다 ❤️‍🔥</p>
     </div>}
   </section>
 }
