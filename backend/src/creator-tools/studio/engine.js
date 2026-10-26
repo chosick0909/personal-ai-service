@@ -160,7 +160,7 @@ const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 // What 훅ai found when it re-read its own draft (persona rule 8); anything listed triggers one rewrite.
 const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str) })
 const stageSchemas = {
-  thumbnail: obj({ questions, plan: obj({ reader: str, promise: str }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
+  thumbnail: obj({ questions, plan: obj({ reader: str, promise: str, quotes: arr(str) }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
   hook: obj({ questions, check, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
   script: obj({ questions, check, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
   filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str,
@@ -175,12 +175,12 @@ const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 �
 const stagePrompts = {
   // Covers are 훅ai's own copywriting from the student's topic; references are not sent to this stage.
   thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 훅ai가 직접 제안합니다. 레퍼런스는 이 단계에 쓰지 않습니다. 근거는 brief·topic·answers·attachments에 적힌 주제와 사실뿐입니다.
-1. plan을 먼저 채웁니다. reader: 이 커버를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 이 영상을 끝까지 보면 그 사람이 얻는 것 한 가지(한 영상에 약속 하나).
+1. plan을 먼저 채웁니다. quotes: 이번 커버들이 기대는 brief·답변·첨부의 구절을 한 글자도 바꾸지 않고 그대로 옮겨 적습니다(바꿔 쓰거나 요약하지 않음). reader: 이 커버를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 이 영상을 끝까지 보면 그 사람이 얻는 것 한 가지(한 영상에 약속 하나). reader와 promise, 그리고 모든 제목은 quotes에 적은 구절로 뒷받침되는 내용만 담습니다.
 successCovers는 실제로 조회수가 크게 나온 커버 문구들입니다. 각 문구가 어떤 원칙으로 먹혔는지(길이, 말투, 구어 표현, 숫자·장소·대상의 쓰임) 읽어 이번 커버의 감각을 맞춥니다. 그 문구의 단어·소재·문장 틀은 가져오지 않습니다.
 2. 아래 커버 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격·할인·한정 같은 사실은 brief에 있을 때만.
-4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 주어지지 않은 사실이 들어갔으면 check.unprovidedFacts에 적습니다.
+4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황·사건이 quotes의 구절에 그 단어, 그 뜻 그대로 있는지 하나씩 대조합니다. 주어지지 않은 사실이나 원문을 다르게 읽은 내용이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
 1안: sources.hook이 일으킨 감정(why·type)을 이번 소재로 옮긴 말. 2·3안: 다른 훅 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.`,
@@ -195,6 +195,29 @@ why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
 - 편집(editingPlan): sources.filming.editing이 있으면 그 자막 스타일·컷 템포·전환·효과·사운드를 적용합니다. subtitleStyle(자막 글꼴 느낌·크기·위치·색·강조), cuts(컷 길이·템포), transitions(전환), effects(줌·스탬프·그래픽 등), sound(배경음·효과음·나레이션), checklist(편집할 때 확인 3~6개). 휴대폰 편집 앱으로 가능한 수준으로.`,
   caption: `${ASK_RULE}\n'캡션' 단계입니다. 인스타 캡션 3안을 만듭니다. 첫 줄은 썸네일·첫 문장의 약속을 이어받고, 본문은 대본의 핵심을 2~4줄로, 마무리는 저장·댓글을 부르는 이유 한 줄. hashtags는 # 없이 5~8개.
 sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식을 따르고, sources.caption.original(원문)에 이모지가 쓰였으면 같은 느낌으로 이모지를 줄마다 자연스럽게 조합해 넣습니다(원문에 이모지가 없으면 넣지 않음). why는 이 캡션이 맞는 이유 한 줄. 없는 사실은 쓰지 않습니다.`,
+}
+
+const plain = value => String(value || '').normalize('NFC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+const escapeRe = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// After a quoted phrase the student's text must go on with a space, punctuation or a particle/ending (는·를·에…),
+// never with the rest of a longer word: a quote that stops mid-word is a misreading of that word.
+const PARTICLE_START = new Set([...'은는이가을를에의도로와과랑만요서까고다며면께처보부및엔인한해했하던든'])
+const HANGUL = /[\uAC00-\uD7A3]/
+// Quotes the student did not write: checked against their own words (brief, chat answers, attachments) and the topic
+// title they accepted; topic.facts is 훅ai's summary, so it does not count as a source. Spacing differences are ignored.
+export function ungroundedQuotes(session, quotes) {
+  const source = plain([session.brief, ...(session.topic?.answers || []).map(a => typeof a === 'string' ? a : `${a?.q || a?.question || ''} ${a?.a || a?.answer || ''}`), ...(session.attachments || []).map(a => a?.content), session.topic?.title].join(' \n '))
+  const grounded = quote => {
+    const chars = [...plain(quote).replace(/ /g, '')]
+    if (!chars.length) return true
+    const re = new RegExp(chars.map(escapeRe).join(' ?'), 'g')
+    for (const m of source.matchAll(re)) {
+      const next = source[m.index + m[0].length]
+      if (!next || !HANGUL.test(next) || PARTICLE_START.has(next)) return true
+    }
+    return false
+  }
+  return (Array.isArray(quotes) ? quotes : []).map(q => String(q || '').trim()).filter(q => q && !grounded(q)).slice(0, 4)
 }
 
 // Cover titles that came with 추천 reels (proven covers), same field first, as worked examples for the thumbnail stage.
@@ -223,6 +246,9 @@ export async function generateStage(deps, session, stage) {
     if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
   }
   const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6)] : []
+  // Grounding: a cover may only lean on words the student actually wrote. A "quote" that is not in their text
+  // means 훅ai re-read a word as something else, so the draft is rewritten from the original words.
+  if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, raw.plan?.quotes).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
   if (found.length) {
     raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
   }

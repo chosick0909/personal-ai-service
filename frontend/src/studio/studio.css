@@ -508,3 +508,8 @@
 .st-man-tip { display:flex; gap:12px; margin-top:16px; padding:16px 18px; border-radius:14px; background:var(--st-warn-soft); color:var(--st-warn-text); }
 .st-man-tip p { margin:0 0 4px; font-size:16.5px; line-height:1.6; color:var(--st-text); }
 @media (max-width: 960px) { .st-manual { grid-template-columns:1fr; } .st-man-toc { position:static; grid-template-columns:1fr 1fr; } .st-man-toc > strong { grid-column:1 / -1; } .st-man-section { padding:18px; } .st-man-num { width:26px; height:26px; font-size:14px; } }
+
+/* 성공 릴스 메인 카피: 안내 박스 아래, 가운데 크게 */
+.st-reels-hero { margin:26px 0 14px; text-align:center; font-size:32px; line-height:1.35; font-weight:900; letter-spacing:-.6px; color:var(--st-text); word-break:keep-all; }
+.st-reels-hero em { font-style:normal; color:var(--st-accent-text); }
+@media (max-width: 760px) { .st-reels-hero { font-size:23px; margin:6px 0 2px; } }

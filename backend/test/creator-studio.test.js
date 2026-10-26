@@ -1,5 +1,6 @@
 import test from 'node:test'
 import { COVER_PRINCIPLE_NAMES } from '../src/creator-tools/studio/copy-principles.js'
+import { ungroundedQuotes } from '../src/creator-tools/studio/engine.js'
 import { sessionHistory } from '../src/creator-tools/studio/routes.js'
 import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
@@ -225,4 +226,20 @@ test('a draft whose self-check finds reference traces or unprovided facts is rew
   const { value } = await generateStage(deps, session, 'thumbnail')
   assert.equal(prompts.length, 2); assert.ok(prompts[1].includes('레퍼런스 장면') && prompts[1].includes('지어낸 성과'))
   assert.equal(value.options[0].text, '고친 안')
+})
+
+test('a thumbnail draft that quotes words the student never wrote is rewritten from the original words', async () => {
+  const db = fakeDb()
+  const session = { id: 's11', user_id: 'u1', mode: 'single', sources: {}, brief: '쿠팡 냉동만두 세일즈', topic: { title: '쿠팡 냉동만두 세일즈', facts: ['세일 기간'], category: '요리' }, placeholders: [] }
+  const prompts = []
+  const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { prompts.push(instructions)
+    return prompts.length === 1
+      ? { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { reader: 'r', promise: 'p', quotes: ['냉동만두 세일'] }, options: [{ label: '결과 약속', text: '첫 초안', why: 'w' }], placeholders: [] }
+      : { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { reader: 'r', promise: 'p', quotes: ['쿠팡 냉동만두 세일즈'] }, options: [{ label: '결과 약속', text: '고친 안', why: 'w' }], placeholders: [] } } }) }
+  const { value } = await generateStage(deps, session, 'thumbnail')
+  assert.equal(prompts.length, 2, 'the ungrounded quote triggers one rewrite')
+  assert.ok(prompts[1].includes('냉동만두 세일'))
+  assert.equal(value.options[0].text, '고친 안')
+  assert.deepEqual(ungroundedQuotes(session, ['쿠팡 냉동만두 세일즈', '냉동 만두', '냉동만두 세일', '세일 기간']), ['냉동만두 세일', '세일 기간'], 'spacing is ignored; a quote that stops mid-word or comes from 훅ai\'s own facts is not the student\'s words')
+  assert.deepEqual(ungroundedQuotes({ brief: '냉동만두를 팔아요' }, ['냉동만두']), [], 'a particle after the quote is fine')
 })
