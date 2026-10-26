@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { AppError } from '../lib/errors.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES } from './categories.js'
+import { isDemoUser } from './demo-access.js'
 
 export const MAX_BYTES = 300 * 1024 * 1024
 export const KINDS = ['reference-accounts', 'trend-keywords', 'import-link', 'media-analyze', 'media-render']
@@ -41,7 +42,7 @@ export function featureEnabled(kind, userId, env = process.env) {
   if (env.CREATOR_TOOLS_ENABLED !== 'true' || !KINDS.includes(kind)) return false
   if (!String(env.CREATOR_TOOLS_FEATURES || '').split(',').includes(kind)) return false
   const allowed = String(env.CREATOR_TOOLS_USER_IDS || '').split(',').map((x) => x.trim())
-  if (allowed.includes(userId)) return true
+  if (allowed.includes(userId) || isDemoUser(userId)) return true
   const percent = Math.min(100, Math.max(0, Number(env.CREATOR_TOOLS_ROLLOUT_PERCENT) || 0))
   return parseInt(stableHash(userId).slice(0, 8), 16) % 10000 < percent * 100
 }

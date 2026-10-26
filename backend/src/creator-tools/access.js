@@ -1,4 +1,5 @@
 import { fail } from './domain.js'
+import { isDemoUser, demoEndsAt } from './demo-access.js'
 
 // Use the redeemed entitlement's period, not the coupon's redemption deadline.
 // Check all active grants. Legacy paid grants may have no coupon_id: the
@@ -6,6 +7,8 @@ import { fail } from './domain.js'
 // Do not confuse a coupon registration link with the validity of the grant.
 export async function assertCreatorCoupon(db, userId, now = Date.now()) {
   if (!userId) fail('UNAUTHORIZED', '로그인이 필요합니다.', 401)
+  // A client trial account needs no coupon until its link expires.
+  if (isDemoUser(userId, now)) return { id: 'trial', coupon_id: null, plan_type: 'trial', status: 'active', starts_at: new Date(now).toISOString(), ends_at: demoEndsAt(userId) }
   const nowIso = new Date(now).toISOString()
   const { data, error } = await db.from('user_entitlements')
     .select('id,coupon_id,plan_type,status,starts_at,ends_at')

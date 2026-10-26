@@ -23,6 +23,7 @@ import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
 import { LOOKUP_PRIORITY } from '../instagram-lookup.js'
+import { createDemoLink, refreshDemoUsers, startDemoRefresh } from '../demo-links.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
@@ -362,7 +363,23 @@ export function registerStudioRoutes(router) {
     schedule('daily-study:manual', () => studyOnce(deps(), { limit }), 1)
     res.status(202).json({ started: true, limit })
   }))
-  if (process.env.NODE_ENV !== 'test') startDailyStudy(deps())
+  if (process.env.NODE_ENV !== 'test') { startDailyStudy(deps()); startDemoRefresh() }
+  // Client trial links (admins only): create one, list them, turn one off.
+  router.post('/creator-tools/studio/trial-links', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 만들 수 있어요.', 404)
+    const origin = String(process.env.CLIENT_ORIGIN || 'https://www.hookai.kr').split(',')[0].trim().replace(/\/$/, '')
+    res.status(201).json(await createDemoLink(database(), { label: text(req.body?.label, 60) || '클라이언트 체험', days: req.body?.days, createdBy: req.auth.userId, origin }))
+  }))
+  router.get('/creator-tools/studio/trial-links', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 볼 수 있어요.', 404)
+    res.json({ links: await query(database().from('creator_demo_links').select('id,label,expires_at,revoked_at,last_used_at,created_at').order('created_at', { ascending: false })) })
+  }))
+  router.post('/creator-tools/studio/trial-links/:id/revoke', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 끌 수 있어요.', 404)
+    await query(database().from('creator_demo_links').update({ revoked_at: new Date().toISOString() }).eq('id', uuid(req.params.id)))
+    await refreshDemoUsers()
+    res.json({ ok: true })
+  }))
   // Re-judge every listed reel's field and reference fit after the judging rule changes (admins only), 30 per call.
   router.post('/creator-tools/studio/rejudge-reels', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)

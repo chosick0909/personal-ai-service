@@ -102,6 +102,7 @@ import {
   readTextList,
 } from './lib/request-readers.js'
 import { removeUploadedTempFile, validateUploadedFile } from './lib/upload-validation.js'
+import { createTrialRouter } from './creator-tools/demo-links.js'
 import {
   applyCouponToUser,
   assertEntitlementAccess,
@@ -494,6 +495,8 @@ app.get('/api/health', (_req, res) => {
 
 // The Mac mini collector authenticates with its own token, not a user session.
 app.use('/api/creator-ingest', createReelIngestRouter())
+// Client trial links carry their own key; opening one signs the visitor in as the link's trial account.
+app.use('/api/trial', createTrialRouter())
 app.use('/api', requireAuth)
 app.use('/api', createCreatorRouter())
 app.use('/api', createToolHistoryRouter())

@@ -11,8 +11,10 @@ import { ingestAccount, listSuccessReels, reelsMissingCaptions, storeReelCaption
 import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
 import { markCollectorSeen, lookupResult, lookupError } from './instagram-lookup.js'
+import { isDemoUser } from './demo-access.js'
 
 export function successReelsEnabled(userId, env = process.env) {
+  if (isDemoUser(userId)) return true
   if (env.CREATOR_SUCCESS_REELS_ENABLED === 'true') return true
   return String(env.CREATOR_SUCCESS_REELS_USER_IDS || '').split(',').map(id => id.trim()).filter(Boolean).includes(userId)
 }
