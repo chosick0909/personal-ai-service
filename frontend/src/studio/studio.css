@@ -115,6 +115,8 @@
 .st-option[aria-pressed=true] { border-color:var(--st-accent); background:var(--st-accent-soft); }
 .st-option-top { display:flex; align-items:center; gap:10px; }
 .st-option-top .st-pill { margin-right:auto; }
+.st-option-top .st-pill:has(+ .st-option-hint) { margin-right:0; flex:none; }
+.st-option-hint { margin-right:auto; min-width:0; color:var(--st-muted); font-size:13px; line-height:1.4; }
 .st-option strong { font-size:18px; line-height:1.5; }
 .st-option .st-why { color:var(--st-muted); font-size:15px; }
 .st-option-check { width:28px; height:28px; border-radius:999px; border:2px solid var(--st-line-strong); display:grid; place-items:center; color:transparent; flex:none; }

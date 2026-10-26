@@ -106,6 +106,13 @@ function TopicStage({ session, save, onSuggest, onBrief }) {
   </div>
 }
 
+// What each thumbnail-copy type means, in words a first-time student follows.
+const THUMB_KIND = {
+  '원본 보존형': '레퍼런스 썸네일의 문장 구조(줄 수·질문/반전 말투)를 그대로 빌려 내 주제로 바꿨어요',
+  '후킹 강화형': '원본 구조는 유지하고 궁금증·반전을 더 세게 넣었어요',
+  '3단공식 적용형': "'꾸미는 말 + 핵심 단어 + 끝맺는 말' 공식으로 한눈에 읽히게 만들었어요",
+}
+
 function ThumbnailStage({ session, save }) {
   const t = session.thumbnail
   const [custom, setCustom] = useState(t?.custom || '')
@@ -113,7 +120,7 @@ function ThumbnailStage({ session, save }) {
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>썸네일 카피 3안</h3><p className="st-muted">릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.</p></div>
       <div className="st-options">{t.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!t.custom && t.chosen === i} onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }}>
-        <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{OPTION_NAME[i]}</span>}<span className="st-option-check"><Check size={16} /></span></div>
+        <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{OPTION_NAME[i]}</span>}{THUMB_KIND[o.label] && <span className="st-option-hint">{THUMB_KIND[o.label]}</span>}<span className="st-option-check"><Check size={16} /></span></div>
         <strong className="st-thumb-text">{o.text}</strong>{o.why && <span className="st-why">{o.why}</span>}</button>)}</div>
       <div className="st-field"><label>직접 쓸게요 <small>적으면 이게 썸네일 카피가 돼요</small></label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 썸네일 제목" /></div>
     </section>
