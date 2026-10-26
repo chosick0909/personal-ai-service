@@ -30,6 +30,9 @@ export function selectMetaConnection(rows, userId, serviceUserId) {
   return rows.find((item) => item.user_id === userId) || rows.find((item) => item.user_id === serviceUserId) || null
 }
 
+export const budgetKey = (provider, now = Date.now()) => `creator:budget:${provider}:${new Date(now).toISOString().slice(0, 10)}`
+export const providerDailyLimit = () => Number(process.env.CREATOR_PROVIDER_DAILY_CALLS || 500)
+
 export function createProviders({ db, redis, job, signal, beforeCall, referencePollMs = 10000 }) {
   if (!Number.isSafeInteger(referencePollMs) || referencePollMs < 10000 || referencePollMs > 60000) {
     throw new Error('Reference polling interval must be 10000 to 60000 ms')
@@ -38,11 +41,13 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
   async function call(provider, operation, fn, billing = {}) {
     const circuit = `creator:circuit:${provider}`
     if (Number(await redis.get(circuit)) >= 5) fail('PROVIDER_CIRCUIT_OPEN', '외부 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', 503)
-    const budgetKey = `creator:budget:${provider}:${new Date().toISOString().slice(0, 10)}`
-    const used = await redis.incr(budgetKey)
-    if (used === 1) await redis.expire(budgetKey, 172800)
-    const limit = Number(process.env.CREATOR_PROVIDER_DAILY_CALLS || 500)
-    if (used > limit) fail('PROVIDER_BUDGET', '오늘의 외부 조회 한도에 도달했습니다.', 429)
+    // The daily budget counts billable requests. Checking a dataset's progress and downloading its result cost nothing,
+    // and one Instagram lookup polls several times, so counting those made 500 calls mean about 70 lookups.
+    if (!(provider === 'brightdata' && /(^|-)(progress|download)$/.test(operation))) {
+      const used = await redis.incr(budgetKey(provider))
+      if (used === 1) await redis.expire(budgetKey(provider), 172800)
+      if (used > providerDailyLimit()) fail('PROVIDER_BUDGET', '오늘의 외부 조회 한도에 도달했습니다.', 429)
+    }
     // Optional catalog seed guard adds to (never replaces) daily budget and circuit checks.
     await beforeCall?.({ provider, operation, ...billing })
     const started = Date.now()

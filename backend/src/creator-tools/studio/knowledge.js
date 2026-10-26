@@ -1,5 +1,6 @@
 import { query } from '../store.js'
 import { runReelAnalysis } from '../success-reel-analysis.js'
+import { budgetKey, providerDailyLimit } from '../providers.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { matchFormulas, discoverFormulas, buildCoverKnowledge } from './formula-study.js'
 
@@ -20,6 +21,9 @@ export const MIN_ANALYZED = 3
 export const KNOWLEDGE_VERSION = 2
 const STUDY_HOUR_KST = Number(process.env.CREATOR_STUDY_HOUR_KST ?? 4)
 const DAILY_LIMIT = Number(process.env.CREATOR_STUDY_DAILY_LIMIT ?? 40)
+// Instagram lookups are shared with students' own link analysis, so the study stops once half of today's budget is used.
+const STUDY_BUDGET_SHARE = 0.5
+const BUDGET_ERROR = '오늘의 외부 조회 한도에 도달했습니다.'
 
 export const knowledgeSchema = obj({
   audience: str,
@@ -137,11 +141,16 @@ export async function studyOnce(deps, { limit = DAILY_LIMIT, keepAlive = async (
   let error = null
   try {
     for (const shortcode of await studyBacklog(db, limit)) {
+      if (deps.redis && Number(await deps.redis.get(budgetKey('brightdata')).catch(() => 0)) >= providerDailyLimit() * STUDY_BUDGET_SHARE) { stats.stopped = 'budget'; break }
       await query(db.from('creator_success_reels').update({ analysis_status: 'running', analysis_error: null, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode))
       await runReelAnalysis(deps, shortcode)
-      const row = await query(db.from('creator_success_reels').select('analysis_status').eq('shortcode', shortcode).maybeSingle())
+      const row = await query(db.from('creator_success_reels').select('analysis_status,analysis_error').eq('shortcode', shortcode).maybeSingle())
       if (row?.analysis_status === 'ready') stats.analyzed += 1
-      else stats.failed += 1
+      else if (row?.analysis_error === BUDGET_ERROR) {
+        // Out of lookups is not the reel's fault: it waits for tomorrow's study instead of a week.
+        await query(db.from('creator_success_reels').update({ analysis_status: 'none', analysis_error: null }).eq('shortcode', shortcode))
+        stats.stopped = 'budget'; break
+      } else stats.failed += 1
       await keepAlive()
     }
     stats.formulas = await part('match', () => matchFormulas(deps, { keepAlive }))

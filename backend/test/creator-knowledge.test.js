@@ -143,3 +143,28 @@ test('cover copy is learned across fields and reaches the thumbnail stage', asyn
   assert.equal(thumbInput.coverLessons.lessons[0].how, '끝난 상태를 먼저')
   for (const prompt of [discoverPrompt, matchPrompt, coverPrompt]) for (const word of ['백탁', '선크림', '냉동만두']) assert.ok(!prompt.includes(word), word)
 })
+
+test('only billable Bright Data requests count toward the daily budget', async () => {
+  const { createProviders } = await import('../src/creator-tools/providers.js')
+  const store = new Map()
+  const redis = { get: async k => store.get(k) ?? null, incr: async k => { store.set(k, (store.get(k) || 0) + 1); return store.get(k) }, expire: async () => 1, del: async k => store.delete(k) }
+  const db = { from: () => ({ insert: () => Promise.resolve({ error: null }) }) }
+  const before = process.env.CREATOR_PROVIDER_DAILY_CALLS
+  process.env.CREATOR_PROVIDER_DAILY_CALLS = '2'
+  try {
+    const p = createProviders({ db, redis, job: { id: null }, signal: new AbortController().signal })
+    for (let i = 0; i < 6; i++) await p.call('brightdata', i % 2 ? 'progress' : 'account-reels-download', async () => 'ok')
+    await p.call('brightdata', 'trigger', async () => 'ok')
+    await p.call('brightdata', 'profiles-trigger', async () => 'ok')
+    await assert.rejects(p.call('brightdata', 'trigger', async () => 'ok'), /외부 조회 한도/)
+  } finally { if (before === undefined) delete process.env.CREATOR_PROVIDER_DAILY_CALLS; else process.env.CREATOR_PROVIDER_DAILY_CALLS = before }
+})
+
+test('the study leaves half of the day\'s Instagram lookups to students', async () => {
+  const { budgetKey } = await import('../src/creator-tools/providers.js')
+  const db = fakeDb({ creator_success_reels: new Map([['N1', { shortcode: 'N1', visible: true, reference_fit: true, username: 'a', analysis_status: 'none' }]]), creator_study_runs: new Map() })
+  const redis = { get: async k => k === budgetKey('brightdata') ? '250' : null }
+  const stats = await studyOnce({ db, redis, makeProviders: () => ({ json: async () => ({ reels: [] }) }) }, { limit: 5 })
+  assert.equal(stats.stopped, 'budget')
+  assert.equal(db.tables.creator_success_reels.get('N1').analysis_status, 'none', 'nothing was started')
+})
