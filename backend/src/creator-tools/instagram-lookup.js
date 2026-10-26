@@ -13,6 +13,7 @@ const REUSE_MS = 30 * 60000
 const UNAVAILABLE = '영상을 가져올 수 없습니다. 권한을 확인하거나 MP4·대본 업로드로 전환해주세요.'
 export const OFFLINE_MESSAGE = '인스타 조회용 컴퓨터가 지금 응답하지 않아요. 잠시 후 다시 시도하거나 MP4·대본 업로드를 이용해주세요.'
 export const TIMEOUT_MESSAGE = '인스타 조회가 늦어지고 있어요. 잠시 후 다시 시도해주세요.'
+export const BLOCKED_MESSAGE = '지금 인스타에서 릴스를 읽지 못하고 있어요(조회용 계정 확인 중). 잠시 후 다시 시도하거나 MP4·대본 업로드를 이용해주세요.'
 const ERRORS = new Set(['LINK_PRIVATE', 'LINK_DELETED', 'LINK_UNAVAILABLE', 'LOOKUP_BLOCKED'])
 
 export const markCollectorSeen = (redis, now = Date.now()) => redis?.set(SEEN_KEY, String(now), 'EX', 3600).catch(() => {})
@@ -41,7 +42,7 @@ export async function awaitLookup({ db, redis, signal }, id, { timeoutMs = 18000
   for (;;) {
     const row = await query(db.from('creator_instagram_lookups').select('status,result,error').eq('id', id).single())
     if (row.status === 'done') return row.result
-    if (row.status === 'failed') fail(ERRORS.has(row.error) ? row.error : 'LINK_UNAVAILABLE', UNAVAILABLE, 422)
+    if (row.status === 'failed') fail(ERRORS.has(row.error) ? row.error : 'LINK_UNAVAILABLE', row.error === 'LOOKUP_BLOCKED' ? BLOCKED_MESSAGE : UNAVAILABLE, row.error === 'LOOKUP_BLOCKED' ? 503 : 422)
     if (!(await collectorOnline(redis, now()))) fail('LOOKUP_OFFLINE', OFFLINE_MESSAGE, 503)
     if (now() > until) fail('LOOKUP_TIMEOUT', TIMEOUT_MESSAGE, 503)
     await sleep(pollMs, undefined, { signal })

@@ -155,7 +155,13 @@ async function probe(keyword, account) {
 let lookupBusy = false
 const collectPause = async (min, max) => { await pause(min, max); while (lookupBusy) await sleep(1000) }
 
+// When Instagram stops showing reels to this account (logged out, or a temporary limit after many page loads), every
+// reel looks deleted. That is reported as blocked, not as a dead link, and lookups rest for a while instead of
+// hammering Instagram: 5 misses in a row → 30 minutes of rest.
+let misses = 0, restUntil = 0
 async function readLookup(context, lookup) {
+  if (!(await loggedIn(context))) { await log('⚠️ 수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행해주세요.'); return { error: 'LOOKUP_BLOCKED' } }
+  if (Date.now() < restUntil) return { error: 'LOOKUP_BLOCKED' }
   const page = await context.newPage()
   const bodies = []
   page.on('response', async response => {
@@ -182,9 +188,15 @@ async function readLookup(context, lookup) {
     }
     const item = found()
     if (!item?.videoUrl) {
+      if (++misses >= 5) {
+        misses = 0; restUntil = Date.now() + 30 * 60000
+        await log('⚠️ 릴스를 연속 5번 못 읽었습니다. 인스타가 잠시 막은 것 같아 30분 쉽니다. 이 크롬 창에서 instagram.com을 열어 상태를 확인해주세요.')
+        return { error: 'LOOKUP_BLOCKED' }
+      }
       const gone = await page.getByText(/사용할 수 없|isn.t available|not available/i).count().catch(() => 0)
       return { error: gone ? 'LINK_DELETED' : 'LINK_UNAVAILABLE' }
     }
+    misses = 0
     return { result: { videoUrl: item.videoUrl, thumbnailUrl: item.thumbnailUrl, caption: item.caption, username: item.owner,
       views: item.views, likes: item.likes, comments: item.comments, postedAt: postedAt(item.code)?.toISOString() || null } }
   } catch {

@@ -456,6 +456,7 @@ export function registerStudioRoutes(router) {
     } catch (error) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
       // A link Instagram no longer shows (deleted or made private) is marked once, so restarts do not retry it.
+      // LOOKUP_BLOCKED (the Mac mini's Instagram is limited) says nothing about the link, so it is left for a later run.
       if (['LINK_DELETED', 'LINK_PRIVATE', 'LINK_UNAVAILABLE'].includes(error?.code)) await query(db.from('creator_success_reels')
         .update({ analysis_status: 'failed', analysis_error: '인스타에서 볼 수 없는 링크예요(삭제·비공개).', analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
     }
