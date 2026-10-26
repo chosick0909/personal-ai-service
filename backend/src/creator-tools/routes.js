@@ -277,7 +277,10 @@ export function createCreatorRouter() {
     await assertCreatorAccess(req)
     const db = database(), media = await ownedMedia(db, uuid(req.params.id), req.auth.userId)
     if (req.body.confirmed !== true || req.body.revision !== media.revision || !['ready','completed'].includes(media.status)) fail('RENDER_CONFIRMATION_REQUIRED', '최신 편집 내용을 확인한 뒤 내보내주세요.', 409)
-    const row = await createJob(db, { userId: req.auth.userId, kind: 'media-render', key: `${media.id}:${media.revision}`,
+    // The same version maps to the same job (double clicks), but a failed render must be retryable without editing again.
+    const last = media.job_id ? await query(db.from('creator_jobs').select('id,kind,status,input').eq('id', media.job_id).maybeSingle()) : null
+    const retry = last?.kind === 'media-render' && last.status === 'failed' && last.input?.revision === media.revision ? `:${last.id}` : ''
+    const row = await createJob(db, { userId: req.auth.userId, kind: 'media-render', key: `${media.id}:${media.revision}${retry}`,
       input: { projectId: media.id, revision: media.revision, manifest: media.manifest } })
     await query(db.from('creator_media_projects').update({ job_id: row.id }).eq('id', media.id))
     await accept(row, res)
