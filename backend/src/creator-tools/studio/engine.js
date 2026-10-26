@@ -59,6 +59,8 @@ function sessionContext(session, resolved, extras = {}) {
     brief: session.brief, attachments: (session.attachments || []).map(a => ({ name: a.name, content: String(a.content || '').slice(0, 3000) })),
     answers: session.topic?.answers || [],
     topic: session.topic ? { title: session.topic.title, angle: session.topic.angle, promise: session.topic.promise, facts: session.topic.facts, audience: session.topic.audience, category: session.topic.category } : null,
+    // How 훅ai read the student's key words at the cover stage, so every later stage keeps the same meaning.
+    briefReading: session.thumbnail?.plan?.terms?.length ? { terms: session.thumbnail.plan.terms, purpose: session.thumbnail.plan.purpose } : null,
     thumbnail: chosen('thumbnail'), hook: chosen('hook'),
     script: session.script?.edited || chosen('script')?.lines || null,
     filming: session.filming ? { storyboard: session.filming.storyboard, editing: session.filming.editing, editingPlan: session.filming.editingPlan, memo: session.memo } : null,
@@ -160,7 +162,7 @@ const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 // What 훅ai found when it re-read its own draft (persona rule 8); anything listed triggers one rewrite.
 const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str) })
 const stageSchemas = {
-  thumbnail: obj({ questions, plan: obj({ reader: str, promise: str, quotes: arr(str) }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
+  thumbnail: obj({ questions, plan: obj({ terms: arr(obj({ word: str, meaning: str })), purpose: str, reader: str, promise: str, quotes: arr(str) }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
   hook: obj({ questions, check, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
   script: obj({ questions, check, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
   filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str,
@@ -175,12 +177,12 @@ const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 �
 const stagePrompts = {
   // Covers are 훅ai's own copywriting from the student's topic; references are not sent to this stage.
   thumbnail: `${ASK_RULE}\n'썸네일 카피' 단계입니다. 릴스 커버에 크게 넣을 제목 3안을 훅ai가 직접 제안합니다. 레퍼런스는 이 단계에 쓰지 않습니다. 근거는 brief·topic·answers·attachments에 적힌 주제와 사실뿐입니다.
-1. plan을 먼저 채웁니다. quotes: 이번 커버들이 기대는 brief·답변·첨부의 구절을 한 글자도 바꾸지 않고 그대로 옮겨 적습니다(바꿔 쓰거나 요약하지 않음). reader: 이 커버를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 이 영상을 끝까지 보면 그 사람이 얻는 것 한 가지(한 영상에 약속 하나). reader와 promise, 그리고 모든 제목은 quotes에 적은 구절로 뒷받침되는 내용만 담습니다.
+1. plan을 먼저 채웁니다. terms: brief·답변의 핵심 단어(소재, 하려는 일)를 원문 그대로 word에 적고, meaning에 그 단어의 사전적인 뜻을 풀어 씁니다(외래어·줄임말은 원래 말의 뜻으로). purpose: terms의 뜻만으로 이 영상이 '누가 무엇을 하려는 영상인지' 한 문장. 이후 reader·promise·제목은 모두 purpose에서 출발하고, terms의 뜻에 없는 사건이나 상황을 새로 만들지 않습니다. quotes: 이번 커버들이 기대는 brief·답변·첨부의 구절을 한 글자도 바꾸지 않고 그대로 옮겨 적습니다(바꿔 쓰거나 요약하지 않음). reader: 이 커버를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 이 영상을 끝까지 보면 그 사람이 얻는 것 한 가지(한 영상에 약속 하나). reader와 promise, 그리고 모든 제목은 quotes에 적은 구절로 뒷받침되는 내용만 담습니다.
 successCovers는 실제로 조회수가 크게 나온 커버 문구들입니다. 각 문구가 어떤 원칙으로 먹혔는지(길이, 말투, 구어 표현, 숫자·장소·대상의 쓰임) 읽어 이번 커버의 감각을 맞춥니다. 그 문구의 단어·소재·문장 틀은 가져오지 않습니다.
 2. 아래 커버 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격·할인·한정 같은 사실은 brief에 있을 때만.
-4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황·사건이 quotes의 구절에 그 단어, 그 뜻 그대로 있는지 하나씩 대조합니다. 주어지지 않은 사실이나 원문을 다르게 읽은 내용이 들어갔으면 check.unprovidedFacts에 적습니다.
+4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황·사건이 purpose와 같은 일을 말하는지, quotes의 구절에 그 단어, 그 뜻 그대로 있는지 하나씩 대조합니다. 주어지지 않은 사실이나 원문을 다르게 읽은 내용이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
 1안: sources.hook이 일으킨 감정(why·type)을 이번 소재로 옮긴 말. 2·3안: 다른 훅 유형. spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.`,
@@ -248,7 +250,7 @@ export async function generateStage(deps, session, stage) {
   const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6)] : []
   // Grounding: a cover may only lean on words the student actually wrote. A "quote" that is not in their text
   // means 훅ai re-read a word as something else, so the draft is rewritten from the original words.
-  if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, raw.plan?.quotes).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
+  if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, [...(raw.plan?.quotes || []), ...(raw.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
   if (found.length) {
     raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
   }
@@ -257,7 +259,8 @@ export async function generateStage(deps, session, stage) {
     // Each cover names the copy principle it uses; the hint tells a first-time student what that principle does.
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => { const label = COVER_PRINCIPLE_NAMES.includes(o.label) ? o.label : ''; return { text: clean(o.text, 40), why: clean(o.why, 200), label, hint: coverHint(label) } }).filter(o => o.text).slice(0, 3)
     if (!options.length) fail('STAGE_EMPTY', '썸네일 카피를 만들지 못했어요. 다시 시도해주세요.', 422)
-    return { value: { options, chosen: 0, custom: null, plan: raw.plan ? { reader: clean(raw.plan.reader, 200), promise: clean(raw.plan.promise, 200) } : null }, placeholders }
+    const terms = (Array.isArray(raw.plan?.terms) ? raw.plan.terms : []).map(t => ({ word: clean(t?.word, 40), meaning: clean(t?.meaning, 120) })).filter(t => t.word && t.meaning).slice(0, 8)
+    return { value: { options, chosen: 0, custom: null, plan: raw.plan ? { terms, purpose: clean(raw.plan.purpose, 200), reader: clean(raw.plan.reader, 200), promise: clean(raw.plan.promise, 200) } : null }, placeholders }
   }
   if (stage === 'hook') {
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ spoken: clean(o.spoken, 200), onScreen: clean(o.onScreen, 40), type: HOOK_TYPES.includes(o.type) ? o.type : '기타', why: clean(o.why, 200) })).filter(o => o.spoken).slice(0, 3)

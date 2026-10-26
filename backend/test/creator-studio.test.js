@@ -212,7 +212,7 @@ test('thumbnail copies are 훅ai\'s own copywriting from the topic: no reference
   for (const word of ['냉동만두', '방송사고', '쇼호스트', '완판', '선크림']) assert.ok(!seen.includes(word), word)
   assert.deepEqual(value.options.map(o => o.label), ['내 얘기 장면', '결과 약속', ''])
   assert.ok(value.options[0].hint && value.options[2].hint === '')
-  assert.deepEqual(value.plan, { reader: '퇴근 후 저녁이 급한 사람', promise: '5분 저녁 해결' })
+  assert.deepEqual(value.plan, { terms: [], purpose: '', reader: '퇴근 후 저녁이 급한 사람', promise: '5분 저녁 해결' })
 })
 
 test('a draft whose self-check finds reference traces or unprovided facts is rewritten once', async () => {
@@ -234,11 +234,12 @@ test('a thumbnail draft that quotes words the student never wrote is rewritten f
   const prompts = []
   const deps = { db, makeProviders: () => ({ json: async (_op, instructions) => { prompts.push(instructions)
     return prompts.length === 1
-      ? { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { reader: 'r', promise: 'p', quotes: ['냉동만두 세일'] }, options: [{ label: '결과 약속', text: '첫 초안', why: 'w' }], placeholders: [] }
-      : { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { reader: 'r', promise: 'p', quotes: ['쿠팡 냉동만두 세일즈'] }, options: [{ label: '결과 약속', text: '고친 안', why: 'w' }], placeholders: [] } } }) }
+      ? { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { terms: [{ word: '세일', meaning: '할인' }], purpose: 'x', reader: 'r', promise: 'p', quotes: ['쿠팡 냉동만두 세일즈'] }, options: [{ label: '결과 약속', text: '첫 초안', why: 'w' }], placeholders: [] }
+      : { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, plan: { terms: [{ word: '세일즈', meaning: '파는 일' }], purpose: '냉동만두를 파는 영상', reader: 'r', promise: 'p', quotes: ['쿠팡 냉동만두 세일즈'] }, options: [{ label: '결과 약속', text: '고친 안', why: 'w' }], placeholders: [] } } }) }
   const { value } = await generateStage(deps, session, 'thumbnail')
   assert.equal(prompts.length, 2, 'the ungrounded quote triggers one rewrite')
-  assert.ok(prompts[1].includes('냉동만두 세일'))
+  assert.ok(prompts[1].includes('"세일"'), 'a key word cut out of a longer word is flagged')
+  assert.deepEqual(value.plan.terms, [{ word: '세일즈', meaning: '파는 일' }])
   assert.equal(value.options[0].text, '고친 안')
   assert.deepEqual(ungroundedQuotes(session, ['쿠팡 냉동만두 세일즈', '냉동 만두', '냉동만두 세일', '세일 기간']), ['냉동만두 세일', '세일 기간'], 'spacing is ignored; a quote that stops mid-word or comes from 훅ai\'s own facts is not the student\'s words')
   assert.deepEqual(ungroundedQuotes({ brief: '냉동만두를 팔아요' }, ['냉동만두']), [], 'a particle after the quote is fine')
