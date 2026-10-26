@@ -317,13 +317,16 @@ export function registerStudioRoutes(router) {
       if (thumbnail) await query(db.from('creator_success_reels').update({ visible: true }).eq('shortcode', shortcode))
     } catch (error) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
+      // A link Instagram no longer shows (deleted or made private) is marked once, so restarts do not retry it.
+      if (['LINK_DELETED', 'LINK_PRIVATE', 'LINK_UNAVAILABLE'].includes(error?.code)) await query(db.from('creator_success_reels')
+        .update({ analysis_status: 'failed', analysis_error: '인스타에서 볼 수 없는 링크예요(삭제·비공개).', analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
     }
   }
   // The background queue lives in memory, so a deploy drops it; after a restart the unread 추천 links are queued again.
   if (process.env.NODE_ENV !== 'test') setTimeout(async () => {
     try {
       const db = database()
-      const pending = await query(db.from('creator_success_reels').select('shortcode').eq('recommended', true).eq('username', 'recommended').limit(300))
+      const pending = await query(db.from('creator_success_reels').select('shortcode').eq('recommended', true).eq('username', 'recommended').neq('analysis_status', 'failed').limit(300))
       for (const { shortcode } of pending) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, `https://www.instagram.com/reel/${shortcode}/`), 1)
     } catch (error) { console.error('[recommend-resume]', error?.code || 'FAILED') }
   }, 30000).unref?.()
