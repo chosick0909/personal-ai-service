@@ -264,35 +264,50 @@ function ScriptEditor({ session, save, onQuick, title = '대본' }) {
   const list = useRef(null)
   const [drag, setDrag] = useState(null)
   const moveLine = (from, to) => setLines(ls => { if (from === to) return ls; const next = [...ls]; const [l] = next.splice(from, 1); next.splice(to, 0, l); debounced(next); return next })
-  // Rows keep their key (their place before the drag), so the row being dragged stays the same element on screen.
-  const order = lines.map((_, i) => i)
-  if (drag) { const [moved] = order.splice(drag.from, 1); order.splice(drag.to, 0, moved) }
+  // The line follows the pointer while the others slide out of its way; let go, it glides into its slot and the new
+  // order is saved. Rows stay in their original order on screen during the drag; only their position moves.
   const startDrag = (e, from) => {
     e.preventDefault()
-    let to = from
-    setDrag({ from, to })
+    const rects = [...list.current.children].map(r => r.getBoundingClientRect())
+    const gap = rects.length > 1 ? rects[1].top - rects[0].bottom : 8
+    const size = rects[from].height + gap
+    const centers = rects.map(r => r.top + window.scrollY + r.height / 2)
+    const startY = e.clientY + window.scrollY
+    let to = from, dy = 0
+    setDrag({ from, to, dy, size })
     const move = ev => {
       if (ev.clientY < 90) window.scrollBy(0, -14); else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 14)
-      const rows = [...list.current.children]
-      const others = rows.filter((_, k) => k !== to)
-      to = others.filter(r => { const b = r.getBoundingClientRect(); return b.top + b.height / 2 < ev.clientY }).length
-      setDrag({ from, to })
+      dy = ev.clientY + window.scrollY - startY
+      to = centers.filter((y, k) => k !== from && y < centers[from] + dy).length
+      setDrag({ from, to, dy, size })
     }
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); setDrag(null); moveLine(from, to) }
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up)
+      const slot = to > from ? rects.slice(from + 1, to + 1).reduce((a, r) => a + r.height + gap, 0) : -rects.slice(to, from).reduce((a, r) => a + r.height + gap, 0)
+      setDrag({ from, to, dy: slot, size, settling: true })
+      setTimeout(() => { moveLine(from, to); setDrag(null) }, 200)
+    }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up)
+  }
+  const rowStyle = i => {
+    if (!drag) return undefined
+    const { from, to, dy, size, settling } = drag
+    if (i === from) return { transform: `translateY(${dy}px)`, transition: settling ? 'transform .2s ease' : 'none', position: 'relative', zIndex: 2 }
+    const shift = from < to && i > from && i <= to ? -size : from > to && i >= to && i < from ? size : 0
+    return { transform: `translateY(${shift}px)`, transition: 'transform .2s ease' }
   }
   const versions = [{ note: s.edited ? '직접 수정' : OPTION_NAME[s.chosen ?? 0], at: session.updatedAt, text: scriptText(lines) },
     ...(s.history || []).map((h, i) => ({ note: h.note, at: h.at, text: scriptText(h.value), load: () => save({ script: { restore: i } }) }))]
   return <section className="st-card st-stack st-editor-anchor" id={title === '대본' ? 'st-script-editor' : undefined}>
     <div className="st-card-head"><h3>{title} <span className="st-pill st-pill-gray" style={{ marginLeft: 6 }}>예상 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.history?.length > 0 && <><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button><TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button></TopAction></>}{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
     <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 왼쪽 손잡이(⋮⋮)를 끌면 문장 순서가 바뀌어요. 고치면 자동으로 저장돼요. 초는 글자 수로 계산한 예상 길이라 고치는 대로 바뀌어요.</p>
-    <div className="st-lines" ref={list}>{order.map((orig, i) => { const l = lines[orig]; return <div className={`st-line${drag && drag.to === i ? ' is-dragging' : ''}`} key={orig}>
+    <div className="st-lines" ref={list}>{lines.map((l, i) => <div className={`st-line${drag && drag.from === i ? ' is-dragging' : ''}`} style={rowStyle(i)} key={i}>
       <div className="st-line-part"><button type="button" className="st-line-grip" aria-label={`${i + 1}번째 문장 순서 옮기기 (끌거나 위·아래 화살표)`} title="끌어서 순서 바꾸기"
         onPointerDown={e => startDrag(e, i)} onKeyDown={e => { if (e.key === 'ArrowUp' && i > 0) { e.preventDefault(); moveLine(i, i - 1) } else if (e.key === 'ArrowDown' && i < lines.length - 1) { e.preventDefault(); moveLine(i, i + 1) } }}><GripVertical size={18} /></button>
         <small>{estimateLineSeconds(l.spoken)}초</small></div>
       <div><textarea value={l.spoken} rows={Math.max(1, Math.ceil(l.spoken.length / 34))} onChange={e => edit(i, { spoken: e.target.value })} aria-label={`${i + 1}번째 문장`} /></div>
       <button type="button" className="st-icon-btn" style={{ width: 36, height: 36 }} aria-label="이 문장 삭제" onClick={() => setLines(ls => { const next = ls.filter((_, j) => j !== i); debounced(next); return next })}><X size={16} /></button>
-    </div> })}</div>
+    </div>)}</div>
     {/* The total again at the bottom, so it stays in sight after scrolling through a long script. */}
     <div className="st-quick"><span className="st-quick-total">전체 예상 {total}초</span>{onQuick && ['첫 문장 더 세게', '더 짧게', '더 길게', '더 친근하게', '마무리 멘트 바꾸기'].map(q => <button type="button" key={q} className="st-chip st-chip-soft" onClick={() => onQuick(q)}>{q}</button>)}</div>
     {showHistory && <HistoryModal title="대본" versions={versions} onClose={() => setShowHistory(false)} />}

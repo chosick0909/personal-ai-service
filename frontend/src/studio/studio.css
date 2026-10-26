@@ -238,7 +238,8 @@
 .st-line-grip { display:grid; place-items:center; width:30px; height:36px; padding:0; border:0; border-radius:8px; background:none; color:var(--st-faint); cursor:grab; touch-action:none; }
 .st-line-grip:hover { background:var(--st-bg); color:var(--st-accent-text); }
 .st-line-grip:active { cursor:grabbing; }
-.st-line.is-dragging { border-color:var(--st-accent); box-shadow:0 8px 24px rgba(108,76,241,.18); background:var(--st-accent-soft); }
+.st-line.is-dragging { border-color:var(--st-accent); box-shadow:0 14px 34px rgba(108,76,241,.22); background:var(--st-panel); }
+.st-lines:has(.is-dragging) { user-select:none; -webkit-user-select:none; }
 .st-line-part-cta { color:var(--st-success); }
 .st-line textarea { width:100%; min-height:44px; padding:8px 10px; border:1px solid transparent; border-radius:8px; background:transparent; font-size:17px; line-height:1.55; resize:none; }
 .st-line textarea:hover { border-color:var(--st-line); }
