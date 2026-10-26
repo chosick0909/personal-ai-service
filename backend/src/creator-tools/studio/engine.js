@@ -80,7 +80,8 @@ const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개(짧게). 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
 - proposals: 주제 후보 3개(수강생이 주제를 못 정했거나 "제안해줘"를 원할 때). 각 후보는 title(주제 한 줄), angle(차별 관점), promise(시청자가 얻는 것), why(지금 이 분야에서 먹히는 이유; trending이 있으면 그 근거), category(분야). 후보를 낼 상황이 아니면 [].
 - topic: 주제를 확정할 수 있을 만큼 정보가 모이면 ready=true와 함께 채웁니다. title, angle, promise, facts(수강생이 실제로 준 사실만, 없으면 []), audience(누구에게), category(분야). 아직이면 ready=false와 빈 값.
-규칙: 레퍼런스(sources)가 있으면 첫 질문은 그 포맷을 살리는 데 필요한 재료를 묻습니다(예: 판정형이면 "비교할 제품 이름을 알려주세요", 경험담이면 "들려줄 경험을 한 줄로 말해주세요"). 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 제품명·경험·수치처럼 대본에 들어갈 사실은 반드시 묻고 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어가되, 사실을 지어내지 않습니다(없는 사실은 뒤 단계에서 다시 묻습니다). facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
+가장 중요한 규칙: 주제(무엇에 대한 영상인가)는 항상 수강생이 적은 brief·attachments·답변에서 나옵니다. 레퍼런스(sources)는 형식(첫 문장 장치·전개·촬영·캡션 방식)만 빌려 오는 것이고, 레퍼런스 영상의 소재·사건·제품·상황(예: 방송사고, 특정 화장품)을 주제나 질문에 끌어오지 않습니다. brief가 있으면 그 소재를 그대로 주제로 삼고, 레퍼런스 형식을 그 소재에 입히는 방향으로만 제안합니다.
+규칙: 레퍼런스(sources)가 있으면 첫 질문은 그 포맷을 수강생의 소재에 살리는 데 필요한 재료를 묻습니다(예: 판정형이면 "비교할 제품 이름을 알려주세요", 경험담이면 "들려줄 경험을 한 줄로 말해주세요"). 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 제품명·경험·수치처럼 대본에 들어갈 사실은 반드시 묻고 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어가되, 사실을 지어내지 않습니다(없는 사실은 뒤 단계에서 다시 묻습니다). facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
 
 async function trendingFor(db, category) {
   let request = db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready')
@@ -162,7 +163,7 @@ const stageSchemas = {
   caption: obj({ questions, options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) }),
 }
 // Every stage asks before it invents. Facts the student already gave live in topic.facts/brief/attachments/answers.
-const ASK_RULE = `사실 확인 규칙: 영상이 바로 그것에 대한 내용이라 없으면 대본이 성립하지 않는 사실(비교할 제품명·브랜드, 영상의 핵심이 되는 수치나 경험)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(타깃 표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. answers나 facts에 "모름/없음/알아서/훅ai 재량"으로 답한 사실은 절대 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
+const ASK_RULE = `소재 규칙: 영상의 소재·제품·상황은 topic·brief·attachments에서만 가져오고, sources(레퍼런스)에서는 형식만 빌립니다. 레퍼런스 영상의 소재(그 영상 속 사건·제품·인물)를 쓰지 않습니다.\n사실 확인 규칙: 영상이 바로 그것에 대한 내용이라 없으면 대본이 성립하지 않는 사실(비교할 제품명·브랜드, 영상의 핵심이 되는 수치나 경험)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로(예: "비교할 선크림 3개의 제품명을 알려주세요"). key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(타깃 표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. answers나 facts에 "모름/없음/알아서/훅ai 재량"으로 답한 사실은 절대 다시 묻지 말고, 그 사실 없이도 성립하는 방향으로 씁니다(예: 제품명 대신 "첫 번째 제품"). placeholders는 그래도 남는 빈칸만.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 없는 사실은 지어내지 말고 "첫 번째 제품"처럼 일반 표현으로 쓰되 [대괄호] 빈칸은 남기지 않고, 반드시 완성된 안을 냅니다.`
 

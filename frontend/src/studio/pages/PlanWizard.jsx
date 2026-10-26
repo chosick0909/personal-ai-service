@@ -288,7 +288,9 @@ export default function PlanWizard({ sessionId }) {
   const hasTopic = Boolean(session.topic?.title)
   // No separate topic box: the first sentence of what the student wrote becomes the topic when they move on.
   const briefTopic = () => briefLive.split(/[.!?\n]/).map(t => t.trim()).find(Boolean)?.slice(0, 60) || ''
-  const startFromBrief = async () => { await save({ brief: briefLive }); pickTopic({ title: briefTopic(), category: session.topic?.category || '기타', facts: [] }) }
+  const startFromBrief = async () => { await save({ brief: briefLive }); pickTopic({ title: briefTopic(), category: session.topic?.category || '기타', facts: [], fromBrief: true }) }
+  // The student rewrote what the reel is about after a topic was set: the old topic no longer applies.
+  const topicStale = hasTopic && briefLive.trim() !== '' && briefLive.trim() !== String(session.topic?.brief ?? session.brief ?? '').trim()
   const stageReady = session.stage === 'topic' ? hasTopic : session.stage === 'done' ? true : Boolean(session[session.stage])
   const failed = session.job?.status === 'failed'
   const generating = running && session.job?.stage === session.stage
@@ -298,7 +300,7 @@ export default function PlanWizard({ sessionId }) {
     <div className="st-wizard-main">
       <div className="st-row" style={{ justifyContent: 'space-between' }}>
         <button type="button" className="st-btn st-btn-ghost" onClick={() => go('plans')}><ArrowLeft size={20} />내 기획안</button>
-        {hasTopic && <strong className="st-muted st-wizard-title" style={{ fontSize: 15 }}>{session.topic.title}</strong>}
+        {hasTopic && !topicStale && <strong className="st-muted st-wizard-title" style={{ fontSize: 15 }}>{session.topic.title}</strong>}
         <button type="button" className="st-btn st-btn-ghost st-chat-toggle" onClick={() => setChatOpen(o => !o)}><MessageSquareText size={18} />훅ai</button>
       </div>
       <nav className="st-stepper" aria-label="기획 단계">{STAGES.map(([id, label], i) => <span key={id} style={{ display: 'contents' }}>{i > 0 && <span className="st-step-gap" />}<button type="button" className={`st-step${i < idx ? ' is-done' : ''}`} aria-current={id === session.stage ? 'step' : undefined} disabled={i > idx} onClick={() => i < idx && toStage(id)}><i>{i < idx ? <Check size={15} /> : i + 1}</i>{label}</button></span>)}</nav>
@@ -318,7 +320,7 @@ export default function PlanWizard({ sessionId }) {
       {session.stage !== 'done' && !generating && <div className="st-wizard-foot">
         {idx > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx - 1])}><ArrowLeft size={20} />이전</button>}
         {session.stage !== 'topic' && stageReady && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시</button>}
-        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic && !briefTopic()} onClick={() => hasTopic ? toStage('thumbnail') : startFromBrief()}>{hasTopic ? `${nextLabel}` : briefTopic() ? '이 내용으로 바로 시작' : '담고 싶은 내용을 적어주세요'}<ArrowRight size={20} /></button>
+        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic && !briefTopic()} onClick={() => hasTopic && !topicStale ? toStage('thumbnail') : startFromBrief()}>{hasTopic && !topicStale ? `${nextLabel}` : briefTopic() ? '이 내용으로 바로 시작' : '담고 싶은 내용을 적어주세요'}<ArrowRight size={20} /></button>
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
       </div>}
     </div>
