@@ -50,14 +50,16 @@ export async function fieldKnowledge(db, category) {
 
 const usable = request => request.eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
 
-// Unanalyzed archive reels, 추천 first and then by views. Reels that failed are tried again after a week.
-export async function studyBacklog(db, limit) {
+// Unanalyzed archive reels, 추천 first and then by views. Reels that failed are tried again after a week, and
+// an analysis cut off by a restart (still 'running' half an hour later) is started over.
+export async function studyBacklog(db, limit, now = Date.now()) {
   if (limit <= 0) return []
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString()
+  const weekAgo = new Date(now - 7 * 86400000).toISOString(), stalled = new Date(now - 30 * 60000).toISOString()
   const rows = await query(usable(db.from('creator_success_reels').select('shortcode,recommended,views,analysis_status,analysis_updated_at'))
-    .neq('username', 'recommended').in('analysis_status', ['none', 'failed'])
+    .neq('username', 'recommended').in('analysis_status', ['none', 'failed', 'running'])
     .order('recommended', { ascending: false }).order('views', { ascending: false }).limit(limit * 3))
-  return rows.filter(r => r.analysis_status === 'none' || !r.analysis_updated_at || r.analysis_updated_at < weekAgo).slice(0, limit).map(r => r.shortcode)
+  const due = r => r.analysis_status === 'none' || !r.analysis_updated_at || r.analysis_updated_at < (r.analysis_status === 'running' ? stalled : weekAgo)
+  return rows.filter(due).slice(0, limit).map(r => r.shortcode)
 }
 
 function studyInput(category, analyzed, others, previous) {

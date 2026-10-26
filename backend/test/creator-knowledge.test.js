@@ -78,3 +78,12 @@ test('planning stages read what 훅ai learned about the field', async () => {
   assert.equal(input.fieldKnowledge.terms[0].word, '공복혈당')
   assert.match(HOOKAI_SYSTEM, /fieldKnowledge/)
 })
+
+test('the study picks unanalyzed reels, retries failures after a week and restarts analyses cut off by a restart', async () => {
+  const { studyBacklog } = await import('../src/creator-tools/studio/knowledge.js')
+  const now = Date.parse('2026-10-26T12:00:00Z')
+  const reel = (shortcode, status, at, extra = {}) => [shortcode, { shortcode, visible: true, reference_fit: true, username: 'a', analysis_status: status, analysis_updated_at: at, ...extra }]
+  const db = fakeDb({ creator_success_reels: new Map([reel('N1', 'none', null), reel('R1', 'running', '2026-10-26T11:00:00Z'), reel('R2', 'running', '2026-10-26T11:50:00Z'),
+    reel('F1', 'failed', '2026-10-10T00:00:00Z'), reel('F2', 'failed', '2026-10-25T00:00:00Z'), reel('D1', 'ready', '2026-10-01T00:00:00Z'), reel('P1', 'none', null, { username: 'recommended' }), reel('H1', 'none', null, { reference_fit: false })]) })
+  assert.deepEqual((await studyBacklog(db, 10, now)).sort(), ['F1', 'N1', 'R1'])
+})
