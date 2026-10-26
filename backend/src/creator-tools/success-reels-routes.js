@@ -46,7 +46,7 @@ export function createReelIngestRouter() {
   router.post('/lookups/claim', asyncHandler(async (_req, res) => {
     await markCollectorSeen(sharedRedis())
     const [row] = await query(database().rpc('creator_claim_lookup'))
-    res.json({ lookup: row ? { id: row.id, url: row.url, shortcode: row.shortcode } : null })
+    res.json({ lookup: row ? { id: row.id, url: row.url, shortcode: row.shortcode, priority: row.priority } : null })
   }))
   router.post('/lookups/:id', asyncHandler(async (req, res) => {
     const db = database(), id = uuid(req.params.id)

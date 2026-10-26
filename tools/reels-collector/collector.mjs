@@ -226,7 +226,9 @@ async function serveLookups(config, context) {
       await log(`조회 ${lookup.shortcode}: ${outcome.error || '완료'}`)
       if (outcome.error === 'LOOKUP_BLOCKED') await log('⚠️ 인스타가 로그인·확인 화면을 띄웠습니다. login을 다시 실행해주세요.')
     } finally { lookupBusy = false }
-    await pause(1500, 3000)
+    // A student is waiting on their own lookup, so those go quickly; 추천 links and the study are read slowly
+    // (Instagram limits an account that opens many reel pages in a short time).
+    if (lookup.priority > 0) await pause(30000, 45000); else await pause(1500, 3000)
   }
 }
 
