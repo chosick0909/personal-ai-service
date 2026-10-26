@@ -156,7 +156,7 @@ export default function ReelsPage() {
   const shown = reels.map(r => tracking[r.shortcode] ? { ...r, analysisStatus: 'running' } : r)
   return <div className="st-stack">
     <ReferenceGuide />
-    <div className="st-page-head"><p>최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 릴스를 매일 모아요. 분석하면 '내 레퍼런스'에 자동으로 저장돼요.</p>{lastUpdatedAt && <span className="st-pill st-pill-gray">업데이트 {when(lastUpdatedAt)}</span>}</div>
+    <div className="st-page-head st-reels-info"><p>최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 릴스를 매일 모아요. 분석하면 '내 레퍼런스'에 자동으로 저장돼요.</p>{lastUpdatedAt && <span className="st-pill st-pill-gray">업데이트 {when(lastUpdatedAt)}</span>}</div>
     <form className="st-search" role="search" onSubmit={e => { e.preventDefault(); change({ q: draft.trim().slice(0, 40) }) }}>
       <Search size={20} className="st-muted" aria-hidden="true" />
       <input type="search" value={draft} maxLength={40} onChange={e => { setDraft(e.target.value); if (!e.target.value && filters.q) change({ q: '' }) }} placeholder="키워드로 찾기 (예: 다이소, 여드름, 자취요리)" aria-label="키워드 검색" />
