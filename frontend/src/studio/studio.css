@@ -754,7 +754,7 @@
 .st-ideas-composer:focus-within { border-color:var(--st-accent-soft-2); box-shadow:0 0 0 3px var(--st-accent-soft), 0 6px 24px rgba(20, 16, 40, .06); }
 .st-ideas-composer-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .st-ideas-composer-foot .st-btn { width: 44px; height: 44px; padding: 0; border-radius: 14px; }
-.st-ideas-home .st-ideas-saved { margin-top: 10vh; }
+.st-ideas-home .st-ideas-saved { margin-top: 0; }
 @media (max-width: 1100px) { .st-ideas-home { grid-template-columns: 1fr; } .st-ideas-home .st-ideas-saved { margin-top: 0; } .st-ideas-start { padding-top: 6vh; } }
 .st .st-ideas-head .st-ideas-threads, .st .st-ideas-composer .st-ideas-threads { width: auto; max-width: 260px; min-height: 36px; border: 0; background: transparent; box-shadow: none; padding: 0 4px; font-size: 14px; color: var(--st-muted); cursor: pointer; }
 
