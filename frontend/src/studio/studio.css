@@ -713,7 +713,7 @@
 .st-ideas-intro h3 { font-size: 22px; }
 .st-ideas-intro p { max-width: 520px; }
 .st-ideas-starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-.st-idea-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.st-idea-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .st-idea-card { display: grid; gap: 8px; align-content: start; padding: 16px; border: 1px solid var(--st-line); border-radius: var(--st-radius); background: var(--st-panel); }
 .st-idea-card h4 { font-size: 17px; line-height: 1.4; }
 .st-idea-card p { margin: 0; font-size: 14px; line-height: 1.5; }
