@@ -346,7 +346,7 @@
 .st-loader-msg .st-cursor { display:inline-block; width:2px; height:1.1em; margin-left:2px; background:var(--st-accent); vertical-align:-2px; animation:st-blink 1s infinite; }
 .st-quiz { display:grid; gap:8px; }
 .st-quiz-opts { display:flex; gap:8px; flex-wrap:wrap; }
-.st-loader-foot { font-size:14px; color:var(--st-muted); }
+.st-loader-foot { font-size:14px; font-weight:600; color:var(--st-accent-text); }
 
 /* ----- storyboard ----- */
 .st-board { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
