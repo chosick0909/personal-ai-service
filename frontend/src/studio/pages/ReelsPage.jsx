@@ -106,6 +106,12 @@ function ReferenceGuide() {
       <ul className="st-guide-steps">{REFERENCE_STEPS.map(step => <li key={step}><CircleCheck size={18} aria-hidden="true" />{step}</li>)}</ul>
       <p className="st-guide-note">많이 볼수록 ‘잘되는 콘텐츠의 감각’이 쌓이고, 그 감각이 결국 내 콘텐츠를 바꿔줍니다 ❤️‍🔥</p>
     </div>
+    <div className="st-guide-col st-guide-wide">
+      <h3>다 보고 나서, 딱 한 번 생각해보세요</h3>
+      <p className="st-guide-quote">“이 콘텐츠를 내 계정에서 만든다면?”</p>
+      <p>주제는 내 것으로 바꾸고, 타깃도 내 고객으로 바꾸고, 내 경험이나 정보를 넣어보는 거예요.</p>
+      <p className="st-guide-note">레퍼런스는 정답지가 아니라 내 아이디어를 꺼내기 위한 재료입니다.</p>
+    </div>
   </section>
 }
 
