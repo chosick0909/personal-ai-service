@@ -1,5 +1,5 @@
 // Cover-copy principles 훅ai picks from when it writes thumbnail titles.
-// Distilled from 『꽂히는 글쓰기』 and the client's 인캠 course materials, written as working principles
+// Distilled from 『꽂히는 글쓰기』, the client's 인캠 course materials and the client's own Claude skills (instagram-thumbnail-copy), written as working principles
 // (no sample sentences: the model copies examples). `hint` is what the student sees next to the option.
 export const COVER_PRINCIPLES = [
   { name: '결과 약속', hint: '끝까지 보면 얻는 결과를 제목에 먼저 내걸었어요',
@@ -16,6 +16,10 @@ export const COVER_PRINCIPLES = [
     how: '이전 상태와 이후 상태를 대비시켜 변화를 보여줍니다. 두 상태 모두 brief에 근거가 있어야 합니다.' },
   { name: '통념 뒤집기', hint: '다들 당연하게 믿는 것을 뒤집어서 이유가 궁금해지게 했어요',
     how: '시청자가 흔히 믿는 생각과 다른 사실을 제시합니다. 뒤집는 내용이 brief로 뒷받침될 때만 씁니다.' },
+  { name: '증거 보여주기', hint: '실제 경험·후기·경력 같은 근거를 앞세워서 믿고 보게 했어요',
+    how: '화자의 실제 경험 기간, 써본 개수, 후기, 경력처럼 믿을 근거를 제목에 세웁니다. 근거는 brief에 적힌 그대로만 쓰고 숫자를 만들지 않습니다.' },
+  { name: '지금이어야 하는 이유', hint: '지금 봐야 하는 실제 이유(기간·시즌·수량)를 짚어서 미루지 않게 했어요',
+    how: '공구 기간, 계절, 남은 수량처럼 지금이어야 하는 실제 이유가 brief에 있을 때만 그것을 제목에 세웁니다. 없는 마감·한정은 만들지 않습니다.' },
   { name: '핵심 한 줄', hint: "'꾸미는 말 + 핵심 단어 + 끝맺는 말'을 한 문장으로 이어 한눈에 읽히게 했어요",
     how: '시청자가 얻는 이득을 꾸미는 말로, 영상의 핵심 단어(시청자가 실제로 검색할 말)를 가운데, 무엇을 주는지(방법·정리·N가지 등)로 끝맺습니다. 세 부분은 쉼표로 나열하지 않고 자연스러운 한 구절로 잇습니다. 숫자는 영상이 실제로 다루는 개수일 때만.' },
 ]
