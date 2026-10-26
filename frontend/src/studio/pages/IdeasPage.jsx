@@ -76,7 +76,8 @@ export default function IdeasPage({ threadId: initialThread }) {
   const loadList = useCallback(() => studio.ideas().then(d => { setThreads(d.threads || []); setSaved(d.saved || []) }).catch(() => {}), [])
   useEffect(() => { loadList() }, [loadList])
   useEffect(() => { if (!threadId) { setMessages([]); return } studio.ideaThread(threadId).then(d => setMessages(d.messages || [])).catch(e => toast({ kind: 'failed', title: '대화를 불러오지 못했어요', body: e.message })) }, [threadId, toast])
-  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }) }, [messages, pending, busy])
+  // The conversation scrolls with the page (the input stays pinned at the bottom), so the page follows the newest message.
+  useEffect(() => { if (log.current) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }) }, [messages, pending, busy])
 
   const upload = async picked => {
     if (!picked.length) return
@@ -152,7 +153,7 @@ export default function IdeasPage({ threadId: initialThread }) {
   </div>
 
   return <div className="st-ideas">
-    <section className="st-card st-ideas-chat">
+    <section className="st-ideas-chat">
       <div className="st-ideas-head">
         <div className="st-row" style={{ gap: 10 }}><HookAvatar size={36} /><strong>훅ai와 주제 찾기</strong></div>
         <div className="st-row" style={{ gap: 8 }}>
@@ -171,13 +172,17 @@ export default function IdeasPage({ threadId: initialThread }) {
         {pending && <div className="st-msg st-msg-user">{pending}</div>}
         {busy && <><div className="st-chat-typing"><i /><i /><i /></div><ChatWaitLine /></>}
       </div>
-      <AttachChips items={files} onRemove={i => setFiles(f => f.filter((_, j) => j !== i))} />
-      <form className="st-chat-input" onSubmit={e => { e.preventDefault(); send() }}>
-        <AttachButton uploading={uploading} onFiles={upload} />
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={1} placeholder="답을 적거나, 원하는 걸 말해주세요"
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} aria-label="훅ai에게 보낼 메시지" />
-        <button type="submit" className="st-btn st-btn-primary" disabled={busy || uploading || (!text.trim() && !files.length)} aria-label="보내기"><Send size={18} /></button>
-      </form>
+      <div className="st-ideas-dock">
+        <form className="st-ideas-composer is-dock" onSubmit={e => { e.preventDefault(); send() }}>
+          <AttachChips items={files} onRemove={i => setFiles(f => f.filter((_, j) => j !== i))} />
+          <textarea value={text} onChange={e => setText(e.target.value)} rows={1} placeholder="답을 적거나, 원하는 걸 말해주세요"
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} aria-label="훅ai에게 보낼 메시지" />
+          <div className="st-ideas-composer-foot">
+            <AttachButton uploading={uploading} onFiles={upload} />
+            <button type="submit" className="st-btn st-btn-primary" disabled={busy || uploading || (!text.trim() && !files.length)} aria-label="보내기"><Send size={18} /></button>
+          </div>
+        </form>
+      </div>
     </section>
     {savedPanel}
   </div>

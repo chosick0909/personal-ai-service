@@ -697,16 +697,22 @@
 /* 주제 찾기: the conversation on the left, 주제 보관함 on the right */
 .st-content:has(.st-ideas) { max-width: none; }
 .st-ideas { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
-.st-ideas-chat { display: flex; flex-direction: column; height: calc(100vh - 150px); min-height: 560px; padding: 0; overflow: hidden; }
-.st-ideas-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--st-line); }
+/* The conversation sits on the page itself, like a chat app: no box around it, the input pinned to the bottom of the screen. */
+.st-ideas-chat { display: flex; flex-direction: column; min-height: calc(100vh - 150px); width: min(860px, 100%); justify-self: center; }
+.st-ideas-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 4px 14px; border-bottom: 1px solid var(--st-line); }
 .st-ideas-head > .st-row:last-child { flex-wrap: nowrap; }
 .st-ideas-threads { max-width: 260px; min-height: 40px; }
-.st-ideas-log { flex: 1; overflow-y: auto; padding: 20px; display: grid; gap: 12px; align-content: start; }
+.st-ideas-log { flex: 1; padding: 20px 4px 24px; display: grid; gap: 12px; align-content: start; }
+.st-content:has(.st-ideas-chat) { padding-bottom: 0; }
+/* While chatting, the input owns the bottom of the screen; plans start from the cards' own button. */
+.st:has(.st-ideas-chat) .st-fab { display: none; }
+.st-ideas-dock { position: sticky; bottom: 0; z-index: 5; padding: 12px 0 20px; background: linear-gradient(transparent, var(--st-bg) 22%); }
+.st-ideas-dock .st-ideas-composer { width: 100%; }
+.st-ideas-composer.is-dock textarea { min-height: 28px; max-height: 200px; field-sizing: content; }
 .st-ideas-intro { margin-top: 8vh; display: grid; gap: 12px; text-align: center; justify-items: center; padding: 24px 8px; }
 .st-ideas-intro h3 { font-size: 22px; }
 .st-ideas-intro p { max-width: 520px; }
 .st-ideas-starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-.st-ideas-chat .st-chat-input { border-top: 1px solid var(--st-line); }
 .st-idea-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .st-idea-card { display: grid; gap: 8px; align-content: start; padding: 16px; border: 1px solid var(--st-line); border-radius: var(--st-radius); background: var(--st-panel); }
 .st-idea-card h4 { font-size: 17px; line-height: 1.4; }
@@ -729,7 +735,7 @@
 .st-saved-topic .st-textarea { min-height: 54px; font-size: 14px; }
 @media (max-width: 1100px) {
   .st-ideas { grid-template-columns: 1fr; }
-  .st-ideas-chat { height: 70vh; }
+  
   .st-ideas-saved { position: static; max-height: none; }
 }
 
