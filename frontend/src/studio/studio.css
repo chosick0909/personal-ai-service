@@ -119,6 +119,8 @@
 .st-option-hint { margin-right:auto; min-width:0; color:var(--st-muted); font-size:13px; line-height:1.4; }
 .st-option strong { font-size:18px; line-height:1.5; }
 .st-option .st-why { color:var(--st-muted); font-size:15px; }
+/* In script drafts 훅ai's note about the option is purple, so it never reads as a line of the script. */
+.st .st-options-scripts .st-why { color:var(--st-accent-text); font-weight:600; }
 .st-option-check { width:28px; height:28px; border-radius:999px; border:2px solid var(--st-line-strong); display:grid; place-items:center; color:transparent; flex:none; }
 .st-option[aria-pressed=true] .st-option-check { border-color:var(--st-accent); background:var(--st-accent); color:#fff; }
 .st .st-option[aria-pressed=true] .st-pill, .st .st-option[aria-pressed=true] .st-pill * { background:var(--st-accent); color:#fff; }
