@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Flame, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon } from 'lucide-react'
+import { Flame, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon, BookOpenCheck } from 'lucide-react'
 import { safeGetStorageItem, safeSetStorageItem } from '../lib/safeStorage'
 import hookLogo from '../Logo_1.webp'
 import { useAppState } from '../store/AppState'
@@ -15,6 +15,9 @@ import LibraryPage from './pages/LibraryPage'
 import StylePage from './pages/StylePage'
 import EditPage from './pages/EditPage'
 import PrintView from './pages/PrintView'
+import ManualPage from './pages/ManualPage'
+import { UpdatePopup, Tour } from './Guide'
+import { popupHidden, tourDone } from './guideData'
 import './studio.css'
 
 import { StudioContext } from './context'
@@ -23,7 +26,7 @@ const MENU = [
   ['reels', '성공 릴스', Flame], ['references', '내 레퍼런스', FolderHeart], ['plans', '내 기획안', FileText], ['formulas', '내 공식', Wand2],
   ['library', '공식 사전', BookOpen], ['edit', '영상 편집', Scissors], ['style', '내 말투', MessageSquareText],
 ]
-const TITLES = { reels: ['성공 릴스', '매일 쌓이는 터진 릴스. 마음에 드는 걸 분석해 보세요'], reference: ['레퍼런스 분석', ''], references: ['내 레퍼런스', '분석한 릴스가 여기 모여요'],
+const TITLES = { manual: ['사용 설명서', '화면 사진의 번호를 따라 하나씩 해보세요'], reels: ['성공 릴스', '매일 쌓이는 터진 릴스. 마음에 드는 걸 분석해 보세요'], reference: ['레퍼런스 분석', ''], references: ['내 레퍼런스', '분석한 릴스가 여기 모여요'],
   plans: ['내 기획안', '진행 중인 기획안을 이어서 만들어요'], new: ['내 기획안 만들기', '어떻게 시작할지 골라주세요'], plan: ['내 기획안', ''], formulas: ['내 공식', '저장한 후킹·전개·촬영·캡션 공식'],
   library: ['공식 사전', '터진 릴스가 쓰는 공식 모음'], edit: ['영상 편집', '컷편집·자막, 영상·캡션 피드백'], style: ['내 말투', '훅ai가 이 말투로 써드려요'], print: ['기획안 인쇄', ''] }
 
@@ -122,6 +125,14 @@ export default function StudioApp() {
 
   const value = useMemo(() => ({ go, route, toast, dismiss, analyze, tracking, categories, features, user: currentUser }), [go, route, toast, dismiss, analyze, tracking, categories, features, currentUser])
   const [title, sub] = TITLES[route.page] || TITLES.reels
+  // First visit: the upgrade popup (until 다시 보지 않기, once per browser session), then the guided tour once.
+  const [guide, setGuide] = useState(null)
+  useEffect(() => {
+    if (!features?.studio2 || route.page === 'print') return
+    if (!popupHidden() && !safeGetStorageItem('hookai-studio-whatsnew-seen', { kind: 'session' })) { safeSetStorageItem('hookai-studio-whatsnew-seen', '1', { kind: 'session' }); setGuide('popup') }
+    else if (!tourDone()) setGuide('tour')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [features])
   const active = ['reference'].includes(route.page) ? 'reels' : ['plan', 'new', 'print'].includes(route.page) ? 'plans' : route.page
 
   if (features && !features.studio2) {
@@ -134,8 +145,9 @@ export default function StudioApp() {
       {menuOpen && <div className="st-backdrop" onClick={() => setMenuOpen(false)} />}
       <aside className={`st-side${menuOpen ? ' is-open' : ''}`}>
         <div className="st-brand"><img src={hookLogo} alt="" /><div><strong>HookAI</strong><span>크리에이터 스튜디오</span></div></div>
-        {MENU.map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} className="st-nav" aria-current={active === id ? 'page' : undefined} onClick={() => go(id)}><Icon size={22} />{label}</button> })}
+        {MENU.map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} data-tour={id} className="st-nav" aria-current={active === id ? 'page' : undefined} onClick={() => { go(id); setMenuOpen(false) }}><Icon size={22} />{label}</button> })}
         <div className="st-side-foot">
+          <button type="button" data-tour="manual" className="st-manual-btn" aria-current={route.page === 'manual' ? 'page' : undefined} onClick={() => { go('manual'); setMenuOpen(false) }}><BookOpenCheck size={26} /><span><strong>사용 설명서</strong><small>처음이세요? 여기부터 보세요</small></span></button>
           <a className="st-nav" href="/creatorstudio" style={{ fontSize: 15 }}><ArrowLeft size={18} />예전 스튜디오</a>
           <div className="st-side-user">{currentUser?.email || '내 계정'}</div>
         </div>
@@ -159,10 +171,13 @@ export default function StudioApp() {
             : route.page === 'library' ? <LibraryPage />
             : route.page === 'edit' ? <EditPage />
             : route.page === 'style' ? <StylePage />
+            : route.page === 'manual' ? <ManualPage onTour={() => { go('reels'); setTimeout(() => setGuide('tour'), 600) }} />
             : <ReelsPage />}
         </div>
       </div>
-      {route.page !== 'plan' && route.page !== 'new' && <button type="button" className="st-fab" onClick={() => go('new')}><Sparkles size={22} />내 기획안 만들기</button>}
+      {route.page !== 'plan' && route.page !== 'new' && <button type="button" data-tour="new" className="st-fab" onClick={() => go('new')}><Sparkles size={22} />내 기획안 만들기</button>}
+      {guide === 'popup' && <UpdatePopup onClose={() => setGuide(g => g === 'popup' ? null : g)} onTour={() => { if (route.page !== 'reels') go('reels'); setTimeout(() => setGuide('tour'), 500) }} onManual={() => go('manual')} />}
+      {guide === 'tour' && <Tour onClose={() => setGuide(null)} />}
       <div className="st-toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`st-toast st-toast-${t.kind}`}>
         {t.kind === 'running' ? <LoaderCircle size={20} className="st-spin" /> : t.kind === 'ready' ? <CheckCircle2 size={20} /> : <TriangleAlert size={20} />}
         <div><strong>{t.title}</strong><span>{t.kind === 'running' ? <WaitingBody body={t.body} startedAt={t.startedAt} /> : t.body}</span></div>

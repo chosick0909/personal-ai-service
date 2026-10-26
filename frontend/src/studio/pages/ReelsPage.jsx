@@ -62,7 +62,7 @@ export function PlayerModal({ reel, onClose, onAnalyze, onOpenAnalysis }) {
 }
 
 // Hover: the reel plays muted in place and the action bar rises. Click: full player.
-export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, children, footer }) {
+export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, children, footer, tour }) {
   const [preview, setPreview] = useState(null)
   const [hover, setHover] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
@@ -75,7 +75,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
     playbackUrl(reel.shortcode).then(u => { if (!alive) return; setLoadingPreview(false); if (u) setPreview(u) })
     return () => { alive = false; clearTimeout(timer) }
   }, [hover, preview, reel.shortcode, reel.source])
-  return <article className="st-reel">
+  return <article className="st-reel" data-tour={tour}>
     <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => { setHover(false); setPlaying(false) }}>
       <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 릴스 재생`}>
         {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-reel-placeholder">{reel.source === 'upload-text' ? '📝' : '🎬'}<b>{reel.title || `@${reel.username}`}</b></span>}
@@ -173,7 +173,7 @@ export default function ReelsPage() {
     </section>
     {error && <div className="st-error" role="alert">{error}</div>}
     {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : filters.recommended ? '추천 릴스를 준비하고 있어요' : '조건에 맞는 릴스가 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
-    <div className="st-reels">{shown.map(reel => <ReelCard key={reel.shortcode} reel={reel} onPlay={() => setOpen(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>
+    <div className="st-reels">{shown.map((reel, i) => <ReelCard key={reel.shortcode} tour={i === 0 ? 'reel-card' : undefined} reel={reel} onPlay={() => setOpen(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>
     {loading && <p className="st-muted" role="status">불러오는 중…</p>}
     {hasMore && !loading && <button type="button" className="st-btn st-btn-block" onClick={() => { setPage(p => p + 1); setLoading(true) }}>더 보기</button>}
     {open && <PlayerModal reel={shown.find(r => r.shortcode === open.shortcode) || open} onClose={() => setOpen(null)} onAnalyze={() => analyze(open)} onOpenAnalysis={() => go('reference', { ref: open.shortcode })} />}
