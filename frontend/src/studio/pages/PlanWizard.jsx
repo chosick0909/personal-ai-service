@@ -141,7 +141,7 @@ function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
       </div>
       {pickingSaved && <SavedTopicPicker onClose={() => setPickingSaved(false)} onPick={t => {
         // What was said while finding the topic becomes what the student wrote, then the topic is set from it.
-        const text = [t.title, t.angle && `각도: ${t.angle}`, t.promise && `시청자가 얻는 것: ${t.promise}`, ...(t.facts || []).map(f => `- ${f}`), t.memo && `메모: ${t.memo}`].filter(Boolean).join('\n')
+        const text = [t.title, t.angle && `다른 영상과 다른 점: ${t.angle}`, t.promise && `시청자가 얻는 것: ${t.promise}`, ...(t.facts || []).map(f => `- ${f}`), t.memo && `메모: ${t.memo}`].filter(Boolean).join('\n')
         const next = brief.trim() ? `${brief}\n\n${text}` : text
         setBrief(next); onBrief?.(next); save({ brief: next }); setPickingSaved(false); onPickSaved(t)
       }} />}

@@ -338,7 +338,7 @@ export function registerStudioRoutes(router) {
     const db = database()
     const saved = await query(db.from('studio_saved_topics').select('*').eq('id', uuid(req.params.id)).eq('user_id', req.auth.userId).maybeSingle())
     if (!saved) fail('TOPIC_NOT_FOUND', '저장한 주제를 찾을 수 없어요.', 404)
-    const brief = [saved.title, saved.angle && `각도: ${saved.angle}`, saved.promise && `시청자가 얻는 것: ${saved.promise}`,
+    const brief = [saved.title, saved.angle && `다른 영상과 다른 점: ${saved.angle}`, saved.promise && `시청자가 얻는 것: ${saved.promise}`,
       saved.facts?.length ? `주제를 찾으며 내가 한 말:\n${saved.facts.map(f => `- ${f}`).join('\n')}` : '', saved.memo && `메모: ${saved.memo}`].filter(Boolean).join('\n').slice(0, 8000)
     const style = await query(db.from('studio_styles').select('card').eq('user_id', req.auth.userId).maybeSingle())
     const research = saved.research ? { ...saved.research, brief: brief.slice(0, 3000) } : undefined

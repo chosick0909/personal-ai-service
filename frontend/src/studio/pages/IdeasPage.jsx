@@ -28,19 +28,21 @@ function AttachChips({ items, onRemove }) {
 function IdeaCard({ card, saved, onSave, onPlan, onAsk }) {
   const { go } = useStudio()
   return <article className="st-idea-card">
-    <div className="st-row" style={{ justifyContent: 'space-between', gap: 8 }}>{card.category && <span className="st-pill">{card.category}</span>}</div>
-    <h4>{card.title}</h4>
-    {card.angle && <p><b>각도</b> {card.angle}</p>}
-    {card.promise && <p><b>시청자가 얻는 것</b> {card.promise}</p>}
-    {card.why && <p className="st-idea-why"><Lightbulb size={15} /> {card.why}</p>}
-    {card.materials?.length > 0 && <div className="st-idea-materials"><strong>찍으려면 필요한 것</strong><ul>{card.materials.map(m => <li key={m}>{m}</li>)}</ul></div>}
-    {card.reels?.length > 0 && <div className="st-idea-reels"><strong>이 분야에서 터진 릴스</strong><div>{card.reels.map(r => <button type="button" key={r.id} onClick={() => go('reference', { ref: r.id })} title={`@${r.username}`}>
-      {r.thumbnailUrl ? <img src={r.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-idea-reel-empty" />}<small>▶ {compactCount(r.views)}</small></button>)}</div></div>}
+    <header className="st-idea-top">{card.category && <span className="st-pill">{card.category}</span>}<h4>{card.title}</h4></header>
+    {/* One label per line, its answer under it, so each piece reads on its own. */}
+    <dl className="st-idea-facts">
+      {card.angle && <div><dt>다른 영상과 다른 점</dt><dd>{card.angle}</dd></div>}
+      {card.promise && <div><dt>시청자가 얻는 것</dt><dd>{card.promise}</dd></div>}
+      {card.why && <div><dt><Lightbulb size={14} />지금 먹히는 이유</dt><dd>{card.why}</dd></div>}
+      {card.materials?.length > 0 && <div><dt>찍으려면 필요한 것</dt><dd><ul>{card.materials.map(m => <li key={m}>{m}</li>)}</ul></dd></div>}
+      {card.reels?.length > 0 && <div><dt>이 분야에서 터진 릴스</dt><dd className="st-idea-reels">{card.reels.map(r => <button type="button" key={r.id} onClick={() => go('reference', { ref: r.id })} title={`@${r.username}`}>
+        {r.thumbnailUrl ? <img src={r.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-idea-reel-empty" />}<small>▶ {compactCount(r.views)}</small></button>)}</dd></div>}
+    </dl>
     <div className="st-idea-actions">
       <button type="button" className={`st-btn st-btn-sm${saved ? '' : ' st-btn-primary'}`} disabled={saved} onClick={onSave}>{saved ? <><Check size={16} />보관함에 저장됨</> : <><Star size={16} />이 주제 저장</>}</button>
       <button type="button" className="st-btn st-btn-sm" onClick={onPlan}><FileText size={16} />이 주제로 기획안 만들기</button>
       <button type="button" className="st-btn st-btn-sm st-btn-ghost" onClick={() => onAsk(`'${card.title}' 더 구체적으로 좁혀줘`)}>더 구체적으로</button>
-      <button type="button" className="st-btn st-btn-sm st-btn-ghost" onClick={() => onAsk(`'${card.title}' 다른 각도로 보여줘`)}>다른 각도로</button>
+      <button type="button" className="st-btn st-btn-sm st-btn-ghost" onClick={() => onAsk(`'${card.title}' 다른 방향으로 풀어줘`)}>다른 방향으로</button>
     </div>
   </article>
 }
