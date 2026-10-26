@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, History } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, ChevronDown, History } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS } from '../api'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
@@ -116,29 +116,47 @@ const THUMB_KIND = {
   '3단공식 적용형': "'꾸미는 말 + 핵심 단어 + 끝맺는 말' 공식으로 한눈에 읽히게 만들었어요",
 }
 
+// After a chat revision is applied it is the version in use: shown on top, with the original 3 options folded away.
+function AppliedPick({ label, text, sub, summary, open, onToggle }) {
+  return <section className="st-card st-applied">
+    <div className="st-applied-top"><span className="st-pill st-pill-green"><Check size={14} />지금 쓰는 {label}</span><span className="st-muted st-small">훅ai와 대화로 고친 안{summary ? ` · ${summary}` : ''}</span></div>
+    <strong className="st-applied-text">{text}</strong>
+    {sub && <span className="st-why">{sub}</span>}
+    <button type="button" className="st-btn st-btn-sm st-applied-toggle" aria-expanded={open} onClick={onToggle}><ChevronDown size={16} style={{ transform: open ? 'rotate(180deg)' : 'none' }} />{open ? '처음 3안 접기' : '처음 3안 다시 보기'}</button>
+  </section>
+}
+
 function ThumbnailStage({ session, save }) {
   const t = session.thumbnail
-  const [custom, setCustom] = useState(t?.custom || '')
+  const applied = t.applied && t.custom === t.applied.text ? t.applied : null
+  const [open, setOpen] = useState(!applied)
+  const [custom, setCustom] = useState(applied ? '' : t?.custom || '')
   const debounced = useDebouncedSave(v => save({ thumbnail: { custom: v } }))
   return <div className="st-stack">
-    <section className="st-card st-stack"><div><h3>썸네일 카피 3안</h3><p className="st-muted">릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.</p></div>
+    {applied && <AppliedPick label="썸네일" text={applied.text} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} />}
+    {open && <section className="st-card st-stack"><div><h3>{applied ? '처음 받은 썸네일 3안' : '썸네일 카피 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.'}</p></div>
       <div className="st-options">{t.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!t.custom && t.chosen === i} onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }}>
         <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{OPTION_NAME[i]}</span>}{(o.hint || THUMB_KIND[o.label]) && <span className="st-option-hint">{o.hint || THUMB_KIND[o.label]}</span>}<span className="st-option-check"><Check size={16} /></span></div>
         <strong className="st-thumb-text">{o.text}</strong>{o.why && <span className="st-why">{o.why}</span>}</button>)}</div>
       <div className="st-field"><label>직접 쓸게요 <small>적으면 이게 썸네일 카피가 돼요</small></label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 썸네일 제목" /></div>
-    </section>
+    </section>}
   </div>
 }
 
 function HookStage({ session, save }) {
   const h = session.hook
-  const [custom, setCustom] = useState(h?.custom || '')
+  const applied = h.applied && h.custom === h.applied.text ? h.applied : null
+  const [open, setOpen] = useState(!applied)
+  const [custom, setCustom] = useState(applied ? '' : h?.custom || '')
   const debounced = useDebouncedSave(v => save({ hook: { custom: v } }))
-  return <section className="st-card st-stack"><div><h3>첫 문장 3안</h3><p className="st-muted">영상 첫 3초에 말할 문장이에요. 썸네일이 한 약속을 이어받아요.</p></div>
-    <div className="st-options">{h.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!h.custom && h.chosen === i} onClick={() => { setCustom(''); save({ hook: { chosen: i } }) }}>
-      <div className="st-option-top"><span className="st-pill">{o.type}</span><span className="st-option-check"><Check size={16} /></span></div><strong>“{o.spoken}”</strong><span className="st-why">자막 · {o.onScreen} — {o.why}</span></button>)}</div>
-    <div className="st-field"><label>직접 쓸게요</label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 첫 문장" /></div>
-  </section>
+  return <div className="st-stack">
+    {applied && <AppliedPick label="첫 문장" text={`“${applied.text}”`} sub={applied.onScreen ? `자막 · ${applied.onScreen}` : ''} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} />}
+    {open && <section className="st-card st-stack"><div><h3>{applied ? '처음 받은 첫 문장 3안' : '첫 문장 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '영상 첫 3초에 말할 문장이에요. 썸네일이 한 약속을 이어받아요.'}</p></div>
+      <div className="st-options">{h.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!h.custom && h.chosen === i} onClick={() => { setCustom(''); save({ hook: { chosen: i } }) }}>
+        <div className="st-option-top"><span className="st-pill">{o.type}</span><span className="st-option-check"><Check size={16} /></span></div><strong>“{o.spoken}”</strong><span className="st-why">자막 · {o.onScreen} — {o.why}</span></button>)}</div>
+      <div className="st-field"><label>직접 쓸게요</label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 첫 문장" /></div>
+    </section>}
+  </div>
 }
 
 // 저장 내역: every version of the script or caption, newest first, with the whole text so a student can read before loading one.
@@ -322,8 +340,8 @@ export default function PlanWizard({ sessionId }) {
         : failed ? <div className="st-card st-stack"><div className="st-error">{session.job.error}</div><button type="button" className="st-btn st-btn-primary" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시 만들기</button></div>
         : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive} />
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
-        : session.stage === 'thumbnail' ? <ThumbnailStage session={session} save={save} />
-        : session.stage === 'hook' ? <HookStage session={session} save={save} />
+        : session.stage === 'thumbnail' ? <ThumbnailStage key={`${version}-${session.thumbnail.applied?.text || ''}`} session={session} save={save} />
+        : session.stage === 'hook' ? <HookStage key={`${version}-${session.hook.applied?.text || ''}`} session={session} save={save} />
         : session.stage === 'script' ? <ScriptStage key={`${version}-${session.script.chosen}-${session.script.edited ? 'e' : 'o'}-${session.script.history?.length || 0}`} session={session} save={save} onQuick={send} />
         : session.stage === 'filming' ? <FilmingStage session={session} save={save} />
         : session.stage === 'caption' ? <CaptionStage key={`${version}-${session.caption.chosen}-${session.caption.edited ? 'e' : 'o'}-${session.caption.history?.length || 0}`} session={session} save={save} />

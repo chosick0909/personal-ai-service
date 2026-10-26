@@ -117,6 +117,8 @@ export function registerStudioRoutes(router) {
         if ((field === 'script' || field === 'caption') && (change.chosen !== row[field].chosen || row[field].edited)) next.history = remember(row[field], field === 'script' ? currentScript(row[field]) : currentCaption(row[field]), row[field].edited ? '직접 고친 버전' : optionName(row[field].chosen ?? 0))
         next.chosen = change.chosen; if ('custom' in next) next.custom = null; if ('edited' in next) next.edited = null }
       if (typeof change.custom === 'string' && 'custom' in next) next.custom = text(change.custom, 200) || null
+      // Picking an option or typing one's own replaces a chat-applied version.
+      if ((Number.isInteger(change.chosen) || typeof change.custom === 'string') && next.applied) next.applied = null
       if (field === 'script' && Array.isArray(change.edited)) next.edited = change.edited.map(l => ({ part: ['hook', 'body', 'cta'].includes(l?.part) ? l.part : 'body', spoken: text(l?.spoken, 400), onScreen: text(l?.onScreen, 60), seconds: Math.max(1, Math.min(180, Math.round(Number(l?.seconds) || 3))) })).filter(l => l.spoken).slice(0, 24)
       if (field === 'caption' && change.edited && typeof change.edited === 'object') next.edited = { text: text(change.edited.text, 2200), hashtags: (Array.isArray(change.edited.hashtags) ? change.edited.hashtags : []).map(t => text(t, 40).replace(/^#+/, '')).filter(Boolean).slice(0, 8) }
       patch[field] = next
@@ -184,8 +186,9 @@ export function registerStudioRoutes(router) {
     const patch = { updated_at: new Date().toISOString() }
     if (p.stage === 'script') patch.script = { ...row.script, edited: p.lines, history: remember(row.script, currentScript(row.script), `훅ai 수정 전 · ${p.summary || ''}`) }
     else if (p.stage === 'caption') patch.caption = { ...row.caption, edited: { text: p.text, hashtags: p.hashtags }, history: remember(row.caption, currentCaption(row.caption), `훅ai 수정 전 · ${p.summary || ''}`) }
-    else if (p.stage === 'thumbnail') patch.thumbnail = { ...row.thumbnail, custom: p.text }
-    else if (p.stage === 'hook') { const options = [...(row.hook?.options || [])]; options.unshift({ spoken: p.text, onScreen: p.onScreen || '', type: '기타', why: p.summary || '훅ai 수정안' }); patch.hook = { ...row.hook, options: options.slice(0, 4), chosen: 0, custom: null } }
+    // Applying a chat revision makes it the version in use; the screen shows it on top and folds the original 3 options away.
+    else if (p.stage === 'thumbnail') patch.thumbnail = { ...row.thumbnail, custom: p.text, applied: { text: p.text, summary: p.summary || '' } }
+    else if (p.stage === 'hook') patch.hook = { ...row.hook, custom: p.text, applied: { text: p.text, onScreen: p.onScreen || '', summary: p.summary || '' } }
     const updated = await query(database().from('studio_sessions').update(patch).eq('id', row.id).select('*').single())
     res.json({ session: publicSession(updated) })
   }))

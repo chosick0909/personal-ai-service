@@ -587,3 +587,9 @@
 .st-ve-summary div { display:grid; gap:4px; padding:14px; border-radius:14px; background:var(--st-bg); border:1px solid var(--st-line); }
 .st-ve-summary span { font-size:13.5px; color:var(--st-muted); font-weight:700; } .st-ve-summary strong { font-size:17px; }
 @media (max-width: 960px) { .st-ve-grid { grid-template-columns:1fr; } .st-ve-player { position:static; max-width:360px; margin:0 auto; width:100%; } .st-ve-steps button { font-size:13.5px; flex-direction:column; gap:2px; } .st-ve-summary, .st-ve-styles { grid-template-columns:1fr; } }
+
+/* 채팅에서 적용한 안: 맨 위에 크게, 처음 3안은 접기 */
+.st-applied { display:grid; gap:10px; border:2px solid var(--st-accent); background:var(--st-accent-soft); }
+.st-applied-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.st-applied-text { font-size:24px; line-height:1.4; font-weight:900; color:var(--st-text); }
+.st-applied-toggle { justify-self:start; }
