@@ -261,7 +261,7 @@ function ScriptEditor({ session, save, onQuick, title = '대본' }) {
   const [showHistory, setShowHistory] = useState(false)
   const versions = [{ note: s.edited ? '직접 수정' : OPTION_NAME[s.chosen ?? 0], at: session.updatedAt, text: scriptText(lines) },
     ...(s.history || []).map((h, i) => ({ note: h.note, at: h.at, text: scriptText(h.value), load: () => save({ script: { restore: i } }) }))]
-  return <section className="st-card st-stack">
+  return <section className="st-card st-stack st-editor-anchor" id={title === '대본' ? 'st-script-editor' : undefined}>
     <div className="st-card-head"><h3>{title} <span className="st-pill st-pill-gray" style={{ marginLeft: 6 }}>예상 {total}초</span></h3><div className="st-row"><CopyButton text={lines.map(l => l.spoken).join('\n')} />{s.history?.length > 0 && <><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button><TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {s.history.length + 1}</button></TopAction></>}{s.edited && <button type="button" className="st-btn st-btn-sm" onClick={() => save({ script: { chosen: s.chosen ?? 0 } })}><RotateCcw size={15} />원래대로</button>}</div></div>
     <p className="st-muted st-small">문장을 눌러 바로 고칠 수 있어요. 고치면 자동으로 저장돼요. 초는 글자 수로 계산한 예상 길이라 고치는 대로 바뀌어요.</p>
     <div className="st-lines">{lines.map((l, i) => <div className="st-line" key={i}>
@@ -275,11 +275,14 @@ function ScriptEditor({ session, save, onQuick, title = '대본' }) {
   </section>
 }
 
+// After picking A·B·C, the page moves down to the editor where the picked one can be changed.
+const toEditor = id => setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+
 function ScriptStage({ session, save, onQuick }) {
   const s = session.script
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>대본 3안</h3><p className="st-muted">같은 첫 문장, 다른 흐름이에요. 전체 대본을 비교해서 하나를 고르면 아래에서 바로 고칠 수 있어요.</p></div>
-      <div className="st-options st-options-scripts">{s.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={s.chosen === i} onClick={() => save({ script: { chosen: i } })}>
+      <div className="st-options st-options-scripts">{s.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={s.chosen === i} onClick={() => save({ script: { chosen: i } }).then(() => toEditor('st-script-editor'))}>
         <div className="st-option-top"><span className="st-pill">{OPTION_NAME[i]}</span><span className="st-muted st-small">예상 {totalSeconds(o.lines)}초</span><span className="st-option-check"><Check size={16} /></span></div>
         <strong style={{ fontSize: 16 }}>{optionTitle(o.label)}</strong>
         <ol className="st-option-lines">{o.lines.map((l, j) => <li key={j}>{l.spoken}</li>)}</ol>
@@ -315,8 +318,8 @@ function CaptionStage({ session, save }) {
     ...(c.history || []).map((h, i) => ({ note: h.note, at: h.at, text: captionText(h.value), load: () => save({ caption: { restore: i } }) }))]
   return <div className="st-stack">
     <section className="st-card st-stack"><div><h3>캡션 3안</h3><p className="st-muted">하나를 고르고 아래에서 고쳐요.</p></div>
-      <div className="st-options">{c.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!c.edited && c.chosen === i} onClick={() => save({ caption: { chosen: i } })}><div className="st-option-top"><span className="st-pill">{OPTION_NAME[i]}</span><span className="st-option-check"><Check size={16} /></span></div><strong style={{ fontSize: 16, whiteSpace: 'pre-wrap' }}>{o.text}</strong><span className="st-why">{o.why}</span></button>)}</div></section>
-    <section className="st-card st-stack"><div className="st-card-head"><h3>캡션</h3><div className="st-row"><CopyButton text={`${text}\n\n${tags.split(/[\s,]+/).filter(Boolean).map(t => t.startsWith('#') ? t : `#${t}`).join(' ')}`} />{c.history?.length > 0 && <><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {c.history.length + 1}</button><TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {c.history.length + 1}</button></TopAction></>}</div></div>
+      <div className="st-options">{c.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!c.edited && c.chosen === i} onClick={() => save({ caption: { chosen: i } }).then(() => toEditor('st-caption-editor'))}><div className="st-option-top"><span className="st-pill">{OPTION_NAME[i]}</span><span className="st-option-check"><Check size={16} /></span></div><strong style={{ fontSize: 16, whiteSpace: 'pre-wrap' }}>{o.text}</strong><span className="st-why">{o.why}</span></button>)}</div></section>
+    <section className="st-card st-stack st-editor-anchor" id="st-caption-editor"><div className="st-card-head"><h3>캡션</h3><div className="st-row"><CopyButton text={`${text}\n\n${tags.split(/[\s,]+/).filter(Boolean).map(t => t.startsWith('#') ? t : `#${t}`).join(' ')}`} />{c.history?.length > 0 && <><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {c.history.length + 1}</button><TopAction><button type="button" className="st-btn st-btn-sm" onClick={() => setShowHistory(true)}><History size={15} />저장 내역 · {c.history.length + 1}</button></TopAction></>}</div></div>
       <textarea className="st-textarea" value={text} onChange={e => { setText(e.target.value); debounced(e.target.value, tags) }} aria-label="캡션 본문" />
       <div className="st-field"><label>해시태그</label><input className="st-input" value={tags} onChange={e => { setTags(e.target.value); debounced(text, e.target.value) }} placeholder="#선크림추천 #지성피부" /></div>
       {showHistory && <HistoryModal title="캡션" versions={versions} onClose={() => setShowHistory(false)} />}</section>
