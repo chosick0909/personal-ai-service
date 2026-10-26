@@ -145,6 +145,8 @@
 
 /* ----- wizard layout ----- */
 .st-wizard { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:24px; align-items:start; }
+/* The plan page uses the full width, so the chat sits against the right edge instead of leaving a gap. */
+.st-content:has(.st-wizard) { max-width:none; }
 .st-wizard-main { display:grid; gap:16px; min-width:0; }
 .st-wizard-main > * { min-width:0; max-width:100%; }
 .st-wizard-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
