@@ -308,3 +308,10 @@ test('the student\'s own words and the slang viewers really use are kept, only j
   assert.match(HOOKAI_SYSTEM, /전문 용어뿐/)
   for (const word of ['내돈내산', '찐템', '찐꿀템']) assert.ok(!HOOKAI_SYSTEM.includes(word), word)
 })
+
+test('every finished line has to make sense on its own, even when it follows a formula', async () => {
+  const { HOOKAI_SYSTEM } = await import('../src/creator-tools/studio/persona.js')
+  const { HOOK_PRINCIPLES } = await import('../src/creator-tools/studio/copy-principles.js')
+  assert.match(HOOKAI_SYSTEM, /따로 떼어 읽어도 말이 돼야/)
+  assert.ok(HOOK_PRINCIPLES.some(p => /말이 돼야/.test(p)))
+})

@@ -191,7 +191,7 @@ const stageSchemas = {
 // What 훅ai learned in common from success reels (공식 사전 entries with how many success reels use each).
 const PROVEN_NOTE = 'provenFormulas는 훅ai가 성공 릴스를 매일 공부하며 확인한 첫 문장·전개 공식과 그 공식을 쓴 성공 릴스 수(reels)입니다. 공식의 작동 원리를 이번 소재에 옮기는 것이지, 공식 문장을 빈칸 채우기로 쓰는 것이 아닙니다.'
 // Self-check before finishing: the lines a viewer would swipe away on. What is still left after fixing triggers one rewrite.
-const SWIPE_CHECK = '다 쓴 뒤 시청자 입장에서 한 줄씩 다시 봅니다. 넘기고 싶어지는 줄(궁금한 게 없거나, 예고만 하거나, 누구나 할 수 있는 말이거나, 앞의 말을 반복하는 줄)을 찾아 고친 최종본을 냅니다. 고치지 못하고 남은 줄만 check.swipeRisks에 그 줄과 이유로 적습니다.'
+const SWIPE_CHECK = '다 쓴 뒤 시청자 입장에서 한 줄씩 다시 봅니다. 넘기고 싶어지는 줄(궁금한 게 없거나, 예고만 하거나, 누구나 할 수 있는 말이거나, 앞의 말을 반복하거나, 소리 내 읽었을 때 앞뒤가 이어지지 않아 말이 안 되는 줄)을 찾아 고친 최종본을 냅니다. 고치지 못하고 남은 줄만 check.swipeRisks에 그 줄과 이유로 적습니다.'
 const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
