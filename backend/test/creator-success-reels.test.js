@@ -52,7 +52,9 @@ test('collector token is checked against a stored SHA-256 only', () => {
   assert.equal(ingestTokenValid(token, env), false)
   assert.equal(ingestTokenValid(`Bearer ${token}`, {}), false)
   assert.equal(successReelsEnabled('u1', { CREATOR_SUCCESS_REELS_USER_IDS: 'u0, u1' }), true)
-  assert.equal(successReelsEnabled('u2', { CREATOR_SUCCESS_REELS_USER_IDS: 'u0, u1' }), false)
+  assert.equal(successReelsEnabled('u2', { CREATOR_SUCCESS_REELS_USER_IDS: 'u0, u1', CREATOR_STUDIO2_ENABLED: 'false' }), false)
+  assert.equal(successReelsEnabled('u2', {}), true, 'opens with the studio')
+  assert.equal(successReelsEnabled('u2', { CREATOR_SUCCESS_REELS_ENABLED: 'false' }), false)
   assert.equal(successReelsEnabled('u2', { CREATOR_SUCCESS_REELS_ENABLED: 'true' }), true)
 })
 

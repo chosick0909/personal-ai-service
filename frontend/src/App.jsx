@@ -20,7 +20,7 @@ import {
   getPostAuthRedirectPath,
   setPostAuthRedirectPath,
 } from './lib/authRedirect'
-import logoWebp from './Logo.webp'
+import './brand.css'
 import LandingScreen from './screens/LandingScreen'
 import CreatorAccessGate from './components/CreatorAccessGate'
 import { FABRIC_DARK_BACKGROUND } from './styles/fabricBackground'
@@ -551,7 +551,7 @@ function RecommendScreen() {
 
   return (
     <main
-      className="min-h-screen bg-[#0B0D12] px-6 py-10 text-[#F3F4F6]"
+      className="hk-brand min-h-screen bg-[#0B0D12] px-6 py-10 text-[#F3F4F6]"
       style={{
         fontFamily: 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
         backgroundImage:
@@ -854,7 +854,7 @@ function RecommendScreen() {
                   다시진단하기
                 </button>
                 <a
-                  href="/analyze"
+                  href="/studio"
                   className="btn-solid-contrast inline-flex h-12 items-center justify-center rounded-full px-6 text-sm font-semibold transition hover:bg-white"
                 >
                   분석시작해보기
@@ -891,7 +891,7 @@ function AuthScreen({
 
   return (
     <main
-      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0D0F14] px-6 py-10"
+      className="hk-brand relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0D0F14] px-6 py-10"
       style={{
         ...FABRIC_DARK_BACKGROUND,
       }}
@@ -905,9 +905,6 @@ function AuthScreen({
           &lt; Home
         </a>
 
-        <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl">
-          <img src={logoWebp} alt="HookAI 로고" className="h-full w-full object-cover" />
-        </div>
         <h1 className="mt-6 text-center text-[36px] font-bold tracking-[-0.04em] text-[#F8FAFC]">
           {title}
         </h1>
@@ -1760,7 +1757,7 @@ function RecommendScreenV2() {
 
   return (
     <main
-      className="min-h-screen bg-[#0B0D12] px-6 py-10 text-[#F3F4F6]"
+      className="hk-brand min-h-screen bg-[#0B0D12] px-6 py-10 text-[#F3F4F6]"
       style={{
         fontFamily: 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
         backgroundImage: 'radial-gradient(circle at 15% 15%, rgba(148,163,184,0.16) 0%, rgba(148,163,184,0) 28%), radial-gradient(circle at 85% 18%, rgba(71,85,105,0.18) 0%, rgba(71,85,105,0) 28%), linear-gradient(180deg, #0B0D12 0%, #0F1219 100%)',
@@ -2059,7 +2056,7 @@ function RecommendScreenV2() {
               </div>
               <div className="mt-7 flex flex-wrap justify-center gap-3">
                 <button type="button" onClick={restart} className="inline-flex h-[52px] items-center justify-center rounded-full border border-[#3A414F] bg-[#171B24] px-7 text-sm font-semibold text-[#E5E7EB] transition hover:bg-[#1D2330]">다시진단하기</button>
-                <a href="/analyze" className="btn-solid-contrast inline-flex h-[52px] items-center justify-center rounded-full px-7 text-sm font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.35)] transition hover:bg-white">분석시작해보기</a>
+                <a href="/studio" className="btn-solid-contrast inline-flex h-[52px] items-center justify-center rounded-full px-7 text-sm font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.35)] transition hover:bg-white">분석시작해보기</a>
               </div>
             </article>
           </section>
@@ -2071,7 +2068,7 @@ function RecommendScreenV2() {
 
 function LoginScreen() {
   const { login, isLoggedIn, isAuthReady } = useAppState()
-  const postAuthRedirectPath = getPostAuthRedirectPath('/analyze')
+  const postAuthRedirectPath = getPostAuthRedirectPath('/studio')
 
   useEffect(() => {
     if (isAuthReady && isLoggedIn) {
@@ -2101,7 +2098,7 @@ function SignupScreen() {
 
   useEffect(() => {
     if (isAuthReady && isLoggedIn) {
-      window.location.replace('/analyze')
+      window.location.replace('/studio')
     }
   }, [isAuthReady, isLoggedIn])
 
@@ -2180,7 +2177,7 @@ function PurchaseScreen() {
 
   if (!isAuthReady) {
     return (
-      <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
+      <main className="hk-brand relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
         <FabricBackgroundOverlay />
         <div className="relative z-10 rounded-[28px] border border-[#2F3543] bg-[#12151D]/90 px-6 py-5 text-sm text-[#AEB6C5]">
           쿠폰 페이지를 준비하는 중...
@@ -2215,7 +2212,7 @@ function PurchaseScreen() {
 
   if (!isEntitlementReady || !entitlementStatus) {
     return (
-      <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
+      <main className="hk-brand relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 text-[#F3F4F6]" style={FABRIC_DARK_BACKGROUND}>
         <FabricBackgroundOverlay />
         <div className="relative z-10 rounded-[28px] border border-[#2F3543] bg-[#12151D]/90 px-6 py-5 text-sm text-[#AEB6C5]">
           플랜 정보를 불러오는 중...
@@ -2305,7 +2302,7 @@ function PurchaseScreen() {
           ? '수강생 3개월 이용권'
           : '오픈베타 7일 이용권'
       setSuccess(`${planLabel}이 활성화되었습니다.`)
-      window.location.replace('/analyze')
+      window.location.replace('/studio')
     } catch (nextError) {
       setError(nextError.message || '결제 처리에 실패했습니다.')
     } finally {
@@ -2365,7 +2362,7 @@ function PurchaseScreen() {
   const isCouponApplied = Boolean(success)
 
   return (
-    <main className="relative min-h-screen overflow-y-auto bg-[#0F1117] px-6 py-12 text-[#F3F4F6] md:px-12 md:py-16">
+    <main className="hk-brand relative min-h-screen overflow-y-auto bg-[#0F1117] px-6 py-12 text-[#F3F4F6] md:px-12 md:py-16">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(ellipse_at_top,rgba(250,249,246,0.08),rgba(15,17,23,0)_68%)]" />
       <div className="relative z-10 mx-auto w-full max-w-[1280px]">
         <header className="text-center">
@@ -2607,7 +2604,7 @@ function PurchaseScreen() {
             홈으로 가기
           </a>
           <a
-            href="/analyze"
+            href="/studio"
             className="btn-solid-contrast inline-flex h-12 flex-1 items-center justify-center rounded-[16px] text-sm font-bold transition hover:bg-white"
           >
             레퍼런스 분석 시작하기
@@ -3690,7 +3687,7 @@ function StudioShell() {
 
   if (!isAuthReady || (!isCreatorStudio && (!isEntitlementReady || (isLoggedIn && !entitlementStatus)))) {
     return (
-      <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
+      <main className="hk-brand relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
         <div className="rounded-[24px] border border-[#2F3543] bg-[#121722] px-6 py-5 text-sm text-[#AEB6C5] shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
           작업 공간을 준비하는 중...
         </div>
@@ -3737,7 +3734,7 @@ function StudioShell() {
         : 'text-[#FDBA74]'
 
     return (
-      <main className="relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
+      <main className="hk-brand relative flex min-h-screen items-center justify-center bg-[#0F1117] px-5 text-[#F3F4F6]">
         <div className={`w-full max-w-[440px] rounded-[28px] border px-6 py-6 text-center shadow-[0_24px_70px_rgba(0,0,0,0.42)] ${panelClassName}`}>
           <div className={`text-lg font-bold ${titleClassName}`}>{errorTitle}</div>
           <p className={`mt-3 text-sm leading-6 ${messageClassName}`}>
@@ -3834,7 +3831,7 @@ function SettingsShell() {
     return <LoginScreen />
   }
 
-  return <SettingsPage onBack={() => window.location.assign('/analyze')} />
+  return <SettingsPage onBack={() => window.location.assign('/studio')} />
 }
 
 function SettingsApp() {
@@ -3877,7 +3874,11 @@ export default function App() {
     content = <SignupApp />
   } else if (pathname.startsWith('/purchase')) {
     content = <PurchaseApp />
-  } else if (isCreatorStudioPath(pathname) || /^\/studio\/?$/.test(pathname) || pathname.startsWith('/analyze')) {
+  } else if (isCreatorStudioPath(pathname) || pathname.startsWith('/analyze')) {
+    // 대본작업실 and the first creator studio now live inside the new studio; old links and bookmarks land there.
+    window.location.replace('/studio')
+    return null
+  } else if (/^\/studio\/?$/.test(pathname)) {
     content = <StudioApp />
   } else if (pathname.startsWith('/recommend')) {
     content = <RecommendApp />

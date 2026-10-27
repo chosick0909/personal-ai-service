@@ -20,7 +20,7 @@ test('a trial account uses the studio without a coupon or preview listing until 
   const grant = await assertCreatorCoupon(noDb, 'trial-1', now)
   assert.equal(grant.ends_at, '2026-11-25T00:00:00Z')
   assert.equal(studio2Enabled('trial-1', {}), true)
-  assert.equal(studio2Enabled('someone', { CREATOR_STUDIO2_USER_IDS: 'x' }), false)
+  assert.equal(studio2Enabled('someone', { CREATOR_STUDIO2_ENABLED: 'false', CREATOR_STUDIO2_USER_IDS: 'x' }), false)
   assert.equal(successReelsEnabled('trial-1', {}), true)
   assert.equal(featureEnabled('media-analyze', 'trial-1', { CREATOR_TOOLS_ENABLED: 'true', CREATOR_TOOLS_FEATURES: 'media-analyze' }), true)
   assert.equal(featureEnabled('media-analyze', 'trial-1', { CREATOR_TOOLS_ENABLED: 'true', CREATOR_TOOLS_FEATURES: '' }), false, 'a feature that is switched off stays off')

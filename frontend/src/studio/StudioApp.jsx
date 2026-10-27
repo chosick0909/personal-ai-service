@@ -159,7 +159,7 @@ export default function StudioApp() {
         <div className="st-side-foot">
           <button type="button" data-tour="manual" className="st-manual-btn" aria-current={route.page === 'manual' ? 'page' : undefined} onClick={() => { go('manual'); setMenuOpen(false) }}><BookOpenCheck size={26} /><span><strong>사용 설명서</strong><small>처음이세요? 여기부터 보세요</small></span></button>
           <a className="st-kakao-btn" href={KAKAO_CHAT} target="_blank" rel="noopener noreferrer"><KakaoIcon size={22} />1:1 문의</a>
-          <a className="st-nav" href="/creatorstudio" style={{ fontSize: 15 }}><ArrowLeft size={18} />예전 스튜디오</a>
+          <a className="st-nav" href="/" style={{ fontSize: 15 }}><ArrowLeft size={18} />홈으로</a>
           <div className="st-side-user">{currentUser?.email || '내 계정'}</div>
         </div>
       </aside>

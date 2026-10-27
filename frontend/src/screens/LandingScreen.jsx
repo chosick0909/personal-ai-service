@@ -131,7 +131,7 @@ function Eyebrow({ children, light }) {
 
 export default function LandingScreen() {
   const { isLoggedIn, logout } = useAppState()
-  const startHref = isLoggedIn ? '/analyze' : '/login'
+  const startHref = isLoggedIn ? '/studio' : '/login?next=%2Fstudio'
 
   return (
     <main
@@ -148,14 +148,6 @@ export default function LandingScreen() {
           <a href="/" aria-label="HookAI 홈" style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.04em', color: '#FFFFFF' }}>
             Hook<span style={{ color: '#9B7BFF' }}>AI</span>
           </a>
-          <nav
-            aria-label="주요 메뉴"
-            className="order-3 flex w-full justify-center gap-7 sm:order-none sm:w-auto"
-            style={{ fontSize: 15, fontWeight: 600 }}
-          >
-            <a href="/analyze" style={{ color: '#C9C6D6' }}>대본작업실</a>
-            <a href="/creatorstudio" style={{ color: '#C9C6D6' }}>크리에이터스튜디오</a>
-          </nav>
           {isLoggedIn ? (
             <button
               type="button"
@@ -454,7 +446,7 @@ export default function LandingScreen() {
                 </span>
               ))}
             </div>
-            <a href="/creatorstudio" className="mt-8 inline-flex items-center gap-2 text-[16px] font-extrabold" style={{ color: '#6A2BF5' }}>
+            <a href="/studio" className="mt-8 inline-flex items-center gap-2 text-[16px] font-extrabold" style={{ color: '#6A2BF5' }}>
               크리에이터스튜디오 보기
               <svg aria-hidden="true" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 10h11M11 5.5 15.5 10 11 14.5" />

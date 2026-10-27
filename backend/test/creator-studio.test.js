@@ -36,8 +36,9 @@ function fakeDb() {
 
 test('studio 2 is visible only to listed users', () => {
   assert.equal(studio2Enabled('15c6e788-7d77-4954-be5d-200c2c410dad', {}), true)
-  assert.equal(studio2Enabled('someone-else', {}), false)
-  assert.equal(studio2Enabled('someone-else', { CREATOR_STUDIO2_USER_IDS: 'someone-else' }), true)
+  assert.equal(studio2Enabled('someone-else', {}), true, 'open to every student; the coupon check decides access')
+  assert.equal(studio2Enabled('someone-else', { CREATOR_STUDIO2_ENABLED: 'false' }), false)
+  assert.equal(studio2Enabled('someone-else', { CREATOR_STUDIO2_ENABLED: 'false', CREATOR_STUDIO2_USER_IDS: 'someone-else' }), true)
   assert.equal(studio2Enabled('x', { CREATOR_STUDIO2_ENABLED: 'true' }), true)
 })
 

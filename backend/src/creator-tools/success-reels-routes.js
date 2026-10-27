@@ -12,10 +12,13 @@ import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelAct
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
 import { markCollectorSeen, lookupResult, lookupError } from './instagram-lookup.js'
 import { isDemoUser } from './demo-access.js'
+import { studio2Enabled } from './studio/access.js'
 
 export function successReelsEnabled(userId, env = process.env) {
   if (isDemoUser(userId)) return true
   if (env.CREATOR_SUCCESS_REELS_ENABLED === 'true') return true
+  // 영감 찾기 is the studio's first page, so it opens together with the studio.
+  if (env.CREATOR_SUCCESS_REELS_ENABLED !== 'false' && studio2Enabled(userId, env)) return true
   return String(env.CREATOR_SUCCESS_REELS_USER_IDS || '').split(',').map(id => id.trim()).filter(Boolean).includes(userId)
 }
 

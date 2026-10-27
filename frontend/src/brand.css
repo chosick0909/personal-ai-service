@@ -1,0 +1,47 @@
+/* HookAI 브랜드 톤(랜딩과 같은 보라 그라데이션)을 로그인·쿠폰·방향 추천처럼 예전 디자인이 남은 화면에 입혀요.
+   화면마다 색을 다시 쓰는 대신, 예전 회색·베이지 색을 이 한 곳에서 새 톤으로 바꿔요. */
+.hk-brand {
+  --hk-accent: #7A4DFF;
+  --hk-accent-2: #9B7BFF;
+  --hk-line: rgba(155, 123, 255, 0.28);
+  --hk-panel: rgba(255, 255, 255, 0.05);
+  background: radial-gradient(52% 60% at 82% 40%, rgba(122, 77, 255, 0.38) 0%, rgba(122, 77, 255, 0) 70%),
+    linear-gradient(180deg, #111017 0%, #15122A 55%, #2E1677 100%) !important;
+  background-attachment: fixed !important;
+  font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+}
+/* 예전 회색 빛번짐 장식은 새 배경과 어울리지 않아 숨겨요. */
+.hk-brand .blur-3xl { display: none !important; }
+
+/* 카드·패널 */
+.hk-brand [class*="bg-[linear-gradient(180deg,rgba(19,23,32"],
+.hk-brand [class*="bg-[#0F1117]"], .hk-brand [class*="bg-[#0B0D12]"] { background: rgba(24, 18, 48, 0.72) !important; backdrop-filter: blur(18px); }
+.hk-brand [class*="bg-[#171B24]"], .hk-brand [class*="bg-[#12151D]"], .hk-brand [class*="bg-[#1D2330]"], .hk-brand [class*="bg-[#121722]"],
+.hk-brand [class*="bg-[#161B24]"], .hk-brand [class*="bg-[#1E2432]"], .hk-brand [class*="bg-[#1D1F23]"], .hk-brand [class*="bg-[#1B1E24]"],
+.hk-brand [class*="bg-[#121821]"], .hk-brand [class*="bg-[#151820]"], .hk-brand [class*="bg-[#101826]"] { background-color: var(--hk-panel) !important; }
+.hk-brand [class*="border-[#2F3543]"], .hk-brand [class*="border-[#374151]"], .hk-brand [class*="border-[#3A3D43]"], .hk-brand [class*="border-[#3A414F]"],
+.hk-brand [class*="border-[#3a414f]"], .hk-brand [class*="border-[#4B5563]"], .hk-brand [class*="border-[#2E2E2E]"], .hk-brand [class*="border-[#525864]"],
+.hk-brand [class*="border-[#334155]"], .hk-brand [class*="border-white/15"] { border-color: var(--hk-line) !important; }
+
+/* 주요 버튼(예전 베이지) → 보라 그라데이션 */
+.hk-brand .btn-solid-contrast, .hk-brand [class*="bg-[#FAF9F6]"], .hk-brand [class*="bg-[#F8F5EF]"], .hk-brand a.rounded-full.bg-white {
+  background: linear-gradient(90deg, #8D5CFF 0%, #6A2BF5 100%) !important;
+  border-color: transparent !important; color: #FFFFFF !important;
+  box-shadow: 0 14px 36px rgba(122, 77, 255, 0.42) !important;
+}
+.hk-brand .btn-solid-contrast *, .hk-brand [class*="bg-[#FAF9F6]"] *, .hk-brand [class*="bg-[#F8F5EF]"] *, .hk-brand a.rounded-full.bg-white * { color: #FFFFFF !important; }
+.hk-brand .btn-solid-contrast:hover, .hk-brand [class*="bg-[#FAF9F6]"]:hover, .hk-brand [class*="bg-[#F8F5EF]"]:hover { filter: brightness(1.08); }
+.hk-brand .warp-outline-button { border-color: rgba(155, 123, 255, 0.35) !important; background: rgba(255, 255, 255, 0.04) !important; }
+
+/* 선택된 요금제·카드 테두리 */
+.hk-brand [class*="border-[#FAF9F6]"] { border-color: var(--hk-accent-2) !important; }
+.hk-brand [class*="rgba(250,249,246,0.42)"] { box-shadow: 0 0 0 1px rgba(155, 123, 255, 0.7), 0 24px 70px rgba(122, 77, 255, 0.25) !important; }
+
+/* 입력칸·체크박스 */
+.hk-brand .warp-input { border-color: rgba(155, 123, 255, 0.3) !important; background: rgba(255, 255, 255, 0.06) !important; }
+.hk-brand .warp-input:focus { border-color: var(--hk-accent-2) !important; box-shadow: 0 0 0 3px rgba(122, 77, 255, 0.25) !important; }
+.hk-brand input[type="checkbox"], .hk-brand input[type="radio"] { accent-color: var(--hk-accent) !important; }
+
+/* 진행 막대·작은 강조 */
+.hk-brand [class*="bg-[#E5E7EB]"]:not(button) { background: linear-gradient(90deg, #8D5CFF, #6A2BF5) !important; }
+.hk-brand a { text-underline-offset: 4px; }
