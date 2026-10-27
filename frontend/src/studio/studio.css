@@ -871,3 +871,10 @@
 /* 말로 입력: 녹음 중에는 빨간 버튼으로 바뀌어 다시 누르면 끝나요 */
 .st .st-voice.is-recording { border-color:var(--st-danger); background:var(--st-danger-soft); color:var(--st-danger); animation:st-voice-pulse 1.4s ease-in-out infinite; }
 @keyframes st-voice-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(224,72,79,.35) } 50% { box-shadow:0 0 0 6px rgba(224,72,79,0) } }
+/* 업데이트 안내 첫 장: 캐릭터가 둥실둥실 떠 있고, 뒤의 빛이 숨 쉬듯 퍼져요 */
+.st-whatsnew-hello { position:relative; }
+.st-whatsnew-hello::before { content:''; position:absolute; top:calc(min(260px, 52vw) / 2); left:50%; width:min(300px, 60vw); aspect-ratio:1; border-radius:50%; transform:translate(-50%, -50%); background:radial-gradient(circle, rgba(165,141,255,.55) 0%, rgba(124,92,255,.18) 45%, transparent 70%); animation:st-hello-glow 3.6s ease-in-out infinite; pointer-events:none; }
+.st-whatsnew-hello img { position:relative; animation:st-hello-float 3.6s ease-in-out infinite; }
+@keyframes st-hello-float { 0%,100% { transform:translateY(0) rotate(-2deg) } 50% { transform:translateY(-12px) rotate(2deg) } }
+@keyframes st-hello-glow { 0%,100% { opacity:.55; transform:translate(-50%, -50%) scale(.92) } 50% { opacity:1; transform:translate(-50%, -50%) scale(1.06) } }
+@media (prefers-reduced-motion: reduce) { .st-whatsnew-hello img, .st-whatsnew-hello::before { animation:none; } }
