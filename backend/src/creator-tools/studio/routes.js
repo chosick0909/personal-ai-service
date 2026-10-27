@@ -536,7 +536,7 @@ export function registerStudioRoutes(router) {
   router.post('/creator-tools/studio/trial-links', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 만들 수 있어요.', 404)
     const origin = String(process.env.CLIENT_ORIGIN || 'https://www.hookai.kr').split(',')[0].trim().replace(/\/$/, '')
-    res.status(201).json(await createDemoLink(database(), { label: text(req.body?.label, 60) || '클라이언트 체험', days: req.body?.days, personal: req.body?.personal === true, createdBy: req.auth.userId, origin }))
+    res.status(201).json(await createDemoLink(database(), { label: text(req.body?.label, 60) || '클라이언트 체험', days: req.body?.days, createdBy: req.auth.userId, origin }))
   }))
   router.get('/creator-tools/studio/trial-links', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 볼 수 있어요.', 404)

@@ -128,7 +128,7 @@ export default function StudioApp() {
   // Every visit opens with the upgrade popup until it is closed in that visit ('24시간 동안 보지 않기' skips it for a day), then the guided tour once.
   const [guide, setGuide] = useState(null)
   // A trial link is for showing the studio to someone new: on every load its guided tour runs first, whatever was dismissed before.
-  const isTrial = /@trial\.hookai\.kr$/.test(currentUser?.email || '') && !currentUser?.user_metadata?.personal
+  const isTrial = /@trial\.hookai\.kr$/.test(currentUser?.email || '')
   const trialTourShown = useRef(false)
   useEffect(() => {
     if (!features?.studio2 || route.page === 'print') return
