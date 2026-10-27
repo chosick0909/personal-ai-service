@@ -330,9 +330,13 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   const from = page * limit, to = from + limit - 1
   let rows
   if (sort === 'ready') {
-    // Pages fill group by group, newest first within each: analysed 추천, other analysed, unanalysed 추천, the rest.
+    // Pages fill group by group, newest first within each: analysed 추천 that meet the archive bar (posted within
+    // 3 months, 500,000+ plays), other analysed 추천, other analysed, unanalysed 추천, the rest.
     const notRecommended = r => r.or('recommended.is.null,recommended.eq.false')
-    const groups = [r => r.eq('analysis_status', 'ready').eq('recommended', true), r => notRecommended(r.eq('analysis_status', 'ready')),
+    const cutoff = new Date(Date.now() - SUCCESS_REEL_MAX_AGE_DAYS * 86400000).toISOString()
+    const analysedRecommended = r => r.eq('analysis_status', 'ready').eq('recommended', true)
+    const groups = [r => analysedRecommended(r).gte('views', SUCCESS_REEL_MIN_VIEWS).gte('posted_at', cutoff),
+      r => analysedRecommended(r).or(`views.is.null,views.lt.${SUCCESS_REEL_MIN_VIEWS},posted_at.lt.${cutoff}`), r => notRecommended(r.eq('analysis_status', 'ready')),
       r => r.neq('analysis_status', 'ready').eq('recommended', true), r => notRecommended(r.neq('analysis_status', 'ready'))]
     rows = []
     let offset = 0
