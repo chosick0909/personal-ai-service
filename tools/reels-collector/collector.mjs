@@ -157,23 +157,21 @@ const collectPause = async (min, max) => { await pause(min, max); while (lookupB
 
 // When Instagram stops showing reels to this account (logged out, or a temporary limit after many page loads), every
 // reel looks deleted. That is reported as blocked, not as a dead link, and lookups rest for a while instead of
-// hammering Instagram: 5 misses in a row → 30 minutes of rest.
-let misses = 0, restUntil = 0
-async function readLookup(context, lookup) {
-  if (!(await loggedIn(context))) { await log('⚠️ 수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행해주세요.'); return { error: 'LOOKUP_BLOCKED' } }
-  if (Date.now() < restUntil) return { error: 'LOOKUP_BLOCKED' }
-  let page
-  try { page = await context.newPage() } catch (error) { await log(`조회 ${lookup.shortcode} 창 열기 실패: ${error?.message || error}`); return { error: 'LOOKUP_BLOCKED' } }
+// hammering Instagram. Dead links also look like misses, so after 5 misses in a row the last reel that was read is
+// opened again: if it still reads, the misses were truly dead links; if not, Instagram is limiting us → 30 minutes of rest.
+let misses = 0, restUntil = 0, lastGood = null
+async function openReel(context, shortcode, url) {
+  const page = await context.newPage()
   const bodies = []
   page.on('response', async response => {
     if (!/^https:\/\/www\.instagram\.com\/(api\/|graphql)/.test(response.url())) return
     try { bodies.push(...parseBodies(await response.text())) } catch { /* Body unavailable. */ }
   })
-  const found = () => { const media = new Map(); bodies.forEach(body => collectMedia(body, media)); return media.get(lookup.shortcode) }
+  const found = () => { const media = new Map(); bodies.forEach(body => collectMedia(body, media)); return media.get(shortcode) }
   try {
-    await page.goto(lookup.url, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 })
     await pause(3000, 5000)
-    if (BLOCKED.test(page.url())) return { error: 'LOOKUP_BLOCKED' }
+    if (BLOCKED.test(page.url())) return { blocked: true }
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
     for (const text of inline) if (/"code"/.test(text)) bodies.push(...parseBodies(text))
     for (let i = 0; i < 3 && !found()?.videoUrl; i += 1) await pause(2000, 3000)
@@ -184,20 +182,38 @@ async function readLookup(context, lookup) {
         const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''
         const response = await fetch(`/api/v1/media/${id}/info/`, { credentials: 'include', headers: { 'x-ig-app-id': '936619743392459', 'x-csrftoken': csrf, 'x-requested-with': 'XMLHttpRequest' } })
         return response.ok ? response.text() : null
-      }, mediaId(lookup.shortcode)).catch(() => null)
+      }, mediaId(shortcode)).catch(() => null)
       if (info) bodies.push(...parseBodies(info))
     }
     const item = found()
-    if (!item?.videoUrl) {
+    if (item?.videoUrl) return { item }
+    return { gone: await page.getByText(/사용할 수 없|isn.t available|not available/i).count().catch(() => 0) > 0 }
+  } finally { await page.close().catch(() => {}) }
+}
+
+async function readLookup(context, lookup) {
+  if (!(await loggedIn(context))) { await log('⚠️ 수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행해주세요.'); return { error: 'LOOKUP_BLOCKED' } }
+  if (Date.now() < restUntil) return { error: 'LOOKUP_BLOCKED' }
+  try {
+    const read = await openReel(context, lookup.shortcode, lookup.url)
+    if (read.blocked) return { error: 'LOOKUP_BLOCKED' }
+    const item = read.item
+    if (!item) {
       if (++misses >= 5) {
-        misses = 0; restUntil = Date.now() + 30 * 60000
-        await log('⚠️ 릴스를 연속 5번 못 읽었습니다. 인스타가 잠시 막은 것 같아 30분 쉽니다. 이 크롬 창에서 instagram.com을 열어 상태를 확인해주세요.')
-        return { error: 'LOOKUP_BLOCKED' }
+        misses = 0
+        await pause(3000, 5000)
+        const check = lastGood ? await openReel(context, lastGood.shortcode, lastGood.url).catch(() => ({})) : {}
+        if (!check.item) {
+          restUntil = Date.now() + 30 * 60000
+          await log('⚠️ 릴스를 연속 5번 못 읽었고, 전에 읽었던 릴스도 지금은 안 읽힙니다. 인스타가 잠시 막은 것 같아 30분 쉽니다.')
+          return { error: 'LOOKUP_BLOCKED' }
+        }
+        await log('연속 5번 못 읽었지만 전에 읽었던 릴스는 정상이라, 링크 자체가 사라진 것으로 보고 계속 조회합니다.')
       }
-      const gone = await page.getByText(/사용할 수 없|isn.t available|not available/i).count().catch(() => 0)
-      return { error: gone ? 'LINK_DELETED' : 'LINK_UNAVAILABLE' }
+      return { error: read.gone ? 'LINK_DELETED' : 'LINK_UNAVAILABLE' }
     }
     misses = 0
+    lastGood = { shortcode: lookup.shortcode, url: lookup.url }
     return { result: { videoUrl: item.videoUrl, thumbnailUrl: item.thumbnailUrl, caption: item.caption, username: item.owner,
       views: item.views, likes: item.likes, comments: item.comments, postedAt: postedAt(item.code)?.toISOString() || null } }
   } catch (error) {
@@ -209,8 +225,10 @@ async function readLookup(context, lookup) {
       await log('⚠️ 인스타가 릴스 페이지 요청을 거절했습니다(요청 제한). 1시간 동안 조회를 쉽니다. 이 창을 닫지 말고 그대로 두세요.')
       return { error: 'LOOKUP_BLOCKED' }
     }
+    // A page that cannot even be opened means the browser itself is in trouble, not the link.
+    if (/newPage|Target page, context or browser has been closed/.test(message)) return { error: 'LOOKUP_BLOCKED' }
     return { error: 'LINK_UNAVAILABLE' }
-  } finally { await page.close().catch(() => {}) }
+  }
 }
 
 // Answers every queued lookup, most urgent first, until the queue is empty.
