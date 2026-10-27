@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { workspace, probeVideo, transcribeFile, ff, downloadStored } from './media.js'
 import { downloadPublicMedia } from './network.js'
-import { extractScreenSubtitles, referenceTranscript } from '../lib/video-subtitle-transcript.js'
+import { extractScreenSubtitles, probeScreenText, referenceTranscript } from '../lib/video-subtitle-transcript.js'
 import { translateSegments } from './link-import.js'
 import { referencePlayback, playbackUrl } from './reference-playback.js'
 import { query } from './store.js'
@@ -240,6 +240,8 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
       // When the subtitle reader gives up, the analysis model reads the on-screen text from sampled frames instead.
       const transcript = await referenceTranscript({ hasAudio: info.hasAudio !== false, duration: info.duration, signal,
         transcribe: () => transcribeFile(ctx, path, info.duration),
+        probeSubtitles: () => probeScreenText(path, directory, info.duration, { signal,
+          invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }),
         readSubtitles: () => extractScreenSubtitles(path, directory, info.duration, { signal, onProgress: () => {},
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }) })
         .catch(error => { if (String(error?.code || '').startsWith('SUBTITLE_') || ['TRANSCRIPT_EMPTY', 'TRANSCRIPTION_FAILED'].includes(error?.code)) return { subtitles: [], language: 'unknown', source: 'frames' }; throw error })

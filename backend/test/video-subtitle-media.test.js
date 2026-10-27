@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import {probeVideo} from '../src/creator-tools/media.js'
-import {extractScreenSubtitles} from '../src/lib/video-subtitle-transcript.js'
+import {extractScreenSubtitles,probeScreenText} from '../src/lib/video-subtitle-transcript.js'
 const execFile=promisify(execFileCallback)
 async function fixture(seconds,fn,source='testsrc'){
  const dir=await mkdtemp(join(tmpdir(),'hookai-subtitle-test-')),path=join(dir,'silent.mp4')
@@ -48,3 +48,14 @@ test('uniform empty video never reaches generative reader or fabricates subtitle
  assert.equal(calls,0)
  assert.deepEqual(await readdir(dir),['silent.mp4'])
 },'color'))
+
+test('the screen probe reads eight spread frames in a single request and cleans up',async()=>fixture(15,async(path,dir)=>{
+ let calls=0,seen=[]
+ const texts=await probeScreenText(path,dir,15,{invoke:async(_fn,{frameIds})=>{
+  calls++;seen=frameIds
+  return{choices:[{finish_reason:'stop',message:{content:JSON.stringify({frames:frameIds.map(id=>({id,text:id%2?`자막 ${id}`:'',language:'ko'}))})}}]}
+ }})
+ assert.equal(calls,1);assert.equal(seen.length,8)
+ assert.deepEqual(texts,['자막 1','자막 3','자막 5','자막 7'])
+ assert.deepEqual(await readdir(dir),['silent.mp4'])
+}))

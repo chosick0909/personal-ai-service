@@ -1,4 +1,4 @@
-import { extractScreenSubtitles, referenceTranscript, usableSpeech } from './video-subtitle-transcript.js'
+import { extractScreenSubtitles, probeScreenText, referenceTranscript, usableSpeech } from './video-subtitle-transcript.js'
 import { normalizeSupportingMaterials, formatSupportingMaterials } from '../../../shared/supporting-materials.mjs'
 import { SPOKEN_SCRIPT_WRITING_RULES } from './spoken-script.js'
 import { AppError } from './errors.js'
@@ -4972,6 +4972,7 @@ export async function analyzeReferenceVideo({
         reliable: (value, duration) => usableSpeech(value, duration) && scoreTranscriptReliability({
           text: value.text, segments: value.segments, durationSeconds: value.duration || duration, hasAudio,
         }).reliable,
+        probeSubtitles: () => probeScreenText(created.videoPath, workspace, durationSeconds),
         readSubtitles: () => extractScreenSubtitles(created.videoPath, workspace, durationSeconds, {
           onProgress: () => stageHooks.onStart('reading-subtitles', baseContext),
         }),

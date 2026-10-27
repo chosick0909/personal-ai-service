@@ -29,7 +29,7 @@ export function usableSpeech(transcript, duration = 0) {
   return !(duration >= 20 && text.length / duration < 0.8)
 }
 
-export async function referenceTranscript({ hasAudio, duration, transcribe, readSubtitles, reliable = usableSpeech, signal }) {
+export async function referenceTranscript({ hasAudio, duration, transcribe, readSubtitles, probeSubtitles, reliable = usableSpeech, signal }) {
   signal?.throwIfAborted()
   let speech = null
   if (hasAudio) {
@@ -40,10 +40,35 @@ export async function referenceTranscript({ hasAudio, duration, transcribe, read
       if (status === 401 || status === 403 || status === 429 || ['PROVIDER_BUDGET', 'PROVIDER_CIRCUIT_OPEN'].includes(error.code)) throw error
       if (!['TRANSCRIPT_EMPTY', 'TRANSCRIPTION_FAILED', 'AUDIO_EXTRACTION_FAILED', 'MEDIA_PROCESS_FAILED'].includes(error.code)) throw error
     }
-    if (speech && reliable(speech, duration)) return speech
+    if (speech && reliable(speech, duration)) {
+      if (!probeSubtitles) return speech
+      // Clear audio is not always narration: a captioned video over a song yields confident lyrics.
+      // A few sampled frames decide whether the on-screen text, rather than the audio, carries the message.
+      let shown = []
+      // The probe is advisory: if it cannot read, the confident speech stands.
+      try { shown = await probeSubtitles() }
+      catch { signal?.throwIfAborted() }
+      if (!screenTellsOtherStory(shown, speech.text)) return speech
+      try { return await readSubtitles() }
+      catch (error) { signal?.throwIfAborted(); if (isSubtitleMiss(error)) return speech; throw error }
+    }
   }
   signal?.throwIfAborted()
   return readSubtitles()
+}
+
+const isSubtitleMiss = error => String(error?.code || '').startsWith('SUBTITLE_') || error?.code === 'REFERENCE_TEXT_NOT_FOUND'
+const squash = text => String(text || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+const pairs = text => { const out = new Set(); for (let i = 0; i < text.length - 1; i++) out.add(text.slice(i, i + 2)); return out }
+
+// On-screen sentences that the audio does not say mean the audio is music and the screen is the script.
+// Captions of narration repeat the spoken words, and one fixed title or short labels do not make a script.
+export function screenTellsOtherStory(texts, spoken) {
+  const heard = pairs(squash(spoken))
+  const shown = [...new Set(texts.map(squash).filter(text => text.length >= 6))]
+  if (shown.length < 2) return false
+  const said = text => { const own = [...pairs(text)]; return own.filter(pair => heard.has(pair)).length / own.length >= 0.5 }
+  return shown.filter(text => !said(text)).length > shown.length / 2
 }
 
 export function validateSubtitleFrames(raw, frames) {
@@ -139,6 +164,32 @@ async function readFrames(frames, { signal, invoke }) {
   return validateSubtitleFrames(parsed, frames).map(({ dataUrl, ...item }) => item)
 }
 
+function dumpFrames(videoPath, directory, fps, count, signal) {
+  return execFile(process.env.CREATOR_FFMPEG_PATH || ffmpeg.path, [
+    '-nostdin', '-y', '-threads', '2', '-protocol_whitelist', 'file,pipe', '-i', resolve(videoPath),
+    '-an', '-vf', `fps=${fps}:start_time=0,scale='min(960,iw)':-2,signalstats,metadata=mode=print:file=subtitle-signal.txt`, '-q:v', '3', '-frames:v', String(count),
+    join(directory, '%06d.jpg'),
+  ], { signal, timeout: 60000, maxBuffer: 2 * 1024 * 1024, cwd: directory })
+}
+
+const PROBE_FRAMES = 8
+// Reads a handful of evenly spaced frames in one request, only to learn what the screen says.
+export async function probeScreenText(videoPath, workspace, duration, options = {}) {
+  if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_SECONDS) return []
+  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000)
+  const directory = await mkdtemp(join(resolve(workspace), 'subtitle-probe-'))
+  try {
+    await dumpFrames(videoPath, directory, (PROBE_FRAMES / duration).toFixed(4), PROBE_FRAMES, signal)
+    const files = (await readdir(directory)).filter(name => /^\d+\.jpg$/.test(name)).sort()
+    const uniform = uniformFrameIds(await readFile(join(directory, 'subtitle-signal.txt'), 'utf8'))
+    const frames = await Promise.all(files.map(async (name, id) => ({ id, timestamp: Number((id * duration / PROBE_FRAMES).toFixed(2)),
+      dataUrl: `data:image/jpeg;base64,${(await readFile(join(directory, name))).toString('base64')}` })))
+    const readable = frames.filter(frame => !uniform.has(frame.id))
+    if (!readable.length) return []
+    return (await readBatch(readable, { signal, invoke: options.invoke || (fn => fn()) })).map(frame => frame.text).filter(Boolean)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+}
+
 export async function extractScreenSubtitles(videoPath, workspace, duration, options = {}) {
   if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_SECONDS) {
     throw subtitleError('SUBTITLE_DURATION_LIMIT', '화면 자막 추출은 5분 이하 영상에서 지원합니다.')
@@ -147,11 +198,7 @@ export async function extractScreenSubtitles(videoPath, workspace, duration, opt
   signal.throwIfAborted()
   const directory = await mkdtemp(join(resolve(workspace), 'subtitle-frames-'))
   try {
-    await execFile(process.env.CREATOR_FFMPEG_PATH || ffmpeg.path, [
-      '-nostdin', '-y', '-threads', '2', '-protocol_whitelist', 'file,pipe', '-i', resolve(videoPath),
-      '-an', '-vf', `fps=${FPS}:start_time=0,scale='min(960,iw)':-2,signalstats,metadata=mode=print:file=subtitle-signal.txt`, '-q:v', '3', '-frames:v', String(MAX_SECONDS * FPS),
-      join(directory, '%06d.jpg'),
-    ], { signal, timeout: 60000, maxBuffer: 2 * 1024 * 1024, cwd: directory })
+    await dumpFrames(videoPath, directory, FPS, MAX_SECONDS * FPS, signal)
     const files = (await readdir(directory)).filter(name => /^\d+\.jpg$/.test(name)).sort()
     if (!files.length || files.length < Math.floor(duration * FPS) - 1) {
       throw subtitleError('SUBTITLE_FRAMES_INCOMPLETE', '영상 전체의 자막 화면을 읽지 못했습니다.')
