@@ -57,6 +57,13 @@ export default function StudioApp() {
   // The studio always opens light; the switch changes the theme only for this visit (the old studio's saved dark choice no longer carries over).
   const [theme, setTheme] = useState('light')
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
+  // The page behind the studio (html/body) still carries the old app's near-black background; phones show it when
+  // they bounce or overscroll, so it follows the studio's own background while the studio is open.
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('st-html'); root.classList.toggle('st-html-dark', theme === 'dark')
+    return () => root.classList.remove('st-html', 'st-html-dark')
+  }, [theme])
   const [features, setFeatures] = useState(null)
   const [categories, setCategories] = useState([])
   const [toasts, setToasts] = useState([])

@@ -36,6 +36,9 @@ export function consumePostAuthRedirectPath(defaultPath = '/purchase') {
 }
 
 export function getAuthRedirectUrl(redirectPath = getPostAuthRedirectPath('/analyze')) {
+  // Google may only return to addresses on the sign-in allow list; /analyze is on it and forwards to /studio,
+  // carrying the session along, so the studio is reached through it.
+  if (/^\/studio\/?$/.test(redirectPath)) redirectPath = '/analyze'
   if (redirectPath !== '/analyze') {
     return `${window.location.origin}${redirectPath}`
   }

@@ -899,3 +899,11 @@
   .st-whatsnew-moves li span { min-width:64px; }
   .st-whatsnew-actions { margin-top:14px; }
 }
+
+/* 스튜디오가 열려 있는 동안 바깥(html·body)도 스튜디오 바탕색으로, 가로로는 절대 밀리지 않게 */
+html.st-html, html.st-html body { background:#F6F6FA; overflow-x:hidden; overscroll-behavior-x:none; max-width:100%; }
+html.st-html-dark, html.st-html-dark body { background:#141220; }
+html.st-html body { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+.st { max-width:100vw; overflow-x:clip; }
+.st-main, .st-content { min-width:0; max-width:100%; }
+@media (max-width: 860px) { .st-seg { max-width:100%; overflow-x:auto; scrollbar-width:none; } .st-seg button { flex:none; } }

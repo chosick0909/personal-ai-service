@@ -3868,7 +3868,7 @@ export default function App() {
 
   if (pathname.startsWith('/settings')) {
     // 계정 설정 is not part of the new studio; an old link lands in the studio.
-    window.location.replace('/studio')
+    window.location.replace(`/studio${window.location.search}${window.location.hash}`)
     return null
   } else if (pathname.startsWith('/login')) {
     content = <LoginApp />
@@ -3878,7 +3878,8 @@ export default function App() {
     content = <PurchaseApp />
   } else if (isCreatorStudioPath(pathname) || pathname.startsWith('/analyze')) {
     // 대본작업실 and the first creator studio now live inside the new studio; old links and bookmarks land there.
-    window.location.replace('/studio')
+    // The query and hash go along: a Google sign-in comes back here carrying the session in them.
+    window.location.replace(`/studio${window.location.search}${window.location.hash}`)
     return null
   } else if (/^\/studio\/?$/.test(pathname)) {
     content = <StudioApp />
