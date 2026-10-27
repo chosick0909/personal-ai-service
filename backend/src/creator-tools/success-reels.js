@@ -295,32 +295,51 @@ export function searchTerm(value) {
   return value.normalize('NFC').replace(/[^\p{L}\p{N}\s._#@-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)
 }
 export async function listSuccessReels(db, filters = {}, userId = null) {
-  const sort = LIST_SORTS[filters.sort] ? filters.sort : 'latest'
+  // With no sort chosen, reels that already have an analysis come first: opening one shows it at once.
+  const sort = LIST_SORTS[filters.sort] ? filters.sort : 'ready'
   const limit = 48
   const page = Math.max(0, Math.min(50, Number.parseInt(filters.page, 10) || 0))
-  let request = db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests,recommended')
-    .eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
-  if (filters.recommended === '1') request = request.eq('recommended', true)
-  if (SUCCESS_REEL_CATEGORIES.includes(filters.category)) request = request.eq('category', filters.category)
-  if (['visible', 'hidden', 'mixed'].includes(filters.face)) request = request.eq('face_visibility', filters.face)
-  if (['domestic', 'overseas'].includes(filters.region)) request = request.eq('region', filters.region)
+  const listed = (columns, options) => {
+    let request = db.from('creator_success_reels').select(columns, options)
+      .eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
+    if (filters.recommended === '1') request = request.eq('recommended', true)
+    if (SUCCESS_REEL_CATEGORIES.includes(filters.category)) request = request.eq('category', filters.category)
+    if (['visible', 'hidden', 'mixed'].includes(filters.face)) request = request.eq('face_visibility', filters.face)
+    if (['domestic', 'overseas'].includes(filters.region)) request = request.eq('region', filters.region)
+    return request
+  }
+  const COLUMNS = 'shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests,recommended'
+  let request = listed(COLUMNS)
   const saves = userId ? await query(db.from('creator_reel_saves').select('shortcode').eq('user_id', userId).limit(5000)) : []
   const savedCodes = new Set(saves.map(row => row.shortcode))
   if (filters.saved === '1') {
     if (!savedCodes.size) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
-    request = request.in('shortcode', [...savedCodes])
   }
   // Analyses are shared, but a student only sees "분석됨" on reels they analyzed themselves.
   const mine = userId ? await query(db.from('creator_reel_user_analyses').select('shortcode').eq('user_id', userId).limit(5000)) : []
   const analyzedCodes = new Set(mine.map(row => row.shortcode))
   if (filters.analyzed === '1') {
     if (!analyzedCodes.size) return { lastUpdatedAt: null, reels: [], page, hasMore: false, sort, q: searchTerm(filters.q) }
-    request = request.in('shortcode', [...analyzedCodes])
   }
   const q = searchTerm(filters.q)
-  if (q) request = request.or(['caption', 'caption_ko', 'username', 'audio'].map(field => `${field}.ilike.%${q}%`).join(','))
-  if (sort === 'popular') request = request.order('analysis_requests', { ascending: false })
-  const rows = await query(request.order(sort === 'popular' ? 'views' : LIST_SORTS[sort], { ascending: false }).range(page * limit, page * limit + limit - 1))
+  const narrow = r => {
+    if (filters.saved === '1') r = r.in('shortcode', [...savedCodes])
+    if (filters.analyzed === '1') r = r.in('shortcode', [...analyzedCodes])
+    return q ? r.or(['caption', 'caption_ko', 'username', 'audio'].map(field => `${field}.ilike.%${q}%`).join(',')) : r
+  }
+  const from = page * limit, to = from + limit - 1
+  let rows
+  if (sort === 'ready') {
+    // Analysed reels fill the first pages, newest first; the rest follow in the same order.
+    const ready = (await narrow(listed('shortcode', { count: 'exact', head: true })).eq('analysis_status', 'ready')).count || 0
+    const take = async (status, a, b) => b < a ? [] : query(narrow(listed(COLUMNS))[status === 'ready' ? 'eq' : 'neq']('analysis_status', 'ready')
+      .order('posted_at', { ascending: false }).range(a, b))
+    rows = [...await take('ready', from, Math.min(to, ready - 1)), ...await take('rest', Math.max(0, from - ready), to - ready)]
+  } else {
+    request = narrow(request)
+    if (sort === 'popular') request = request.order('analysis_requests', { ascending: false })
+    rows = await query(request.order(sort === 'popular' ? 'views' : LIST_SORTS[sort], { ascending: false }).range(from, to))
+  }
   const paths = rows.map(row => row.thumbnail_path).filter(Boolean)
   const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)) : []
   const urls = new Map(signed.filter(item => item.signedUrl).map(item => [item.path, item.signedUrl]))

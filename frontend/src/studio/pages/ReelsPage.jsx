@@ -127,7 +127,7 @@ function ReferenceGuide() {
 
 export default function ReelsPage() {
   const { go, analyze, tracking, categories } = useStudio()
-  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: 'latest', q: '', recommended: false })
+  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: '', q: '', recommended: false })
   const [draft, setDraft] = useState('')
   const [reels, setReels] = useState([])
   const [page, setPage] = useState(0)
@@ -138,7 +138,7 @@ export default function ReelsPage() {
   const [open, setOpen] = useState(null)
   useEffect(() => {
     const controller = new AbortController()
-    const params = new URLSearchParams({ sort: filters.sort, page: String(page) })
+    const params = new URLSearchParams({ page: String(page), ...(filters.sort ? { sort: filters.sort } : {}) })
     if (filters.category !== 'all') params.set('category', filters.category)
     if (filters.face !== 'any') params.set('face', filters.face)
     if (filters.region !== 'any') params.set('region', filters.region)
@@ -170,7 +170,7 @@ export default function ReelsPage() {
         <Chips label="분야" options={[['all', '전체'], ...categories.map(c => [c, c])]} value={filters.category} onChange={category => change({ category })} /></div>
       <div className="st-filter-row st-filter-groups">
         <Segmented label="보기" options={[['all', '전체'], ['recommended', '추천만']]} value={filters.recommended ? 'recommended' : 'all'} onChange={v => change({ recommended: v === 'recommended' })} />
-        <Segmented label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort })} />
+        <Segmented label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort: sort === filters.sort ? '' : sort })} />
         <Segmented label="얼굴" options={FACE} value={filters.face} onChange={face => change({ face })} />
         <Segmented label="지역" options={REGION} value={filters.region} onChange={region => change({ region })} />
       </div>

@@ -77,7 +77,7 @@ function fakeDb() {
   const uploads = new Map()
   const builder = table => {
     const filters = []
-    let action = 'select', payload, single = false, order, range, limit
+    let action = 'select', payload, single = false, order, range, limit, head = false
     const run = () => {
       const rows = [...tables[table].values()].filter(row => filters.every(([k, v]) => k === null ? v(row) : row[k] === v))
       if (action === 'upsert') { const key = keys[table]; tables[table].set(payload[key], { ...(tables[table].get(payload[key]) || {}), ...payload }); return null }
@@ -90,7 +90,8 @@ function fakeDb() {
       return single ? out[0] ?? null : out
     }
     const api = {
-      select() { return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
+      select(_columns, options) { head = Boolean(options?.head); return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
+      neq(k, v) { filters.push([null, row => row[k] !== v]); return api },
       upsert(row) { action = 'upsert'; payload = row; return api }, update(row) { action = 'update'; payload = row; return api },
       in(k, values) { filters.push([null, row => values.includes(row[k])]); return api },
       not(k, op, v) { filters.push([null, row => !(op === 'is' && row[k] === v)]); return api },
@@ -102,7 +103,7 @@ function fakeDb() {
         const hit = (row, [, f, op, t]) => op === 'ilike' ? String(row[f] ?? '').toLowerCase().includes(t.replace(/^%|%$/g, '').toLowerCase())
           : op === 'is' ? (row[f] ?? null) === (t === 'null' ? null : value(t)) : row[f] === value(t)
         filters.push([null, row => parts.some(part => hit(row, part))]); return api },
-      then(resolve) { resolve({ data: run(), error: null }) },
+      then(resolve) { const data = run(); resolve(head ? { data: null, count: data.length, error: null } : { data, error: null }) },
     }
     return api
   }
@@ -348,4 +349,17 @@ test('reference fit is judged by where the views came from, in both the account 
   assert.match(REFERENCE_FIT_RULE, /조회수가 어디에서 나왔는지/)
   // Principles, not patches: no specific place, brand or person in the rule.
   for (const word of ['롯데월드', '불꽃놀이', '디즈니']) assert.ok(!REFERENCE_FIT_RULE.includes(word), word)
+})
+
+test('with no sort chosen, reels that already have an analysis come first, then the rest, across pages', async () => {
+  const db = fakeDb()
+  for (let i = 0; i < 60; i += 1) db.tables.creator_success_reels.set(`Code${String(i).padStart(4, '0')}x`, { shortcode: `Code${String(i).padStart(4, '0')}x`, visible: true, reference_fit: true,
+    posted_at: new Date(Date.UTC(2026, 8, 1 + i)).toISOString(), analysis_status: i % 10 === 0 ? 'ready' : 'none', views: 600000 })
+  const first = (await listSuccessReels(db, {})).reels
+  assert.equal(first.length, 48)
+  assert.deepEqual(first.slice(0, 6).map(r => r.shortcode), ['Code0050x', 'Code0040x', 'Code0030x', 'Code0020x', 'Code0010x', 'Code0000x'])
+  assert.equal(first[6].shortcode, 'Code0059x')
+  const second = (await listSuccessReels(db, { page: '1' })).reels
+  assert.equal(second.length, 12)
+  assert.equal(new Set([...first, ...second].map(r => r.shortcode)).size, 60)
 })
