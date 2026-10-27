@@ -86,7 +86,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
       {hover && (loadingPreview || (preview && !playing)) && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
-      <div className="st-reel-tags">{reel.recommended && <span className="st-reel-badge st-reel-rec">추천</span>}{badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}</div>
+      <div className="st-reel-tags">{reel.recommended && <span className="st-reel-badge st-reel-rec">추천</span>}{badge !== undefined ? badge : ready ? <span className="st-reel-badge">분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}</div>
       <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{reel.views ? compactCount(reel.views) : '확인 중'}</span></div>
       <div className="st-reel-hover">
         <button type="button" className="st-reel-analyze" disabled={busy} onClick={ready ? onOpenAnalysis : onAnalyze}>
