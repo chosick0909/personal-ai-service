@@ -853,3 +853,10 @@
 .st-whatsnew-copy.is-welcome .st-whatsnew-moves li { padding:8px 12px; font-size:14.5px; }
 .st-whatsnew-copy.is-welcome .st-whatsnew-after { margin-top:10px !important; }
 .st-whatsnew-copy.is-welcome { padding-top:40px; padding-bottom:14px; }
+
+/* 1:1 문의(카카오톡 채널) */
+.st-kakao-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; margin-bottom:6px; border-radius:14px; background:#FEE500; color:#191600; font-size:16px; font-weight:800; text-decoration:none; }
+.st-kakao-btn:hover { filter:brightness(.96); }
+.st-man-ask { display:flex; align-items:flex-start; gap:10px; margin-top:14px; padding:12px 14px; border-radius:12px; background:var(--st-panel); color:var(--st-text); line-height:1.6; }
+.st-man-ask svg { flex:none; margin-top:2px; }
+.st-man-ask a { color:var(--st-accent-text); font-weight:800; text-decoration:underline; text-underline-offset:3px; }

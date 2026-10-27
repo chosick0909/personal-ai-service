@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { PlayCircle, Lightbulb } from 'lucide-react'
 import { MANUAL } from '../manualContent'
+import KakaoIcon, { KAKAO_CHAT } from '../KakaoIcon'
 
 // 사용 설명서: every section is a real screenshot with numbered boxes, and numbered steps that match the boxes,
 // written so a first-time (often 50+) student can follow along without help.
@@ -33,6 +34,7 @@ export default function ManualPage({ onTour }) {
         <h2>훅ai 사용 설명서</h2>
         <p>화면 사진의 <b>빨간 번호</b>와 아래 <b>순서 번호</b>가 같아요. 번호 순서대로 눌러 보시면 돼요.</p>
         <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={onTour}><PlayCircle size={22} />화면 둘러보기 다시 보기</button>
+        <p className="st-man-ask"><KakaoIcon size={22} /><span>오류 제보나 개선되었으면 하는 점 등은 <a href={KAKAO_CHAT} target="_blank" rel="noopener noreferrer">여기</a>로 1:1 문의주시면 빠르게 도와드릴게요.</span></p>
       </section>
       {MANUAL.map((s, i) => <section key={s.id} id={s.id} className="st-man-section">
         <span className="st-man-chapter">{i + 1}</span>

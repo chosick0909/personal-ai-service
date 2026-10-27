@@ -18,6 +18,7 @@ import EditPage from './pages/EditPage'
 import PrintView from './pages/PrintView'
 import ManualPage from './pages/ManualPage'
 import { UpdatePopup, Tour } from './Guide'
+import KakaoIcon, { KAKAO_CHAT } from './KakaoIcon'
 import { popupHidden, tourDone } from './guideData'
 import './studio.css'
 
@@ -155,6 +156,7 @@ export default function StudioApp() {
         {MENU.map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} data-tour={id} className="st-nav" aria-current={active === id ? 'page' : undefined} onClick={() => { go(id); setMenuOpen(false) }}><Icon size={22} />{label}</button> })}
         <div className="st-side-foot">
           <button type="button" data-tour="manual" className="st-manual-btn" aria-current={route.page === 'manual' ? 'page' : undefined} onClick={() => { go('manual'); setMenuOpen(false) }}><BookOpenCheck size={26} /><span><strong>사용 설명서</strong><small>처음이세요? 여기부터 보세요</small></span></button>
+          <a className="st-kakao-btn" href={KAKAO_CHAT} target="_blank" rel="noopener noreferrer"><KakaoIcon size={22} />1:1 문의</a>
           <a className="st-nav" href="/creatorstudio" style={{ fontSize: 15 }}><ArrowLeft size={18} />예전 스튜디오</a>
           <div className="st-side-user">{currentUser?.email || '내 계정'}</div>
         </div>
