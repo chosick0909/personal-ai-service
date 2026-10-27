@@ -37,7 +37,7 @@ export const TOUR_KEY = 'hookai-studio-tour-v1'
 export const tourDone = () => safeGetStorageItem(TOUR_KEY) === 'done'
 
 // Closing the popup (X, or moving on to the tour) keeps it away for the rest of this visit only.
-const CLOSED_KEY = 'hookai-studio-whatsnew-closed'
+const CLOSED_KEY = 'hookai-studio-whatsnew-x'
 export const popupClosedThisVisit = () => Boolean(safeGetStorageItem(CLOSED_KEY, { kind: 'session' }))
 export const markPopupClosed = () => safeSetStorageItem(CLOSED_KEY, '1', { kind: 'session' })
 export const hidePopupForADay = () => safeSetStorageItem(POPUP_KEY, String(Date.now() + 24 * 3600000))
