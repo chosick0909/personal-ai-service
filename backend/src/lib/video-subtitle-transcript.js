@@ -16,6 +16,10 @@ function subtitleError(code, message) {
   return new AppError(message, { code, statusCode: 422, exposeMessage: true })
 }
 
+// Names how a reference's script is chosen between speech and on-screen text. A link analysed with an older method
+// is analysed again instead of reusing that result (the method changed when lyrics stopped passing as narration).
+export const TRANSCRIPT_METHOD = 'speech-or-screen-2'
+
 export function usableSpeech(transcript, duration = 0) {
   const text = String(transcript?.text || '').trim()
   if (!text || transcript?.speechReliable === false) return false

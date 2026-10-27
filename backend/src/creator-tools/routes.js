@@ -4,6 +4,7 @@ import { asyncHandler } from '../lib/errors.js'
 import { assertUsageAllowed } from '../lib/entitlements.js'
 import { KINDS, MAX_BYTES, featureEnabled, fail, normalizeBrief, normalizeInstagramUrl, stableHash, textInput, username, uuid, validateManifest, mediaUploadDisposition, mediaUploadPurpose } from './domain.js'
 import { database, query, ownedJob, ownedMedia, createJob, publicJob, BUCKET, OUTPUT_BUCKET, signedDownload } from './store.js'
+import { TRANSCRIPT_METHOD } from '../lib/video-subtitle-transcript.js'
 import { enqueue } from './queue.js'
 import { completeReviewedReferenceJob } from './reference-immediate.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES, SUCCESS_REEL_CATEGORIES } from './categories.js'
@@ -177,10 +178,12 @@ export function createCreatorRouter() {
     if (req.body.rightsConfirmed !== true) fail('RIGHTS_REQUIRED', '분석 권한이 있는 영상인지 확인해주세요.')
     const input = { url: normalizeInstagramUrl(req.body.url) }
     const db = database(), ownerAccount = await accountId(req, db)
-    const key = textInput(req.body.clientImportId, '요청 ID', 8, 100)
+    // Results from an older script-extraction method are never handed back: both the request key and the
+    // input hash carry the method, so the same link is analysed again once after the method changes.
+    const key = `${textInput(req.body.clientImportId, '요청 ID', 8, 100)}:${TRANSCRIPT_METHOD}`
     const alias = await query(db.from('creator_request_aliases').select('job_id').eq('user_id', req.auth.userId).eq('kind', 'import-link').eq('request_key', key).maybeSingle())
     const existing = alias ? await ownedJob(db, alias.job_id, req.auth.userId, 'import-link') : null
-    const hashInput = { ...input, accountId: ownerAccount }
+    const hashInput = { ...input, accountId: ownerAccount, method: TRANSCRIPT_METHOD }
     if (existing) {
       if (existing.input_hash !== stableHash(hashInput)) fail('IDEMPOTENCY_CONFLICT', '같은 요청 ID의 내용이 달라졌습니다.', 409)
       return accept(existing, res)
