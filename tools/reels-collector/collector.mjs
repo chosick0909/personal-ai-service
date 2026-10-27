@@ -160,6 +160,13 @@ const collectPause = async (min, max) => { await pause(min, max); while (lookupB
 // hammering Instagram. Dead links also look like misses, so after 5 misses in a row the last reel that was read is
 // opened again: if it still reads, the misses were truly dead links; if not, Instagram is limiting us → 30 minutes of rest.
 let misses = 0, restUntil = 0, lastGood = null
+// HTTP 429 is Instagram's request limit for this account. Every further page load extends it, so the daily
+// collection and the lookups both stop opening pages for an hour, and a student's lookup is answered at once.
+const LIMITED = /ERR_HTTP_RESPONSE_CODE_FAILURE|status 429/
+const limited = async where => {
+  misses = 0; restUntil = Date.now() + 60 * 60000
+  await log(`⚠️ 인스타가 요청을 거절했습니다(HTTP 429 요청 제한, ${where}). 1시간 동안 인스타 페이지를 열지 않습니다. 이 창을 닫지 말고 그대로 두세요.`)
+}
 async function openReel(context, shortcode, url) {
   const page = await context.newPage()
   const bodies = []
@@ -169,7 +176,8 @@ async function openReel(context, shortcode, url) {
   })
   const found = () => { const media = new Map(); bodies.forEach(body => collectMedia(body, media)); return media.get(shortcode) }
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    if (response?.status() === 429) throw new Error('status 429')
     await pause(3000, 5000)
     if (BLOCKED.test(page.url())) return { blocked: true }
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
@@ -193,7 +201,7 @@ async function openReel(context, shortcode, url) {
 
 async function readLookup(context, lookup) {
   if (!(await loggedIn(context))) { await log('⚠️ 수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행해주세요.'); return { error: 'LOOKUP_BLOCKED' } }
-  if (Date.now() < restUntil) return { error: 'LOOKUP_BLOCKED' }
+  if (Date.now() < restUntil) { await log(`조회 ${lookup.shortcode}: 요청 제한으로 쉬는 중 (${new Date(restUntil).toLocaleTimeString('ko-KR')}까지)`); return { error: 'LOOKUP_BLOCKED' } }
   try {
     const read = await openReel(context, lookup.shortcode, lookup.url)
     if (read.blocked) return { error: 'LOOKUP_BLOCKED' }
@@ -220,11 +228,7 @@ async function readLookup(context, lookup) {
     const message = String(error?.message || error)
     await log(`조회 ${lookup.shortcode} 오류: ${message.split('\n')[0]}`)
     // Instagram refusing the reel page itself (an HTTP error instead of the page) is its request limit: rest at once.
-    if (/ERR_HTTP_RESPONSE_CODE_FAILURE/.test(message)) {
-      misses = 0; restUntil = Date.now() + 60 * 60000
-      await log('⚠️ 인스타가 릴스 페이지 요청을 거절했습니다(요청 제한). 1시간 동안 조회를 쉽니다. 이 창을 닫지 말고 그대로 두세요.')
-      return { error: 'LOOKUP_BLOCKED' }
-    }
+    if (LIMITED.test(message)) { await limited('조회'); return { error: 'LOOKUP_BLOCKED' } }
     // A page that cannot even be opened means the browser itself is in trouble, not the link.
     if (/newPage|Target page, context or browser has been closed/.test(message)) return { error: 'LOOKUP_BLOCKED' }
     return { error: 'LINK_UNAVAILABLE' }
@@ -242,7 +246,6 @@ async function serveLookups(config, context) {
       const outcome = await readLookup(context, lookup)
       await api(config, 'POST', `/lookups/${lookup.id}`, outcome).catch(error => log(`조회 결과 전송 실패: ${error.message}`))
       await log(`조회 ${lookup.shortcode}: ${outcome.error || '완료'}`)
-      if (outcome.error === 'LOOKUP_BLOCKED') await log('⚠️ 인스타가 로그인·확인 화면을 띄웠습니다. login을 다시 실행해주세요.')
     } finally { lookupBusy = false }
     // A student is waiting on their own lookup, so those go quickly; 추천 links and the study are read slowly
     // (Instagram limits an account that opens many reel pages in a short time).
@@ -264,10 +267,11 @@ async function serve() {
   for (;;) {
     const now = new Date(), day = now.toLocaleDateString('sv-SE')
     const last = await readFile(LAST_COLLECT(), 'utf8').catch(() => '')
-    // The day is recorded only after the collection finishes, so a run cut short by a restart starts again the same day.
+    // The day is recorded when the collection starts: a restart must not run the whole collection again the same
+    // day, because repeated runs are what push Instagram into its request limit.
     if (last.trim() !== day && now.getHours() * 60 + now.getMinutes() >= 3 * 60 + 30) {
-      await collectUntilDone(false, [], context).catch(error => log(`수집 오류: ${error.message}`))
       await writeFile(LAST_COLLECT(), day)
+      await collectUntilDone(false, [], context).catch(error => log(`수집 오류: ${error.message}`))
     }
     await sleep(60000)
   }
@@ -369,7 +373,12 @@ async function collect(dry, dryKeywords, shared = null) {
   // keepScrolling() decides after each scroll whether older pages are still worth loading.
   const visit = async (url, scrolls, keepScrolling = () => true) => {
     bodies = []
-    await page.goto(url, { waitUntil: 'domcontentloaded' })
+    if (Date.now() < restUntil) throw Object.assign(new Error('요청 제한으로 쉬는 중이라 수집을 멈춥니다'), { blocked: true })
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(async error => {
+      if (LIMITED.test(String(error?.message))) { await limited('수집'); throw Object.assign(error, { blocked: true }) }
+      throw error
+    })
+    if (response?.status() === 429) { await limited('수집'); throw Object.assign(new Error('status 429'), { blocked: true }) }
     await collectPause(6000, 9000)
     if (BLOCKED.test(page.url())) throw Object.assign(new Error(`인스타 확인 화면: ${page.url()}`), { blocked: true })
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
