@@ -8,8 +8,9 @@ const SLIDE_SECONDS = 10
 export function UpdatePopup({ onClose, onTour }) {
   const [i, setI] = useState(0)
   const slide = WHATS_NEW[i]
-  const close = useCallback((forADay = false) => { if (forADay) hidePopupForADay(); markPopupClosed(); onClose() }, [onClose])
-  useEffect(() => { const onKey = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') setI(n => Math.min(WHATS_NEW.length - 1, n + 1)); if (e.key === 'ArrowLeft') setI(n => Math.max(0, n - 1)) }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [close])
+  // Only X (or Esc) and '24시간 동안 보지 않기' put the popup away; moving on to the tour leaves it for the next reload.
+  const close = useCallback((how = null) => { if (how === 'day') hidePopupForADay(); if (how) markPopupClosed(); onClose() }, [onClose])
+  useEffect(() => { const onKey = e => { if (e.key === 'Escape') close('visit'); if (e.key === 'ArrowRight') setI(n => Math.min(WHATS_NEW.length - 1, n + 1)); if (e.key === 'ArrowLeft') setI(n => Math.max(0, n - 1)) }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [close])
   const last = i === WHATS_NEW.length - 1
   // Pages turn by themselves (paused while the pointer rests on the popup), and after the last one the tour starts.
   const advance = () => { if (last) { close(); onTour() } else setI(i + 1) }
@@ -26,7 +27,7 @@ export function UpdatePopup({ onClose, onTour }) {
         </div>
       </div>
       <div className={`st-whatsnew-copy${slide.welcome ? ' is-welcome' : ''}`}>
-        <button type="button" className="st-whatsnew-close" aria-label="닫기" onClick={() => close()}><X size={22} /></button>
+        <button type="button" className="st-whatsnew-close" aria-label="닫기" onClick={() => close('visit')}><X size={22} /></button>
         <span className="st-whatsnew-badge">NEW · 훅ai가 새롭게 업그레이드되었어요</span>
         <span className="st-whatsnew-step">{i + 1} / {WHATS_NEW.length} · {slide.badge}</span>
         <h2>{slide.title}</h2>
@@ -37,7 +38,7 @@ export function UpdatePopup({ onClose, onTour }) {
           {last ? <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => { close(); onTour() }}>어디에 뭐가 있는지 둘러보기</button>
             : <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => setI(i + 1)}>{slide.welcome ? '무엇이 좋아졌는지 보기' : '다음 기능 보기'}<ChevronRight size={20} /></button>}
         </div>
-        <div className="st-whatsnew-foot"><button type="button" onClick={() => close(true)}>24시간 동안 보지 않기</button></div>
+        <div className="st-whatsnew-foot"><button type="button" onClick={() => close('day')}>24시간 동안 보지 않기</button></div>
       </div>
     </div>
   </div>
