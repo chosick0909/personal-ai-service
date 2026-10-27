@@ -21,11 +21,13 @@ export function startDemoRefresh() {
   setInterval(() => { void refreshDemoUsers() }, 60000).unref?.()
 }
 
-export async function createDemoLink(db, { label, days, createdBy, origin }) {
+// A personal link (one person's own way in, such as the client's) may last up to a year and behaves like a normal
+// account in the studio; a demo link shows the guided tour on every load and lasts up to 90 days.
+export async function createDemoLink(db, { label, days, createdBy, origin, personal = false }) {
   const token = randomBytes(24).toString('base64url')
   const id = randomBytes(5).toString('hex')
-  const expiresAt = new Date(Date.now() + Math.max(1, Math.min(90, Number(days) || 30)) * 86400000).toISOString()
-  const { data, error } = await db.auth.admin.createUser({ email: `trial-${id}@trial.hookai.kr`, email_confirm: true, user_metadata: { hookaiTrial: true, label } })
+  const expiresAt = new Date(Date.now() + Math.max(1, Math.min(personal ? 365 : 90, Number(days) || 30)) * 86400000).toISOString()
+  const { data, error } = await db.auth.admin.createUser({ email: `trial-${id}@trial.hookai.kr`, email_confirm: true, user_metadata: { hookaiTrial: true, label, ...(personal ? { personal: true } : {}) } })
   if (error || !data?.user?.id) fail('TRIAL_ACCOUNT_FAILED', '체험 계정을 만들지 못했어요.', 502)
   const row = await query(db.from('creator_demo_links').insert({ token_hash: hash(token), label, user_id: data.user.id, email: data.user.email, expires_at: expiresAt, created_by: createdBy })
     .select('id,label,expires_at,created_at').single())
