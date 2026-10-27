@@ -230,8 +230,17 @@ function CreatorWorkspace() {
         }
         // Keep the upload receipt for refresh/retry deduplication; expiry is enforced by the server.
       } else if (mode === 'import-link') {
-        next = await creatorRequest('/reference-videos/import-link', { method: 'POST', body: { url, rightsConfirmed: rights,
+        const importLink = () => creatorRequest('/reference-videos/import-link', { method: 'POST', body: { url, rightsConfirmed: rights,
           clientImportId: requestKey.current, accountId: currentAccount?.id } })
+        const submittedAt = Date.now()
+        next = await importLink()
+        // A stored key outlives a request whose end this page never saw, and would hand back that earlier finished
+        // result. Pressing the button again is a new request: only an unfinished one is resumed.
+        if (['completed','failed','cancelled'].includes(next.status) && Date.parse(next.createdAt) < submittedAt - 60000) {
+          requestKey.current = crypto.randomUUID()
+          safeSetStorageItem(pendingKey, requestKey.current)
+          next = await importLink()
+        }
       } else {
         const discoveryBrief = mode === 'reference-accounts' ? { category:brief.category, faceVisibility:brief.faceVisibility,
           accountSize:brief.accountSize, contentLanguage:brief.contentLanguage }
