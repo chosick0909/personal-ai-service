@@ -73,18 +73,25 @@ test('uniform detection requires every luminance/chroma range; chromatic text an
  const frame=(id,y,u,v)=>`frame:${id} pts:0\n`+Object.entries({Y:y,U:u,V:v}).flatMap(([channel,range])=>range===null?[]:[`lavfi.signalstats.${channel}MIN=50`,`lavfi.signalstats.${channel}MAX=${50+range}`]).join('\n')+'\n'
  assert.deepEqual([...uniformFrameIds(frame(0,0,0,0)+frame(1,1,2,0)+frame(2,80,0,0)+frame(3,0,30,0)+frame(4,0,0,null))],[0,1])
 })
-test('confident lyrics under different on-screen sentences give way to the screen subtitles', async () => {
-  const lyrics={text:'망가져 망가져 다 망가져 버려'}
-  const shown=['아침에 물 한 잔부터 마셔보세요','공복 유산소는 30분이면 충분해요','저녁은 7시 전에 끝내세요']
-  assert.equal(await referenceTranscript({hasAudio:true,duration:15,transcribe:async()=>lyrics,probeSubtitles:async()=>shown,readSubtitles:async()=>visual}),visual)
+test('a song under an on-screen text card gives way to the screen, as the judge decides by meaning', async () => {
+  const lyrics={text:'망가져'}
+  const card=['건드리면 큰일나는 조합 1. 여자 2. 장녀 3. 첫째 4. 남동생 있음 5. 경상도 출신']
+  let asked=null
+  const judgeScript=async(spoken,shown)=>{asked={spoken,shown};return true}
+  assert.equal(await referenceTranscript({hasAudio:true,duration:8,transcribe:async()=>lyrics,probeSubtitles:async()=>[...card,...card],judgeScript,readSubtitles:async()=>visual}),visual)
+  assert.deepEqual(asked,{spoken:'망가져',shown:card},'the same card read on many frames is asked once')
+  // Without an answer, more unheard words on screen than heard in the audio decide.
+  assert.equal(await referenceTranscript({hasAudio:true,duration:8,transcribe:async()=>lyrics,probeSubtitles:async()=>card,judgeScript:async()=>{throw new Error('down')},readSubtitles:async()=>visual}),visual)
   // A failed full read keeps the speech rather than failing the job.
-  assert.equal(await referenceTranscript({hasAudio:true,duration:15,transcribe:async()=>lyrics,probeSubtitles:async()=>shown,
+  assert.equal(await referenceTranscript({hasAudio:true,duration:8,transcribe:async()=>lyrics,probeSubtitles:async()=>card,judgeScript,
     readSubtitles:async()=>{throw Object.assign(new Error(),{code:'REFERENCE_TEXT_NOT_FOUND'})}}),lyrics)
 })
-test('captions that repeat the narration, a fixed title, or an unreadable probe keep the speech', async () => {
+test('narration keeps the speech: captions that repeat it, a title the judge calls emphasis, or an unreadable probe', async () => {
   const speech={text:'옷을 고르기 전에 오늘 사용할 두 가지 색을 먼저 정해보세요. 그러면 아침이 훨씬 빨라져요.'}
-  for(const probeSubtitles of [async()=>['옷을 고르기 전에','오늘 사용할 두 가지 색을 먼저 정해보세요','아침이 훨씬 빨라져요'],
-    async()=>['출근룩 코디 꿀팁','출근룩 코디 꿀팁'],async()=>[],async()=>{throw new Error('provider down')}]){
-    assert.equal(await referenceTranscript({hasAudio:true,duration:10,transcribe:async()=>speech,probeSubtitles,readSubtitles:()=>assert.fail('speech is the script')}),speech)
+  const cases=[[async()=>['옷을 고르기 전에','오늘 사용할 두 가지 색을 먼저 정해보세요','아침이 훨씬 빨라져요'],()=>assert.fail('nothing unheard to judge')],
+    [async()=>['출근룩 코디 꿀팁','출근룩 코디 꿀팁'],async()=>false],[async()=>[],()=>assert.fail('no screen text')],
+    [async()=>{throw new Error('provider down')},()=>assert.fail('no screen text')]]
+  for(const [probeSubtitles,judgeScript] of cases){
+    assert.equal(await referenceTranscript({hasAudio:true,duration:10,transcribe:async()=>speech,probeSubtitles,judgeScript,readSubtitles:()=>assert.fail('speech is the script')}),speech)
   }
 })
