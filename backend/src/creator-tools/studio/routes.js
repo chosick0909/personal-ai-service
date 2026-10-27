@@ -446,6 +446,7 @@ export function registerStudioRoutes(router) {
     }
     await runReelAnalysis(deps(), shortcode)
   }
+  const UNREADABLE_LINK = '인스타에서 볼 수 없는 링크예요(삭제·비공개).'
   // 추천 릴스: links 지영 or the client hand over join 성공 릴스 with a '추천' tag, whatever their views or age.
   // New links are read one after another in the background; the Mac mini collector refreshes counts and covers later.
   const recommendLink = async (shortcode, url) => {
@@ -458,7 +459,7 @@ export function registerStudioRoutes(router) {
       // A link Instagram no longer shows (deleted or made private) is marked once, so restarts do not retry it.
       // LOOKUP_BLOCKED (the Mac mini's Instagram is limited) says nothing about the link, so it is left for a later run.
       if (['LINK_DELETED', 'LINK_PRIVATE', 'LINK_UNAVAILABLE'].includes(error?.code)) await query(db.from('creator_success_reels')
-        .update({ analysis_status: 'failed', analysis_error: '인스타에서 볼 수 없는 링크예요(삭제·비공개).', analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
+        .update({ analysis_status: 'failed', analysis_error: UNREADABLE_LINK, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
     }
   }
   // The background queue lives in memory, so a deploy drops it; after a restart the unread 추천 links are queued again.
@@ -545,11 +546,14 @@ export function registerStudioRoutes(router) {
       if (!shortcode) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
       if (seen.has(shortcode)) continue
       seen.add(shortcode)
-      const existing = await query(db.from('creator_success_reels').select('shortcode,thumbnail_path').eq('shortcode', shortcode).maybeSingle())
+      const existing = await query(db.from('creator_success_reels').select('shortcode,thumbnail_path,analysis_status,analysis_error').eq('shortcode', shortcode).maybeSingle())
       if (existing) {
-        await query(db.from('creator_success_reels').update({ recommended: true, ...(title ? { cover_title: title } : {}), ...(existing.thumbnail_path ? { visible: true } : {}) }).eq('shortcode', shortcode))
+        // Sending a link again means "try it again": a link marked unreadable (e.g. while Instagram was limiting the Mac mini) is read anew.
+        const retry = existing.analysis_status === 'failed' && String(existing.analysis_error || '').startsWith(UNREADABLE_LINK)
+        await query(db.from('creator_success_reels').update({ recommended: true, ...(title ? { cover_title: title } : {}), ...(existing.thumbnail_path ? { visible: true } : {}),
+          ...(retry ? { analysis_status: 'none', analysis_error: null } : {}) }).eq('shortcode', shortcode))
         result.updated.push(shortcode)
-        if (!existing.thumbnail_path) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
+        if (!existing.thumbnail_path || retry) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
         continue
       }
       await query(db.from('creator_reel_accounts').upsert({ username: 'recommended', profile: { recommended: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
