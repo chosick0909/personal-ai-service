@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { workspace, probeVideo, transcribeFile, ff, downloadStored } from './media.js'
 import { downloadPublicMedia } from './network.js'
-import { extractScreenSubtitles, judgeScriptSource, probeScreenText, referenceTranscript, scriptSource } from '../lib/video-subtitle-transcript.js'
+import { correctSpeechWithScreen, extractScreenSubtitles, judgeScriptSource, probeScreenText, referenceTranscript, scriptSource } from '../lib/video-subtitle-transcript.js'
 import { translateSegments } from './link-import.js'
 import { referencePlayback, playbackUrl } from './reference-playback.js'
 import { query } from './store.js'
@@ -240,7 +240,8 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
       const ctx = { providers, signal }
       // When the subtitle reader gives up, the analysis model reads the on-screen text from sampled frames instead.
       const transcript = await referenceTranscript({ hasAudio: info.hasAudio !== false, duration: info.duration, signal,
-        transcribe: () => transcribeFile(ctx, path, info.duration),
+        transcribe: hints => transcribeFile(ctx, path, info.duration, hints),
+        correctSpeech: (speech, shown) => correctSpeechWithScreen(speech, shown, { signal, invoke: fn => providers.call('openai', 'speech-caption-correction', fn) }),
         probeSubtitles: () => probeScreenText(path, directory, info.duration, { signal,
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }),
         judgeScript: (spoken, shown) => judgeScriptSource(spoken, shown, { signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }),

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { referenceTranscript, usableSpeech, validateSubtitleFrames, assembleSubtitleTranscript, extractScreenSubtitles, uniformFrameIds } from '../src/lib/video-subtitle-transcript.js'
+import { referenceTranscript, correctSpeechWithScreen, usableSpeech, validateSubtitleFrames, assembleSubtitleTranscript, extractScreenSubtitles, uniformFrameIds } from '../src/lib/video-subtitle-transcript.js'
 
 const visual = { text:'서랍 하나부터 비워보세요.', source:'screen_subtitles' }
 test('silent references use screen subtitles without invoking speech', async () => {
@@ -94,4 +94,23 @@ test('narration keeps the speech: captions that repeat it, a title the judge cal
   for(const [probeSubtitles,judgeScript] of cases){
     assert.equal(await referenceTranscript({hasAudio:true,duration:10,transcribe:async()=>speech,probeSubtitles,judgeScript,readSubtitles:()=>assert.fail('speech is the script')}),speech)
   }
+})
+
+test('on-screen captions are handed to the transcriber as hints and fix words it misheard', async () => {
+  const speech = { text: '고령에서 이거 좋다고 생각한 사람? 정상가 만육천원이에요', subtitles: [{ id: 'cue-0', text: '고령에서 이거 좋다고 생각한 사람?' }, { id: 'cue-1', text: '정상가 만육천원이에요' }] }
+  const shown = ['올영에서 이거 좋다고 생각한 사람?']
+  let hints = null
+  const result = await referenceTranscript({ hasAudio: true, duration: 10, probeSubtitles: async () => shown,
+    transcribe: async h => { hints = h; return speech }, judgeScript: () => assert.fail('captions repeat the speech'),
+    correctSpeech: (sp, sh) => correctSpeechWithScreen(sp, sh, { invoke: async () => ({ choices: [{ message: { content: JSON.stringify({ segments: [
+      { id: 'cue-0', text: '올영에서 이거 좋다고 생각한 사람?' }, { id: 'cue-1', text: '오늘만 특가로 엄청 싸게 파는 제품이에요' }] }) } }] }) }),
+    readSubtitles: () => assert.fail('speech is the script') })
+  assert.deepEqual(hints, shown)
+  assert.equal(result.subtitles[0].text, '올영에서 이거 좋다고 생각한 사람?')
+  assert.equal(result.subtitles[1].text, '정상가 만육천원이에요', 'a rewritten line is not a correction and stays as heard')
+  assert.equal(result.corrected, true)
+  // A failed correction keeps the speech as heard.
+  const kept = await referenceTranscript({ hasAudio: true, duration: 10, probeSubtitles: async () => shown, transcribe: async () => speech,
+    correctSpeech: async () => { throw new Error('down') }, readSubtitles: () => assert.fail('speech is the script') })
+  assert.equal(kept, speech)
 })

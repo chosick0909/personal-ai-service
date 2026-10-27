@@ -1,4 +1,4 @@
-import { extractScreenSubtitles, judgeScriptSource, probeScreenText, referenceTranscript, scriptSource } from '../lib/video-subtitle-transcript.js'
+import { correctSpeechWithScreen, extractScreenSubtitles, judgeScriptSource, probeScreenText, referenceTranscript, scriptSource } from '../lib/video-subtitle-transcript.js'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { referenceAnalysisSchema, referenceAnalysisInstructions, validateReferenceAnalysis } from './reference-analysis.js'
@@ -191,7 +191,8 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
     await stage('transcribing')
     const transcript = await referenceTranscript({
       hasAudio: info.hasAudio !== false, duration: info.duration, signal,
-      transcribe: () => dependencies.transcribeFile(ctx, path, info.duration),
+      transcribe: hints => dependencies.transcribeFile(ctx, path, info.duration, hints),
+      correctSpeech: (speech, shown) => correctSpeechWithScreen(speech, shown, { signal, invoke: fn => providers.call('openai', 'speech-caption-correction', fn) }),
       probeSubtitles: dependencies.probeScreenText && (() => dependencies.probeScreenText(path, directory, info.duration, {
         signal, invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn),
       })),

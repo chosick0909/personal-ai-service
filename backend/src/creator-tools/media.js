@@ -65,11 +65,13 @@ export async function uploadFile(db, path, local, contentType, { bucket = BUCKET
   await query(db.storage.from(bucket).upload(path, createReadStream(local), { contentType, upsert: true, duplex: 'half' }))
   return path
 }
-export async function transcribeFile(ctx, path, duration) {
+// hints: on-screen captions; they tell the transcriber how the creator spells the words it will hear.
+export async function transcribeFile(ctx, path, duration, hints = []) {
   const audioPath = `${path}.mp3`
   await ff([...inputFlags, '-i', path, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '48k', audioPath], ctx.signal)
   const transcript = await ctx.providers.call('openai', 'timed-transcription', () => getOpenAIClient().audio.transcriptions.create({
     file: createReadStream(audioPath), model: 'whisper-1', response_format: 'verbose_json',
+    ...(hints.length ? { prompt: [...new Set(hints)].join(' ').slice(0, 600) } : {}),
     timestamp_granularities: ['word', 'segment'],
   }, { signal: ctx.signal, timeout: 120000, maxRetries: 0 }))
   const words = (transcript.words || []).filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start && w.start >= 0 && w.end <= duration + 0.02)
