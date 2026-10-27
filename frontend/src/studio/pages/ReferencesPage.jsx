@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Trash2, Sparkles, Check, ListOrdered, Clapperboard, PenLine, Quote, Plus, Link2, Upload, FileText, X, LoaderCircle } from 'lucide-react'
+import { Trash2, Sparkles, Check, ListOrdered, Clapperboard, PenLine, Quote, Plus, Link2, Upload, FileText, X, LoaderCircle, StickyNote } from 'lucide-react'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
 import { useStudio } from '../context'
 import { studio } from '../api'
@@ -40,14 +40,29 @@ function AddReferenceModal({ onClose, onAdded }) {
     <form className="st-modal-box" onSubmit={submit}>
       <div className="st-row" style={{ justifyContent: 'space-between' }}><h2>레퍼런스 추가하기</h2><button type="button" className="st-icon-btn" aria-label="닫기" onClick={onClose} disabled={busy}><X size={20} /></button></div>
       <div className="st-chips">{tabs.map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} className="st-chip" aria-pressed={tab === id} onClick={() => setTab(id)}><Icon size={16} />{label}</button> })}</div>
-      {tab === 'link' && <div className="st-field"><label>릴스 링크 <small>공개 릴스만 돼요.</small></label><input className="st-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/…" inputMode="url" autoFocus /></div>}
+      {tab === 'link' && <div className="st-field"><label>인스타그램 링크 <small>공개 게시물만 돼요.</small></label><input className="st-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/…" inputMode="url" autoFocus /></div>}
       {tab === 'video' && <><div className="st-field"><label>영상 파일 <small>150MB·5분 이하</small></label><input type="file" accept="video/*" className="st-input" onChange={e => setFile(e.target.files?.[0] || null)} /></div><div className="st-field"><label>제목 (선택)</label><input className="st-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 지난달 올린 선크림 리뷰" /></div></>}
-      {tab === 'text' && <><div className="st-field"><label>제목 (선택)</label><input className="st-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 경쟁사 릴스 대본" /></div><div className="st-field"><label>대본 <small>말한 순서대로 붙여넣어 주세요.</small></label><textarea className="st-textarea" value={body} onChange={e => setBody(e.target.value)} placeholder="첫 문장부터 마지막 문장까지" /></div></>}
+      {tab === 'text' && <><div className="st-field"><label>제목 (선택)</label><input className="st-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 경쟁사 영상 대본" /></div><div className="st-field"><label>대본 <small>말한 순서대로 붙여넣어 주세요.</small></label><textarea className="st-textarea" value={body} onChange={e => setBody(e.target.value)} placeholder="첫 문장부터 마지막 문장까지" /></div></>}
       {error && <div className="st-error" role="alert">{error}</div>}
-      {busy && <HookLoader title={tab === 'video' ? '영상을 올리는 중' : tab === 'link' ? '릴스를 가져오는 중' : '대본을 저장하는 중'} stages={[tab === 'video' ? '영상 올리기' : tab === 'link' ? '링크 확인' : '대본 저장', '분석 시작']}
+      {busy && <HookLoader title={tab === 'video' ? '영상을 올리는 중' : tab === 'link' ? '영상을 가져오는 중' : '대본을 저장하는 중'} stages={[tab === 'video' ? '영상 올리기' : tab === 'link' ? '링크 확인' : '대본 저장', '분석 시작']}
         note={tab === 'video' ? '올리는 동안은 이 창을 열어 두세요. 올리고 나면 분석은 알아서 이어져요.' : '곧 분석이 시작돼요. 끝나면 바로 열어드릴게요.'} />}
       <button type="submit" className="st-btn st-btn-primary st-btn-big" disabled={busy || (tab === 'link' ? !url.trim() : tab === 'text' ? body.trim().length < 20 : !file)}>{busy ? <><LoaderCircle size={20} className="st-spin" />{tab === 'video' ? '올리는 중…' : '가져오는 중…'}</> : <><Sparkles size={20} />추가하고 분석하기</>}</button>
     </form>
+  </div>
+}
+
+// A free note under each saved reference. It saves on its own when the student clicks away.
+function RefMemo({ value, onSave }) {
+  const [text, setText] = useState(value)
+  const [state, setState] = useState('')
+  const save = async () => {
+    if (text === value) return
+    setState('saving')
+    try { await onSave(text); setState('saved') } catch { setState('failed') }
+  }
+  return <div className="st-ref-memo">
+    <label><StickyNote size={14} />내 메모{state === 'saving' ? <small>저장 중…</small> : state === 'saved' ? <small>저장됨</small> : state === 'failed' ? <small className="st-ref-memo-fail">저장 실패 · 다시 눌러 주세요</small> : null}</label>
+    <textarea value={text} maxLength={2000} rows={2} placeholder="떠오른 아이디어, 따라 해볼 점을 자유롭게 적어 두세요" onChange={e => { setText(e.target.value); setState('') }} onBlur={save} />
   </div>
 }
 
@@ -64,8 +79,12 @@ export default function ReferencesPage() {
     setItems(list => list.map(r => r.id === ref.id ? { ...r, tags } : r))
     try { await studio.tagReference(ref.id, tags) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) }
   }
+  const saveMemo = async (ref, memo) => {
+    await studio.memoReference(ref.id, memo)
+    setItems(list => list.map(r => r.id === ref.id ? { ...r, memo } : r))
+  }
   const remove = async ref => {
-    if (!window.confirm(`@${ref.username} 릴스를 내 레퍼런스에서 뺄까요? 분석 결과는 남아 있어 언제든 다시 분석할 수 있어요.`)) return
+    if (!window.confirm(`@${ref.username} 영상을 내 레퍼런스에서 뺄까요? 분석 결과는 남아 있어 언제든 다시 분석할 수 있어요.`)) return
     setItems(list => list.filter(r => r.id !== ref.id))
     try { await studio.removeReference(ref.id) } catch (e) { toast({ kind: 'failed', title: '삭제 실패', body: e.message }) }
   }
@@ -73,14 +92,15 @@ export default function ReferencesPage() {
   if (!items) return <p className="st-muted">불러오는 중…</p>
   const shown = filter === 'all' ? items : items.filter(r => r.tags.includes(filter))
   return <div className="st-stack">
-    <div className="st-page-head"><p>분석하기를 누른 릴스가 자동으로 모여요. 어떤 점이 좋았는지 표시해 두면 기획안 만들 때 바로 찾아 쓸 수 있어요.</p><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => setAdding(true)}><Plus size={22} />추가하기</button></div>
+    <div className="st-page-head"><p>분석하기를 누른 영상이 자동으로 모여요. 어떤 점이 좋았는지 표시해 두면 기획안 만들 때 바로 찾아 쓸 수 있어요.</p><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => setAdding(true)}><Plus size={22} />추가하기</button></div>
     <div className="st-chips" role="group" aria-label="참고 분류">{FILTERS.map(([id, label]) => <button type="button" key={id} className="st-chip" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}{id !== 'all' && <span className="st-muted">· {items.filter(r => r.tags.includes(id)).length}</span>}</button>)}</div>
-    {shown.length === 0 && <div className="st-empty"><strong>{filter === 'all' ? '아직 레퍼런스가 없어요' : '이 분류로 표시한 릴스가 없어요'}</strong><span>성공 릴스에서 '분석하기'를 누르거나, 위 '추가하기'로 링크·영상·대본을 직접 넣어보세요.</span><div className="st-row"><button type="button" className="st-btn st-btn-primary" onClick={() => setAdding(true)}><Plus size={18} />추가하기</button><button type="button" className="st-btn" onClick={() => go('reels')}>성공 릴스 보러 가기</button></div></div>}
+    {shown.length === 0 && <div className="st-empty"><strong>{filter === 'all' ? '아직 레퍼런스가 없어요' : '이 분류로 표시한 영상이 없어요'}</strong><span>영감 찾기에서 '분석하기'를 누르거나, 위 '추가하기'로 링크·영상·대본을 직접 넣어보세요.</span><div className="st-row"><button type="button" className="st-btn st-btn-primary" onClick={() => setAdding(true)}><Plus size={18} />추가하기</button><button type="button" className="st-btn" onClick={() => go('reels')}>영감 찾기로 가기</button></div></div>}
     <div className="st-reels">{shown.map(ref => { const reel = { shortcode: ref.id, username: ref.username, title: ref.title, views: ref.views, postedAt: ref.postedAt, caption: ref.caption, permalink: ref.permalink, thumbnailUrl: ref.thumbnailUrl, analysisStatus: ref.analysisStatus, analysisRequests: ref.analysisRequests, source: ref.source }
       return <ReelCard key={ref.id} reel={reel} badge={ref.format ? <span className="st-reel-badge">{ref.format}</span> : null} onPlay={() => setOpen(reel)} onAnalyze={() => go('reference', { ref: ref.id })} onOpenAnalysis={() => go('reference', { ref: ref.id })}
         footer={<button type="button" className="st-reel-ig" aria-label="내 레퍼런스에서 빼기" data-tip="내 레퍼런스에서 빼기" onClick={() => remove(ref)}><Trash2 size={17} /></button>}>
-        <div className="st-ref-like"><span className="st-ref-like-title">이 릴스에서 배울 점을 표시해 두세요</span>
+        <div className="st-ref-like"><span className="st-ref-like-title">이 영상에서 배울 점을 표시해 두세요</span>
           <div className="st-tags" role="group" aria-label="참고할 점">{LIKES.map(([tag, label, icon]) => { const Icon = icon; const on = ref.tags.includes(tag); return <button type="button" key={tag} className="st-tag" aria-pressed={on} onClick={() => toggleTag(ref, tag)}>{on ? <Check size={14} /> : <Icon size={14} />}{label}</button> })}</div></div>
+        <RefMemo key={`memo-${ref.id}`} value={ref.memo || ''} onSave={memo => saveMemo(ref, memo)} />
         <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => go('new', { ref: ref.id })}><Sparkles size={16} />이 레퍼런스로 기획안 만들기</button>
       </ReelCard> })}</div>
     {open && <PlayerModal reel={open} onClose={() => setOpen(null)} onAnalyze={() => go('reference', { ref: open.shortcode })} onOpenAnalysis={() => go('reference', { ref: open.shortcode })} />}

@@ -372,7 +372,9 @@ export function registerStudioRoutes(router) {
   router.get('/creator-tools/studio/references', asyncHandler(async (req, res) => {
     enabled(req)
     const db = database()
-    const mine = await query(db.from('creator_reel_user_analyses').select('shortcode,tags,created_at').eq('user_id', req.auth.userId).order('created_at', { ascending: false }).limit(500))
+    const list = columns => db.from('creator_reel_user_analyses').select(columns).eq('user_id', req.auth.userId).order('created_at', { ascending: false }).limit(500)
+    // Until the memo column is added in production, the list still loads without notes.
+    const mine = await query(list('shortcode,tags,memo,created_at')).catch(() => query(list('shortcode,tags,created_at')))
     const codes = mine.map(r => r.shortcode)
     const reels = codes.length ? await query(db.from('creator_success_reels').select('shortcode,username,views,posted_at,caption,caption_ko,category,thumbnail_path,analysis_status,analysis_requests,analysis,source,title,visible,owner_user_id').in('shortcode', codes)) : []
     const paths = reels.map(r => r.thumbnail_path).filter(Boolean)
@@ -382,14 +384,20 @@ export function registerStudioRoutes(router) {
     res.set('Cache-Control', 'private, no-store').json({ references: mine.flatMap(m => { const r = byCode.get(m.shortcode); if (!r) return []
       if (!r.visible && r.owner_user_id !== req.auth.userId) return []
       return [{ kind: 'reel', id: r.shortcode, username: r.username, views: r.views, postedAt: r.posted_at, caption: r.caption_ko || r.caption, category: r.category, thumbnailUrl: urls.get(r.thumbnail_path) || null, source: r.source, title: r.title, permalink: r.source && r.source !== 'upload-link' && r.source.startsWith('upload') ? null : `https://www.instagram.com/reel/${r.shortcode}/`,
-        analysisStatus: r.analysis_status, analysisRequests: r.analysis_requests || 0, tags: m.tags || [], addedAt: m.created_at,
+        analysisStatus: r.analysis_status, analysisRequests: r.analysis_requests || 0, tags: m.tags || [], memo: m.memo || '', addedAt: m.created_at,
         summary: r.analysis?.overview?.summary || null, hookType: r.analysis?.hook?.category || null, format: r.analysis?.structure?.category || null }] }) })
   }))
   router.patch('/creator-tools/studio/references/:shortcode', asyncHandler(async (req, res) => {
     enabled(req)
-    const tags = (Array.isArray(req.body?.tags) ? req.body.tags : []).filter(t => TAGS.includes(t))
-    await query(database().from('creator_reel_user_analyses').update({ tags }).eq('user_id', req.auth.userId).eq('shortcode', String(req.params.shortcode)))
-    res.json({ tags })
+    const patch = {}
+    if (req.body?.tags !== undefined) patch.tags = (Array.isArray(req.body.tags) ? req.body.tags : []).filter(t => TAGS.includes(t))
+    if (req.body?.memo !== undefined) {
+      if (typeof req.body.memo !== 'string' || req.body.memo.length > 2000) fail('INVALID_MEMO', '메모는 2,000자까지 쓸 수 있어요.')
+      patch.memo = req.body.memo
+    }
+    if (!Object.keys(patch).length) fail('INVALID_INPUT', '바꿀 내용이 없어요.')
+    await query(database().from('creator_reel_user_analyses').update(patch).eq('user_id', req.auth.userId).eq('shortcode', String(req.params.shortcode)))
+    res.json(patch)
   }))
   router.delete('/creator-tools/studio/references/:shortcode', asyncHandler(async (req, res) => {
     enabled(req)

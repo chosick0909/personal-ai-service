@@ -8,6 +8,7 @@ export const studio = {
   playback: shortcode => creatorRequest(`/creator-tools/success-reels/${shortcode}/playback`, { method: 'POST' }),
   references: () => creatorRequest('/creator-tools/studio/references'),
   tagReference: (shortcode, tags) => creatorRequest(`/creator-tools/studio/references/${shortcode}`, { method: 'PATCH', body: { tags } }),
+  memoReference: (shortcode, memo) => creatorRequest(`/creator-tools/studio/references/${shortcode}`, { method: 'PATCH', body: { memo } }),
   addLink: url => creatorRequest('/creator-tools/studio/references/link', { method: 'POST', body: { url } }),
   addText: (title, text) => creatorRequest('/creator-tools/studio/references/text', { method: 'POST', body: { title, text } }),
   removeReference: shortcode => creatorRequest(`/creator-tools/studio/references/${shortcode}`, { method: 'DELETE' }),

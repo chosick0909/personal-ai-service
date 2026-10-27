@@ -94,6 +94,16 @@ function problemOf(d) {
   return ''
 }
 
+// Uploads are kept for 48 hours; the editor says how long is left and nudges the student to finish and post.
+function KeepNotice({ expiresAt }) {
+  const [now] = useState(() => Date.now())
+  const end = Date.parse(expiresAt)
+  if (!Number.isFinite(end)) return null
+  const hours = Math.max(0, Math.floor((end - now) / 3600000))
+  const when = new Date(end).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return <p className="st-ve-keep">⏳ 이 영상은 <b>{when}</b>까지 보관돼요{hours > 0 ? ` · ${hours}시간 남았어요` : ' · 곧 사라져요'}. '가장 좋은 릴스는 오늘 올린 릴스'라고 하잖아요. 사라지기 전에 완성해서 올려 보세요! 🚀</p>
+}
+
 export default function VideoProject({ job }) {
   const { go, toast } = useStudio()
   const projectId = job.result?.projectId || job.projectId
@@ -433,6 +443,7 @@ function Editor({ media, setMedia, feedback, plan, go, toast }) {
         <button type="button" className="st-icon-btn" aria-label="다시 하기" title="다시 하기 (⌘⇧Z)" disabled={!history.future.length} onClick={() => dispatch({ type: 'redo' })}><Redo2 size={18} /></button>
       </div>
     </div>
+    <KeepNotice expiresAt={media.originalExpiresAt} />
     <div className="st-ve-grid">
       <div className="st-ve-player">
         <div className="st-ve-stage">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { X, ChevronLeft, ChevronRight, BookOpenCheck } from 'lucide-react'
 import { WHATS_NEW, TOUR_STEPS, hidePopupForever, markTourDone } from './guideData'
+import avatar from './assets/hookai-avatar.webp'
 
 export function UpdatePopup({ onClose, onTour, onManual }) {
   const [i, setI] = useState(0)
@@ -11,22 +12,25 @@ export function UpdatePopup({ onClose, onTour, onManual }) {
   return <div className="st-modal st-whatsnew-wrap" role="dialog" aria-modal="true" aria-label="훅ai 업그레이드 안내">
     <div className="st-whatsnew">
       <div className="st-whatsnew-media">
-        <video key={slide.media} src={slide.media} autoPlay muted loop playsInline aria-hidden="true" />
+        {slide.welcome ? <div className="st-whatsnew-hello"><img src={avatar} alt="" /><strong>훅ai가 새 옷을 입었어요</strong><span>반가워요, 다시 만나서!</span></div>
+          : <video key={slide.media} src={slide.media} autoPlay muted loop playsInline aria-hidden="true" />}
         <div className="st-whatsnew-nav">
           <button type="button" aria-label="이전" disabled={i === 0} onClick={() => setI(i - 1)}><ChevronLeft size={22} /></button>
           <div className="st-whatsnew-dots">{WHATS_NEW.map((s, n) => <button type="button" key={s.badge} aria-label={`${n + 1}번째 안내`} aria-current={n === i ? 'true' : undefined} onClick={() => setI(n)} />)}</div>
           <button type="button" aria-label="다음" disabled={last} onClick={() => setI(i + 1)}><ChevronRight size={22} /></button>
         </div>
       </div>
-      <div className="st-whatsnew-copy">
+      <div className={`st-whatsnew-copy${slide.welcome ? ' is-welcome' : ''}`}>
         <button type="button" className="st-whatsnew-close" aria-label="닫기" onClick={() => close()}><X size={22} /></button>
         <span className="st-whatsnew-badge">NEW · 훅ai가 새롭게 업그레이드되었어요</span>
         <span className="st-whatsnew-step">{i + 1} / {WHATS_NEW.length} · {slide.badge}</span>
         <h2>{slide.title}</h2>
         <p>{slide.body}</p>
+        {slide.moves && <ul className="st-whatsnew-moves" aria-label="예전 기능이 옮겨간 곳">{slide.moves.map(([from, to]) => <li key={from}><span>{from}</span><ChevronRight size={16} aria-hidden="true" /><b>{to}</b></li>)}</ul>}
+        {slide.after && <p className="st-whatsnew-after">{slide.after}</p>}
         <div className="st-whatsnew-actions">
           {last ? <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => { close(); onTour() }}>어디에 뭐가 있는지 둘러보기</button>
-            : <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => setI(i + 1)}>다음 기능 보기<ChevronRight size={20} /></button>}
+            : <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => setI(i + 1)}>{slide.welcome ? '무엇이 좋아졌는지 보기' : '다음 기능 보기'}<ChevronRight size={20} /></button>}
           <button type="button" className="st-btn st-btn-lg" onClick={() => { close(); onManual() }}><BookOpenCheck size={20} />사용 설명서 보기</button>
         </div>
         <div className="st-whatsnew-foot"><button type="button" onClick={() => { close(); onTour() }}>둘러보기</button><span aria-hidden="true">|</span><button type="button" onClick={() => close(true)}>다시 보지 않기</button></div>

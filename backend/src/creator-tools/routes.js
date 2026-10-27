@@ -5,6 +5,8 @@ import { assertUsageAllowed } from '../lib/entitlements.js'
 import { KINDS, MAX_BYTES, featureEnabled, fail, normalizeBrief, normalizeInstagramUrl, stableHash, textInput, username, uuid, validateManifest, mediaUploadDisposition, mediaUploadPurpose } from './domain.js'
 import { database, query, ownedJob, ownedMedia, createJob, publicJob, BUCKET, OUTPUT_BUCKET, signedDownload } from './store.js'
 import { TRANSCRIPT_METHOD } from '../lib/video-subtitle-transcript.js'
+
+const STUDIO_ORIGINAL_HOURS = 48
 import { enqueue } from './queue.js'
 import { completeReviewedReferenceJob } from './reference-immediate.js'
 import { CREATOR_CATEGORIES, REFERENCE_CATEGORIES, SUCCESS_REEL_CATEGORIES } from './categories.js'
@@ -210,6 +212,12 @@ export function createCreatorRouter() {
       const id = randomUUID()
       row = await query(db.rpc('creator_create_media', { p_id: id, p_user: req.auth.userId, p_client: clientId,
         p_name: name, p_mime: body.mimeType, p_size: body.size, p_path: `${req.auth.userId}/${id}/original` }))
+      // The studio's video editor keeps an upload for 48 hours (the older tools keep 24).
+      if (body.studio === true) {
+        const expires = new Date(Date.parse(row.created_at || new Date().toISOString()) + STUDIO_ORIGINAL_HOURS * 3600000).toISOString()
+        row = await query(db.from('creator_media_projects').update({ original_expires_at: expires }).eq('id', row.id).select().single())
+        await query(db.from('creator_media_artifacts').update({ expires_at: expires }).eq('path', row.original_path))
+      }
     }
     if (mediaUploadDisposition(row, { ...body, filename: name }) === 'resume') {
       const previous = await ownedJob(db, row.job_id, req.auth.userId)

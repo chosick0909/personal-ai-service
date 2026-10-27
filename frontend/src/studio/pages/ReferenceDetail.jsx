@@ -59,7 +59,7 @@ export function AnalysisTabs({ reel, analysis, tab, setTab, onSaveFormula }) {
       <section className="st-card"><div className="st-card-head"><h3>추출된 대본</h3><div className="st-row">{foreign && <div className="st-chips"><button type="button" className="st-chip st-btn-sm" aria-pressed={!orig} onClick={() => setOrig(false)}>한국어</button><button type="button" className="st-chip" aria-pressed={orig} onClick={() => setOrig(true)}>원문</button></div>}<CopyButton text={text} /></div></div>
         <ol className="st-transcript">{lines.map((line, i) => <li key={i}>{roles[i] && <span className={`st-role st-role-${roles[i]}`}>{ROLE[roles[i]]}</span>}<span>{line}</span></li>)}</ol>
         {transcript.source === 'screen' && <p className="st-muted st-small" style={{ marginTop: 10 }}>말소리가 없어 화면 자막에서 읽었어요.</p>}</section>
-      <section className="st-card"><div className="st-card-head"><h3>캡션</h3><CopyButton text={reel.caption} /></div><p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption || '캡션이 없는 릴스예요.'}</p>{reel.captionKo && reel.captionKo !== reel.caption && <p className="st-muted" style={{ whiteSpace: 'pre-wrap', marginTop: 10 }}>번역: {reel.captionKo}</p>}</section>
+      <section className="st-card"><div className="st-card-head"><h3>캡션</h3><CopyButton text={reel.caption} /></div><p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption || '캡션이 없는 영상이에요.'}</p>{reel.captionKo && reel.captionKo !== reel.caption && <p className="st-muted" style={{ whiteSpace: 'pre-wrap', marginTop: 10 }}>번역: {reel.captionKo}</p>}</section>
     </div>}
     {tab === 'overview' && <div className="st-stack">
       <section className="st-card"><h3 style={{ marginBottom: 8 }}>한눈에 보기</h3><p style={{ fontSize: 17 }}>{o.summary}</p></section>
@@ -85,13 +85,13 @@ export function AnalysisTabs({ reel, analysis, tab, setTab, onSaveFormula }) {
       <section className="st-card"><div className="st-card-head"><h3>촬영</h3>{saveBtn('filming')}</div><KV label="촬영 장소">{f.location}</KV><KV label="구도·앵글">{f.shotType}</KV><KV label="화면에 나오는 것">{f.onScreen}</KV></section>
       {f.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 찍어보세요</h3><ol className="st-steps">{f.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
       <section className="st-card"><div className="st-card-head"><h3>편집</h3></div><KV label="자막 스타일">{e.subtitleStyle}</KV><KV label="컷·템포">{e.cuts}</KV><KV label="전환">{e.transitions}</KV><KV label="효과">{e.effects}</KV><KV label="사운드">{e.sound}</KV>
-        {!analysis.editing && <p className="st-muted st-small" style={{ marginTop: 10 }}>이 릴스는 편집 분석이 추가되기 전에 분석됐어요. 자막·컷 정보만 보여요.</p>}</section>
+        {!analysis.editing && <p className="st-muted st-small" style={{ marginTop: 10 }}>이 영상은 편집 분석이 추가되기 전에 분석됐어요. 자막·컷 정보만 보여요.</p>}</section>
       {e.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 편집해보세요</h3><ol className="st-steps">{e.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
     </div>}
     {tab === 'caption' && <div className="st-stack">
       {c ? <section className="st-card"><KV label="첫 줄 장치">{c.firstLine}</KV><KV label="본문 구성">{c.structure}</KV><KV label="마무리 유도">{c.cta}</KV><KV label="해시태그 전략">{c.hashtags}</KV><KV label="역할">{c.analysis}</KV></section>
-        : <div className="st-note">이 릴스는 캡션 분석이 추가되기 전에 분석됐어요. 캡션 원문은 '대본' 탭에서 볼 수 있어요.</div>}
-      <section className="st-card"><div className="st-card-head"><h3>캡션 원문</h3><div className="st-row"><CopyButton text={reel.caption} />{saveBtn('caption')}</div></div><p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption || '캡션이 없는 릴스예요.'}</p></section>
+        : <div className="st-note">이 영상은 캡션 분석이 추가되기 전에 분석됐어요. 캡션 원문은 '대본' 탭에서 볼 수 있어요.</div>}
+      <section className="st-card"><div className="st-card-head"><h3>캡션 원문</h3><div className="st-row"><CopyButton text={reel.caption} />{saveBtn('caption')}</div></div><p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption || '캡션이 없는 영상이에요.'}</p></section>
     </div>}
   </>
 }
@@ -119,7 +119,7 @@ export default function ReferenceDetail({ shortcode }) {
   const analysis = reel.analysisStatus === 'ready' ? reel.analysis : null
   return <div className="st-stack">
     <div className="st-row" style={{ justifyContent: 'space-between' }}>
-      <button type="button" className="st-btn st-btn-ghost" onClick={() => go('reels')}><ArrowLeft size={20} />성공 릴스</button>
+      <button type="button" className="st-btn st-btn-ghost" onClick={() => go('reels')}><ArrowLeft size={20} />영감 찾기</button>
       {analysis && <button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('new', { ref: shortcode })}><Sparkles size={20} />이 레퍼런스로 기획안 만들기</button>}
     </div>
     <div className="st-detail">
@@ -133,7 +133,7 @@ export default function ReferenceDetail({ shortcode }) {
       <div className="st-stack">
         {analysis ? <AnalysisTabs reel={reel} analysis={analysis} tab={tab} setTab={setTab} onSaveFormula={saveFormula} />
           : running ? <HookLoader title="훅ai가 분석하는 중" stages={ANALYSIS_STAGES} stageIndex={analysisStage(tracking[shortcode] ? null : reel.analysisUpdatedAt)} startedAt={tracking[shortcode] ? null : reel.analysisUpdatedAt} note="보통 1~2분 걸려요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드릴게요." />
-          : <div className="st-card st-stack"><h3>{reel.analysisStatus === 'failed' ? '분석하지 못했어요' : '아직 분석하지 않은 릴스예요'}</h3>{reel.analysisError && <p className="st-muted">{reel.analysisError}</p>}<button type="button" className="st-btn st-btn-primary st-btn-big" style={{ justifySelf: 'start' }} onClick={() => analyze(reel)}><Sparkles size={20} />분석하기</button></div>}
+          : <div className="st-card st-stack"><h3>{reel.analysisStatus === 'failed' ? '분석하지 못했어요' : '아직 분석하지 않은 영상이에요'}</h3>{reel.analysisError && <p className="st-muted">{reel.analysisError}</p>}<button type="button" className="st-btn st-btn-primary st-btn-big" style={{ justifySelf: 'start' }} onClick={() => analyze(reel)}><Sparkles size={20} />분석하기</button></div>}
       </div>
     </div>
   </div>

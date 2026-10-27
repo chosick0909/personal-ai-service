@@ -131,8 +131,8 @@ function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
   }
   return <div className="st-stack">
     <section className="st-card st-stack">
-      <div><h3>이번 릴스에 담고 싶은 내용</h3><p className="st-muted">제품, 경험, 하고 싶은 말을 편하게 적어주세요. 길어도 괜찮아요. 적은 사실만 기획안에 들어가요.</p></div>
-      <textarea className="st-textarea" value={brief} onChange={e => { setBrief(e.target.value); onBrief?.(e.target.value); debounced(e.target.value) }} placeholder={'예) 30대 지성 피부인 제가 3주 동안 써본 선크림 3개를 솔직하게 비교하고 싶어요. 제일 좋았던 건 백탁이 없고 오후에도 번들거리지 않던 제품이에요.'} aria-label="이번 릴스에 담고 싶은 내용" />
+      <div><h3>이번 영상에 담고 싶은 내용</h3><p className="st-muted">제품, 경험, 하고 싶은 말을 편하게 적어주세요. 길어도 괜찮아요. 적은 사실만 기획안에 들어가요.</p></div>
+      <textarea className="st-textarea" value={brief} onChange={e => { setBrief(e.target.value); onBrief?.(e.target.value); debounced(e.target.value) }} placeholder={'예) 30대 지성 피부인 제가 3주 동안 써본 선크림 3개를 솔직하게 비교하고 싶어요. 제일 좋았던 건 백탁이 없고 오후에도 번들거리지 않던 제품이에요.'} aria-label="이번 영상에 담고 싶은 내용" />
       <div className="st-row">
         <button type="button" className="st-btn" onClick={speak} disabled={listening}><Mic size={18} />{listening ? '듣는 중…' : '말로 입력'}</button>
         <label className="st-btn" style={{ cursor: 'pointer' }}><Paperclip size={18} />{uploading ? '읽는 중…' : '자료 첨부'}<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.docx" style={{ display: 'none' }} disabled={uploading} onChange={e => upload([...e.target.files])} /></label>
@@ -178,7 +178,7 @@ function ThumbnailStage({ session, save, restore }) {
   return <div className="st-stack">
     <PickHistory field="thumbnail" title="썸네일" session={session} restore={restore} top />
     {applied && <AppliedPick label="썸네일" text={applied.text} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} history={history} />}
-    {open && <section className="st-card st-stack"><div>{!applied && <div style={{ float: 'right' }}>{history}</div>}<h3>{applied ? '처음 받은 썸네일 3안' : '썸네일 카피 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '릴스 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.'}</p></div>
+    {open && <section className="st-card st-stack"><div>{!applied && <div style={{ float: 'right' }}>{history}</div>}<h3>{applied ? '처음 받은 썸네일 3안' : '썸네일 카피 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '영상 커버에 크게 들어갈 제목이에요. 하나를 고르거나 직접 써주세요.'}</p></div>
       <div className="st-options">{t.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!t.custom && t.chosen === i} onClick={() => { setCustom(''); save({ thumbnail: { chosen: i } }) }}>
         <div className="st-option-top">{o.label ? <span className="st-pill">{o.label}</span> : <span className="st-pill st-pill-gray">{OPTION_NAME[i]}</span>}{(o.hint || THUMB_KIND[o.label]) && <span className="st-option-hint">{o.hint || THUMB_KIND[o.label]}</span>}<span className="st-option-check"><Check size={16} /></span></div>
         <strong className="st-thumb-text">{o.text}</strong>{o.why && <span className="st-why">{o.why}</span>}</button>)}</div>

@@ -39,8 +39,8 @@ export default function LibraryPage() {
           </article>)}<p className="st-muted st-small">출처: {open.source}. [대괄호]에 내 이야기를 넣으면 돼요.</p></div>
           : open.segments && <div className="st-kv"><span>흐름</span><div className="st-segments">{open.segments.map(([name, desc], i) => <div key={i}><strong>{name}</strong><span className="st-muted">{desc}</span></div>)}</div></div>}
       </section>
-      <section className="st-card st-stack"><div className="st-card-head"><h3>{open.template ? '이 틀의 예시 영상' : '이 공식으로 터진 릴스'} <span className="st-muted st-small">· {open.count}개</span></h3></div>
-        {open.examples.length === 0 ? <p className="st-muted">{open.template ? '이 틀에는 예시 영상이 없어요. 훅ai가 공부하며 찾으면 여기에 더해요.' : '아직 이 공식으로 분석된 릴스가 없어요. 매일 늘어나요.'}</p>
+      <section className="st-card st-stack"><div className="st-card-head"><h3>{open.template ? '이 틀의 예시 영상' : '이 공식으로 터진 영상'} <span className="st-muted st-small">· {open.count}개</span></h3></div>
+        {open.examples.length === 0 ? <p className="st-muted">{open.template ? '이 틀에는 예시 영상이 없어요. 훅ai가 공부하며 찾으면 여기에 더해요.' : '아직 이 공식으로 분석된 영상이 없어요. 매일 늘어나요.'}</p>
           : <div className="st-examples">{open.examples.map(e => e.instagramUrl
             ? <a key={e.id} className="st-example" href={e.instagramUrl} target="_blank" rel="noreferrer"><div className="st-example-ig"><ExternalLink size={26} /><span>인스타에서 보기</span></div><strong className="st-small">예시 영상</strong></a>
             : <button type="button" key={e.id} className="st-example" onClick={() => go('reference', { ref: e.id })}>{e.thumbnailUrl ? <img src={e.thumbnailUrl} alt="" loading="lazy" /> : <div style={{ aspectRatio: '9/16', borderRadius: 10, background: '#1b1825' }} />}<strong className="st-small">@{e.username}</strong>{e.views ? <span><Play size={11} /> {compactCount(e.views)}</span> : null}{e.hook && <span>“{e.hook}”</span>}</button>)}</div>}
@@ -48,7 +48,7 @@ export default function LibraryPage() {
     </div>
   }
   return <div className="st-stack">
-    <div className="st-page-head"><p>터진 릴스가 공통으로 쓰는 첫 문장·전개 공식이에요. 훅ai가 매일 성공 릴스를 공부하면서 공식마다 그 공식을 쓴 릴스를 채우고, 여러 릴스에서 되풀이되는 새 공식을 찾으면 여기에 더해요.</p></div>
+    <div className="st-page-head"><p>터진 영상이 공통으로 쓰는 첫 문장·전개 공식이에요. 훅ai가 매일 터진 영상을 공부하면서 공식마다 그 공식을 쓴 영상을 채우고, 여러 영상에서 되풀이되는 새 공식을 찾으면 여기에 더해요.</p></div>
     <div className="st-chips">
       <button type="button" className="st-chip" aria-pressed={tab === 'structures'} onClick={() => setTab('structures')}>전개 공식 · {data.structures.length - stories.length}</button>
       <button type="button" className="st-chip" aria-pressed={tab === 'stories'} onClick={() => setTab('stories')}>스토리텔링 대본 템플릿 · {stories.length}</button>
@@ -56,7 +56,7 @@ export default function LibraryPage() {
     </div>
     {tab === 'stories' && <p className="st-muted">내 경험·사연을 이야기로 풀 때 쓰는 대본 틀이에요. 단계마다 대본 틀과 예문이 있고, 예시 영상도 볼 수 있어요.</p>}
     <div className="st-lib">{items.map((item, n) => <button type="button" key={item.id} className="st-lib-card" onClick={() => setOpen(item)}>
-      <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>{item.template ? `${n + 1}. ` : ''}{item.title}</strong><span className="st-pill st-pill-gray">{item.template ? `예시 ${item.count}개` : `릴스 ${item.count}개`}</span></div>
+      <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>{item.template ? `${n + 1}. ` : ''}{item.title}</strong><span className="st-pill st-pill-gray">{item.template ? `예시 ${item.count}개` : `영상 ${item.count}개`}</span></div>
       <p>{item.template ? item.when : item.summary || item.formula}</p>
       {item.template && <p className="st-muted st-small">{item.summary}</p>}
       {item.examples.length > 0 && <div className="st-row" style={{ gap: 6 }}>{item.examples.slice(0, 4).map(e => e.thumbnailUrl && <img key={e.id} src={e.thumbnailUrl} alt="" style={{ width: 36, height: 64, objectFit: 'cover', borderRadius: 6 }} />)}</div>}

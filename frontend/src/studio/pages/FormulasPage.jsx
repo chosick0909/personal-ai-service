@@ -34,7 +34,7 @@ function FormulaDetail({ formula: f, onClose, onRemove, onUse }) {
       </div>
       <section className="st-card st-stack" style={{ background: 'var(--st-bg)' }}><h3>공식</h3><FormulaSpec kind={f.kind} spec={f.spec} /></section>
       {f.example && <section className="st-card st-stack" style={{ background: 'var(--st-bg)' }}><h3>예시</h3><p style={{ whiteSpace: 'pre-wrap' }}>{f.example}</p></section>}
-      <div className="st-muted st-small">{f.source?.topic ? `출처: 기획안 '${f.source.topic}'` : f.source?.username ? `출처: @${f.source.username} 릴스 분석` : f.source?.libraryId ? '출처: 공식 사전' : ''}{f.createdAt ? ` · ${when(f.createdAt)} 저장` : ''}</div>
+      <div className="st-muted st-small">{f.source?.topic ? `출처: 기획안 '${f.source.topic}'` : f.source?.username ? `출처: @${f.source.username} 영상 분석` : f.source?.libraryId ? '출처: 공식 사전' : ''}{f.createdAt ? ` · ${when(f.createdAt)} 저장` : ''}</div>
       <div className="st-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <button type="button" className="st-btn st-btn-danger" onClick={onRemove}><Trash2 size={16} />삭제</button>
         <button type="button" className="st-btn st-btn-primary st-btn-big" onClick={onUse}><Sparkles size={18} />이 공식으로 기획안 만들기</button>

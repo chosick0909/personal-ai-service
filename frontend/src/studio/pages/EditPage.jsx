@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Upload as Tus } from 'tus-js-client'
-import { UploadCloud, Film, ArrowRight, Clock3, CheckCircle2, TriangleAlert, LoaderCircle } from 'lucide-react'
+import { UploadCloud, Film, ArrowRight, Clock3, CheckCircle2, TriangleAlert, LoaderCircle, Scissors, Clapperboard, Eye, Download } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, when } from '../api'
 import HookLoader from '../HookLoader'
@@ -41,7 +41,7 @@ function StartForm({ onStarted }) {
     if (!file || !rights || busy) return
     setBusy(true)
     try {
-      const project = await studio.createMedia({ filename: file.name, size: file.size, mimeType: file.type, clientUploadId: crypto.randomUUID(), rightsConfirmed: true, purpose: 'media-analyze' })
+      const project = await studio.createMedia({ filename: file.name, size: file.size, mimeType: file.type, clientUploadId: crypto.randomUUID(), rightsConfirmed: true, purpose: 'media-analyze', studio: true })
       if (!project.job) {
         setProgress(0)
         await new Promise((resolve, reject) => {
@@ -59,6 +59,12 @@ function StartForm({ onStarted }) {
   }
   return <section className="st-card st-stack st-ve-start">
     <div><h3>찍은 영상을 올려주세요</h3><p className="st-muted">훅ai가 영상을 보고 고칠 점을 알려주고, 자를 곳과 자막까지 한 번에 준비해요.</p></div>
+    <div className="st-ve-keep-card">
+      <strong>⏳ 올린 영상은 48시간 동안만 보관돼요</strong>
+      <p>'가장 좋은 릴스는 오늘 올린 릴스다'라는 말… 들어보셨나요? 🤔 완벽하게 다듬느라 미루는 영상보다, 오늘 올린 영상 한 편이 훨씬 많은 걸 알려줘요.</p>
+      <p>그러니 48시간이 지나기 전에 후다닥 편집해서 바로 올려 보세요! 원본은 사라져도, 올린 영상은 피드에 남으니까요 😉</p>
+      <span className="st-muted st-small">완성 영상은 7일 동안 다시 받을 수 있어요 · 올린 영상은 나만 볼 수 있어요</span>
+    </div>
     <label className={`st-ve-drop${drag ? ' is-drag' : ''}${file ? ' has-file' : ''}`} onDragOver={e => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); choose(e.dataTransfer.files?.[0]) }}>
       {file ? <Film size={40} /> : <UploadCloud size={40} />}
       <strong>{file ? file.name : '여기를 눌러 영상 고르기'}</strong>
@@ -75,7 +81,6 @@ function StartForm({ onStarted }) {
     <label className="st-ve-consent"><input type="checkbox" checked={rights} onChange={e => setRights(e.target.checked)} />직접 찍었거나 편집할 권한이 있는 영상이에요</label>
     <button type="button" className="st-btn st-btn-primary st-btn-lg" disabled={!file || !rights || busy} onClick={start}>
       {busy ? <><LoaderCircle size={20} className="st-spin" />{progress !== null ? `영상 올리는 중 ${progress}%` : '보내는 중…'}</> : <>훅ai에게 점검받기<ArrowRight size={20} /></>}</button>
-    <p className="st-muted st-small">원본 영상은 24시간, 완성 영상은 7일 동안 보관돼요. 나만 볼 수 있어요.</p>
   </section>
 }
 
@@ -102,7 +107,20 @@ function Progress({ job, onDone }) {
   return <HookLoader title="훅ai가 영상을 보는 중" stages={STAGES.map(([, label]) => label)} stageIndex={index} startedAt={current.createdAt} note="보통 1~3분 걸려요. 이 화면을 떠나도 계속 진행되고, '최근에 점검한 영상'에서 다시 열 수 있어요." />
 }
 
-export default function EditPage({ jobId }) {
+// 영상 소스: footage students can use in their videos. Previews will play here; downloads open the Google Drive folder.
+function SourcesPanel() {
+  return <section className="st-card st-stack st-sources">
+    <div className="st-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}><h3>영상 소스</h3><span className="st-pill">준비 중</span></div>
+    <p>영상 만들 때 바로 가져다 쓸 수 있는 영상 소스를 이곳에 모아 둘 거예요. 직접 찍기 어려운 장면도 소스로 채우면 영상이 훨씬 풍성해져요.</p>
+    <ol className="st-sources-how">
+      <li><Eye size={20} /><span><b>훅ai에서 미리보기</b>소스를 눌러 어떤 장면인지 바로 확인해요.</span></li>
+      <li><Download size={20} /><span><b>마음에 들면 내려받기</b>'내려받기'를 누르면 구글 드라이브가 열리고, 거기서 파일을 받으면 돼요.</span></li>
+    </ol>
+    <div className="st-empty"><strong>소스를 열심히 준비하고 있어요</strong><span>곧 여기에서 미리보고 내려받을 수 있어요. 조금만 기다려 주세요!</span></div>
+  </section>
+}
+
+export default function EditPage({ jobId, tab }) {
   const { go } = useStudio()
   const [job, setJob] = useState(null)
   const [error, setError] = useState('')
@@ -113,8 +131,12 @@ export default function EditPage({ jobId }) {
   if (jobId && active(job)) return <Progress job={job} onDone={setJob} />
   if (jobId && job.status === 'failed') return <section className="st-card st-stack"><h3>점검하지 못했어요</h3><p>{job.error?.message || '잠시 후 다시 시도해주세요.'}</p><button type="button" className="st-btn" onClick={() => go('edit')}>다른 영상 올리기</button></section>
   if (jobId && job.status === 'completed') return <VideoProject job={job} />
+  const sources = tab === 'sources'
   return <div className="st-stack" style={{ maxWidth: 920 }}>
-    <StartForm onStarted={open} />
-    <RecentList onOpen={open} />
+    <div className="st-chips" role="tablist" aria-label="영상 편집 메뉴">
+      <button type="button" role="tab" className="st-chip" aria-selected={!sources} aria-pressed={!sources} onClick={() => go('edit')}><Scissors size={16} />내 영상 편집</button>
+      <button type="button" role="tab" className="st-chip" aria-selected={sources} aria-pressed={sources} onClick={() => go('edit', { tab: 'sources' })}><Clapperboard size={16} />영상 소스</button>
+    </div>
+    {sources ? <SourcesPanel /> : <><StartForm onStarted={open} /><RecentList onOpen={open} /></>}
   </div>
 }

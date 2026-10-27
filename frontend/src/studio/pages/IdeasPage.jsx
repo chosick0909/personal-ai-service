@@ -35,7 +35,7 @@ function IdeaCard({ card, saved, onSave, onPlan, onAsk }) {
       {card.promise && <div><dt>시청자가 얻는 것</dt><dd>{card.promise}</dd></div>}
       {card.why && <div><dt><Lightbulb size={14} />지금 먹히는 이유</dt><dd>{card.why}</dd></div>}
       {card.materials?.length > 0 && <div><dt>찍으려면 필요한 것</dt><dd><ul>{card.materials.map(m => <li key={m}>{m}</li>)}</ul></dd></div>}
-      {card.reels?.length > 0 && <div><dt>이 분야에서 터진 릴스</dt><dd className="st-idea-reels">{card.reels.map(r => <button type="button" key={r.id} onClick={() => go('reference', { ref: r.id })} title={`@${r.username}`}>
+      {card.reels?.length > 0 && <div><dt>이 분야에서 터진 영상</dt><dd className="st-idea-reels">{card.reels.map(r => <button type="button" key={r.id} onClick={() => go('reference', { ref: r.id })} title={`@${r.username}`}>
         {r.thumbnailUrl ? <img src={r.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-idea-reel-empty" />}<small>▶ {compactCount(r.views)}</small></button>)}</dd></div>}
     </dl>
     <div className="st-idea-actions">

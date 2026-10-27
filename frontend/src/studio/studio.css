@@ -30,7 +30,7 @@
 .st-side { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; gap:4px; padding:20px 16px; background:var(--st-panel); border-right:1px solid var(--st-line); overflow-y:auto; }
 /* On a short screen the menu scrolls inside itself; otherwise its bottom spills past the page onto the app's dark background. */
 .st-brand { display:flex; align-items:center; gap:12px; padding:8px 8px 20px; }
-.st-brand img { width:44px; height:44px; border-radius:12px; }
+.st-brand img { width:44px; height:44px; border-radius:50%; object-fit:cover; }
 .st-brand strong { display:block; font-size:18px; }
 .st-brand span { font-size:13px; color:var(--st-muted); }
 .st-nav { display:flex; align-items:center; gap:12px; min-height:56px; padding:0 16px; border:0; border-radius:12px; background:none; font-size:18px; font-weight:600; color:var(--st-text); text-align:left; }
@@ -297,6 +297,12 @@
 .st-ref-like-title { color:var(--st-accent-text); font-weight:600; font-size:14px; }
 .st-tag { display:inline-flex; align-items:center; gap:5px; min-height:36px; padding:0 12px; border:1px solid var(--st-line-strong); border-radius:999px; background:var(--st-panel); font-size:14px; font-weight:600; color:var(--st-muted); }
 .st-tag[aria-pressed=true] { border-color:var(--st-accent); background:var(--st-accent-soft); color:var(--st-accent-text); }
+.st-ref-memo { display:grid; gap:6px; }
+.st-ref-memo label { display:flex; align-items:center; gap:6px; color:var(--st-accent-text); font-weight:600; font-size:14px; }
+.st-ref-memo label small { margin-left:auto; color:var(--st-muted); font-weight:500; font-size:12px; }
+.st-ref-memo label small.st-ref-memo-fail { color:var(--st-danger); }
+.st-ref-memo textarea { width:100%; min-height:64px; resize:vertical; padding:10px 12px; border:1px solid var(--st-line-strong); border-radius:12px; background:var(--st-panel); color:var(--st-text); font:inherit; font-size:14px; line-height:1.5; }
+.st-ref-memo textarea:focus { outline:none; border-color:var(--st-accent); box-shadow:0 0 0 3px var(--st-accent-soft); }
 
 /* ----- detail ----- */
 .st-detail { display:grid; grid-template-columns:minmax(260px,340px) minmax(0,1fr); gap:28px; align-items:start; }
@@ -815,3 +821,35 @@
   .pp-gap { height:14mm; }
   .pp { padding:0 16mm; }
 }
+
+/* 영상 편집: 48시간 보관 안내 · 영상 소스(준비 중) */
+.st-ve-keep-card { display:grid; gap:6px; padding:16px 18px; border-radius:14px; background:var(--st-warn-soft); color:var(--st-text); }
+.st-ve-keep-card strong { color:var(--st-warn-text); font-size:16px; }
+.st-ve-keep-card p { margin:0; line-height:1.6; }
+.st-ve-keep { margin:0; padding:10px 14px; border-radius:12px; background:var(--st-warn-soft); color:var(--st-text); font-size:14px; line-height:1.55; }
+.st-ve-keep b { color:var(--st-warn-text); }
+.st-sources-how { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
+.st-sources-how li { display:flex; gap:12px; align-items:flex-start; padding:12px 14px; border:1px solid var(--st-line); border-radius:12px; }
+.st-sources-how li svg { flex:none; color:var(--st-accent-text); margin-top:2px; }
+.st-sources-how li span { display:grid; gap:2px; color:var(--st-muted); }
+.st-sources-how li b { color:var(--st-text); }
+
+/* 업데이트 안내 첫 장: 예전 버전을 알던 분께 '잘 찾아오셨다'고 안심시키는 페이지 */
+.st-whatsnew-hello { display:grid; justify-items:center; gap:10px; text-align:center; color:#fff; }
+.st-whatsnew-hello img { width:min(260px, 52vw); aspect-ratio:1; border-radius:50%; object-fit:cover; box-shadow:0 18px 50px rgba(0,0,0,.45), 0 0 0 8px rgba(255,255,255,.08); }
+.st-whatsnew-hello strong { margin-top:8px; font-size:24px; font-weight:800; }
+.st-whatsnew-hello span { color:#cfc8f5; font-size:16px; }
+.st-whatsnew-moves { list-style:none; margin:16px 0 0; padding:0; display:grid; gap:8px; }
+.st-whatsnew-moves li { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.06); font-size:15px; color:#d6d2ea; }
+.st-whatsnew-moves li span { flex:none; min-width:76px; color:#a9a3c4; }
+.st-whatsnew-moves li svg { flex:none; color:#a58dff; }
+.st-whatsnew-moves li b { color:#fff; font-weight:700; }
+.st-whatsnew-after { margin-top:14px !important; font-size:15.5px !important; color:#bdb6dc !important; }
+
+.st-whatsnew-copy { overflow-y:auto; }
+.st-whatsnew-copy.is-welcome h2 { font-size:30px; margin:8px 0 10px; }
+.st-whatsnew-copy.is-welcome p { font-size:16px; line-height:1.6; }
+.st-whatsnew-copy.is-welcome .st-whatsnew-moves { margin-top:12px; gap:6px; }
+.st-whatsnew-copy.is-welcome .st-whatsnew-moves li { padding:8px 12px; font-size:14.5px; }
+.st-whatsnew-copy.is-welcome .st-whatsnew-after { margin-top:10px !important; }
+.st-whatsnew-copy.is-welcome { padding-top:40px; padding-bottom:14px; }

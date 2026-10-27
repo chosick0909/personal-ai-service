@@ -38,7 +38,7 @@ export function PlayerModal({ reel, onClose, onAnalyze, onOpenAnalysis }) {
   // The page behind stays put; only the caption column scrolls.
   useEffect(() => { const previous = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = previous } }, [])
   const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
-  return <div className="st-modal" role="dialog" aria-modal="true" aria-label={`@${reel.username} 릴스`} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+  return <div className="st-modal" role="dialog" aria-modal="true" aria-label={`@${reel.username} 영상`} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
     <div className="st-player">
       <button ref={close} type="button" className="st-icon-btn st-player-close" aria-label="닫기" onClick={onClose}><X size={20} /></button>
       <div className="st-player-video">
@@ -77,7 +77,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
   }, [hover, preview, reel.shortcode, reel.source])
   return <article className="st-reel" data-tour={tour}>
     <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => { setHover(false); setPlaying(false) }}>
-      <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 릴스 재생`}>
+      <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 영상 재생`}>
         {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-reel-placeholder">{reel.source === 'upload-text' ? '📝' : '🎬'}<b>{reel.title || `@${reel.username}`}</b></span>}
         {hover && preview && <video src={preview} muted autoPlay loop playsInline className={`st-reel-preview${playing ? ' is-playing' : ''}`} onPlaying={() => setPlaying(true)} onEmptied={() => setPlaying(false)} />}
       </button>
@@ -156,7 +156,7 @@ export default function ReelsPage() {
   const shown = reels.map(r => tracking[r.shortcode] ? { ...r, analysisStatus: 'running' } : r)
   return <div className="st-stack">
     <ReferenceGuide />
-    <div className="st-page-head st-reels-info"><p>최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 릴스를 매일 모아요. 분석하면 '내 레퍼런스'에 자동으로 저장돼요.</p>{lastUpdatedAt && <span className="st-pill st-pill-gray">업데이트 {when(lastUpdatedAt)}</span>}</div>
+    <div className="st-page-head st-reels-info"><p>최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 영상을 매일 모아요. 분석하면 '내 레퍼런스'에 자동으로 저장돼요.</p>{lastUpdatedAt && <span className="st-pill st-pill-gray">업데이트 {when(lastUpdatedAt)}</span>}</div>
     <form className="st-search" role="search" onSubmit={e => { e.preventDefault(); change({ q: draft.trim().slice(0, 40) }) }}>
       <Search size={20} className="st-muted" aria-hidden="true" />
       <input type="search" value={draft} maxLength={40} onChange={e => { setDraft(e.target.value); if (!e.target.value && filters.q) change({ q: '' }) }} placeholder="키워드로 찾기 (예: 다이소, 여드름, 자취요리)" aria-label="키워드 검색" />
@@ -173,7 +173,7 @@ export default function ReelsPage() {
       </div>
     </section>
     {error && <div className="st-error" role="alert">{error}</div>}
-    {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : filters.recommended ? '추천 릴스를 준비하고 있어요' : '조건에 맞는 릴스가 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
+    {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : filters.recommended ? '추천 영상을 준비하고 있어요' : '조건에 맞는 영상이 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
     <div className="st-reels">{shown.map((reel, i) => <ReelCard key={reel.shortcode} tour={i === 0 ? 'reel-card' : undefined} reel={reel} onPlay={() => setOpen(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>
     {loading && <p className="st-muted" role="status">불러오는 중…</p>}
     {hasMore && !loading && <button type="button" className="st-btn st-btn-block" onClick={() => { setPage(p => p + 1); setLoading(true) }}>더 보기</button>}
