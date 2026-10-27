@@ -203,6 +203,9 @@ const PROVEN_NOTE = 'provenFormulas는 훅ai가 성공 릴스를 매일 공부�
 const storyTemplates = stage => STORY_TEMPLATES.map(t => stage === 'hook' ? { title: t.title, when: t.when, hook: t.lines[0].template } : { title: t.title, when: t.when, flow: t.lines.map(l => `${l.name}(${l.purpose}): ${l.template}`) })
 // Self-check before finishing: the lines a viewer would swipe away on. What is still left after fixing triggers one rewrite.
 const SWIPE_CHECK = '다 쓴 뒤 시청자 입장에서 한 줄씩 다시 봅니다. 넘기고 싶어지는 줄(궁금한 게 없거나, 예고만 하거나, 누구나 할 수 있는 말이거나, 앞의 말을 반복하거나, 소리 내 읽었을 때 앞뒤가 이어지지 않아 말이 안 되는 줄, 앞에서 꺼낸 문제와 뒤의 원인·해결이 서로 다른 것을 말하는 줄)을 찾아 고친 최종본을 냅니다. 고치지 못하고 남은 줄만 check.swipeRisks에 그 줄과 이유로 적습니다.'
+// Students keep reshaping the script in chat after the topic and cover were picked, so the script can end up telling
+// another story than the topic. Stages after the script follow what the video will actually say.
+const SCRIPT_IS_FINAL = `대본(script)은 수강생이 마지막으로 다듬어 확정한 영상의 실제 내용입니다. 주제(topic)·brief·썸네일·첫 문장이 대본과 다른 소재나 다른 이야기를 하고 있으면, 대본을 고치는 동안 방향이 바뀐 것이니 대본을 따르고, 대본에 없는 앞 단계의 소재·약속은 가져오지 않습니다.`
 const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. ${CHIP_RULE} questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
@@ -234,11 +237,11 @@ ${PROVEN_NOTE}
 - lines: part는 hook/body/cta, spoken은 말할 문장(짧고 구어체), onScreen은 그 구간 자막, seconds는 구간 길이. 전체 길이는 sources.structure.durationSeconds와 비슷하게, 없으면 30~50초.
 - 마무리는 sources의 마무리 장치를 옮기거나, 이 영상을 저장·공유할 이유가 되는 말로 씁니다.
 ${SWIPE_CHECK}`,
-  filming: `${ASK_RULE}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
+  filming: `${ASK_RULE}\n${SCRIPT_IS_FINAL}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
 - sources.filming.filming이 있으면 그 구도·화면 장치를 적용합니다. storyboard: scene 번호, seconds, shot(구도·거리), action(화면 속 행동·보여줄 것), onScreen(자막), spoken(그 장면 대사; script에서 그대로).
 - 촬영: location, props(준비물), camera(거치·각도), lighting, checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로. editing에는 편집 방향 한 줄.
 - 편집(editingPlan): sources.filming.editing이 있으면 그 자막 스타일·컷 템포·전환·효과·사운드를 적용합니다. subtitleStyle(자막 글꼴 느낌·크기·위치·색·강조), cuts(컷 길이·템포), transitions(전환), effects(줌·스탬프·그래픽 등), sound(배경음·효과음·나레이션), checklist(편집할 때 확인 3~6개). 휴대폰 편집 앱으로 가능한 수준으로.`,
-  caption: `${ASK_RULE}\n'캡션' 단계입니다. 인스타 캡션 3안을 만듭니다. 첫 줄은 썸네일·첫 문장의 약속을 이어받고, 본문은 대본의 핵심을 2~4줄로, 마무리는 저장·댓글을 부르는 이유 한 줄. hashtags는 # 없이 5~8개.
+  caption: `${ASK_RULE}\n${SCRIPT_IS_FINAL}\n'캡션' 단계입니다. 인스타 캡션 3안을 만듭니다. 첫 줄은 대본이 여는 이야기를 이어받고(썸네일·첫 문장이 대본과 같은 이야기를 할 때는 그 약속도 함께), 본문은 대본의 핵심을 2~4줄로, 마무리는 저장·댓글을 부르는 이유 한 줄. hashtags는 # 없이 대본의 소재로 5~8개.
 sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식을 따르고, sources.caption.original(원문)에 이모지가 쓰였으면 같은 느낌으로 이모지를 줄마다 자연스럽게 조합해 넣습니다(원문에 이모지가 없으면 넣지 않음). why는 이 캡션이 맞는 이유 한 줄. 없는 사실은 쓰지 않습니다.`,
 }
 
