@@ -88,7 +88,7 @@ function RecentList({ onOpen }) {
   const [jobs, setJobs] = useState(null)
   useEffect(() => { studio.jobs().then(d => setJobs((d.jobs || []).filter(j => j.purpose === 'studio'))).catch(() => setJobs([])) }, [])
   if (!jobs?.length) return null
-  return <section className="st-card st-stack"><h3><Clock3 size={20} style={{ verticalAlign: -3 }} /> 최근에 점검한 영상</h3>
+  return <section className="st-card st-stack"><h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Clock3 size={20} style={{ color: 'var(--st-accent)', flex: 'none' }} />최근에 점검한 영상</h3>
     <div className="st-ve-recent">{jobs.slice(0, 8).map(j => <button type="button" key={j.id} onClick={() => onOpen(j)}>
       {j.status === 'completed' ? <CheckCircle2 size={20} className="st-ve-ok" /> : j.status === 'failed' ? <TriangleAlert size={20} className="st-ve-bad" /> : <LoaderCircle size={20} className="st-spin" />}
       <span><strong>{j.plan?.title || '기획안 없이 올린 영상'}</strong><small>{when(j.createdAt)} · {j.status === 'completed' ? '점검 끝' : j.status === 'failed' ? '실패' : '점검 중'}</small></span><ArrowRight size={18} /></button>)}</div>
