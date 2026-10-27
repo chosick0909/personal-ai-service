@@ -1,10 +1,11 @@
-import { extractScreenSubtitles, judgeScriptSource, probeScreenText, referenceTranscript } from '../lib/video-subtitle-transcript.js'
+import { extractScreenSubtitles, judgeScriptSource, probeScreenText, referenceTranscript, scriptSource } from '../lib/video-subtitle-transcript.js'
 import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { referenceAnalysisSchema, referenceAnalysisInstructions, validateReferenceAnalysis } from './reference-analysis.js'
 import { fail } from './domain.js'
 import { downloadPublicMedia } from './network.js'
 import { ownedMedia } from './store.js'
-import { workspace, downloadStored, probeVideo, transcribeFile } from './media.js'
+import { workspace, downloadStored, probeVideo, transcribeFile, ff } from './media.js'
 
 // Protect written numerals verbatim, including non-Latin decimal digits.
 const digits = /\p{Decimal_Number}+(?:[.,٫٬]\p{Decimal_Number}+)*/gu
@@ -159,9 +160,20 @@ export async function translateSegments(providers, language, subtitles) {
   }
   return translated
 }
-const importDependencies = { workspace, ownedMedia, downloadStored, probeVideo, transcribeFile, extractScreenSubtitles, probeScreenText, downloadPublicMedia }
+// A few scenes let the analysis see what the script alone cannot: the setting, the tone, a text card over a song.
+async function sampleFrames(path, directory, duration, signal) {
+  const frames = []
+  for (const [i, ratio] of [0.1, 0.3, 0.5, 0.7, 0.9].entries()) {
+    const time = Number((duration * ratio).toFixed(2)), out = join(directory, `scene-${i}.jpg`)
+    await ff(['-protocol_whitelist', 'file,pipe', '-ss', String(time), '-i', path, '-frames:v', '1', '-vf', 'scale=540:-2', '-q:v', '5', out], signal)
+    frames.push({ time, label: `영상 ${time}초 장면`, url: `data:image/jpeg;base64,${(await readFile(out)).toString('base64')}` })
+  }
+  return frames
+}
+const importDependencies = { workspace, ownedMedia, downloadStored, probeVideo, transcribeFile, extractScreenSubtitles, probeScreenText, sampleFrames, downloadPublicMedia }
 export async function collectImportTranscript(ctx, dependencies = importDependencies) {
   const { job, providers, stage, signal, db } = ctx
+  let caption = ''
   return dependencies.workspace(async (directory) => {
     const path = join(directory, 'source-video')
     if (job.input.projectId) {
@@ -172,6 +184,7 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
     } else {
       await stage('collecting_video')
       const media = await providers.instagramReel(job.input.url, ctx.checkpoint)
+      caption = String(media.caption || '').slice(0, 2000)
       await dependencies.downloadPublicMedia(media.videoUrl, path, signal)
     }
     const info = await dependencies.probeVideo(path, signal, { allowSilent: true })
@@ -188,13 +201,16 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
         invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn),
       }),
     })
-    return { ...transcript, duration: info.duration }
+    const frames = dependencies.sampleFrames ? await dependencies.sampleFrames(path, directory, info.duration, signal).catch(() => []) : []
+    return { ...transcript, duration: info.duration, caption, frames }
   })
 }
 export async function importLink(ctx) {
   const startedAt = Date.now()
   const { providers, checkpoint, stage } = ctx
-  const transcript = await checkpoint('transcript', () => collectImportTranscript(ctx))
+  // Scenes are kept out of the stored checkpoint; a resumed job analyses without them.
+  let frames = []
+  const transcript = await checkpoint('transcript', async () => { const { frames: scenes = [], ...collected } = await collectImportTranscript(ctx); frames = scenes; return collected })
   await stage('translating')
   const translated = await checkpoint('translationV2', async () => {
     if (['ko', 'korean'].includes(transcript.language.toLowerCase())) return transcript.subtitles
@@ -222,7 +238,8 @@ export async function importLink(ctx) {
         const remaining = Math.min(startedAt + 15 * 60000, Number.isFinite(deadline) ? deadline : Infinity) - Date.now()
         if (remaining <= 105000 || ctx.signal?.aborted) return null
         const result = await providers.json('reference-analysis', referenceAnalysisInstructions,
-          { script: translatedText, sourceLanguage: transcript.language }, [], referenceAnalysisSchema)
+          { script: translatedText, sourceLanguage: transcript.language, scriptSource: scriptSource(transcript.source), caption: transcript.caption || '' },
+          frames, referenceAnalysisSchema)
         return validateReferenceAnalysis(result, translatedText)
       })
       analysis = validateReferenceAnalysis(raw, translatedText)

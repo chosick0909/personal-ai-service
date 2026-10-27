@@ -18,7 +18,10 @@ function subtitleError(code, message) {
 
 // Names how a reference's script is chosen between speech and on-screen text. A link analysed with an older method
 // is analysed again instead of reusing that result (the method changed when lyrics stopped passing as narration).
-export const TRANSCRIPT_METHOD = 'speech-or-screen-3'
+export const TRANSCRIPT_METHOD = 'speech-or-screen-4'
+
+// Tells an analysis whether the script was spoken or read off the screen (as over a song).
+export const scriptSource = source => ['screen_subtitles', 'frames'].includes(source) ? '화면 글(말소리 없이, 또는 배경음악 위에 띄운 글)' : '말(음성)'
 
 export function usableSpeech(transcript, duration = 0) {
   const text = String(transcript?.text || '').trim()

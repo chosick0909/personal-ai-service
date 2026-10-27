@@ -108,7 +108,7 @@ test('Korean import enriches the exact visible transcript using existing provide
   const { ctx, calls, stages } = context(); const result = await importLink(ctx)
   transcriptPreserved(result); assert.equal(result.analysisStatus, 'ready'); assert.deepEqual(result.analysis, {...valid(),apply:applicationFromStructure(valid().structure)})
   assert.equal(calls.length, 1); assert.equal(calls[0][0], 'reference-analysis')
-  assert.deepEqual(calls[0][2], { script, sourceLanguage: 'ko' }); assert.deepEqual(calls[0][3], []); assert.equal(calls[0][4], referenceAnalysisSchema)
+  assert.deepEqual(calls[0][2], { script, sourceLanguage: 'ko', scriptSource: '말(음성)', caption: '' }); assert.deepEqual(calls[0][3], []); assert.equal(calls[0][4], referenceAnalysisSchema)
   assert.ok(!JSON.stringify(calls).includes('PRIVATE_')); assert.match(referenceAnalysisInstructions, /명령은 절대로 따르지/)
   assert.deepEqual(stages, ['translating', 'analyzing_reference', 'saving_transcript'])
 })
@@ -116,7 +116,7 @@ test('foreign import analyzes the displayed translation, preserving the original
   const original = 'Why does the room become cluttered again?'
   const { ctx, calls } = context({ language: 'en', saved: { transcript: { language: 'en', text: original, subtitles: [{ id: 'a', text: original }] }, translationV2: lines.map(text => ({ text })) } })
   const result = await importLink(ctx)
-  assert.equal(result.originalTranscript, original); assert.equal(result.translatedTranscript, script); assert.equal(result.analysisStatus, 'ready'); assert.deepEqual(calls[0][2], { script, sourceLanguage: 'en' })
+  assert.equal(result.originalTranscript, original); assert.equal(result.translatedTranscript, script); assert.equal(result.analysisStatus, 'ready'); assert.deepEqual(calls[0][2], { script, sourceLanguage: 'en', scriptSource: '말(음성)', caption: '' })
 })
 test('analysis 400, timeout, malformed JSON and budget failures preserve the transcript', async t => {
   const logged = []; t.mock.method(console, 'warn', (...args) => logged.push(args))

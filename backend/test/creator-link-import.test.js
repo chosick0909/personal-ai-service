@@ -253,3 +253,16 @@ test('link downloads and uploaded files share the same silent-video subtitle pat
   assert.equal(result.source,'screen_subtitles')
   assert.equal(result.language,'en')
 })
+
+test('the analysis hears where the script came from and sees a few scenes and the caption, which stay out of the checkpoint', async () => {
+  const { importLink } = await import('../src/creator-tools/link-import.js')
+  const saved = { transcript: { language: 'ko', text: '건드리면 큰일나는 조합', subtitles: [{ id: 'v', text: '건드리면 큰일나는 조합' }], source: 'screen_subtitles', caption: '#장녀' } }
+  const calls = []
+  const ctx = { job: { input: { url: 'https://www.instagram.com/reel/AbCdE12345/' } }, signal: undefined, stage: async () => {},
+    checkpoint: async (key, fn) => key in saved ? saved[key] : (saved[key] = await fn()),
+    providers: { json: async (...args) => { calls.push(args); return null } } }
+  await importLink(ctx)
+  assert.equal(calls[0][2].scriptSource, '화면 글(말소리 없이, 또는 배경음악 위에 띄운 글)')
+  assert.equal(calls[0][2].caption, '#장녀')
+  assert.equal(JSON.stringify(saved).includes('data:image'), false)
+})
