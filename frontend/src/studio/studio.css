@@ -867,3 +867,7 @@
 .st-whatsnew:hover .st-whatsnew-timer span { animation-play-state:paused; }
 @keyframes st-whatsnew-timer { from { width:0 } to { width:100% } }
 @media (prefers-reduced-motion: reduce) { .st-whatsnew-timer span { animation-duration:20s !important; } }
+
+/* 말로 입력: 녹음 중에는 빨간 버튼으로 바뀌어 다시 누르면 끝나요 */
+.st .st-voice.is-recording { border-color:var(--st-danger); background:var(--st-danger-soft); color:var(--st-danger); animation:st-voice-pulse 1.4s ease-in-out infinite; }
+@keyframes st-voice-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(224,72,79,.35) } 50% { box-shadow:0 0 0 6px rgba(224,72,79,0) } }

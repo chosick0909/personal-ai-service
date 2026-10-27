@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, Check, Mic, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS } from '../api'
 import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
@@ -8,6 +8,7 @@ import HookLoader from '../HookLoader'
 import { CopyButton } from './ReferenceDetail'
 import HookAvatar from '../HookAvatar'
 import ChatWaitLine from '../ChatWait'
+import VoiceButton from '../VoiceButton'
 import { estimateLineSeconds } from '../../lib/scriptText'
 
 const ORDER = STAGES.map(([id]) => id)
@@ -106,7 +107,6 @@ function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
   const [brief, setBrief] = useState(session.brief || '')
   const [attachments, setAttachments] = useState(session.attachments || [])
   const [uploading, setUploading] = useState(false)
-  const [listening, setListening] = useState(false)
   const debounced = useDebouncedSave(value => save({ brief: value }))
   const upload = async files => {
     if (!files?.length) return
@@ -121,20 +121,13 @@ function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
       for (const i of payload.items.filter(i => i.status !== 'ready')) toast({ kind: 'failed', title: i.name, body: i.error })
     } catch (e) { toast({ kind: 'failed', title: '첨부 실패', body: e.message }) } finally { setUploading(false) }
   }
-  const speak = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) return toast({ kind: 'failed', title: '이 브라우저는 음성 입력이 안 돼요', body: '크롬이나 사파리에서 써주세요.' })
-    const rec = new SR(); rec.lang = 'ko-KR'; rec.interimResults = false
-    rec.onresult = e => { const t = e.results[0][0].transcript; setBrief(b => { const v = `${b}${b ? '\n' : ''}${t}`; debounced(v); return v }) }
-    rec.onend = () => setListening(false); rec.onerror = () => setListening(false)
-    setListening(true); rec.start()
-  }
+  const spoken = t => setBrief(b => { const v = `${b}${b ? '\n' : ''}${t}`; debounced(v); onBrief?.(v); return v })
   return <div className="st-stack">
     <section className="st-card st-stack">
       <div><h3>이번 영상에 담고 싶은 내용</h3><p className="st-muted">제품, 경험, 하고 싶은 말을 편하게 적어주세요. 길어도 괜찮아요. 적은 사실만 기획안에 들어가요.</p></div>
       <textarea className="st-textarea" value={brief} onChange={e => { setBrief(e.target.value); onBrief?.(e.target.value); debounced(e.target.value) }} placeholder={'예) 30대 지성 피부인 제가 3주 동안 써본 선크림 3개를 솔직하게 비교하고 싶어요. 제일 좋았던 건 백탁이 없고 오후에도 번들거리지 않던 제품이에요.'} aria-label="이번 영상에 담고 싶은 내용" />
       <div className="st-row">
-        <button type="button" className="st-btn" onClick={speak} disabled={listening}><Mic size={18} />{listening ? '듣는 중…' : '말로 입력'}</button>
+        <VoiceButton onText={spoken} onError={body => toast({ kind: 'failed', title: '말로 입력하지 못했어요', body })} />
         <label className="st-btn" style={{ cursor: 'pointer' }}><Paperclip size={18} />{uploading ? '읽는 중…' : '자료 첨부'}<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.docx" style={{ display: 'none' }} disabled={uploading} onChange={e => upload([...e.target.files])} /></label>
         <button type="button" className="st-btn st-btn-soft" onClick={() => onSuggest(brief)}><Sparkles size={18} />주제 제안해줘</button>
         {onPickSaved && <button type="button" className="st-btn" onClick={() => setPickingSaved(true)}><Star size={18} />저장한 주제에서 고르기</button>}

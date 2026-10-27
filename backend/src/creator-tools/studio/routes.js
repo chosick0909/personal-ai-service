@@ -1,4 +1,6 @@
 import Redis from 'ioredis'
+import { toFile } from 'openai'
+import { getOpenAIClient, getOpenAIModels } from '../../lib/openai.js'
 import multer from 'multer'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,6 +36,9 @@ const TAGS = ['hook', 'structure', 'filming', 'caption']
 const uploadMaterials = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 5, fields: 1, fieldSize: 4096 } })
 const uploadVideo = multer({ storage: multer.diskStorage({ destination: (_req, _file, cb) => cb(null, tmpdir()), filename: (_req, _file, cb) => cb(null, `studio-${randomUUID()}.upload`) }), limits: { fileSize: 150 * 1024 * 1024, files: 1 } })
 const UPLOADS_PER_DAY = 10
+// 말로 입력: one recording up to about three minutes, read as text by the transcription model.
+const uploadVoice = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1, fields: 0 } })
+const voiceTries = new Map()
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 
 // Version history: what the student is about to replace is kept first, newest at the top, ten deep.
@@ -231,6 +236,22 @@ export function registerStudioRoutes(router) {
     const controller = new AbortController()
     res.once('close', () => { if (!res.writableEnded) controller.abort() })
     res.json({ items: await extractSupportingMaterials(req.files, { userId: req.auth.userId, signal: controller.signal, readingContext: '주제 찾기 대화에 수강생이 올린 자료' }) })
+  }))
+  router.post('/creator-tools/studio/voice', (req, res, next) => uploadVoice.single('audio')(req, res, error => next(error ? Object.assign(new Error('녹음은 3분 이내로 해주세요.'), { code: 'INVALID_VOICE', statusCode: 400, exposeMessage: true }) : undefined)), asyncHandler(async (req, res) => {
+    enabled(req)
+    if (!req.file?.buffer?.length) fail('INVALID_VOICE', '녹음된 소리가 없어요. 다시 말해 주세요.')
+    const now = Date.now(), recent = (voiceTries.get(req.auth.userId) || []).filter(t => t > now - 3600000)
+    if (recent.length >= 60) fail('TOO_MANY_REQUESTS', '잠시 후 다시 말해 주세요.', 429)
+    voiceTries.set(req.auth.userId, [...recent, now])
+    const type = String(req.file.mimetype || 'audio/webm').split(';')[0]
+    const ext = type.includes('mp4') || type.includes('m4a') || type.includes('aac') ? 'm4a' : type.includes('ogg') ? 'ogg' : type.includes('wav') ? 'wav' : 'webm'
+    const providers = createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(90000) })
+    const result = await providers.call('openai', 'studio-voice-input', async () => getOpenAIClient().audio.transcriptions.create({
+      file: await toFile(req.file.buffer, `voice.${ext}`, { type }), model: getOpenAIModels().transcribeModel, language: 'ko',
+    }, { timeout: 90000, maxRetries: 0 }))
+    const spoken = text(result?.text, 4000)
+    if (!spoken) fail('VOICE_EMPTY', '말소리를 알아듣지 못했어요. 조금 더 크게 다시 말해 주세요.', 422)
+    res.json({ text: spoken })
   }))
   const ideaAttachments = value => (Array.isArray(value) ? value : []).map(a => ({ name: text(a?.name, 120), content: text(a?.content, 6000) })).filter(a => a.name && a.content).slice(0, 5)
   // The conversation shows attachment names; their text stays on the server for 훅ai.
