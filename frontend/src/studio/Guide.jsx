@@ -13,7 +13,7 @@ export function UpdatePopup({ onClose, onTour }) {
   const close = useCallback((how = null) => { if (how === 'day') hidePopupForADay(); if (how) markPopupClosed(); onClose() }, [onClose])
   useEffect(() => { const onKey = e => { if (e.key === 'Escape') close('visit'); if (e.key === 'ArrowRight') setI(n => Math.min(WHATS_NEW.length - 1, n + 1)); if (e.key === 'ArrowLeft') setI(n => Math.max(0, n - 1)) }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [close])
   const last = i === WHATS_NEW.length - 1
-  // Pages turn by themselves (paused while the pointer rests on the popup), and after the last one the tour starts.
+  // Pages turn by themselves, and after the last one the tour starts.
   const advance = () => { if (last) { close(); onTour() } else setI(i + 1) }
   return <div className="st-modal st-whatsnew-wrap" role="dialog" aria-modal="true" aria-label="훅ai 업그레이드 안내">
     <div className="st-whatsnew">
