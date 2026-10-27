@@ -3,6 +3,9 @@ import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSear
 import { useStudio } from '../context'
 import { studio, compactCount, day, when } from '../api'
 
+// A 추천 link the Mac mini has not read yet has no account name or play count of its own.
+const handle = reel => reel.username === 'recommended' ? '계정 확인 중' : `@${reel.username}`
+
 const FACE = [['any', '전체'], ['visible', '공개'], ['mixed', '일부'], ['hidden', '비공개']]
 const REGION = [['any', '전체'], ['domestic', '국내'], ['overseas', '해외']]
 const SORT = [['latest', '최신순'], ['views', '조회수순'], ['popular', '인기순']]
@@ -78,13 +81,13 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
   return <article className="st-reel" data-tour={tour}>
     <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => { setHover(false); setPlaying(false) }}>
       <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 영상 재생`}>
-        {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-reel-placeholder">{reel.source === 'upload-text' ? '📝' : '🎬'}<b>{reel.title || `@${reel.username}`}</b></span>}
+        {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-reel-placeholder">{reel.source === 'upload-text' ? '📝' : '🎬'}<b>{reel.title || handle(reel)}</b></span>}
         {hover && preview && <video src={preview} muted autoPlay loop playsInline className={`st-reel-preview${playing ? ' is-playing' : ''}`} onPlaying={() => setPlaying(true)} onEmptied={() => setPlaying(false)} />}
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
       {hover && (loadingPreview || (preview && !playing)) && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
       <div className="st-reel-tags">{reel.recommended && <span className="st-reel-badge st-reel-rec">추천</span>}{badge !== undefined ? badge : ready ? <span className="st-reel-badge"><Sparkles size={12} /> 분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}</div>
-      <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{compactCount(reel.views)}</span></div>
+      <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{reel.views ? compactCount(reel.views) : '확인 중'}</span></div>
       <div className="st-reel-hover">
         <button type="button" className="st-reel-analyze" disabled={busy} onClick={ready ? onOpenAnalysis : onAnalyze}>
           {busy ? <><LoaderCircle size={16} className="st-spin" />분석 중</> : ready ? <><Sparkles size={16} />분석 보기</> : <><ScanSearch size={16} />분석하기</>}</button>
@@ -92,7 +95,7 @@ export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, child
         {footer}
       </div>
     </div>
-    <span className="st-reel-caption"><strong>{reel.title || `@${reel.username}`}</strong>{reel.captionKo || reel.caption}</span>
+    <span className="st-reel-caption"><strong>{reel.title || handle(reel)}</strong>{reel.captionKo || reel.caption}</span>
     {children}
   </article>
 }
