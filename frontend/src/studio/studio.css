@@ -907,3 +907,6 @@ html.st-html body { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 .st { max-width:100vw; overflow-x:clip; }
 .st-main, .st-content { min-width:0; max-width:100%; }
 @media (max-width: 860px) { .st-seg { max-width:100%; overflow-x:auto; scrollbar-width:none; } .st-seg button { flex:none; } }
+/* 사파리(WebKit)는 grid 칸의 최소 폭을 안의 가장 긴 줄로 잡아 화면보다 넓어질 수 있어요. 세로로 쌓는 묶음은 늘 화면 폭에 맞춰요. */
+.st-stack { grid-template-columns:minmax(0, 1fr); }
+.st-stack > *, .st-content > * { min-width:0; max-width:100%; }
