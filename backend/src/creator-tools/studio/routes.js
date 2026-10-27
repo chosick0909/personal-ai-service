@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import { asyncHandler } from '../../lib/errors.js'
-import { fail, uuid } from '../domain.js'
+import { fail, stableHash, uuid } from '../domain.js'
 import { database, query, ownedMedia } from '../store.js'
 import { redisConnection } from '../queue.js'
 import { createProviders } from '../providers.js'
@@ -665,6 +665,10 @@ export function registerStudioRoutes(router) {
       draft = { title: entry.title, spec: kind === 'hook' ? { type: entry.type, formula: entry.formula } : { format: entry.format, segments: entry.segments, ...(entry.lines ? { lines: entry.lines } : {}) }, example: entry.example || entry.summary, source: { libraryId: entry.id } }
     } else fail('SOURCE_REQUIRED', '저장할 내용이 없어요.')
     const title = text(req.body?.title, 80) || draft.title
+    // Saving the same formula again (a second click, or the same reel another day) returns the one already kept.
+    const same = (await query(database().from('studio_formulas').select('id,kind,title,spec,example,source,created_at').eq('user_id', req.auth.userId).eq('kind', kind).eq('title', title).limit(50)))
+      .find(r => stableHash(r.spec) === stableHash(draft.spec))
+    if (same) return res.json({ duplicate: true, formula: { id: same.id, kind: same.kind, title: same.title, spec: same.spec, example: same.example, source: same.source, createdAt: same.created_at } })
     const row = await query(database().from('studio_formulas').insert({ user_id: req.auth.userId, kind, title, spec: draft.spec, example: draft.example || '', source: draft.source || {} }).select('id,kind,title,spec,example,source,created_at').single())
     res.status(201).json({ formula: { id: row.id, kind: row.kind, title: row.title, spec: row.spec, example: row.example, source: row.source, createdAt: row.created_at } })
   }))

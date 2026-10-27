@@ -102,7 +102,7 @@ const analysisStage = startedAt => { const s = startedAt ? (Date.now() - Date.pa
 
 export default function ReferenceDetail({ shortcode }) {
   const { go, analyze, tracking, toast } = useStudio()
-  const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, shortcode }); toast({ kind: 'ready', title: '내 공식에 저장했어요', body: r.formula.spec?.formula ? `${r.formula.title} · 공식: ${r.formula.spec.formula}` : r.formula.title, ttl: 10000, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
+  const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, shortcode }); toast({ kind: 'ready', title: r.duplicate ? '이미 내 공식에 있어요' : '내 공식에 저장했어요', body: r.formula.spec?.formula ? `${r.formula.title} · 공식: ${r.formula.spec.formula}` : r.formula.title, ttl: 10000, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
   const [reel, setReel] = useState(null)
   const [error, setError] = useState('')
   const [tab, setTab] = useState('script')

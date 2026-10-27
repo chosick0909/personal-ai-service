@@ -441,7 +441,7 @@ export default function PlanWizard({ sessionId }) {
   const apply = async messageId => { try { const r = await studio.apply(sessionId, messageId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); setAppliedId(messageId); toast({ kind: 'ready', title: '적용했어요', body: '화면에 반영됐어요.' }) } catch (e) { toast({ kind: 'failed', title: '적용 실패', body: e.message }) } }
   // Loading a saved cover or first line redraws the stage so every box shows the loaded version.
   const restorePick = async (field, index) => { await save({ [field]: { restore: index } }); setVersion(v => v + 1) }
-  const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, sessionId }); toast({ kind: 'ready', title: '내 공식에 저장했어요', body: r.formula.title, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
+  const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, sessionId }); toast({ kind: 'ready', title: r.duplicate ? '이미 내 공식에 있어요' : '내 공식에 저장했어요', body: r.formula.title, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
 
   const [briefLive, setBriefLive] = useState('')
   useEffect(() => { if (session?.brief) setBriefLive(session.brief) }, [session?.brief])

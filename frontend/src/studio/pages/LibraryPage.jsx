@@ -13,7 +13,7 @@ export default function LibraryPage() {
   const [tab, setTab] = useState('structures')
   const [open, setOpen] = useState(null)
   useEffect(() => { studio.library().then(setData).catch(e => setError(e.message)) }, [])
-  const save = async (kind, item) => { try { await studio.saveFormula({ kind, libraryId: item.id }); toast({ kind: 'ready', title: '내 공식에 담았어요', body: item.title, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
+  const save = async (kind, item) => { try { const r = await studio.saveFormula({ kind, libraryId: item.id }); toast({ kind: 'ready', title: r.duplicate ? '이미 내 공식에 있어요' : '내 공식에 담았어요', body: item.title, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
   if (error) return <div className="st-error">{error}</div>
   if (!data) return <p className="st-muted">불러오는 중…</p>
   const stories = data.structures.filter(s => s.template)
