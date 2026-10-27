@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Flame, Lightbulb, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon, BookOpenCheck } from 'lucide-react'
-import { safeGetStorageItem, safeSetStorageItem } from '../lib/safeStorage'
 import hookLogo from './assets/hookai-avatar.webp'
 import { useAppState } from '../store/AppState'
 import { studio } from './api'
@@ -19,7 +18,7 @@ import PrintView from './pages/PrintView'
 import ManualPage from './pages/ManualPage'
 import { UpdatePopup, Tour } from './Guide'
 import KakaoIcon, { KAKAO_CHAT } from './KakaoIcon'
-import { popupHidden, tourDone } from './guideData'
+import { popupHidden, popupClosedThisVisit, tourDone } from './guideData'
 import './studio.css'
 
 import { StudioContext } from './context'
@@ -123,7 +122,7 @@ export default function StudioApp() {
 
   const value = useMemo(() => ({ go, route, toast, dismiss, analyze, tracking, categories, features, user: currentUser }), [go, route, toast, dismiss, analyze, tracking, categories, features, currentUser])
   const [title, sub] = TITLES[route.page] || TITLES.reels
-  // Every visit opens with the upgrade popup (once per browser session; '24시간 동안 보지 않기' skips it for a day), then the guided tour once.
+  // Every visit opens with the upgrade popup until it is closed in that visit ('24시간 동안 보지 않기' skips it for a day), then the guided tour once.
   const [guide, setGuide] = useState(null)
   // A trial link is for showing the studio to someone new: on every load its guided tour runs first, whatever was dismissed before.
   const isTrial = /@trial\.hookai\.kr$/.test(currentUser?.email || '')
@@ -137,7 +136,7 @@ export default function StudioApp() {
       setTimeout(() => setGuide('tour'), 500)
       return
     }
-    if (!popupHidden() && !safeGetStorageItem('hookai-studio-whatsnew-seen-v2', { kind: 'session' })) { safeSetStorageItem('hookai-studio-whatsnew-seen-v2', '1', { kind: 'session' }); setGuide('popup') }
+    if (!popupHidden() && !popupClosedThisVisit()) setGuide('popup')
     else if (!tourDone()) setGuide('tour')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [features, isTrial])
