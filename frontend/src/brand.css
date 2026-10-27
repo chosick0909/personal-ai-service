@@ -46,11 +46,5 @@
 .hk-brand [class*="bg-[#E5E7EB]"]:not(button) { background: linear-gradient(90deg, #8D5CFF, #6A2BF5) !important; }
 .hk-brand a { text-underline-offset: 4px; }
 
-/* 계정 설정 등 남은 예전 화면 */
-.hk-brand [class*="bg-[#131A24]"], .hk-brand [class*="bg-[#1B202A]"] { background-color: var(--hk-panel) !important; }
-.hk-brand [class*="bg-[linear-gradient(180deg,#0D0F14"] { background: rgba(24, 18, 48, 0.9) !important; backdrop-filter: blur(18px); }
-.hk-brand [class*="border-[#CBD5E1]"], .hk-brand [class*="border-[#94A3B8]"] { border-color: var(--hk-accent-2) !important; }
-.hk-brand [class*="bg-[#CBD5E1]"] { background-color: var(--hk-accent-2) !important; }
-
 /* 화면을 불러오는 동안 잠깐 보이는 안내 */
 .hk-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #CBB9FF; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }

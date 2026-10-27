@@ -3831,7 +3831,7 @@ function SettingsShell() {
     return <LoginScreen />
   }
 
-  return <div className="hk-brand min-h-screen"><SettingsPage onBack={() => window.location.assign('/studio')} /></div>
+  return <SettingsPage onBack={() => window.location.assign('/studio')} />
 }
 
 function SettingsApp() {
@@ -3867,7 +3867,9 @@ export default function App() {
   let content = <IntroApp />
 
   if (pathname.startsWith('/settings')) {
-    content = <SettingsApp />
+    // 계정 설정 is not part of the new studio; an old link lands in the studio.
+    window.location.replace('/studio')
+    return null
   } else if (pathname.startsWith('/login')) {
     content = <LoginApp />
   } else if (pathname.startsWith('/signup')) {
