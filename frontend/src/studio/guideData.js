@@ -29,7 +29,7 @@ export const TOUR_STEPS = [
   { target: 'library', title: '⑧ 공식 사전', body: '터진 영상이 쓰는 공식을 유형별로 모아 뒀어요. 예시와 함께 배울 수 있어요.' },
   { target: 'edit', title: '⑨ 영상 편집', body: '찍은 영상을 올리면 훅ai가 고칠 점을 알려주고, 말한 문장 단위로 잘라 자막까지 넣은 완성 영상을 만들어요.' },
   { target: 'style', title: '⑩ 내 말투', body: '평소 말투를 알려주면 훅ai가 그 말투로 대본을 써요. 비워두면 훅ai가 알아서 해요.' },
-  { target: 'manual', title: '⑪ 사용 설명서', body: '헷갈리면 언제든 여기를 누르세요. 화면 사진과 번호로 하나씩 따라 할 수 있게 정리했어요.' },
+  { target: 'manual', title: '⑪ 사용 설명서', body: '둘러보기는 여기까지예요! 🎉 쓰다가 헷갈리면 언제든 이 ‘사용 설명서’를 누르세요. 화면 사진과 번호로 하나씩 따라 할 수 있어요. 바로 아래 ‘1:1 문의’로 물어보셔도 돼요.' },
 ]
 export const TOUR_KEY = 'hookai-studio-tour-v1'
 export const tourDone = () => safeGetStorageItem(TOUR_KEY) === 'done'

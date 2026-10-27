@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
-import { X, ChevronLeft, ChevronRight, BookOpenCheck } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, Compass } from 'lucide-react'
 import { WHATS_NEW, TOUR_STEPS, hidePopupForADay, markTourDone } from './guideData'
 import avatar from './assets/hookai-avatar.webp'
 
-export function UpdatePopup({ onClose, onTour, onManual }) {
+export function UpdatePopup({ onClose, onTour }) {
   const [i, setI] = useState(0)
   const slide = WHATS_NEW[i]
   const close = useCallback((forADay = false) => { if (forADay) hidePopupForADay(); onClose() }, [onClose])
@@ -31,9 +31,9 @@ export function UpdatePopup({ onClose, onTour, onManual }) {
         <div className="st-whatsnew-actions">
           {last ? <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => { close(); onTour() }}>어디에 뭐가 있는지 둘러보기</button>
             : <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => setI(i + 1)}>{slide.welcome ? '무엇이 좋아졌는지 보기' : '다음 기능 보기'}<ChevronRight size={20} /></button>}
-          <button type="button" className="st-btn st-btn-lg" onClick={() => { close(); onManual() }}><BookOpenCheck size={20} />사용 설명서 보기</button>
+          {!last && <button type="button" className="st-btn st-btn-lg" onClick={() => { close(); onTour() }}><Compass size={20} />바로 화면 둘러보기</button>}
         </div>
-        <div className="st-whatsnew-foot"><button type="button" onClick={() => { close(); onTour() }}>둘러보기</button><span aria-hidden="true">|</span><button type="button" onClick={() => close(true)}>24시간 동안 보지 않기</button></div>
+        <div className="st-whatsnew-foot"><button type="button" onClick={() => close(true)}>24시간 동안 보지 않기</button></div>
       </div>
     </div>
   </div>
@@ -81,7 +81,7 @@ export function Tour({ onClose }) {
         <button type="button" className="st-tour-skip" onClick={finish}>건너뛰기</button>
         <div className="st-row" style={{ gap: 8 }}>
           {i > 0 && <button type="button" className="st-btn st-btn-sm" onClick={() => setI(i - 1)}>이전</button>}
-          <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => last ? finish() : setI(i + 1)}>{last ? '시작하기' : '다음'}</button>
+          <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => last ? finish() : setI(i + 1)}>{last ? '안내 끝내기' : '다음'}</button>
         </div>
       </div>
     </div>

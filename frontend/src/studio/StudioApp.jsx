@@ -186,7 +186,7 @@ export default function StudioApp() {
         </div>
       </div>
       {route.page !== 'plan' && route.page !== 'new' && !(route.page === 'edit' && route.params.job) && <button type="button" data-tour="new" className="st-fab" onClick={() => go('new')}><Sparkles size={22} />내 기획안 만들기</button>}
-      {guide === 'popup' && <UpdatePopup onClose={() => setGuide(g => g === 'popup' ? null : g)} onTour={() => { if (route.page !== 'reels') go('reels'); setTimeout(() => setGuide('tour'), 500) }} onManual={() => go('manual')} />}
+      {guide === 'popup' && <UpdatePopup onClose={() => setGuide(g => g === 'popup' ? null : g)} onTour={() => { if (route.page !== 'reels') go('reels'); setTimeout(() => setGuide('tour'), 500) }} />}
       {guide === 'tour' && <Tour onClose={() => setGuide(null)} />}
       <div className="st-toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`st-toast st-toast-${t.kind}`}>
         {t.kind === 'running' ? <LoaderCircle size={20} className="st-spin" /> : t.kind === 'ready' ? <CheckCircle2 size={20} /> : <TriangleAlert size={20} />}
