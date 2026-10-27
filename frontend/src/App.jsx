@@ -3790,11 +3790,11 @@ function StudioShell() {
   }
 
   if (activeToolPage === 'studio') {
-    return <CreatorAccessGate><Suspense fallback={<div>스튜디오 불러오는 중…</div>}><CreatorStudio2 /></Suspense></CreatorAccessGate>
+    return <CreatorAccessGate><Suspense fallback={<div className="hk-brand hk-loading">스튜디오 불러오는 중…</div>}><CreatorStudio2 /></Suspense></CreatorAccessGate>
   }
 
   if (activeToolPage === 'creator-tools') {
-    return <CreatorAccessGate><Suspense fallback={<div>도구 불러오는 중…</div>}><CreatorTools /></Suspense></CreatorAccessGate>
+    return <CreatorAccessGate><Suspense fallback={<div className="hk-brand hk-loading">도구 불러오는 중…</div>}><CreatorTools /></Suspense></CreatorAccessGate>
   }
 
   return (
@@ -3831,7 +3831,7 @@ function SettingsShell() {
     return <LoginScreen />
   }
 
-  return <SettingsPage onBack={() => window.location.assign('/studio')} />
+  return <div className="hk-brand min-h-screen"><SettingsPage onBack={() => window.location.assign('/studio')} /></div>
 }
 
 function SettingsApp() {
@@ -3862,7 +3862,7 @@ export default function App() {
   const pathname = window.location.pathname
 
   if (/^\/tools\/demo\/?$/.test(pathname)) {
-    return <Suspense fallback={<div>시연 화면 준비 중…</div>}><CreatorToolsDemo /></Suspense>
+    return <Suspense fallback={<div className="hk-brand hk-loading">시연 화면 준비 중…</div>}><CreatorToolsDemo /></Suspense>
   }
   let content = <IntroApp />
 
