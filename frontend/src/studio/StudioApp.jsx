@@ -89,6 +89,8 @@ export default function StudioApp() {
   const dismiss = useCallback(id => setToasts(list => list.filter(t => t.id !== id)), [])
 
   // Reel analyses run on the server; this tracker polls them and opens the result when it is ready.
+  // A finished analysis is announced with a toast; the result opens when the student taps it, never by itself.
+  const announceReady = useCallback((code, username) => toast({ id: `an:${code}`, kind: 'ready', title: '분석 완료', body: `@${username}`, action: { label: '결과 보기', onClick: () => go('reference', { ref: code }) }, ttl: 15000 }), [toast, go])
   const analyze = useCallback(async (reel, { started = false } = {}) => {
     const code = reel.shortcode
     setTracking(t => ({ ...t, [code]: { reel, status: 'running' } }))
@@ -96,12 +98,13 @@ export default function StudioApp() {
     if (started) return
     try {
       const result = await studio.analyze(code)
-      if (result.status === 'ready') { setTracking(t => { const n = { ...t }; delete n[code]; return n }); dismiss(`an:${code}`); go('reference', { ref: code }) }
+      // An analysis that already exists still shows a short wait first, then the same toast as a fresh one.
+      if (result.status === 'ready') { await new Promise(resolve => setTimeout(resolve, 5000)); setTracking(t => { const n = { ...t }; delete n[code]; return n }); announceReady(code, reel.username) }
     } catch (e) {
       setTracking(t => { const n = { ...t }; delete n[code]; return n })
       toast({ id: `an:${code}`, kind: 'failed', title: '분석 실패', body: e.message, ttl: 8000 })
     }
-  }, [toast, dismiss, go])
+  }, [toast, announceReady])
   const running = Object.keys(tracking).join(',')
   useEffect(() => {
     if (!running) return undefined
@@ -112,13 +115,13 @@ export default function StudioApp() {
         setTracking(t => { const n = { ...t }; delete n[code]; return n })
         if (data.analysisStatus === 'ready') {
           const r = routeRef.current
-          if (r.page === 'reels' || (r.page === 'reference' && r.params.ref === code)) { dismiss(`an:${code}`); go('reference', { ref: code }) }
-          else toast({ id: `an:${code}`, kind: 'ready', title: '분석 완료', body: `@${data.username}`, action: { label: '결과 보기', onClick: () => go('reference', { ref: code }) }, ttl: 15000 })
+          if (r.page === 'reference' && r.params.ref === code) { dismiss(`an:${code}`); go('reference', { ref: code }, { replace: true }) }
+          else announceReady(code, data.username)
         } else toast({ id: `an:${code}`, kind: 'failed', title: '분석 실패', body: data.analysisError || '잠시 후 다시 시도해주세요.', ttl: 8000 })
       }).catch(() => {})
     }, 4000)
     return () => clearInterval(timer)
-  }, [running, go, toast, dismiss])
+  }, [running, go, toast, dismiss, announceReady])
 
   const value = useMemo(() => ({ go, route, toast, dismiss, analyze, tracking, categories, features, user: currentUser }), [go, route, toast, dismiss, analyze, tracking, categories, features, currentUser])
   const [title, sub] = TITLES[route.page] || TITLES.reels

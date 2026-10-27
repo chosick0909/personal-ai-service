@@ -330,11 +330,20 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   const from = page * limit, to = from + limit - 1
   let rows
   if (sort === 'ready') {
-    // Analysed reels fill the first pages, newest first; the rest follow in the same order.
-    const ready = (await narrow(listed('shortcode', { count: 'exact', head: true })).eq('analysis_status', 'ready')).count || 0
-    const take = async (status, a, b) => b < a ? [] : query(narrow(listed(COLUMNS))[status === 'ready' ? 'eq' : 'neq']('analysis_status', 'ready')
-      .order('posted_at', { ascending: false }).range(a, b))
-    rows = [...await take('ready', from, Math.min(to, ready - 1)), ...await take('rest', Math.max(0, from - ready), to - ready)]
+    // Pages fill group by group, newest first within each: analysed 추천, other analysed, unanalysed 추천, the rest.
+    const notRecommended = r => r.or('recommended.is.null,recommended.eq.false')
+    const groups = [r => r.eq('analysis_status', 'ready').eq('recommended', true), r => notRecommended(r.eq('analysis_status', 'ready')),
+      r => r.neq('analysis_status', 'ready').eq('recommended', true), r => notRecommended(r.neq('analysis_status', 'ready'))]
+    rows = []
+    let offset = 0
+    for (const [n, group] of groups.entries()) {
+      if (rows.length >= limit) break
+      const last = n === groups.length - 1
+      const size = last ? Infinity : (await group(narrow(listed('shortcode', { count: 'exact', head: true })))).count || 0
+      const a = Math.max(0, from - offset), b = Math.min(size - 1, to - offset)
+      if (b >= a) rows.push(...await query(group(narrow(listed(COLUMNS))).order('posted_at', { ascending: false }).range(a, b)))
+      offset += size
+    }
   } else {
     request = narrow(request)
     if (sort === 'popular') request = request.order('analysis_requests', { ascending: false })

@@ -363,3 +363,10 @@ test('with no sort chosen, reels that already have an analysis come first, then 
   assert.equal(second.length, 12)
   assert.equal(new Set([...first, ...second].map(r => r.shortcode)).size, 60)
 })
+
+test('with no sort chosen, analysed 추천 reels lead, then other analysed ones, then unanalysed 추천, then the rest', async () => {
+  const db = fakeDb()
+  const add = (shortcode, day, status, recommended) => db.tables.creator_success_reels.set(shortcode, { shortcode, visible: true, reference_fit: true, posted_at: new Date(Date.UTC(2026, 9, day)).toISOString(), analysis_status: status, recommended, views: 600000 })
+  add('PlainNew1', 9, 'none', false); add('RecNone1', 8, 'none', true); add('ReadyOld1', 1, 'ready', false); add('ReadyRec1', 2, 'ready', true); add('ReadyNew1', 7, 'ready', null)
+  assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['ReadyRec1', 'ReadyNew1', 'ReadyOld1', 'RecNone1', 'PlainNew1'])
+})
