@@ -54,8 +54,9 @@ export default function StudioApp() {
   const [route, setRoute] = useState(readRoute)
   const [menuOpen, setMenuOpen] = useState(false)
   // Same key as the old studio, so a student's choice carries between the two.
-  const [theme, setTheme] = useState(() => safeGetStorageItem('hookai-tools-theme') === 'dark' ? 'dark' : 'light')
-  const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); safeSetStorageItem('hookai-tools-theme', next) }
+  // The studio always opens light; the switch changes the theme only for this visit (the old studio's saved dark choice no longer carries over).
+  const [theme, setTheme] = useState('light')
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
   const [features, setFeatures] = useState(null)
   const [categories, setCategories] = useState([])
   const [toasts, setToasts] = useState([])
