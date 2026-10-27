@@ -877,3 +877,25 @@
 @keyframes st-hello-float { 0%,100% { transform:translateY(0) rotate(-2deg) } 50% { transform:translateY(-12px) rotate(2deg) } }
 @keyframes st-hello-glow { 0%,100% { opacity:.55; transform:translate(-50%, -50%) scale(.92) } 50% { opacity:1; transform:translate(-50%, -50%) scale(1.06) } }
 @media (prefers-reduced-motion: reduce) { .st-whatsnew-hello img, .st-whatsnew-hello::before { animation:none; } }
+
+/* 휴대폰: 떠 있는 '내 기획안 만들기'는 동그란 아이콘만 남겨 내용을 덜 가리고, 안내 배너는 버튼까지 한 화면에 보이게 줄여요. */
+@media (max-width: 760px) {
+  .st .st-fab { right:max(16px, env(safe-area-inset-right, 0px)); bottom:calc(20px + env(safe-area-inset-bottom, 0px)); width:58px; min-height:58px; height:58px; padding:0; justify-content:center; }
+  .st-fab-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .st-ref-memo textarea, .st-textarea, .st-input { font-size:16px; }
+  .st-whatsnew-media { padding:26px 14px 58px; }
+  .st-whatsnew-media video { max-height:34vh; }
+  .st-whatsnew-hello { gap:6px; }
+  .st-whatsnew-hello img { width:120px; }
+  .st-whatsnew-hello::before { top:60px; width:150px; }
+  .st-whatsnew-hello strong { margin-top:4px; font-size:19px; }
+  .st-whatsnew-hello span { font-size:14px; }
+  .st-whatsnew-nav { bottom:10px; }
+  .st-whatsnew-close { position:fixed; top:calc(22px + env(safe-area-inset-top, 0px)); right:calc(22px + env(safe-area-inset-right, 0px)); z-index:5; width:40px; height:40px; background:rgba(0,0,0,.45); }
+  .st-whatsnew-copy { padding:20px 18px 16px; }
+  .st-whatsnew-copy h2, .st-whatsnew-copy.is-welcome h2 { font-size:23px; margin:6px 0 8px; }
+  .st-whatsnew-copy p, .st-whatsnew-copy.is-welcome p { font-size:15px; line-height:1.6; }
+  .st-whatsnew-copy.is-welcome .st-whatsnew-moves li { padding:7px 10px; font-size:13.5px; }
+  .st-whatsnew-moves li span { min-width:64px; }
+  .st-whatsnew-actions { margin-top:14px; }
+}
