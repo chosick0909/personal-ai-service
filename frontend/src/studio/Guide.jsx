@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { WHATS_NEW, TOUR_STEPS, hidePopupForADay, markPopupClosed, markTourDone } from './guideData'
-import avatar from './assets/hookai-avatar.webp'
+// The banner shows the character large, so it uses the full-size picture (the small one is for chat).
+import avatar from './assets/hookai-avatar-lg.webp'
 
 const SLIDE_SECONDS = 10
 
