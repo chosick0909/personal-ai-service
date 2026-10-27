@@ -12,8 +12,9 @@ export const WHATS_NEW = [
   { media: '/studio-guide/slide-script.mp4', badge: '대본 편집', title: '고치면 바로\n저장되고 길이도 계산돼요', body: '문장을 눌러 바로 고치면 예상 길이가 다시 계산돼요. “더 짧게”처럼 훅ai에게 말로 부탁해도 되고, 예전 버전은 저장 내역에서 불러올 수 있어요.' },
   { media: '/studio-guide/slide-tools.mp4', badge: '내 공식 · 내 말투', title: '내 방식대로\n쌓아 가세요', body: '저장한 공식은 다음 기획안에 바로 쓰고, 공식 사전에서 터진 영상의 공식을 배워요. 내 말투를 알려주면 훅ai가 그 말투로 써요.' },
 ]
-export const POPUP_KEY = 'hookai-studio-whatsnew-v1'
-export const popupHidden = () => safeGetStorageItem(POPUP_KEY) === 'hidden'
+// The popup comes back on every visit; '24시간 동안 보지 않기' stores until when it stays away.
+export const POPUP_KEY = 'hookai-studio-whatsnew-until'
+export const popupHidden = () => Number(safeGetStorageItem(POPUP_KEY)) > Date.now()
 
 // ---------- 처음 오면 순서대로 짚어주는 둘러보기 ----------
 // Each step points at a real element (data-tour) and says what it is for; steps whose element is not on screen are skipped.
@@ -33,5 +34,5 @@ export const TOUR_STEPS = [
 export const TOUR_KEY = 'hookai-studio-tour-v1'
 export const tourDone = () => safeGetStorageItem(TOUR_KEY) === 'done'
 
-export const hidePopupForever = () => safeSetStorageItem(POPUP_KEY, 'hidden')
+export const hidePopupForADay = () => safeSetStorageItem(POPUP_KEY, String(Date.now() + 24 * 3600000))
 export const markTourDone = () => safeSetStorageItem(TOUR_KEY, 'done')

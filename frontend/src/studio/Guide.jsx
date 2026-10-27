@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { X, ChevronLeft, ChevronRight, BookOpenCheck } from 'lucide-react'
-import { WHATS_NEW, TOUR_STEPS, hidePopupForever, markTourDone } from './guideData'
+import { WHATS_NEW, TOUR_STEPS, hidePopupForADay, markTourDone } from './guideData'
 import avatar from './assets/hookai-avatar.webp'
 
 export function UpdatePopup({ onClose, onTour, onManual }) {
   const [i, setI] = useState(0)
   const slide = WHATS_NEW[i]
-  const close = useCallback((forever = false) => { if (forever) hidePopupForever(); onClose() }, [onClose])
+  const close = useCallback((forADay = false) => { if (forADay) hidePopupForADay(); onClose() }, [onClose])
   useEffect(() => { const onKey = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') setI(n => Math.min(WHATS_NEW.length - 1, n + 1)); if (e.key === 'ArrowLeft') setI(n => Math.max(0, n - 1)) }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [close])
   const last = i === WHATS_NEW.length - 1
   return <div className="st-modal st-whatsnew-wrap" role="dialog" aria-modal="true" aria-label="훅ai 업그레이드 안내">
@@ -33,7 +33,7 @@ export function UpdatePopup({ onClose, onTour, onManual }) {
             : <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => setI(i + 1)}>{slide.welcome ? '무엇이 좋아졌는지 보기' : '다음 기능 보기'}<ChevronRight size={20} /></button>}
           <button type="button" className="st-btn st-btn-lg" onClick={() => { close(); onManual() }}><BookOpenCheck size={20} />사용 설명서 보기</button>
         </div>
-        <div className="st-whatsnew-foot"><button type="button" onClick={() => { close(); onTour() }}>둘러보기</button><span aria-hidden="true">|</span><button type="button" onClick={() => close(true)}>다시 보지 않기</button></div>
+        <div className="st-whatsnew-foot"><button type="button" onClick={() => { close(); onTour() }}>둘러보기</button><span aria-hidden="true">|</span><button type="button" onClick={() => close(true)}>24시간 동안 보지 않기</button></div>
       </div>
     </div>
   </div>

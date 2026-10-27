@@ -123,7 +123,7 @@ export default function StudioApp() {
 
   const value = useMemo(() => ({ go, route, toast, dismiss, analyze, tracking, categories, features, user: currentUser }), [go, route, toast, dismiss, analyze, tracking, categories, features, currentUser])
   const [title, sub] = TITLES[route.page] || TITLES.reels
-  // First visit: the upgrade popup (until 다시 보지 않기, once per browser session), then the guided tour once.
+  // Every visit opens with the upgrade popup (once per browser session; '24시간 동안 보지 않기' skips it for a day), then the guided tour once.
   const [guide, setGuide] = useState(null)
   // A trial link is for showing the studio to someone new: on every load its guided tour runs first, whatever was dismissed before.
   const isTrial = /@trial\.hookai\.kr$/.test(currentUser?.email || '')
@@ -137,7 +137,7 @@ export default function StudioApp() {
       setTimeout(() => setGuide('tour'), 500)
       return
     }
-    if (!popupHidden() && !safeGetStorageItem('hookai-studio-whatsnew-seen', { kind: 'session' })) { safeSetStorageItem('hookai-studio-whatsnew-seen', '1', { kind: 'session' }); setGuide('popup') }
+    if (!popupHidden() && !safeGetStorageItem('hookai-studio-whatsnew-seen-v2', { kind: 'session' })) { safeSetStorageItem('hookai-studio-whatsnew-seen-v2', '1', { kind: 'session' }); setGuide('popup') }
     else if (!tourDone()) setGuide('tour')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [features, isTrial])
