@@ -548,15 +548,18 @@ export function registerStudioRoutes(router) {
     const db = database()
     const rows = await query(db.from('creator_success_reels').select('shortcode').in('source', ['recommended', 'upload-link'])
       .neq('username', 'recommended').or('views.is.null,views.eq.0').limit(300))
+    if (req.body?.report) return res.json({ last: JSON.parse(await sharedRedis().get('hookai:fill-views:last').catch(() => null) || 'null') })
     if (!rows.length) return res.json({ started: false, count: 0 })
     schedule('fill-views', async () => {
       const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(20 * 60000) })
       const records = await providers.publicReels(rows.map(r => `https://www.instagram.com/reel/${r.shortcode}/`), (_key, task) => task(), `fillViews-${Date.now()}`)
-      const count = value => { const n = Number(value); return Number.isSafeInteger(n) && n >= 0 ? n : null }
+      // Counts may arrive as numbers or as text ("12,345"); the reel may be named by its link or its shortcode.
+      const count = value => { const n = typeof value === 'string' ? Number(value.replace(/[,\s]/g, '')) : Number(value); return Number.isSafeInteger(n) && n >= 0 ? n : null }
+      const list = Array.isArray(records) ? records : Array.isArray(records?.data) ? records.data : []
       let filled = 0
-      for (const record of Array.isArray(records) ? records : []) {
-        const code = /\/(?:reels?|p)\/([A-Za-z0-9_-]{5,40})/.exec(record?.url || record?.input?.url || '')?.[1]
-        const views = [count(record?.video_play_count), count(record?.views)].filter(Number.isFinite).sort((a, b) => b - a)[0]
+      for (const record of list) {
+        const code = record?.shortcode || /\/(?:reels?|p)\/([A-Za-z0-9_-]{5,40})/.exec([record?.url, record?.input?.url, record?.post_url].filter(Boolean).join(' '))?.[1]
+        const views = [record?.video_play_count, record?.views, record?.video_view_count, record?.play_count].map(count).filter(Number.isFinite).sort((a, b) => b - a)[0]
         if (!code || !views) continue
         const patch = { views }
         if (count(record.likes) !== null) patch.likes = count(record.likes)
@@ -564,7 +567,12 @@ export function registerStudioRoutes(router) {
         await query(db.from('creator_success_reels').update(patch).eq('shortcode', code).or('views.is.null,views.eq.0'))
         filled += 1
       }
-      console.log('[fill-views]', JSON.stringify({ asked: rows.length, returned: Array.isArray(records) ? records.length : 0, filled }))
+      // What came back, without captions or personal fields, so a run that fills nothing can be understood.
+      const first = list[0] || records
+      const summary = { at: new Date().toISOString(), asked: rows.length, returned: list.length, filled, keys: Object.keys(first || {}).slice(0, 60),
+        sample: list.slice(0, 3).map(r => ({ url: r?.url, input: r?.input?.url, shortcode: r?.shortcode, video_play_count: r?.video_play_count, views: r?.views, error: r?.error || r?.error_code || r?.warning })) }
+      console.log('[fill-views]', JSON.stringify(summary))
+      await sharedRedis().set('hookai:fill-views:last', JSON.stringify(summary), 'EX', 7 * 86400).catch(() => {})
     }, 1)
     res.json({ started: true, count: rows.length })
   }))
