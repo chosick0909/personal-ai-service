@@ -18,6 +18,7 @@ import PrintView from './pages/PrintView'
 import ManualPage from './pages/ManualPage'
 import { UpdatePopup, Tour } from './Guide'
 import KakaoIcon, { KAKAO_CHAT } from './KakaoIcon'
+import PencilPlusIcon from './PencilPlusIcon'
 import { popupHidden, popupClosedThisVisit, tourDone } from './guideData'
 import './studio.css'
 
@@ -187,7 +188,7 @@ export default function StudioApp() {
             : <ReelsPage />}
         </div>
       </div>
-      {route.page !== 'plan' && route.page !== 'new' && !(route.page === 'edit' && route.params.job) && <button type="button" data-tour="new" className="st-fab" aria-label="내 기획안 만들기" onClick={() => go('new')}><Sparkles size={22} /><span className="st-fab-label">내 기획안 만들기</span></button>}
+      {route.page !== 'plan' && route.page !== 'new' && !(route.page === 'edit' && route.params.job) && <button type="button" data-tour="new" className="st-fab" aria-label="내 기획안 만들기" onClick={() => go('new')}><PencilPlusIcon size={24} /><span className="st-fab-label">내 기획안 만들기</span></button>}
       {guide === 'popup' && <UpdatePopup onClose={() => setGuide(g => g === 'popup' ? null : g)} onTour={() => { if (route.page !== 'reels') go('reels'); setTimeout(() => setGuide('tour'), 500) }} />}
       {guide === 'tour' && <Tour onClose={() => setGuide(null)} />}
       <div className="st-toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`st-toast st-toast-${t.kind}`}>
