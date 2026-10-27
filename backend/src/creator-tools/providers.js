@@ -6,7 +6,7 @@ import { getAnthropicClient } from '../lib/anthropic.js'
 import { fail, stableHash } from './domain.js'
 import { query } from './store.js'
 import { fetchJson, readPublicImage } from './network.js'
-import { collectDataset } from './brightdata.js'
+import { collectInstagram, collectDataset } from './brightdata.js'
 import { LOOKUP_PRIORITY, requestLookup, awaitLookup } from './instagram-lookup.js'
 import { searchProfiles } from './public-discovery.js'
 
@@ -124,11 +124,41 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
     const media = await meta(`${data.data[0].id}/recent_media`, { user_id: auth.id, fields: 'id,caption,permalink,like_count,comments_count,timestamp', limit: 25 }, auth)
     return { status: 'available', media: media.data || [] }
   }
+  async function brightData(url, checkpoint) {
+    const key = process.env.BRIGHT_DATA_API_KEY
+    if (!key) fail('LINK_PROVIDER_NOT_CONFIGURED', '링크 분석 연결이 준비되지 않았습니다. 파일 업로드를 이용해주세요.', 503)
+    const records = await collectInstagram({ url, checkpoint, signal, request: (operation, path, options) =>
+      call('brightdata', operation, () => fetchJson(`https://api.brightdata.com/datasets/v3${path}`,
+        { ...options, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }, signal)) })
+    const record = Array.isArray(records) ? records[0] : null
+    if (!record?.video_url) {
+      const detail = String(record?.error_code || record?.error || '').toLowerCase()
+      const code = /private|login/.test(detail) ? 'LINK_PRIVATE' : /delete|not.found|404/.test(detail) ? 'LINK_DELETED'
+        : /region|geo/.test(detail) ? 'LINK_REGION_RESTRICTED' : 'LINK_UNAVAILABLE'
+      fail(code, '영상을 가져올 수 없습니다. 권한을 확인하거나 MP4·대본 업로드로 전환해주세요.', 422)
+    }
+    const count = value => { const n = Number(value); return Number.isSafeInteger(n) && n >= 0 ? n : null }
+    return { videoUrl: record.video_url, caption: String(record.description || '').slice(0, 5000),
+      username: record.user_posted || null, fetchedAt: new Date().toISOString(),
+      views: [count(record.video_play_count), count(record.views)].filter(Number.isFinite).sort((a, b) => b - a)[0] ?? null,
+      likes: count(record.likes), comments: count(record.num_comments),
+      postedAt: Number.isFinite(Date.parse(record.date_posted)) ? new Date(record.date_posted).toISOString() : null,
+      thumbnailUrl: typeof record.thumbnail === 'string' && record.thumbnail.startsWith('https://') ? record.thumbnail : null }
+  }
   // An Instagram reel read by the Mac mini (see instagram-lookup.js). The lookup id is checkpointed, so a job that
-  // restarts keeps waiting for the same lookup instead of queueing another.
+  // restarts keeps waiting for the same lookup instead of queueing another. A student is waiting on their own link,
+  // so when the Mac mini cannot read Instagram right now (request limit, offline, stuck), the paid reader answers
+  // instead; 추천 links and the study simply wait for the Mac mini.
   async function instagramReel(url, checkpoint = (_key, task) => task(), priority = LOOKUP_PRIORITY.student) {
     const id = await checkpoint('instagramLookupV1', () => requestLookup(db, url, priority))
-    const result = await awaitLookup({ db, redis, signal }, id)
+    const student = priority === LOOKUP_PRIORITY.student && Boolean(process.env.BRIGHT_DATA_API_KEY)
+    let result
+    try { result = await awaitLookup({ db, redis, signal }, id, student ? { timeoutMs: 60000 } : undefined) }
+    catch (error) {
+      if (!student || !['LOOKUP_BLOCKED', 'LOOKUP_OFFLINE', 'LOOKUP_TIMEOUT'].includes(error.code)) throw error
+      signal?.throwIfAborted()
+      return brightData(url, checkpoint)
+    }
     if (!result?.videoUrl) fail('LINK_UNAVAILABLE', '영상을 가져올 수 없습니다. 권한을 확인하거나 MP4·대본 업로드로 전환해주세요.', 422)
     return { ...result, fetchedAt: new Date().toISOString() }
   }

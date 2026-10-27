@@ -48,3 +48,31 @@ test('only checked fields of what the Mac mini reports are kept', () => {
   assert.equal(lookupError('LINK_DELETED'), 'LINK_DELETED')
   assert.equal(lookupError('anything else'), 'LINK_UNAVAILABLE')
 })
+
+test('a student\'s link goes to the paid reader at once while the Mac mini is limited; 추천 links keep waiting', async () => {
+  const { createProviders } = await import('../src/creator-tools/providers.js')
+  const { MockAgent, getGlobalDispatcher, setGlobalDispatcher } = await import('undici')
+  const previous = getGlobalDispatcher(), agent = new MockAgent(), savedKey = process.env.BRIGHT_DATA_API_KEY
+  process.env.BRIGHT_DATA_API_KEY = 'test-only-key'
+  agent.disableNetConnect(); setGlobalDispatcher(agent)
+  const pool = agent.get('https://api.brightdata.com')
+  pool.intercept({ method: 'POST', path: path => path.startsWith('/datasets/v3/trigger') }).reply(200, { snapshot_id: 'sd_student' })
+  pool.intercept({ method: 'GET', path: '/datasets/v3/progress/sd_student' }).reply(200, { status: 'ready' })
+  pool.intercept({ method: 'GET', path: '/datasets/v3/snapshot/sd_student?format=json' }).reply(200, [{ video_url: 'https://scontent.cdninstagram.com/s.mp4', user_posted: 'maker', video_play_count: 1200 }])
+  try {
+    const db = fakeDb()
+    db.rows.set('B', { id: 'B', shortcode: 'Other12345', status: 'failed', error: 'LOOKUP_BLOCKED', priority: 0, created_at: new Date().toISOString() })
+    const redis = { get: async () => 0, incr: async () => 1, expire: async () => {}, del: async () => {}, set: async () => 'OK' }
+    const events = { from: name => name === 'creator_provider_events' ? { insert: async () => ({ error: null }) } : db.from(name) }
+    const providers = createProviders({ job: { id: null }, db: events, redis })
+    const media = await providers.instagramReel('https://www.instagram.com/reel/AbCdE12345/')
+    assert.equal(media.videoUrl, 'https://scontent.cdninstagram.com/s.mp4')
+    assert.equal(media.views, 1200)
+    agent.assertNoPendingInterceptors()
+    await assert.rejects(providers.instagramReel('https://www.instagram.com/reel/AbCdE12345/', undefined, LOOKUP_PRIORITY.recommend), { code: 'LOOKUP_BLOCKED' })
+  } finally {
+    setGlobalDispatcher(previous); await agent.close()
+    if (savedKey === undefined) delete process.env.BRIGHT_DATA_API_KEY
+    else process.env.BRIGHT_DATA_API_KEY = savedKey
+  }
+})
