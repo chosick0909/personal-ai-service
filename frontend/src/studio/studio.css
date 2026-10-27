@@ -860,3 +860,10 @@
 .st-man-ask { display:flex; align-items:flex-start; gap:10px; margin-top:14px; padding:12px 14px; border-radius:12px; background:var(--st-panel); color:var(--st-text); line-height:1.6; }
 .st-man-ask svg { flex:none; margin-top:2px; }
 .st-man-ask a { color:var(--st-accent-text); font-weight:800; text-decoration:underline; text-underline-offset:3px; }
+
+/* 업데이트 안내: 페이지가 저절로 넘어가는 진행 막대(마우스를 올리면 멈춤) */
+.st-whatsnew-timer { position:absolute; top:0; left:0; right:0; height:4px; z-index:3; background:rgba(255,255,255,.08); }
+.st-whatsnew-timer span { display:block; height:100%; width:0; background:#a58dff; animation:st-whatsnew-timer linear forwards; }
+.st-whatsnew:hover .st-whatsnew-timer span { animation-play-state:paused; }
+@keyframes st-whatsnew-timer { from { width:0 } to { width:100% } }
+@media (prefers-reduced-motion: reduce) { .st-whatsnew-timer span { animation-duration:20s !important; } }

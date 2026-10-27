@@ -4,7 +4,7 @@ import { safeGetStorageItem, safeSetStorageItem } from '../lib/safeStorage'
 // Left: a looping recording of the real screen. Right: what the feature does, in a student's words.
 export const WHATS_NEW = [
   // First page for students who knew the old studio: they are in the right place, and nothing they used is gone.
-  { welcome: true, badge: '먼저 안심하세요', title: '잘못 들어오신 거 아니에요! 😊', body: '화면이 확 달라져서 깜짝 놀라셨죠? 여기는 늘 쓰시던 그 훅ai가 맞아요. 쓰시던 기능은 하나도 사라지지 않았고, 더 쉽고 더 똑똑하게 업그레이드됐어요.',
+  { welcome: true, seconds: 15, badge: '먼저 안심하세요', title: '잘못 들어오신 거 아니에요! 😊', body: '화면이 확 달라져서 깜짝 놀라셨죠? 여기는 늘 쓰시던 그 훅ai가 맞아요. 쓰시던 기능은 하나도 사라지지 않았고, 더 쉽고 더 똑똑하게 업그레이드됐어요.',
     moves: [['대본작업실', '내 기획안 · 훅ai와 대화하며 대본부터 캡션까지'], ['링크 분석', '내 레퍼런스 · 링크를 넣으면 바로 분석'], ['계정 추천', '영감 찾기 · 요즘 터진 영상을 매일 모아 보기'], ['영상 편집', '영상 편집 · 컷 편집과 자막이 더 편해졌어요']] },
   { media: '/studio-guide/slide-reels.mp4', badge: '영감 찾기', title: '터진 영상이\n매일 쌓여요', body: '최근 3개월 안에 50만 이상 나온 영상을 매일 모아요. 강사진이 고른 영상에는 ‘추천’이 붙어요. 분야·정렬·얼굴 노출로 골라 보세요.' },
   { media: '/studio-guide/slide-analysis.mp4', badge: '레퍼런스 분석', title: '왜 터졌는지\n한눈에 보여줘요', body: '분석하기 한 번이면 첫 문장·전개·촬영/편집·캡션까지 나눠서 정리해요. 마음에 드는 건 ‘내 공식’으로 저장해 두세요.' },

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
-import { X, ChevronLeft, ChevronRight, Compass } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { WHATS_NEW, TOUR_STEPS, hidePopupForADay, markTourDone } from './guideData'
 import avatar from './assets/hookai-avatar.webp'
+
+const SLIDE_SECONDS = 10
 
 export function UpdatePopup({ onClose, onTour }) {
   const [i, setI] = useState(0)
@@ -9,8 +11,11 @@ export function UpdatePopup({ onClose, onTour }) {
   const close = useCallback((forADay = false) => { if (forADay) hidePopupForADay(); onClose() }, [onClose])
   useEffect(() => { const onKey = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') setI(n => Math.min(WHATS_NEW.length - 1, n + 1)); if (e.key === 'ArrowLeft') setI(n => Math.max(0, n - 1)) }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [close])
   const last = i === WHATS_NEW.length - 1
+  // Pages turn by themselves (paused while the pointer rests on the popup), and after the last one the tour starts.
+  const advance = () => { if (last) { close(); onTour() } else setI(i + 1) }
   return <div className="st-modal st-whatsnew-wrap" role="dialog" aria-modal="true" aria-label="훅ai 업그레이드 안내">
     <div className="st-whatsnew">
+      <div className="st-whatsnew-timer" aria-hidden="true"><span key={i} style={{ animationDuration: `${slide.seconds || SLIDE_SECONDS}s` }} onAnimationEnd={advance} /></div>
       <div className="st-whatsnew-media">
         {slide.welcome ? <div className="st-whatsnew-hello"><img src={avatar} alt="" /><strong>훅ai가 새 옷을 입었어요</strong><span>반가워요, 다시 만나서!</span></div>
           : <video key={slide.media} src={slide.media} autoPlay muted loop playsInline aria-hidden="true" />}
@@ -31,7 +36,6 @@ export function UpdatePopup({ onClose, onTour }) {
         <div className="st-whatsnew-actions">
           {last ? <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => { close(); onTour() }}>어디에 뭐가 있는지 둘러보기</button>
             : <button type="button" className="st-btn st-btn-primary st-btn-lg" onClick={() => setI(i + 1)}>{slide.welcome ? '무엇이 좋아졌는지 보기' : '다음 기능 보기'}<ChevronRight size={20} /></button>}
-          {!last && <button type="button" className="st-btn st-btn-lg" onClick={() => { close(); onTour() }}><Compass size={20} />바로 화면 둘러보기</button>}
         </div>
         <div className="st-whatsnew-foot"><button type="button" onClick={() => close(true)}>24시간 동안 보지 않기</button></div>
       </div>
