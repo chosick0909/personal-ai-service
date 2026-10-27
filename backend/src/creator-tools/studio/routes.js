@@ -542,6 +542,32 @@ export function registerStudioRoutes(router) {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 볼 수 있어요.', 404)
     res.json({ links: await query(database().from('creator_demo_links').select('id,label,expires_at,revoked_at,last_used_at,created_at').order('created_at', { ascending: false })) })
   }))
+  // Reels read from a single reel page (추천 and student links) carry no play count; Bright Data reads it in one batch.
+  router.post('/creator-tools/studio/fill-views', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
+    const db = database()
+    const rows = await query(db.from('creator_success_reels').select('shortcode').in('source', ['recommended', 'upload-link'])
+      .neq('username', 'recommended').or('views.is.null,views.eq.0').limit(300))
+    if (!rows.length) return res.json({ started: false, count: 0 })
+    schedule('fill-views', async () => {
+      const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(20 * 60000) })
+      const records = await providers.publicReels(rows.map(r => `https://www.instagram.com/reel/${r.shortcode}/`), (_key, task) => task(), `fillViews-${Date.now()}`)
+      const count = value => { const n = Number(value); return Number.isSafeInteger(n) && n >= 0 ? n : null }
+      let filled = 0
+      for (const record of Array.isArray(records) ? records : []) {
+        const code = /\/(?:reels?|p)\/([A-Za-z0-9_-]{5,40})/.exec(record?.url || record?.input?.url || '')?.[1]
+        const views = [count(record?.video_play_count), count(record?.views)].filter(Number.isFinite).sort((a, b) => b - a)[0]
+        if (!code || !views) continue
+        const patch = { views }
+        if (count(record.likes) !== null) patch.likes = count(record.likes)
+        if (count(record.num_comments) !== null) patch.comments = count(record.num_comments)
+        await query(db.from('creator_success_reels').update(patch).eq('shortcode', code).or('views.is.null,views.eq.0'))
+        filled += 1
+      }
+      console.log('[fill-views]', JSON.stringify({ asked: rows.length, returned: Array.isArray(records) ? records.length : 0, filled }))
+    }, 1)
+    res.json({ started: true, count: rows.length })
+  }))
   router.post('/creator-tools/studio/trial-links/:id/revoke', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 끌 수 있어요.', 404)
     await query(database().from('creator_demo_links').update({ revoked_at: new Date().toISOString() }).eq('id', uuid(req.params.id)))
