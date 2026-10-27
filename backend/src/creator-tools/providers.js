@@ -135,7 +135,7 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
       const detail = String(record?.error_code || record?.error || '').toLowerCase()
       const code = /private|login/.test(detail) ? 'LINK_PRIVATE' : /delete|not.found|404/.test(detail) ? 'LINK_DELETED'
         : /region|geo/.test(detail) ? 'LINK_REGION_RESTRICTED' : 'LINK_UNAVAILABLE'
-      fail(code, '영상을 가져올 수 없습니다. 권한을 확인하거나 MP4·대본 업로드로 전환해주세요.', 422)
+      fail(code, '영상을 가져올 수 없어요. 사진 게시물(카드뉴스)이나 연령 제한·비공개 게시물은 분석할 수 없어요. 영상 파일(MP4)이나 대본을 직접 올려 주세요.', 422)
     }
     const count = value => { const n = Number(value); return Number.isSafeInteger(n) && n >= 0 ? n : null }
     return { videoUrl: record.video_url, caption: String(record.description || '').slice(0, 5000),
@@ -159,7 +159,7 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
       signal?.throwIfAborted()
       return brightData(url, checkpoint)
     }
-    if (!result?.videoUrl) fail('LINK_UNAVAILABLE', '영상을 가져올 수 없습니다. 권한을 확인하거나 MP4·대본 업로드로 전환해주세요.', 422)
+    if (!result?.videoUrl) fail('LINK_UNAVAILABLE', '영상을 가져올 수 없어요. 사진 게시물(카드뉴스)이나 연령 제한·비공개 게시물은 분석할 수 없어요. 영상 파일(MP4)이나 대본을 직접 올려 주세요.', 422)
     return { ...result, fetchedAt: new Date().toISOString() }
   }
   async function searchAccounts(queryText, region, page = 0) {
