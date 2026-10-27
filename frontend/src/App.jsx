@@ -898,7 +898,7 @@ function AuthScreen({
     >
       <FabricBackgroundOverlay />
 
-      <div className="relative w-full max-w-[440px] overflow-hidden rounded-[34px] border border-[#3a414f] bg-[linear-gradient(180deg,rgba(19,23,32,0.96)_0%,rgba(15,19,28,0.94)_100%)] p-8 shadow-[0_34px_90px_rgba(0,0,0,0.62)] backdrop-blur-xl">
+      <div className="hk-auth-card relative w-full max-w-[440px] overflow-hidden rounded-[34px] border border-[#3a414f] bg-[linear-gradient(180deg,rgba(19,23,32,0.96)_0%,rgba(15,19,28,0.94)_100%)] p-8 shadow-[0_34px_90px_rgba(0,0,0,0.62)] backdrop-blur-xl">
         <div className="pointer-events-none absolute -right-16 -top-20 h-60 w-60 rounded-full bg-[#faf9f6]/7 blur-3xl" />
         <div className="pointer-events-none absolute -left-16 bottom-[-90px] h-56 w-72 rounded-full bg-[#868584]/8 blur-3xl" />
         <a href="/" className="inline-flex items-center text-xs font-medium text-[#A1A8B5] transition hover:text-[#D1D5DB]">

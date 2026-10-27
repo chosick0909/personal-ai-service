@@ -52,7 +52,7 @@ export default function CreatorAccessGate({ children }) {
   const couponRequired = error?.code === 'CREATOR_COUPON_REQUIRED'
   return (
     <main className="hk-brand flex min-h-screen items-center justify-center bg-[#0D0F14] px-5 text-white">
-      <section className="w-full max-w-md rounded-3xl border border-white/15 bg-white/5 p-8 text-center" aria-live="polite">
+      <section className="hk-auth-card w-full max-w-md rounded-3xl border border-white/15 bg-white/5 p-8 text-center" aria-live="polite">
         <h1 className="text-xl font-bold">{!error ? '쿠폰 이용기간을 확인하고 있어요' : couponRequired ? '유효한 쿠폰 이용권이 필요해요' : '이용기간을 확인하지 못했어요'}</h1>
         <p className="mt-4 text-sm leading-6 text-white/70">{!error ? '잠시만 기다려주세요.' : couponRequired ? '크리에이터스튜디오는 쿠폰 이용기간이 남아 있는 회원만 이용할 수 있습니다.' : '잠시 후 다시 확인해주세요. 문제가 계속되면 다시 로그인해주세요.'}</p>
         {error && <div className="mt-6 flex flex-wrap justify-center gap-3">
