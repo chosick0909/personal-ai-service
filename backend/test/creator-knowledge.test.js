@@ -93,6 +93,15 @@ test('the study picks unanalyzed reels, retries failures after a week and restar
   assert.deepEqual((await studyBacklog(db, 10, now)).sort(), ['F1', 'N1', 'R1'])
 })
 
+test('reels whose video link is still cached are studied first, and only a few that need an Instagram page', async () => {
+  const { studyBacklog } = await import('../src/creator-tools/studio/knowledge.js')
+  const reel = (shortcode, views) => [shortcode, { shortcode, visible: true, reference_fit: true, username: 'a', analysis_status: 'none', analysis_updated_at: null, views }]
+  const db = fakeDb({ creator_success_reels: new Map([reel('U1', 900), reel('U2', 800), reel('U3', 700), reel('C1', 600), reel('C2', 500)]) })
+  const redis = { get: async key => /:C\d$/.test(key) ? 'https://cdn/v.mp4' : null }
+  assert.deepEqual(await studyBacklog(db, 10, Date.now(), { redis, lookups: 2 }), ['C1', 'C2', 'U1', 'U2'])
+  assert.deepEqual(await studyBacklog(db, 3, Date.now(), { redis, lookups: 2 }), ['C1', 'C2', 'U1'])
+})
+
 test('analyzed reels are filed under the 공식 사전 entry whose mechanism they use', async () => {
   const { matchFormulas } = await import('../src/creator-tools/studio/formula-study.js')
   const db = fakeDb({ creator_success_reels: new Map([analyzedReel('A1', '피부', 's'), analyzedReel('A2', '요리', 's')]), creator_reel_formulas: new Map() })

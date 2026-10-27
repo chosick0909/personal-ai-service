@@ -20,7 +20,10 @@ export const MIN_ANALYZED = 3
 // Bumped when the shape of field knowledge changes, so every field is studied again in the new shape.
 export const KNOWLEDGE_VERSION = 2
 const STUDY_HOUR_KST = Number(process.env.CREATOR_STUDY_HOUR_KST ?? 4)
-const DAILY_LIMIT = Number(process.env.CREATOR_STUDY_DAILY_LIMIT ?? 40)
+const DAILY_LIMIT = Number(process.env.CREATOR_STUDY_DAILY_LIMIT ?? 100)
+// Most reels come with a video link the Mac mini saw while collecting, so analysing them opens no Instagram page.
+// Reels without one each cost the Mac mini a page load, which is what pushes Instagram into its request limit.
+const LOOKUP_LIMIT = Number(process.env.CREATOR_STUDY_LOOKUP_LIMIT ?? 20)
 // Failures that are not the reel's fault (the Mac mini is off or busy, today's model budget is spent): the reel waits for
 // the next study instead of a week, and today's study stops there.
 const NOT_THE_REEL = new Set(['오늘의 외부 조회 한도에 도달했습니다.', OFFLINE_MESSAGE, TIMEOUT_MESSAGE])
@@ -55,16 +58,20 @@ export async function fieldKnowledge(db, category) {
 
 const usable = request => request.eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
 
-// Unanalyzed archive reels, 추천 first and then by views. Reels that failed are tried again after a week, and
+// Unanalyzed archive reels, 추천 first and then by views. Reels whose video link is still cached go ahead of the rest,
+// and only `lookups` of those without one are taken. Reels that failed are tried again after a week, and
 // an analysis cut off by a restart (still 'running' half an hour later) is started over.
-export async function studyBacklog(db, limit, now = Date.now()) {
+export async function studyBacklog(db, limit, now = Date.now(), { redis = null, lookups = LOOKUP_LIMIT } = {}) {
   if (limit <= 0) return []
   const weekAgo = new Date(now - 7 * 86400000).toISOString(), stalled = new Date(now - 30 * 60000).toISOString()
   const rows = await query(usable(db.from('creator_success_reels').select('shortcode,recommended,views,analysis_status,analysis_updated_at'))
     .neq('username', 'recommended').in('analysis_status', ['none', 'failed', 'running'])
-    .order('recommended', { ascending: false }).order('views', { ascending: false }).limit(limit * 3))
-  const due = r => r.analysis_status === 'none' || !r.analysis_updated_at || r.analysis_updated_at < (r.analysis_status === 'running' ? stalled : weekAgo)
-  return rows.filter(due).slice(0, limit).map(r => r.shortcode)
+    .order('recommended', { ascending: false }).order('views', { ascending: false }).limit(limit * 6))
+  const due = rows.filter(r => r.analysis_status === 'none' || !r.analysis_updated_at || r.analysis_updated_at < (r.analysis_status === 'running' ? stalled : weekAgo))
+  if (!redis) return due.slice(0, limit).map(r => r.shortcode)
+  const cached = await Promise.all(due.map(r => redis.get(`success-reel-video:${r.shortcode}`).then(Boolean).catch(() => false)))
+  const ready = due.filter((_, i) => cached[i]), rest = due.filter((_, i) => !cached[i])
+  return [...ready, ...rest.slice(0, Math.max(0, lookups))].slice(0, limit).map(r => r.shortcode)
 }
 
 function studyInput(category, analyzed, others, previous) {
@@ -140,7 +147,7 @@ export async function studyOnce(deps, { limit = DAILY_LIMIT, keepAlive = async (
   const part = async (name, fn) => { try { return await fn() } catch (e) { console.error(`[study-${name}]`, e?.code || e?.message || 'FAILED'); return null } finally { await keepAlive() } }
   let error = null
   try {
-    for (const shortcode of await studyBacklog(db, limit)) {
+    for (const shortcode of await studyBacklog(db, limit, Date.now(), { redis: deps.redis })) {
       // Reels come from the Mac mini, which serves students first; with the Mac mini off there is nothing to analyze today.
       if (!(await collectorOnline(deps.redis))) { stats.stopped = 'offline'; break }
       await query(db.from('creator_success_reels').update({ analysis_status: 'running', analysis_error: null, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode))
