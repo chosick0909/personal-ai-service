@@ -123,12 +123,22 @@ export default function StudioApp() {
   const [title, sub] = TITLES[route.page] || TITLES.reels
   // First visit: the upgrade popup (until 다시 보지 않기, once per browser session), then the guided tour once.
   const [guide, setGuide] = useState(null)
+  // A trial link is for showing the studio to someone new: on every load its guided tour runs first, whatever was dismissed before.
+  const isTrial = /@trial\.hookai\.kr$/.test(currentUser?.email || '')
+  const trialTourShown = useRef(false)
   useEffect(() => {
     if (!features?.studio2 || route.page === 'print') return
+    if (isTrial) {
+      if (trialTourShown.current) return
+      trialTourShown.current = true
+      if (route.page !== 'reels') go('reels')
+      setTimeout(() => setGuide('tour'), 500)
+      return
+    }
     if (!popupHidden() && !safeGetStorageItem('hookai-studio-whatsnew-seen', { kind: 'session' })) { safeSetStorageItem('hookai-studio-whatsnew-seen', '1', { kind: 'session' }); setGuide('popup') }
     else if (!tourDone()) setGuide('tour')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [features])
+  }, [features, isTrial])
   const active = ['reference'].includes(route.page) ? 'reels' : ['plan', 'new', 'print'].includes(route.page) ? 'plans' : route.page
 
   if (features && !features.studio2) {
