@@ -65,7 +65,7 @@ export async function referenceTranscript({ hasAudio, duration, transcribe, read
   // Words the video spells out (its own captions first, then menus, signs and labels) are the creator's words to listen for.
   const correct = async speech => {
     if (!correctSpeech || !(shown.length || seen.length)) return speech
-    // The probe saw only a handful of frames; when the video carries captions, all of them are read so every line can be checked.
+    // The probe saw only a handful of frames; when the video carries captions, all of them are read so every spoken line can be checked.
     let captions = shown
     if (shown.length && readSubtitles) {
       try { const full = (await readSubtitles())?.subtitles?.map(cue => cue.text).filter(Boolean) || []; if (full.length) captions = full }
