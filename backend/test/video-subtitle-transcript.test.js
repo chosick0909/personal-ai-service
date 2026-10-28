@@ -122,7 +122,7 @@ test('a recognizer looping the same line over music is not narration; a few repe
   assert.equal(usableSpeech({ text: talk.join(' '), subtitles: talk.map(text => ({ text })) }, 15), true)
 })
 
-test('a menu or sign in the picture fixes misheard words even when the captions say something else', async () => {
+test('a menu or sign in the picture fixes misheard words even when the captions say other things', async () => {
   const speech = { text: '아니면 육반에 복소사 마텐더 항시댁이 이런게 있길래 시켜봤는데', subtitles: [{ id: 'cue-0', text: '아니면 육반에 복소사 마텐더 항시댁이 이런게 있길래 시켜봤는데' }] }
   let asked = null
   const result = await referenceTranscript({ hasAudio: true, duration: 20,
