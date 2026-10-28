@@ -146,16 +146,16 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
       thumbnailUrl: typeof record.thumbnail === 'string' && record.thumbnail.startsWith('https://') ? record.thumbnail : null }
   }
   // An Instagram reel read by the Mac mini (see instagram-lookup.js). The lookup id is checkpointed, so a job that
-  // restarts keeps waiting for the same lookup instead of queueing another. A student waiting on their own link and the
-  // few 추천 links a day go to the paid reader when the Mac mini cannot read Instagram right now (request limit, offline,
-  // stuck); the daily study, which reads many reels, simply waits for the Mac mini.
+  // restarts keeps waiting for the same lookup instead of queueing another. A student is waiting on their own link,
+  // so when the Mac mini cannot read Instagram right now (request limit, offline, stuck), the paid reader answers
+  // instead; 추천 links and the study simply wait for the Mac mini.
   async function instagramReel(url, checkpoint = (_key, task) => task(), priority = LOOKUP_PRIORITY.student) {
     const id = await checkpoint('instagramLookupV1', () => requestLookup(db, url, priority))
-    const paid = priority < LOOKUP_PRIORITY.study && Boolean(process.env.BRIGHT_DATA_API_KEY)
+    const student = priority === LOOKUP_PRIORITY.student && Boolean(process.env.BRIGHT_DATA_API_KEY)
     let result
-    try { result = await awaitLookup({ db, redis, signal }, id, paid ? { timeoutMs: 60000 } : undefined) }
+    try { result = await awaitLookup({ db, redis, signal }, id, student ? { timeoutMs: 60000 } : undefined) }
     catch (error) {
-      if (!paid || !['LOOKUP_BLOCKED', 'LOOKUP_OFFLINE', 'LOOKUP_TIMEOUT'].includes(error.code)) throw error
+      if (!student || !['LOOKUP_BLOCKED', 'LOOKUP_OFFLINE', 'LOOKUP_TIMEOUT'].includes(error.code)) throw error
       signal?.throwIfAborted()
       return brightData(url, checkpoint)
     }

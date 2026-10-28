@@ -49,7 +49,7 @@ test('only checked fields of what the Mac mini reports are kept', () => {
   assert.equal(lookupError('anything else'), 'LINK_UNAVAILABLE')
 })
 
-test('a student\'s link goes to the paid reader at once while the Mac mini is limited; the study keeps waiting', async () => {
+test('a student\'s link goes to the paid reader at once while the Mac mini is limited; 추천 links keep waiting', async () => {
   const { createProviders } = await import('../src/creator-tools/providers.js')
   const { MockAgent, getGlobalDispatcher, setGlobalDispatcher } = await import('undici')
   const previous = getGlobalDispatcher(), agent = new MockAgent(), savedKey = process.env.BRIGHT_DATA_API_KEY
@@ -69,7 +69,7 @@ test('a student\'s link goes to the paid reader at once while the Mac mini is li
     assert.equal(media.videoUrl, 'https://scontent.cdninstagram.com/s.mp4')
     assert.equal(media.views, 1200)
     agent.assertNoPendingInterceptors()
-    await assert.rejects(providers.instagramReel('https://www.instagram.com/reel/AbCdE12345/', undefined, LOOKUP_PRIORITY.study), { code: 'LOOKUP_BLOCKED' })
+    await assert.rejects(providers.instagramReel('https://www.instagram.com/reel/AbCdE12345/', undefined, LOOKUP_PRIORITY.recommend), { code: 'LOOKUP_BLOCKED' })
   } finally {
     setGlobalDispatcher(previous); await agent.close()
     if (savedKey === undefined) delete process.env.BRIGHT_DATA_API_KEY

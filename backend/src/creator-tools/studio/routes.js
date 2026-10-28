@@ -24,7 +24,7 @@ import { requestReelAnalysis, runReelAnalysis, schedule } from '../success-reel-
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
-import { LOOKUP_PRIORITY } from '../instagram-lookup.js'
+import { LOOKUP_PRIORITY, lookupResult } from '../instagram-lookup.js'
 import { createDemoLink, refreshDemoUsers, startDemoRefresh } from '../demo-links.js'
 import { ideaReply } from './ideas.js'
 import { extractSupportingMaterials } from '../../lib/supporting-materials.js'
@@ -448,9 +448,10 @@ export function registerStudioRoutes(router) {
 
   // Reads the reel behind a link (account, counts, caption, cover) into its row. Throws when the link can't be read.
   // A caption or cover the row already has is kept when the link returns none.
-  const fillFromLink = async (db, shortcode, url, priority = LOOKUP_PRIORITY.student) => {
-    const providers = createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(180000) })
-    const media = await providers.instagramReel(url, undefined, priority)
+  // read: the reel as already read elsewhere (추천 links read by 지영's own Chrome), in place of a Mac mini lookup.
+  const fillFromLink = async (db, shortcode, url, priority = LOOKUP_PRIORITY.student, read = null) => {
+    const media = read || await createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(180000) })
+      .instagramReel(url, undefined, priority)
     const username = String(media.username || '').replace(/^@/, '').toLowerCase()
     if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
     await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
@@ -478,10 +479,11 @@ export function registerStudioRoutes(router) {
   const UNREADABLE_LINK = '인스타에서 볼 수 없는 링크예요(삭제·비공개).'
   // 추천 릴스: links 지영 or the client hand over join 성공 릴스 with a '추천' tag, whatever their views or age.
   // New links are read one after another in the background; the Mac mini collector refreshes counts and covers later.
-  const recommendLink = async (shortcode, url) => {
+  // A link sent with what Claude in Chrome read on 지영's Mac (read) skips the Mac mini.
+  const recommendLink = async (shortcode, url, read = null) => {
     const db = database()
     try {
-      const { thumbnail } = await fillFromLink(db, shortcode, url, LOOKUP_PRIORITY.recommend)
+      const { thumbnail } = await fillFromLink(db, shortcode, url, LOOKUP_PRIORITY.recommend, read)
       if (thumbnail) await query(db.from('creator_success_reels').update({ visible: true }).eq('shortcode', shortcode))
     } catch (error) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
@@ -597,13 +599,16 @@ export function registerStudioRoutes(router) {
   router.post('/creator-tools/studio/recommended', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 릴스는 관리자만 추가할 수 있어요.', 404)
     const db = database()
-    // items: [{ url, title }] — title is the cover copy written above the link (a proven success cover); links: plain URLs.
+    // items: [{ url, title, read }] — title is the cover copy written above the link (a proven success cover); read is the
+    // reel as read in 지영's logged-in Chrome (checked like a Mac mini report); links: plain URLs.
     const items = [...(Array.isArray(req.body?.items) ? req.body.items : []), ...(Array.isArray(req.body?.links) ? req.body.links.map(url => ({ url })) : [])].slice(0, 200)
     const result = { added: [], updated: [], invalid: [] }
     const seen = new Set()
     for (const item of items) {
       const raw = item?.url
       const title = text(item?.title, 80) || null
+      const read = item?.read ? lookupResult(item.read) : null
+      if (read && !read.videoUrl) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
       const url = instagramPostUrl(String(raw || '').trim())
       const shortcode = url ? new URL(url).pathname.split('/')[2] : null
       if (!shortcode) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
@@ -616,13 +621,13 @@ export function registerStudioRoutes(router) {
         await query(db.from('creator_success_reels').update({ recommended: true, ...(title ? { cover_title: title } : {}), ...(existing.thumbnail_path ? { visible: true } : {}),
           ...(retry ? { analysis_status: 'none', analysis_error: null } : {}) }).eq('shortcode', shortcode))
         result.updated.push(shortcode)
-        if (!existing.thumbnail_path || retry) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
+        if (!existing.thumbnail_path || retry || read) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url, read), 1)
         continue
       }
       await query(db.from('creator_reel_accounts').upsert({ username: 'recommended', profile: { recommended: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
       await query(db.from('creator_success_reels').insert({ shortcode, username: 'recommended', views: 0, posted_at: new Date().toISOString(), caption: '', source: 'recommended', recommended: true, cover_title: title, visible: false }))
       result.added.push(shortcode)
-      schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url), 1)
+      schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url, read), 1)
     }
     res.status(201).json(result)
   }))
