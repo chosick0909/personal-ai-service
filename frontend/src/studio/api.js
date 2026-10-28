@@ -1,3 +1,4 @@
+import { apiFetch, parseApiResponse, createApiError } from '../lib/api'
 import { creatorRequest } from '../lib/creatorApi'
 
 export const studio = {
@@ -60,3 +61,12 @@ export const when = value => value ? new Date(value).toLocaleString('ko-KR', { m
 export const SLOT_LABELS = { hook: '첫 문장', structure: '전개', filming: '촬영/편집', caption: '캡션' }
 export const PART_LABELS = { hook: '첫 문장', body: '본문', cta: '마무리' }
 export const STAGES = [['topic', '주제'], ['thumbnail', '썸네일'], ['hook', '첫 문장'], ['script', '대본'], ['filming', '촬영·편집'], ['caption', '캡션'], ['done', '완성']]
+
+// Reads picked files into text; files that could not be read come back with their error.
+export async function readMaterials(path, picked) {
+  const form = new FormData(); picked.slice(0, 5).forEach(f => form.append('files', f))
+  const response = await apiFetch(path, { method: 'POST', body: form, timeoutMs: 180000 })
+  const payload = await parseApiResponse(response)
+  if (!response.ok) throw createApiError(response, payload, '파일을 읽지 못했어요.')
+  return { ready: payload.items.filter(i => i.status === 'ready').map(i => ({ name: i.name, content: i.content })), failed: payload.items.filter(i => i.status !== 'ready') }
+}

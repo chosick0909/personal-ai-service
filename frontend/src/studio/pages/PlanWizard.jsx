@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star } from 'lucide-react'
 import { useStudio } from '../context'
-import { studio, STAGES, SLOT_LABELS } from '../api'
-import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
+import { studio, STAGES, SLOT_LABELS, readMaterials } from '../api'
+import { AttachButton, AttachChips } from '../Attachments'
 import HookLoader from '../HookLoader'
 import { CopyButton } from './ReferenceDetail'
 import HookAvatar from '../HookAvatar'
@@ -46,11 +46,28 @@ function ProposalPreview({ proposal, session, applied, onApply }) {
 }
 
 function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onApply, appliedId, open, setOpen }) {
+  const { toast } = useStudio()
   const log = useRef(null)
   const [text, setText] = useState('')
+  const [files, setFiles] = useState([])
+  const [uploading, setUploading] = useState(false)
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }) }, [messages, pending, busy])
-  // A message that failed to send goes back into the box, so nothing typed is lost.
-  const send = async (value) => { const t = (value ?? text).trim(); if (!t || busy) return; setText(''); if (!(await onSend(t))) setText(prev => prev || t) }
+  const upload = async picked => {
+    if (!picked.length) return
+    setUploading(true)
+    try {
+      const { ready, failed } = await readMaterials('/api/reference-videos/supporting-materials', picked)
+      setFiles(f => [...f, ...ready].slice(0, 5))
+      for (const i of failed) toast({ kind: 'failed', title: i.name, body: i.error })
+    } catch (e) { toast({ kind: 'failed', title: '파일을 올리지 못했어요', body: e.message }) } finally { setUploading(false) }
+  }
+  // A message that failed to send goes back into the box, so nothing typed or attached is lost.
+  const send = async (value) => {
+    const t = (value ?? text).trim(), attached = value === undefined ? files : []
+    if ((!t && !attached.length) || busy) return
+    setText(''); setFiles([])
+    if (!(await onSend(t, { attachments: attached }))) { setText(prev => prev || t); setFiles(attached) }
+  }
   const last = messages.at(-1)
   // While the chat is folded away, 훅ai's new message pops up at the bottom right; pressing it opens the chat again.
   const [seenId, setSeenId] = useState(last?.id ?? null)
@@ -72,9 +89,11 @@ function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onAp
       {pending && <div className="st-msg st-msg-user">{pending}</div>}
       {busy && <><div className="st-chat-typing"><i /><i /><i /></div><ChatWaitLine /></>}
     </div>
+    <AttachChips items={files} onRemove={i => setFiles(f => f.filter((_, j) => j !== i))} />
     <form className="st-chat-input" onSubmit={e => { e.preventDefault(); send() }}>
+      <AttachButton uploading={uploading} onFiles={upload} />
       <textarea value={text} onChange={e => setText(e.target.value)} placeholder={session.stage === 'topic' ? '답을 적거나, 원하는 걸 말해주세요' : '고치고 싶은 점을 말해주세요'} rows={1} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} aria-label="훅ai에게 보낼 메시지" />
-      <button type="submit" className="st-btn st-btn-primary" disabled={busy || !text.trim()} aria-label="보내기"><Send size={18} /></button>
+      <button type="submit" className="st-btn st-btn-primary" disabled={busy || uploading || (!text.trim() && !files.length)} aria-label="보내기"><Send size={18} /></button>
     </form>
   </aside>
   {!open && <button type="button" className="st-chat-launcher" aria-label="훅ai 채팅 펼치기" title="훅ai 채팅 펼치기" onClick={() => setOpen(true)}><HookAvatar size={48} />{busy && <i className="st-chat-launcher-dot" />}</button>}
@@ -105,20 +124,16 @@ function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
   const { toast } = useStudio()
   const [pickingSaved, setPickingSaved] = useState(false)
   const [brief, setBrief] = useState(session.brief || '')
-  const [attachments, setAttachments] = useState(session.attachments || [])
+  const attachments = session.attachments || []
   const [uploading, setUploading] = useState(false)
   const debounced = useDebouncedSave(value => save({ brief: value }))
   const upload = async files => {
     if (!files?.length) return
     setUploading(true)
     try {
-      const form = new FormData(); for (const f of files) form.append('files', f)
-      const response = await apiFetch('/api/reference-videos/supporting-materials', { method: 'POST', body: form, timeoutMs: 180000 })
-      const payload = await parseApiResponse(response)
-      if (!response.ok) throw createApiError(response, payload, '첨부파일을 읽지 못했어요.')
-      const next = [...attachments, ...payload.items.filter(i => i.status === 'ready').map(i => ({ name: i.name, content: i.content }))].slice(0, 5)
-      setAttachments(next); save({ attachments: next })
-      for (const i of payload.items.filter(i => i.status !== 'ready')) toast({ kind: 'failed', title: i.name, body: i.error })
+      const { ready, failed } = await readMaterials('/api/reference-videos/supporting-materials', files)
+      await save({ attachments: [...attachments, ...ready].slice(0, 5) })
+      for (const i of failed) toast({ kind: 'failed', title: i.name, body: i.error })
     } catch (e) { toast({ kind: 'failed', title: '첨부 실패', body: e.message }) } finally { setUploading(false) }
   }
   const spoken = t => setBrief(b => { const v = `${b}${b ? '\n' : ''}${t}`; debounced(v); onBrief?.(v); return v })
@@ -138,7 +153,7 @@ function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
         const next = brief.trim() ? `${brief}\n\n${text}` : text
         setBrief(next); onBrief?.(next); save({ brief: next }); setPickingSaved(false); onPickSaved(t)
       }} />}
-      {attachments.length > 0 && <div className="st-chips">{attachments.map((a, i) => <span key={i} className="st-chip st-btn-sm" style={{ minHeight: 36 }}>{a.name}<button type="button" className="st-icon-btn" style={{ width: 24, height: 24, border: 0 }} aria-label="첨부 삭제" onClick={() => { const next = attachments.filter((_, j) => j !== i); setAttachments(next); save({ attachments: next }) }}><X size={14} /></button></span>)}</div>}
+      {attachments.length > 0 && <div className="st-chips">{attachments.map((a, i) => <span key={i} className="st-chip st-btn-sm" style={{ minHeight: 36 }}>{a.name}<button type="button" className="st-icon-btn" style={{ width: 24, height: 24, border: 0 }} aria-label="첨부 삭제" onClick={() => save({ attachments: attachments.filter((_, j) => j !== i) })}><X size={14} /></button></span>)}</div>}
     </section>
   </div>
 }
@@ -412,9 +427,13 @@ export default function PlanWizard({ sessionId }) {
   const save = useCallback(async patch => { try { const r = await studio.patchSession(sessionId, patch); setData(d => ({ ...d, session: r.session })) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }, [sessionId, toast])
   // The student's message shows at once, above 훅ai's typing dots, until the saved conversation comes back.
   // 훅ai writes its answer in the background; the conversation is checked every 2 s until the answer to this message is in.
-  const send = async (text, { openChat = true } = {}) => {
+  const send = async (typed, { openChat = true, attachments = [] } = {}) => {
+    const names = attachments.map(a => `「${a.name}」`).join(', ')
+    const text = !attachments.length ? typed : typed ? `${typed}\n(올린 자료: ${names})` : `자료를 올렸어요: ${names}`
     setChatBusy(true); setPending(text); if (openChat) setChatOpen(true)
     try {
+      // Files sent in the chat join the plan's materials, which every step of 훅ai reads; the newest are kept when over five.
+      if (attachments.length) { const r = await studio.patchSession(sessionId, { attachments: [...(data.session.attachments || []), ...attachments].slice(-5) }); setData(d => ({ ...d, session: r.session })) }
       const r = await studio.chat(sessionId, text)
       setData(d => ({ ...d, messages: mergeMessages(d.messages, r.messages) })); setPending(null)
       if (!r.pending) { load(); return true }

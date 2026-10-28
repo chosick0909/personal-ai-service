@@ -1,30 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Send, Star, Sparkles, Trash2, Plus, ArrowRight, Check, Lightbulb, FileText, Paperclip, X, LoaderCircle } from 'lucide-react'
+import { Send, Star, Sparkles, Trash2, Plus, ArrowRight, Check, Lightbulb, FileText, Paperclip, X } from 'lucide-react'
 import { useStudio } from '../context'
-import { studio, compactCount } from '../api'
+import { studio, compactCount, readMaterials } from '../api'
 import HookAvatar from '../HookAvatar'
 import ChatWaitLine from '../ChatWait'
-import { apiFetch, parseApiResponse, createApiError } from '../../lib/api'
+import { AttachButton, AttachChips } from '../Attachments'
 
 // 주제 찾기: talk with 훅ai only about the topic, save the good ones to 주제 보관함, and start a plan from a saved topic.
 const STARTERS = ['제 제품·서비스로 주제를 찾고 싶어요', '제 경험·일상으로 주제를 찾고 싶어요', '요즘 터지는 주제로 추천해 주세요']
 // The prompt asks for material a creator has (a product, something lived through, something known well): topics come from it.
 const START_PLACEHOLDER = '어떤 걸 찍어 보고 싶으세요? 소개하고 싶은 제품, 직접 겪은 일, 잘 아는 것 무엇이든 좋아요'
 const sameCard = (a, b) => a.title === b.title
-const FILE_TYPES = '.pdf,.png,.jpg,.jpeg,.webp,.txt,.docx'
-
-// 📎 in the conversation: files are read into text by the studio and sent along with the next message.
-function AttachButton({ uploading, onFiles }) {
-  return <label className="st-icon-btn st-attach-btn" title="파일 올리기 (PDF·이미지·텍스트·워드, 5개까지)" aria-label="파일 올리기">
-    {uploading ? <LoaderCircle size={18} className="st-spin" /> : <Paperclip size={18} />}
-    <input type="file" multiple accept={FILE_TYPES} style={{ display: 'none' }} disabled={uploading} onChange={e => { onFiles([...e.target.files]); e.target.value = '' }} />
-  </label>
-}
-function AttachChips({ items, onRemove }) {
-  if (!items.length) return null
-  return <div className="st-attach-chips">{items.map((a, i) => <span key={`${a.name}-${i}`} className="st-chip"><Paperclip size={13} />{a.name}{onRemove && <button type="button" aria-label="빼기" onClick={() => onRemove(i)}><X size={13} /></button>}</span>)}</div>
-}
-
 function IdeaCard({ card, saved, onSave, onPlan, onAsk }) {
   const { go } = useStudio()
   return <article className="st-idea-card">
@@ -85,12 +71,9 @@ export default function IdeasPage({ threadId: initialThread }) {
     if (!picked.length) return
     setUploading(true)
     try {
-      const form = new FormData(); picked.slice(0, 5).forEach(f => form.append('files', f))
-      const response = await apiFetch('/api/creator-tools/studio/materials', { method: 'POST', body: form, timeoutMs: 180000 })
-      const payload = await parseApiResponse(response)
-      if (!response.ok) throw createApiError(response, payload, '파일을 읽지 못했어요.')
-      setFiles(f => [...f, ...payload.items.filter(i => i.status === 'ready').map(i => ({ name: i.name, content: i.content }))].slice(0, 5))
-      for (const i of payload.items.filter(i => i.status !== 'ready')) toast({ kind: 'failed', title: i.name, body: i.error })
+      const { ready, failed } = await readMaterials('/api/creator-tools/studio/materials', picked)
+      setFiles(f => [...f, ...ready].slice(0, 5))
+      for (const i of failed) toast({ kind: 'failed', title: i.name, body: i.error })
     } catch (e) { toast({ kind: 'failed', title: '파일을 올리지 못했어요', body: e.message }) } finally { setUploading(false) }
   }
   // 훅ai answers in the background; the conversation is checked every 2 s until the answer to this message is in.

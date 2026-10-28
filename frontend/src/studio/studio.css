@@ -205,7 +205,7 @@
 .st-chat-typing i { width:7px; height:7px; border-radius:999px; background:var(--st-faint); animation:st-blink 1.2s infinite; }
 .st-chat-typing i:nth-child(2) { animation-delay:.2s; } .st-chat-typing i:nth-child(3) { animation-delay:.4s; }
 @keyframes st-blink { 0%,80%,100% { opacity:.3 } 40% { opacity:1 } }
-.st-chat-input { display:flex; gap:8px; padding:12px; border-top:1px solid var(--st-line); }
+.st-chat-input { display:flex; align-items:center; gap:8px; padding:12px; border-top:1px solid var(--st-line); }
 .st-chat-input textarea { flex:1; min-height:48px; max-height:140px; padding:12px 14px; border:1px solid var(--st-line-strong); border-radius:12px; font-size:16px; resize:none; }
 .st-chat-input button { flex:none; }
 .st-chat-toggle { display:none; }
