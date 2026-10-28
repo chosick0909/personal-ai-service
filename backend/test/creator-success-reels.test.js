@@ -381,3 +381,16 @@ test('analysed 추천 reels that meet the archive bar (3 months, 500,000+) come 
   add('NewSmall1', 1, 8000); add('OldBig1', 200, 3000000); add('FitOld1', 60, 900000); add('FitNew1', 5, 600000)
   assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['FitNew1', 'FitOld1', 'OldBig1', 'NewSmall1'])
 })
+
+test('reel fields are judged a few at a time from the topic and script, and the region is kept per reel', async () => {
+  const db = fakeDb()
+  const rows = Array.from({ length: 13 }, (_, i) => ({ shortcode: `Cat${String(i).padStart(3, '0')}x`, username: 'maker', caption: '',
+    analysis: { overview: { topic: `주제 ${i}` }, transcript: { korean: '대본' } } }))
+  for (const row of rows) db.tables.creator_success_reels.set(row.shortcode, { ...row })
+  const sizes = []
+  const providers = { json: async (_op, _p, input) => { sizes.push(input.reels.length)
+    return { reels: input.reels.map(r => ({ shortcode: r.shortcode, category: '요리', region: 'domestic', referenceFit: true, fitReason: '' })) } } }
+  assert.equal(await classifyReelCategories(db, providers, rows), 13)
+  assert.deepEqual(sizes, [6, 6, 1])
+  assert.equal(db.tables.creator_success_reels.get('Cat012x').region, 'domestic')
+})

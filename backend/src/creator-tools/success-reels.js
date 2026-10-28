@@ -206,15 +206,21 @@ export const reelCategorySchema = { type: 'object', additionalProperties: false,
   reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'region', 'referenceFit', 'fitReason'], properties: {
     shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] },
     referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } } } }
+const CATEGORY_BATCH = 6
 export async function classifyReelCategories(db, providers, rows, now = Date.now()) {
-  const input = rows.map(r => ({ shortcode: r.shortcode, username: r.username, caption: text(r.caption, 700),
-    ...(r.analysis?.overview?.topic ? { topic: text(r.analysis.overview.topic, 200), script: text(r.analysis.transcript?.korean, 500) } : {}) }))
+  const input = rows.map(r => ({ shortcode: r.shortcode, username: r.username,
+    ...(r.analysis?.overview?.topic ? { topic: text(r.analysis.overview.topic, 200), script: text(r.analysis.transcript?.korean, 400) } : {}), caption: text(r.caption, 700) }))
     .filter(r => r.caption.trim() || r.topic)
   if (!input.length) return 0
-  const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: input }, [], reelCategorySchema)
+  // A few reels per request: in a long batch the verdicts drift onto the wrong reels.
+  const verdicts = []
+  for (let i = 0; i < input.length; i += CATEGORY_BATCH) {
+    const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: input.slice(i, i + CATEGORY_BATCH) }, [], reelCategorySchema)
+    verdicts.push(...(judged?.reels || []))
+  }
   let changed = 0
   for (const row of input) {
-    const verdict = judged?.reels?.find(j => j.shortcode === row.shortcode)
+    const verdict = verdicts.find(j => j.shortcode === row.shortcode)
     const patch = { category_checked_at: new Date(now).toISOString() }
     if (SUCCESS_REEL_CATEGORIES.includes(verdict?.category)) { patch.category = verdict.category; changed += 1 }
     if (['domestic', 'overseas'].includes(verdict?.region)) patch.region = verdict.region
