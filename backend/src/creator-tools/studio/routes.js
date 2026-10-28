@@ -485,6 +485,9 @@ export function registerStudioRoutes(router) {
     try {
       const { thumbnail } = await fillFromLink(db, shortcode, url, LOOKUP_PRIORITY.recommend, read)
       if (thumbnail) await query(db.from('creator_success_reels').update({ visible: true }).eq('shortcode', shortcode))
+      // The field is judged from the caption right away instead of waiting for the Mac mini's next run.
+      const row = await query(db.from('creator_success_reels').select('shortcode,username,caption').eq('shortcode', shortcode).single())
+      await classifyReelCategories(db, deps().makeProviders(AbortSignal.timeout(120000)), [row]).catch(error => console.error('[recommend-category]', error?.code || 'FAILED'))
     } catch (error) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
       // A link Instagram no longer shows (deleted or made private) is marked once, so restarts do not retry it.
