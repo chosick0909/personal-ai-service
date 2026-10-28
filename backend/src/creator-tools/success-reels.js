@@ -197,14 +197,19 @@ export async function cacheVideoUrl(redis, shortcode, url, now = Date.now()) {
   return true
 }
 
-// Per-reel category from the caption. The account review guessed from the profile while captions were still empty.
-export const reelCategoryPrompt = `각 릴스의 캡션(과 계정명)을 보고 그 릴스 한 편의 주제 분야를 고르세요. 계정 전체가 아니라 그 영상의 내용입니다.
-분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그, 크리스천은 신앙·교회·성경·묵상·찬양·기독교 일상이 주제일 때. 피부는 스킨케어(기초 화장품·피부 고민·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부). 맞는 분야가 없으면 기타.\n${REFERENCE_FIT_RULE}`
+// Per-reel category (and region) from the caption, plus the topic and script once the reel is analysed. The account review
+// guessed from the profile while captions were still empty.
+export const reelCategoryPrompt = `각 릴스의 캡션(과 계정명, 분석된 릴스면 topic·script)을 보고 그 릴스 한 편의 주제 분야를 고르세요. 계정 전체가 아니라 그 영상의 내용입니다. 캡션이 짧거나 내용과 상관없으면 topic·script로 정합니다.
+분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그, 크리스천은 기독교 신앙(교회·성경·찬양·기도·큐티·기독교 일상)이 주제일 때만이고, 다른 종교·명상·마음 수련은 크리스천이 아닙니다. 피부는 스킨케어(기초 화장품·피부 고민·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부). 맞는 분야가 없으면 기타.\nregion은 그 릴스가 누구를 위해 만들어졌는지로 정합니다. 캡션·화면 글·대본이 한국 시청자에게 말을 걸면(해외 영상이나 외국인 출연분을 가져와 한국어 자막·설명을 붙여 다시 만든 것 포함) domestic, 해외 시청자에게 말을 걸면 overseas, 근거가 없으면 unknown입니다. 영상 속 언어나 촬영 장소만으로 정하지 않습니다.
+${REFERENCE_FIT_RULE}`
 export const reelCategorySchema = { type: 'object', additionalProperties: false, required: ['reels'], properties: {
-  reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'referenceFit', 'fitReason'], properties: {
-    shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } } } }
+  reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'region', 'referenceFit', 'fitReason'], properties: {
+    shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] },
+    referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } } } }
 export async function classifyReelCategories(db, providers, rows, now = Date.now()) {
-  const input = rows.filter(r => text(r.caption, 1).trim()).map(r => ({ shortcode: r.shortcode, username: r.username, caption: text(r.caption, 700) }))
+  const input = rows.map(r => ({ shortcode: r.shortcode, username: r.username, caption: text(r.caption, 700),
+    ...(r.analysis?.overview?.topic ? { topic: text(r.analysis.overview.topic, 200), script: text(r.analysis.transcript?.korean, 500) } : {}) }))
+    .filter(r => r.caption.trim() || r.topic)
   if (!input.length) return 0
   const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: input }, [], reelCategorySchema)
   let changed = 0
@@ -212,6 +217,7 @@ export async function classifyReelCategories(db, providers, rows, now = Date.now
     const verdict = judged?.reels?.find(j => j.shortcode === row.shortcode)
     const patch = { category_checked_at: new Date(now).toISOString() }
     if (SUCCESS_REEL_CATEGORIES.includes(verdict?.category)) { patch.category = verdict.category; changed += 1 }
+    if (['domestic', 'overseas'].includes(verdict?.region)) patch.region = verdict.region
     if (typeof verdict?.referenceFit === 'boolean') { patch.reference_fit = verdict.referenceFit; patch.reference_fit_reason = verdict.referenceFit ? null : text(verdict.fitReason, 200) || null }
     await query(db.from('creator_success_reels').update(patch).eq('shortcode', row.shortcode))
   }
@@ -219,7 +225,7 @@ export async function classifyReelCategories(db, providers, rows, now = Date.now
 }
 // Listed reels whose category was set before their caption was known, most watched first.
 export async function reelsNeedingCategory(db, limit = 30) {
-  const rows = await query(db.from('creator_success_reels').select('shortcode,username,caption,source').eq('visible', true).neq('caption', '').is('category_checked_at', null).order('views', { ascending: false }).limit(limit * 2))
+  const rows = await query(db.from('creator_success_reels').select('shortcode,username,caption,source,analysis').eq('visible', true).neq('caption', '').is('category_checked_at', null).order('views', { ascending: false }).limit(limit * 2))
   return rows.filter(row => !String(row.source || '').startsWith('upload-')).slice(0, limit)
 }
 

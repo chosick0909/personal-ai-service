@@ -18,7 +18,7 @@ function subtitleError(code, message) {
 
 // Names how a reference's script is chosen between speech and on-screen text. A link analysed with an older method
 // is analysed again instead of reusing that result (the method changed when lyrics stopped passing as narration).
-export const TRANSCRIPT_METHOD = 'speech-or-screen-7'
+export const TRANSCRIPT_METHOD = 'speech-or-screen-8'
 
 // Tells an analysis whether the script was spoken or read off the screen (as over a song).
 export const scriptSource = source => ['screen_subtitles', 'frames'].includes(source) ? '화면 글(말소리 없이, 또는 배경음악 위에 띄운 글)' : '말(음성)'
@@ -32,8 +32,17 @@ export function usableSpeech(transcript, duration = 0) {
       && (s.avg_logprob == null || s.avg_logprob > -1))
     if (!spoken.length) return false
   }
+  // Over music or silence the recognizer can loop, writing the same line again and again: that is not narration.
+  if (loopingLines((segments.length ? segments : transcript?.subtitles || []).map(s => s.text))) return false
   // Very sparse recognition over music is not sufficient evidence of narration.
   return !(duration >= 20 && text.length / duration < 0.8)
+}
+// Half or more of the lines repeat an earlier line (near word for word).
+export function loopingLines(texts) {
+  const lines = texts.map(squash).filter(Boolean)
+  if (lines.length < 4) return false
+  const repeats = lines.filter((line, i) => lines.slice(0, i).some(prev => prev === line || (pairShare(prev, line) >= 0.8 && pairShare(line, prev) >= 0.8))).length
+  return repeats / lines.length >= 0.5
 }
 
 export async function referenceTranscript({ hasAudio, duration, transcribe, readSubtitles, probeSubtitles, judgeScript, correctSpeech, reliable = usableSpeech, signal }) {

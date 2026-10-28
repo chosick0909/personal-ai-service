@@ -486,7 +486,7 @@ export function registerStudioRoutes(router) {
       const { thumbnail } = await fillFromLink(db, shortcode, url, LOOKUP_PRIORITY.recommend, read)
       if (thumbnail) await query(db.from('creator_success_reels').update({ visible: true }).eq('shortcode', shortcode))
       // The field is judged from the caption right away instead of waiting for the Mac mini's next run.
-      const row = await query(db.from('creator_success_reels').select('shortcode,username,caption').eq('shortcode', shortcode).single())
+      const row = await query(db.from('creator_success_reels').select('shortcode,username,caption,analysis').eq('shortcode', shortcode).single())
       await classifyReelCategories(db, deps().makeProviders(AbortSignal.timeout(120000)), [row]).catch(error => console.error('[recommend-category]', error?.code || 'FAILED'))
     } catch (error) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
@@ -587,11 +587,28 @@ export function registerStudioRoutes(router) {
     await refreshDemoUsers()
     res.json({ ok: true })
   }))
+  // Analyse reels again after the analysis rules change (admins only). videoUrl is the reel's video as read in 지영's
+  // logged-in Chrome, so the run does not wait for the Mac mini.
+  router.post('/creator-tools/studio/reanalyze', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
+    const db = database(), started = [], missing = []
+    for (const item of (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 50)) {
+      const shortcode = /^[A-Za-z0-9_-]{5,40}$/.test(String(item?.shortcode || '')) ? item.shortcode : null
+      const reel = shortcode && await query(db.from('creator_success_reels').select('shortcode').eq('shortcode', shortcode).maybeSingle())
+      if (!reel) { missing.push(String(item?.shortcode || '').slice(0, 40)); continue }
+      const videoUrl = item.videoUrl ? lookupResult({ videoUrl: item.videoUrl }).videoUrl : null
+      if (videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, videoUrl, 'EX', 3600).catch(() => {})
+      await query(db.from('creator_success_reels').update({ analysis_status: 'running', analysis_error: null, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode))
+      schedule(`analysis:${shortcode}`, () => runReelAnalysis(deps(), shortcode))
+      started.push(shortcode)
+    }
+    res.status(202).json({ started, missing })
+  }))
   // Re-judge every listed reel's field and reference fit after the judging rule changes (admins only), 30 per call.
   router.post('/creator-tools/studio/rejudge-reels', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
     const db = database()
-    const rows = (await query(db.from('creator_success_reels').select('shortcode,username,caption,source').eq('visible', true).neq('caption', '').order('views', { ascending: false }).limit(2000)))
+    const rows = (await query(db.from('creator_success_reels').select('shortcode,username,caption,source,analysis').eq('visible', true).order('views', { ascending: false }).limit(2000)))
       .filter(row => !String(row.source || '').startsWith('upload-'))
     schedule('rejudge-reels', async () => {
       for (let i = 0; i < rows.length; i += 30) await classifyReelCategories(db, deps().makeProviders(AbortSignal.timeout(180000)), rows.slice(i, i + 30)).catch(error => console.error('[rejudge-reels]', error?.code || 'FAILED'))

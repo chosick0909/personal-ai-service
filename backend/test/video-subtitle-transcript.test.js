@@ -114,3 +114,10 @@ test('on-screen captions are handed to the transcriber as hints and fix words it
     correctSpeech: async () => { throw new Error('down') }, readSubtitles: () => assert.fail('speech is the script') })
   assert.equal(kept, speech)
 })
+
+test('a recognizer looping the same line over music is not narration; a few repeated words in real talk are', () => {
+  const loop = ['오늘은 김밥을 만들어볼게요', '고구마를 찬물에 30분정도 헹궈줍니다', '고구마를 찬물에 30분정도 헹궈줍니다', '고구마 찬물에 30분정도 헹궈줍니다']
+  assert.equal(usableSpeech({ text: loop.join(' '), subtitles: loop.map(text => ({ text })) }, 30), false)
+  const talk = ['블러셔 사망템 생존템 나누기 시작할게요', '첫번째 엔트로피 블러셔', '사망입니다', '두번째 어퓨 두껍게 발리나요', '사망입니다', '다음 3CE 생존입니다']
+  assert.equal(usableSpeech({ text: talk.join(' '), subtitles: talk.map(text => ({ text })) }, 15), true)
+})
