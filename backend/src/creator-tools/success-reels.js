@@ -212,7 +212,7 @@ export async function classifyReelCategories(db, providers, rows, now = Date.now
     ...(r.analysis?.overview?.topic ? { topic: text(r.analysis.overview.topic, 200), script: text(r.analysis.transcript?.korean, 400) } : {}), caption: text(r.caption, 700) }))
     .filter(r => r.caption.trim() || r.topic)
   if (!input.length) return 0
-  // A few reels per request: in a long batch the verdicts drift onto the wrong reels.
+  // A few reels per request: in a long batch the verdicts drift onto the wrong reels (seen with 30 per request).
   const verdicts = []
   for (let i = 0; i < input.length; i += CATEGORY_BATCH) {
     const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: input.slice(i, i + CATEGORY_BATCH) }, [], reelCategorySchema)
