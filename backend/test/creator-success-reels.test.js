@@ -93,7 +93,7 @@ function fakeDb() {
     }
     const api = {
       select(_columns, options) { head = Boolean(options?.head); return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
-      neq(k, v) { filters.push([null, row => row[k] !== v]); return api }, gte(k, v) { filters.push([null, row => row[k] != null && row[k] >= v]); return api },
+      neq(k, v) { filters.push([null, row => row[k] !== v]); return api }, gte(k, v) { filters.push([null, row => row[k] != null && row[k] >= v]); return api }, lt(k, v) { filters.push([null, row => row[k] != null && row[k] < v]); return api },
       upsert(row) { action = 'upsert'; payload = row; return api }, update(row) { action = 'update'; payload = row; return api },
       in(k, values) { filters.push([null, row => values.includes(row[k])]); return api },
       not(k, op, v) { filters.push([null, row => !(op === 'is' && row[k] === v)]); return api },
@@ -374,10 +374,10 @@ test('with no sort chosen, analysed 추천 reels lead, then other analysed ones,
   assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['ReadyRec1', 'ReadyNew1', 'ReadyOld1', 'RecNone1', 'PlainNew1'])
 })
 
-test('analysed 추천 reels that meet the archive bar (3 months, 500,000+) come before other analysed 추천', async () => {
+test('analysed 추천 reels that meet the archive bar (3 months, 500,000+) come first, then older 500,000+ ones, then smaller ones', async () => {
   const db = fakeDb()
   const day = d => new Date(Date.now() - d * 86400000).toISOString()
   const add = (shortcode, daysAgo, views) => db.tables.creator_success_reels.set(shortcode, { shortcode, visible: true, reference_fit: true, posted_at: day(daysAgo), analysis_status: 'ready', recommended: true, views })
   add('NewSmall1', 1, 8000); add('OldBig1', 200, 3000000); add('FitOld1', 60, 900000); add('FitNew1', 5, 600000)
-  assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['FitNew1', 'FitOld1', 'NewSmall1', 'OldBig1'])
+  assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['FitNew1', 'FitOld1', 'OldBig1', 'NewSmall1'])
 })
