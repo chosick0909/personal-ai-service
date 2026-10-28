@@ -121,3 +121,16 @@ test('a recognizer looping the same line over music is not narration; a few repe
   const talk = ['블러셔 사망템 생존템 나누기 시작할게요', '첫번째 엔트로피 블러셔', '사망입니다', '두번째 어퓨 두껍게 발리나요', '사망입니다', '다음 3CE 생존입니다']
   assert.equal(usableSpeech({ text: talk.join(' '), subtitles: talk.map(text => ({ text })) }, 15), true)
 })
+
+test('a menu or sign in the picture fixes misheard words even when the captions say something else', async () => {
+  const speech = { text: '아니면 육반에 복소사 마텐더 항시댁이 이런게 있길래 시켜봤는데', subtitles: [{ id: 'cue-0', text: '아니면 육반에 복소사 마텐더 항시댁이 이런게 있길래 시켜봤는데' }] }
+  let asked = null
+  const result = await referenceTranscript({ hasAudio: true, duration: 20,
+    probeSubtitles: async () => ({ captions: ['군자에 이런 곳이 있었다니 진짜 대박'], scene: ['복소사 바텐더 항시대기'], frames: [{ id: 0, dataUrl: 'data:image/jpeg;base64,AA==' }] }),
+    transcribe: async () => speech, judgeScript: async () => false,
+    correctSpeech: (sp, ctx) => correctSpeechWithScreen(sp, ctx, { invoke: async fn => { asked = ctx; return { choices: [{ message: { content: JSON.stringify({ segments: [
+      { id: 'cue-0', text: '아니면 메뉴판에 복소사 바텐더 항시대기 이런게 있길래 시켜봤는데' }] }) } }] } } }),
+    readSubtitles: () => assert.fail('speech is the script') })
+  assert.deepEqual(asked.seen, ['복소사 바텐더 항시대기'])
+  assert.equal(result.subtitles[0].text, '아니면 메뉴판에 복소사 바텐더 항시대기 이런게 있길래 시켜봤는데')
+})

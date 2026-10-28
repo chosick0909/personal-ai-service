@@ -49,13 +49,15 @@ test('uniform empty video never reaches generative reader or fabricates subtitle
  assert.deepEqual(await readdir(dir),['silent.mp4'])
 },'color'))
 
-test('the screen probe reads eight spread frames in a single request and cleans up',async()=>fixture(15,async(path,dir)=>{
+test('the screen probe reads eight spread frames in a single request, keeps menus and signs apart, and cleans up',async()=>fixture(15,async(path,dir)=>{
  let calls=0,seen=[]
- const texts=await probeScreenText(path,dir,15,{invoke:async(_fn,{frameIds})=>{
+ const probe=await probeScreenText(path,dir,15,{invoke:async(_fn,{frameIds})=>{
   calls++;seen=frameIds
-  return{choices:[{finish_reason:'stop',message:{content:JSON.stringify({frames:frameIds.map(id=>({id,text:id%2?`자막 ${id}`:'',language:'ko'}))})}}]}
+  return{choices:[{finish_reason:'stop',message:{content:JSON.stringify({frames:frameIds.map(id=>({id,text:id%2?`자막 ${id}`:'',scene:id===2?'복소사 바텐더 항시대기':'',language:'ko'}))})}}]}
  }})
  assert.equal(calls,1);assert.equal(seen.length,8)
- assert.deepEqual(texts,['자막 1','자막 3','자막 5','자막 7'])
+ assert.deepEqual(probe.captions,['자막 1','자막 3','자막 5','자막 7'])
+ assert.deepEqual(probe.scene,['복소사 바텐더 항시대기'])
+ assert.equal(probe.frames.length,8)
  assert.deepEqual(await readdir(dir),['silent.mp4'])
 }))
