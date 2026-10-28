@@ -382,7 +382,7 @@ test('analysed 추천 reels that meet the archive bar (3 months, 500,000+) come 
   assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['FitNew1', 'FitOld1', 'OldBig1', 'NewSmall1'])
 })
 
-test('reel fields are judged a few at a time from the topic and script, and the region is kept per reel', async () => {
+test('reel fields are judged a few at a time from the topic and script, and the region is stored per reel', async () => {
   const db = fakeDb()
   const rows = Array.from({ length: 13 }, (_, i) => ({ shortcode: `Cat${String(i).padStart(3, '0')}x`, username: 'maker', caption: '',
     analysis: { overview: { topic: `주제 ${i}` }, transcript: { korean: '대본' } } }))
