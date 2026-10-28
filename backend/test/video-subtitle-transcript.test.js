@@ -134,3 +134,13 @@ test('a menu or sign in the picture fixes misheard words even when the captions 
   assert.deepEqual(asked.seen, ['복소사 바텐더 항시대기'])
   assert.equal(result.subtitles[0].text, '아니면 메뉴판에 복소사 바텐더 항시대기 이런게 있길래 시켜봤는데')
 })
+
+test('when the video carries captions, all of them are read before the speech is corrected, not just the sampled frames', async () => {
+  const speech = { text: '올레오 이 얼음을 주시는거에요', subtitles: [{ id: 'cue-0', text: '올레오 이 얼음을 주시는거에요' }] }
+  let given = null
+  await referenceTranscript({ hasAudio: true, duration: 10, probeSubtitles: async () => ({ captions: ['이런 고깃집 처음봄'], scene: [], frames: [] }),
+    transcribe: async () => speech, judgeScript: async () => false,
+    readSubtitles: async () => ({ subtitles: [{ text: '이런 고깃집 처음봄' }, { text: '(원래 이 얼음을)' }, { text: '복소사 바텐더 항시대기' }] }),
+    correctSpeech: async (sp, ctx) => { given = ctx.shown; return sp } })
+  assert.deepEqual(given, ['이런 고깃집 처음봄', '(원래 이 얼음을)', '복소사 바텐더 항시대기'])
+})

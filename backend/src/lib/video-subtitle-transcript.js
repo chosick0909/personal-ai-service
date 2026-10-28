@@ -22,7 +22,7 @@ function subtitleError(code, message) {
 
 // Names how a reference's script is chosen between speech and on-screen text. A link analysed with an older method
 // is analysed again instead of reusing that result (the method changed when lyrics stopped passing as narration).
-export const TRANSCRIPT_METHOD = 'speech-or-screen-9'
+export const TRANSCRIPT_METHOD = 'speech-or-screen-10'
 
 // Tells an analysis whether the script was spoken or read off the screen (as over a song).
 export const scriptSource = source => ['screen_subtitles', 'frames'].includes(source) ? '화면 글(말소리 없이, 또는 배경음악 위에 띄운 글)' : '말(음성)'
@@ -65,7 +65,13 @@ export async function referenceTranscript({ hasAudio, duration, transcribe, read
   // Words the video spells out (its own captions first, then menus, signs and labels) are the creator's words to listen for.
   const correct = async speech => {
     if (!correctSpeech || !(shown.length || seen.length)) return speech
-    try { return await correctSpeech(speech, { shown, seen, frames }) }
+    // The probe saw only a handful of frames; when the video carries captions, all of them are read so every line can be checked.
+    let captions = shown
+    if (shown.length && readSubtitles) {
+      try { const full = (await readSubtitles())?.subtitles?.map(cue => cue.text).filter(Boolean) || []; if (full.length) captions = full }
+      catch { signal?.throwIfAborted() }
+    }
+    try { return await correctSpeech(speech, { shown: captions, seen, frames }) }
     catch { signal?.throwIfAborted(); return speech }
   }
   if (hasAudio) {
@@ -125,7 +131,7 @@ export async function correctSpeechWithScreen(speech, context, { signal, invoke 
   const frames = Array.isArray(context) ? [] : (context?.frames || []).filter(frame => frame?.dataUrl).slice(0, 8)
   const segments = (speech.subtitles || []).map(cue => ({ id: cue.id, text: cue.text }))
   if (!segments.length || !(shown.length || seen.length)) return speech
-  const data = JSON.stringify({ segments, screen: [...new Set(shown)].slice(0, 20), sceneText: [...new Set(seen)].slice(0, 20) })
+  const data = JSON.stringify({ segments, screen: [...new Set(shown)].slice(0, 80), sceneText: [...new Set(seen)].slice(0, 20) })
   const response = await invoke(() => getOpenAIClient().chat.completions.create({
     model: frames.length ? getOpenAIModels().visionModel : getOpenAIModels().chatModel, store: false, response_format: { type: 'json_object' }, max_completion_tokens: 4000,
     messages: [{ role: 'system', content: correctInstructions }, { role: 'user', content: frames.length
