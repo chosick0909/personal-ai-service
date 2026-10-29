@@ -37,7 +37,10 @@ export async function resolveSources(db, userId, sources = {}) {
       if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
       if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
       const a = reel.analysis
-      const excerpt = slot === 'hook' ? { type: a.hook?.category, why: a.hook?.analysis, formula: a.hook?.formula, original: { note: '레퍼런스 원문(작동 원리를 이해하는 참고용, 단어·장면을 옮기지 않음)', spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook } }
+      // The first line is spoken, so the hook slot carries what the reference actually says first, not only the formula
+      // (which may describe the on-screen title instead).
+      const excerpt = slot === 'hook' ? { type: a.hook?.category, why: a.hook?.analysis, formula: a.hook?.formula, apply: a.hook?.apply,
+        original: { note: '레퍼런스 원문(작동 원리를 이해하는 참고용, 단어·장면을 옮기지 않음)', opening: String(a.transcript?.korean || '').replace(/\s+/g, ' ').trim().slice(0, 100) || undefined, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook } }
         : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis }
         : slot === 'filming' ? { filming: { location: a.filming?.location, shotType: a.filming?.shotType, onScreen: a.filming?.onScreen, guide: a.filming?.guide },
           editing: a.editing || { subtitleStyle: a.filming?.textOverlay, cuts: a.filming?.editing, transitions: '확인되지 않음', effects: '확인되지 않음', sound: '확인되지 않음', guide: [] } }
@@ -222,7 +225,7 @@ ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황·사건이 purpose와 같은 일을 말하는지, quotes의 구절이 brief·답변·첨부·research에 그 단어, 그 뜻 그대로 있는지 하나씩 대조합니다. 주어지지 않은 사실이나 원문을 다르게 읽은 내용이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
   hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
-1안: sources.hook이 있으면 그것이 일으킨 감정(why·type)을 이번 소재로 옮긴 말, 없으면 provenFormulas.hooks 중 이번 약속에 가장 맞는 공식의 작동 원리를 이번 소재로 옮긴 말. 2·3안: 서로 다른 훅 유형.
+1안: sources.hook이 있으면 레퍼런스가 처음 하는 말(original.opening)이 시청자를 붙잡는 장치, 곧 그 말이 시청자에게 무엇을 하게·느끼게·궁금하게 만드는지와 그 말의 짜임을 이번 소재로 옮긴 말(단어는 옮기지 않음). formula·type이 첫 말이 아니라 첫 화면 글(visualHook)의 장치를 본뜬 것이면 그 장치는 onScreen에 살리고 spoken은 첫 말의 장치를 따릅니다. 없으면 provenFormulas.hooks 중 이번 약속에 가장 맞는 공식의 작동 원리를 이번 소재로 옮긴 말. 2·3안: 서로 다른 훅 유형.
 첫 문장의 기준:
 ${HOOK_PRINCIPLES.map(p => `- ${p}`).join('\n')}
 ${PROVEN_NOTE}
