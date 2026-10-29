@@ -5,7 +5,7 @@ import { sessionHistory } from '../src/creator-tools/studio/routes.js'
 import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
-import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk } from '../src/creator-tools/studio/engine.js'
+import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk, stageJob } from '../src/creator-tools/studio/engine.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from '../src/creator-tools/studio/library.js'
 import { STORY_FORMATS } from '../src/creator-tools/success-reel-analysis.js'
 
@@ -83,6 +83,21 @@ test('startStage runs a background job once and records failures on the session'
   assert.equal(db.tables.studio_sessions.get('s1').job_status, 'failed')
   assert.equal(db.tables.studio_sessions.get('s1').job_error, '모델 응답 없음')
   await assert.rejects(startStage(deps, { ...session, topic: null }, 'hook'), /주제를 정해/)
+})
+
+test('a stage job cut off by a restart shows as failed with a retry, and retrying starts it again', async () => {
+  const old = new Date(Date.now() - 9 * 60000).toISOString(), recent = new Date(Date.now() - 60000).toISOString()
+  assert.equal(stageJob({ job_status: 'running', job_stage: 'hook', job_started_at: recent }).status, 'running')
+  const cut = stageJob({ job_status: 'running', job_stage: 'hook', job_started_at: old })
+  assert.equal(cut.status, 'failed'); assert.match(cut.error, /다시 시도/)
+  const db = fakeDb()
+  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'hook', topic: { title: 't' }, hook: { options: [] }, job_status: 'running', job_stage: 'hook', job_started_at: old, placeholders: [] })
+  const ran = []
+  const deps = { db, makeProviders: () => ({}), schedule: key => { ran.push(key) } }
+  await startStage(deps, db.tables.studio_sessions.get('s1'), 'hook')
+  assert.equal(db.tables.studio_sessions.get('s1').job_status, 'idle')
+  await startStage(deps, db.tables.studio_sessions.get('s1'), 'hook', { force: true })
+  assert.equal(db.tables.studio_sessions.get('s1').job_status, 'running'); assert.deepEqual(ran, ['studio:s1:hook'])
 })
 
 test('topic chat returns chips, proposals and a ready topic; revise chat returns proposals', async () => {

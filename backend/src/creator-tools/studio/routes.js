@@ -14,7 +14,7 @@ import { createProviders } from '../providers.js'
 import { studio2Enabled, canRecommend } from './access.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
-import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk } from './engine.js'
+import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, stageJob } from './engine.js'
 import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
@@ -60,7 +60,7 @@ export const sessionHistory = { remember, currentScript, currentCaption, optionN
 
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
   topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders, ask: row.ask,
-  job: { status: row.job_status, stage: row.job_stage, error: row.job_error, startedAt: row.job_started_at }, createdAt: row.created_at, updatedAt: row.updated_at })
+  job: stageJob(row), createdAt: row.created_at, updatedAt: row.updated_at })
 const publicMessage = row => ({ id: row.id, role: row.role, stage: row.stage, content: row.content, meta: row.meta, createdAt: row.created_at })
 
 function normalizeSources(value) {
@@ -85,8 +85,8 @@ export function registerStudioRoutes(router) {
   // ----- sessions (내 기획안) -----
   router.get('/creator-tools/studio/sessions', asyncHandler(async (req, res) => {
     enabled(req)
-    const rows = await query(database().from('studio_sessions').select('id,mode,stage,title,topic,sources,job_status,created_at,updated_at').eq('user_id', req.auth.userId).order('updated_at', { ascending: false }).limit(100))
-    res.set('Cache-Control', 'private, no-store').json({ sessions: rows.map(r => ({ id: r.id, mode: r.mode, stage: r.stage, title: r.title || r.topic?.title || null, sources: r.sources, jobStatus: r.job_status, createdAt: r.created_at, updatedAt: r.updated_at })) })
+    const rows = await query(database().from('studio_sessions').select('id,mode,stage,title,topic,sources,job_status,job_started_at,created_at,updated_at').eq('user_id', req.auth.userId).order('updated_at', { ascending: false }).limit(100))
+    res.set('Cache-Control', 'private, no-store').json({ sessions: rows.map(r => ({ id: r.id, mode: r.mode, stage: r.stage, title: r.title || r.topic?.title || null, sources: r.sources, jobStatus: stageJob(r).status, createdAt: r.created_at, updatedAt: r.updated_at })) })
   }))
   router.post('/creator-tools/studio/sessions', asyncHandler(async (req, res) => {
     enabled(req)

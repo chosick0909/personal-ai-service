@@ -359,6 +359,13 @@ export async function answerAsk(deps, session, text) {
 
 const message = error => error?.exposeMessage ? error.message : '훅ai가 잠시 멈췄어요. 다시 시도해주세요.'
 
+// A stage job runs inside the server process, so a deploy or restart ends it silently and the row stays 'running'.
+// A job takes at most about 7 minutes (3 for research, 4 for writing); past 8 the screen gets a failure with a retry button instead of a timer that never ends.
+const STAGE_JOB_STALE_MS = 8 * 60000
+export const stageJobStalled = row => row.job_status === 'running' && !(Date.parse(row.job_started_at) > Date.now() - STAGE_JOB_STALE_MS)
+export const stageJob = row => stageJobStalled(row) ? { status: 'failed', stage: row.job_stage, error: message(), startedAt: row.job_started_at }
+  : { status: row.job_status, stage: row.job_stage, error: row.job_error, startedAt: row.job_started_at }
+
 // Background stage job; the session row carries the job state the screen polls.
 export function runStageJob(deps, sessionId, stage) {
   return (deps.schedule || schedule)(`studio:${sessionId}:${stage}`, async () => {
@@ -385,9 +392,10 @@ export async function startStage(deps, session, stage, { force = false } = {}) {
   if (!STAGE_ORDER.includes(stage) || stage === 'topic' || stage === 'done') fail('STAGE_UNKNOWN', '알 수 없는 단계예요.')
   if (!session.topic?.title) fail('TOPIC_REQUIRED', '먼저 주제를 정해주세요.', 409)
   const patch = { stage, updated_at: new Date().toISOString() }
-  const stale = session.job_status === 'running' && Date.parse(session.job_started_at) < Date.now() - 6 * 60000
+  const stale = stageJobStalled(session)
   if (session.job_status === 'running' && !stale) return { ...session, ...patch }
   if (force || !session[stage]) Object.assign(patch, { job_status: 'running', job_stage: stage, job_error: null, job_started_at: new Date().toISOString() })
+  else if (stale) Object.assign(patch, { job_status: 'idle', job_stage: null })
   await query(deps.db.from('studio_sessions').update(patch).eq('id', session.id))
   if (patch.job_status === 'running') runStageJob(deps, session.id, stage)
   return { ...session, ...patch }
