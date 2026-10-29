@@ -20,7 +20,7 @@ import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
 import { readPublicImage } from '../network.js'
 import { probeVideo, ff } from '../media.js'
-import { requestReelAnalysis, runReelAnalysis, schedule, splitHookFormulas, needsHookSplit } from '../success-reel-analysis.js'
+import { requestReelAnalysis, runReelAnalysis, schedule, splitHookFormulas, needsHookSplit, ANALYSIS_SLOTS } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
@@ -501,7 +501,7 @@ export function registerStudioRoutes(router) {
     try {
       const db = database()
       const pending = await query(db.from('creator_success_reels').select('shortcode').eq('recommended', true).eq('username', 'recommended').neq('analysis_status', 'failed').limit(300))
-      for (const { shortcode } of pending) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, `https://www.instagram.com/reel/${shortcode}/`), 1)
+      for (const { shortcode } of pending) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, `https://www.instagram.com/reel/${shortcode}/`), 1, 'recommend')
     } catch (error) { console.error('[recommend-resume]', error?.code || 'FAILED') }
   }, 30000).unref?.()
   // 영상 편집: speech-to-text mishears words; with the plan's script 훅ai fixes only the misheard words and keeps every cue's timing.
@@ -532,9 +532,11 @@ export function registerStudioRoutes(router) {
   }))
   router.post('/creator-tools/studio/knowledge/study', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
-    const limit = Math.max(0, Math.min(60, Number(req.body?.limit ?? 10)))
-    schedule('daily-study:manual', () => studyOnce(deps(), { limit }), 1)
-    res.status(202).json({ started: true, limit })
+    // A large limit with lookups works through the whole backlog ahead of a class, one reel at a time.
+    const limit = Math.max(0, Math.min(600, Number(req.body?.limit ?? 10)))
+    const lookups = req.body?.lookups === undefined ? undefined : Math.max(0, Math.min(600, Number(req.body.lookups) || 0))
+    schedule('daily-study:manual', () => studyOnce(deps(), { limit, lookups }), 1, 'study')
+    res.status(202).json({ started: true, limit, lookups })
   }))
   if (process.env.NODE_ENV !== 'test') { startDailyStudy(deps()); startDemoRefresh() }
   // Client trial links (admins only): create one, list them, turn one off.
@@ -599,7 +601,8 @@ export function registerStudioRoutes(router) {
       const videoUrl = item.videoUrl ? lookupResult({ videoUrl: item.videoUrl }).videoUrl : null
       if (videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, videoUrl, 'EX', 3600).catch(() => {})
       await query(db.from('creator_success_reels').update({ analysis_status: 'running', analysis_error: null, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode))
-      schedule(`analysis:${shortcode}`, () => runReelAnalysis(deps(), shortcode))
+      // Its own pool: an admin batch never takes the slots students' analyses start in.
+      schedule(`analysis:${shortcode}`, () => runReelAnalysis(deps(), shortcode), 2, 'reanalyze')
       started.push(shortcode)
     }
     res.status(202).json({ started, missing })
@@ -659,13 +662,13 @@ export function registerStudioRoutes(router) {
         await query(db.from('creator_success_reels').update({ recommended: true, ...(title ? { cover_title: title } : {}), ...(existing.thumbnail_path ? { visible: true } : {}),
           ...(retry ? { analysis_status: 'none', analysis_error: null } : {}) }).eq('shortcode', shortcode))
         result.updated.push(shortcode)
-        if (!existing.thumbnail_path || retry || read) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url, read), 1)
+        if (!existing.thumbnail_path || retry || read) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url, read), 1, 'recommend')
         continue
       }
       await query(db.from('creator_reel_accounts').upsert({ username: 'recommended', profile: { recommended: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
       await query(db.from('creator_success_reels').insert({ shortcode, username: 'recommended', views: 0, posted_at: new Date().toISOString(), caption: '', source: 'recommended', recommended: true, cover_title: title, visible: false }))
       result.added.push(shortcode)
-      schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url, read), 1)
+      schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, url, read), 1, 'recommend')
     }
     res.status(201).json(result)
   }))
@@ -683,7 +686,7 @@ export function registerStudioRoutes(router) {
       await query(db.from('creator_success_reels').upsert({ shortcode, username: await uploadAccount(db, userId), views: 0, posted_at: now, caption: '', source: 'upload-link',
         owner_user_id: userId, visible: false, analysis_status: 'running', analysis_error: null, analysis_updated_at: now }, { onConflict: 'shortcode' }))
       await query(db.from('creator_reel_user_analyses').upsert({ user_id: userId, shortcode, created_at: now }))
-      schedule(`analysis:${shortcode}`, () => importLink(shortcode, url, userId))
+      schedule(`analysis:${shortcode}`, () => importLink(shortcode, url, userId), ANALYSIS_SLOTS)
       res.status(201).json({ shortcode, status: 'running' })
       return
     }

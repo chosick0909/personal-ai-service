@@ -339,7 +339,7 @@ test('seed reservations compose with existing provider daily limit and circuit b
   const setup = (circuit, daily) => createProviders({ job:{id:null}, db:{ from:() => ({ insert:async () => ({error:null}) }) },
     redis:{ get:async()=>circuit, incr:async()=>daily, expire:async()=>{}, del:async()=>{} },
     beforeCall:() => { guarded += 1; throw Object.assign(new Error('cap'), { code:'SEED_BUDGET' }) } })
-  for (const [circuit, daily, code] of [[5, 1, 'PROVIDER_CIRCUIT_OPEN'], [0, 1e9, 'PROVIDER_BUDGET'], [0, 1, 'SEED_BUDGET']]) {
+  for (const [circuit, daily, code] of [[10, 1, 'PROVIDER_CIRCUIT_OPEN'], [0, 1e9, 'PROVIDER_BUDGET'], [0, 1, 'SEED_BUDGET']]) {
     await assert.rejects(setup(circuit, daily).call('brightdata', 'account-search', async () => { requested += 1 }), { code })
   }
   assert.equal(guarded, 1); assert.equal(requested, 0)
@@ -577,4 +577,17 @@ test('reference searches keep the selected category without a home pilot keyword
     assert.ok(queries.every(query => query.includes(category.replaceAll('/', ' '))))
     assert.ok(queries.every(query => query.includes('한국') && !query.includes('살림')))
   }
+})
+test('the circuit counts provider failures, not calls we cancelled ourselves, and opens at 10', async () => {
+  let failures = 0
+  const redis = { get: async () => String(failures), incr: async key => key.includes('circuit') ? ++failures : 1, expire: async () => {}, del: async () => { failures = 0 } }
+  const db = { from: () => ({ insert: async () => ({ error: null }) }) }
+  const controller = new AbortController(); controller.abort()
+  const cancelled = createProviders({ job: { id: null }, db, redis, signal: controller.signal })
+  await assert.rejects(cancelled.call('openai', 'x', async () => { throw new Error('aborted') }))
+  assert.equal(failures, 0, 'our own cancellation is not a provider failure')
+  const live = createProviders({ job: { id: null }, db, redis, signal: new AbortController().signal })
+  for (let i = 0; i < 9; i++) await assert.rejects(live.call('openai', 'x', async () => { throw Object.assign(new Error('down'), { status: 503 }) }))
+  await assert.rejects(live.call('openai', 'x', async () => { throw Object.assign(new Error('down'), { status: 503 }) }), e => e.message === 'down', 'nine failures do not stop calls yet')
+  await assert.rejects(live.call('openai', 'x', async () => 'ok'), { code: 'PROVIDER_CIRCUIT_OPEN' })
 })

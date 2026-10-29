@@ -34,6 +34,9 @@ export function selectMetaConnection(rows, userId, serviceUserId) {
 
 export const budgetKey = (provider, now = Date.now()) => `creator:budget:${provider}:${new Date(now).toISOString().slice(0, 10)}`
 export const providerDailyLimit = () => Number(process.env.CREATOR_PROVIDER_DAILY_CALLS || 500)
+// Failures within a minute that mark a provider as down: further calls fail at once for that minute instead of each
+// waiting out a timeout. Many analyses run at once, so a few failures together are not yet an outage.
+const CIRCUIT_FAILURES = 10
 
 export function createProviders({ db, redis, job, signal, beforeCall, referencePollMs = 10000 }) {
   if (!Number.isSafeInteger(referencePollMs) || referencePollMs < 10000 || referencePollMs > 60000) {
@@ -42,7 +45,7 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
   const referencePause = (_ms, value, options) => delay(referencePollMs, value, options)
   async function call(provider, operation, fn, billing = {}) {
     const circuit = `creator:circuit:${provider}`
-    if (Number(await redis.get(circuit)) >= 5) fail('PROVIDER_CIRCUIT_OPEN', '외부 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', 503)
+    if (Number(await redis.get(circuit)) >= CIRCUIT_FAILURES) fail('PROVIDER_CIRCUIT_OPEN', '외부 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.', 503)
     // The daily budget counts billable requests. Checking a dataset's progress and downloading its result cost nothing,
     // and one Instagram lookup polls several times, so counting those made 500 calls mean about 70 lookups.
     if (!(provider === 'brightdata' && /(^|-)(progress|download)$/.test(operation))) {
@@ -56,7 +59,8 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
     let result, success = false
     try { result = await fn(); success = true; await redis.del(circuit); return result }
     catch (error) {
-      if (!error.status || error.status === 429 || error.status >= 500) {
+      // A call we cancelled ourselves (a job's time limit, a closed page) says nothing about the provider.
+      if (!signal?.aborted && (!error.status || error.status === 429 || error.status >= 500)) {
         const count = await redis.incr(circuit)
         if (count === 1) await redis.expire(circuit, 60)
       }

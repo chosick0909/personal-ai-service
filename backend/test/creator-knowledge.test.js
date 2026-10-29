@@ -187,3 +187,18 @@ test('CREATOR_STUDIO_MODEL moves only 훅ai (studio) calls, and a Claude model n
   assert.equal(operationModel('studio-script', 'gpt-a', { CREATOR_STUDIO_MODEL: 'claude-opus-5-5' }, 'gpt-premium'), 'gpt-premium', 'no key, no switch')
   assert.equal(operationModel('studio-script', 'gpt-a', { ...env, CREATOR_MODEL_STUDIO_SCRIPT: 'gpt-x' }, 'gpt-premium'), 'gpt-x', 'a per-stage override still wins')
 })
+
+test('a long study leaves a reel that was analyzed or started since its list was made', async () => {
+  const db = fakeDb({ creator_success_reels: new Map([
+    ['N1', { shortcode: 'N1', visible: true, reference_fit: true, username: 'a', analysis_status: 'none', views: 2 }],
+    ['N2', { shortcode: 'N2', visible: true, reference_fit: true, username: 'a', analysis_status: 'ready', views: 1 }]]), creator_study_runs: new Map() })
+  // The Mac mini is online. After the list is made, a student starts N1 and N2 is already analyzed.
+  const redis = { get: async key => {
+    if (key !== 'hookai:collector:seen') return null
+    Object.assign(db.tables.creator_success_reels.get('N1'), { analysis_status: 'running', analysis_updated_at: new Date().toISOString() })
+    return String(Date.now())
+  } }
+  const stats = await studyOnce({ db, redis, makeProviders: () => ({ json: async () => ({}) }) }, { limit: 5, lookups: 5 })
+  assert.equal(db.tables.creator_success_reels.get('N1').analysis_status, 'running', "left to the student's analysis")
+  assert.equal(stats.analyzed + stats.failed, 0)
+})

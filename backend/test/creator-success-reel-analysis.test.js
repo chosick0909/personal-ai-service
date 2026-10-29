@@ -78,10 +78,12 @@ test('analysis is requested once per reel and shared afterwards', async () => {
   const now = Date.parse('2026-10-25T06:00:00Z')
   const db = fakeDb([{ shortcode: 'Aaaaa1', visible: true, analysis_status: 'none' }, { shortcode: 'Hidden1', visible: false, analysis_status: 'none' }])
   const scheduled = []
-  const deps = { db, makeProviders: () => ({}), schedule: key => scheduled.push(key) }
+  const slots = []
+  const deps = { db, makeProviders: () => ({}), schedule: (key, _task, limit) => { scheduled.push(key); slots.push(limit) } }
   assert.deepEqual(await requestReelAnalysis(deps, 'Aaaaa1', now), { status: 'running' })
   assert.equal(db.tables.creator_success_reels.get('Aaaaa1').analysis_status, 'running')
   assert.deepEqual(scheduled, ['analysis:Aaaaa1'])
+  assert.deepEqual(slots, [60], 'a whole class starts at once instead of queueing two at a time')
   db.tables.creator_success_reels.get('Aaaaa1').analysis_status = 'ready'
   assert.deepEqual(await requestReelAnalysis(deps, 'Aaaaa1', now), { status: 'ready' })
   assert.equal(scheduled.length, 1)

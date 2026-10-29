@@ -61,13 +61,15 @@ const usable = request => request.eq('visible', true).or('reference_fit.is.null,
 // Unanalyzed archive reels, 추천 first and then by views. Reels whose video link is still cached go ahead of the rest,
 // and only `lookups` of those without one are taken. Reels that failed are tried again after a week, and
 // an analysis cut off by a restart (still 'running' half an hour later) is started over.
+// Still waiting for an analysis: never analyzed, failed over a week ago, or left running (a restart) for 30 minutes.
+const isDue = (r, now = Date.now()) => ['none', 'failed', 'running'].includes(r?.analysis_status) && (r.analysis_status === 'none' || !r.analysis_updated_at
+  || r.analysis_updated_at < new Date(now - (r.analysis_status === 'running' ? 30 * 60000 : 7 * 86400000)).toISOString())
 export async function studyBacklog(db, limit, now = Date.now(), { redis = null, lookups = LOOKUP_LIMIT } = {}) {
   if (limit <= 0) return []
-  const weekAgo = new Date(now - 7 * 86400000).toISOString(), stalled = new Date(now - 30 * 60000).toISOString()
   const rows = await query(usable(db.from('creator_success_reels').select('shortcode,recommended,views,analysis_status,analysis_updated_at'))
     .neq('username', 'recommended').in('analysis_status', ['none', 'failed', 'running'])
     .order('recommended', { ascending: false }).order('views', { ascending: false }).limit(limit * 6))
-  const due = rows.filter(r => r.analysis_status === 'none' || !r.analysis_updated_at || r.analysis_updated_at < (r.analysis_status === 'running' ? stalled : weekAgo))
+  const due = rows.filter(r => isDue(r, now))
   if (!redis) return due.slice(0, limit).map(r => r.shortcode)
   const cached = await Promise.all(due.map(r => redis.get(`success-reel-video:${r.shortcode}`).then(Boolean).catch(() => false)))
   const ready = due.filter((_, i) => cached[i]), rest = due.filter((_, i) => !cached[i])
@@ -140,16 +142,19 @@ const kstHour = (now = Date.now()) => new Date(now + 9 * 3600000).getUTCHours()
 
 // One study: analyze today's share of the backlog, file the analyzed reels into the 공식 사전 (and add the formulas it
 // lacks), relearn cover copy, then rewrite the fields that learned something new. Each part fails on its own.
-export async function studyOnce(deps, { limit = DAILY_LIMIT, keepAlive = async () => {} } = {}) {
+export async function studyOnce(deps, { limit = DAILY_LIMIT, lookups = LOOKUP_LIMIT, keepAlive = async () => {} } = {}) {
   const { db } = deps
   const run = await query(db.from('creator_study_runs').insert({ day: kstDay() }).select('id').single())
   const stats = { analyzed: 0, failed: 0, formulas: null, newFormulas: null, cover: false, fields: [] }
   const part = async (name, fn) => { try { return await fn() } catch (e) { console.error(`[study-${name}]`, e?.code || e?.message || 'FAILED'); return null } finally { await keepAlive() } }
   let error = null
   try {
-    for (const shortcode of await studyBacklog(db, limit, Date.now(), { redis: deps.redis })) {
+    for (const shortcode of await studyBacklog(db, limit, Date.now(), { redis: deps.redis, lookups })) {
       // Reels come from the Mac mini, which serves students first; with the Mac mini off there is nothing to analyze today.
       if (!(await collectorOnline(deps.redis))) { stats.stopped = 'offline'; break }
+      // A long run (the whole backlog before a class) overlaps students and the next daily study: a reel someone else
+      // analyzed or started since the list was made is left to them.
+      if (!isDue(await query(db.from('creator_success_reels').select('analysis_status,analysis_updated_at').eq('shortcode', shortcode).maybeSingle()))) continue
       await query(db.from('creator_success_reels').update({ analysis_status: 'running', analysis_error: null, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode))
       await runReelAnalysis({ ...deps, lookupPriority: LOOKUP_PRIORITY.study }, shortcode)
       const row = await query(db.from('creator_success_reels').select('analysis_status,analysis_error').eq('shortcode', shortcode).maybeSingle())

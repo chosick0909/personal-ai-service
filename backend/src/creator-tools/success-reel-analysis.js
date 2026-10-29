@@ -204,6 +204,8 @@ export async function splitHookFormulas(deps, rows, { redo = false } = {}) {
 
 // Small in-process runner: long jobs keep running after the HTTP response. Each pool has its own slots, so plans a
 // whole class writes at once do not queue behind video analyses (and the reverse).
+// A student's analysis starts at once even when a whole class asks together (about 85MB each, well inside the server).
+export const ANALYSIS_SLOTS = 60
 const running = new Map()
 const pools = new Map()
 export const isScheduled = key => running.has(key)
@@ -341,7 +343,7 @@ export async function requestReelAnalysis(deps, shortcode, now = Date.now(), use
     await query(deps.db.from('creator_success_reels').update({ analysis_status: 'running', analysis_error: null, analysis_updated_at: new Date(now).toISOString() })
       .eq('shortcode', shortcode))
   }
-  (deps.schedule || schedule)(`analysis:${shortcode}`, () => runReelAnalysis(deps, shortcode))
+  (deps.schedule || schedule)(`analysis:${shortcode}`, () => runReelAnalysis(deps, shortcode), ANALYSIS_SLOTS)
   return { status: 'running' }
 }
 
