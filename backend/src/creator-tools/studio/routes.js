@@ -620,10 +620,15 @@ export function registerStudioRoutes(router) {
   router.post('/creator-tools/studio/split-hook-formulas', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
     const db = database()
-    const rows = (await query(db.from('creator_success_reels').select('shortcode,analysis').eq('analysis_status', 'ready').limit(5000))).filter(r => needsHookSplit(r.analysis))
+    // before: analyses written before this time (by the old mixed rule) are split again even if an earlier split ran.
+    const before = Date.parse(req.body?.before || '') || 0
+    const redo = r => before > 0 && Date.parse(r.analysis_updated_at || 0) < before
+    const rows = (await query(db.from('creator_success_reels').select('shortcode,analysis,analysis_updated_at').eq('analysis_status', 'ready').limit(5000))).filter(r => needsHookSplit(r.analysis, { redo: redo(r) }))
     schedule('split-hook-formulas', async () => {
       for (let i = 0; i < rows.length; i += 10) {
-        await splitHookFormulas({ db, providers: deps().makeProviders(AbortSignal.timeout(180000)) }, rows.slice(i, i + 10)).catch(error => console.error('[split-hook-formulas]', error?.code || 'FAILED'))
+        const batch = rows.slice(i, i + 10), providers = deps().makeProviders(AbortSignal.timeout(180000))
+        await splitHookFormulas({ db, providers }, batch.filter(r => !redo(r))).catch(error => console.error('[split-hook-formulas]', error?.code || 'FAILED'))
+        await splitHookFormulas({ db, providers }, batch.filter(redo), { redo: true }).catch(error => console.error('[split-hook-formulas]', error?.code || 'FAILED'))
       }
     }, 3)
     res.status(202).json({ started: true, reels: rows.length })

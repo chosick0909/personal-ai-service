@@ -109,10 +109,14 @@ test('an old mixed hook formula is split into the first-line formula and the 썸
   const providers = { json: async (op, prompt, input) => { asked = input; return { reels: [{ id: 'Bbbbb2', category: '경고', formula: '[동작] 했을 때 [느낌]일수록 [문제]예요', coverFormula: '[목표] 전 딱 [기간]만' }] } } }
   assert.equal(await splitHookFormulas({ db, providers }, [db.tables.creator_success_reels.get('Bbbbb2')]), 1)
   assert.equal(asked.reels[0].opening, '깍지 끼고 접었다 펴면 아플수록 막힌 거예요')
+  assert.equal(asked.reels[0].merged, undefined, 'the old mixed formula is not shown, so it cannot be copied')
   const hook = db.tables.creator_success_reels.get('Bbbbb2').analysis.hook
   assert.equal(hook.formula, '[동작] 했을 때 [느낌]일수록 [문제]예요'); assert.equal(hook.coverFormula, '[목표] 전 딱 [기간]만'); assert.equal(hook.category, '경고')
   assert.equal(db.tables.studio_formulas.get('f2').spec.formula, '[동작] 했을 때 [느낌]일수록 [문제]예요')
   assert.equal(await splitHookFormulas({ db, providers }, [db.tables.creator_success_reels.get('Bbbbb2')]), 0, 'an analysis already split is left alone')
+  const firstSplit = db.tables.creator_success_reels.get('Bbbbb2')
+  firstSplit.analysis.hook.split = undefined
+  assert.equal(await splitHookFormulas({ db, providers }, [firstSplit], { redo: true }), 1, 'a split made by the earlier method is redone')
 })
 
 test('topic chat returns chips, proposals and a ready topic; revise chat returns proposals', async () => {
