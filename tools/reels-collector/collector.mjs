@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // HookAI success-reels collector for the client's Mac mini.
 // Uses its own Chrome data folder, separate from every personal Chrome profile.
-// Read-only on Instagram: it only opens pages. It never follows, likes, comments or downloads videos.
+// Read-only on Instagram: it only opens pages and asks the read-only requests Instagram's own page makes. It never
+// follows, likes, comments or downloads videos.
 import { chromium } from 'playwright-core'
 import { mkdir, writeFile, readFile, appendFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -167,6 +168,31 @@ const limited = async where => {
   misses = 0; restUntil = Date.now() + 60 * 60000
   await log(`⚠️ 인스타가 요청을 거절했습니다(HTTP 429 요청 제한, ${where}). 1시간 동안 인스타 페이지를 열지 않습니다. 이 창을 닫지 말고 그대로 두세요.`)
 }
+// A lookup only needs the reel's video file, account and counts, which the media info endpoint Instagram's own page
+// uses returns in one short request (about 0.4s instead of about 9s for opening the reel page). It is asked from
+// one Instagram tab kept open on a page that loads nothing else; the reel page is opened only when it has no answer.
+let infoTab = null
+async function askInfo(context, shortcode) {
+  if (!infoTab || infoTab.isClosed() || !/^https:\/\/www\.instagram\.com\//.test(infoTab.url())) {
+    await infoTab?.close().catch(() => {})
+    infoTab = await context.newPage()
+    const response = await infoTab.goto('https://www.instagram.com/robots.txt', { waitUntil: 'domcontentloaded', timeout: 45000 })
+    if (response?.status() === 429) throw new Error('status 429')
+  }
+  const { status, text } = await infoTab.evaluate(async id => {
+    const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''
+    const response = await fetch(`/api/v1/media/${id}/info/`, { credentials: 'include', headers: { 'x-ig-app-id': '936619743392459', 'x-csrftoken': csrf, 'x-requested-with': 'XMLHttpRequest' } })
+    return { status: response.status, text: await response.text() }
+  }, mediaId(shortcode.slice(0, 11)))
+  if (status === 429) throw new Error('status 429')
+  if (status === 401 || status === 403 || /login_required|checkpoint_required|challenge_required/.test(text)) return { blocked: true }
+  if (status !== 200) return {}
+  const media = new Map()
+  parseBodies(text).forEach(body => collectMedia(body, media))
+  const item = media.get(shortcode) || media.get(shortcode.slice(0, 11))
+  return item?.videoUrl ? { item } : {}
+}
+
 async function openReel(context, shortcode, url) {
   const page = await context.newPage()
   const bodies = []
@@ -203,7 +229,10 @@ async function readLookup(context, lookup) {
   if (!(await loggedIn(context))) { await log('⚠️ 수집 전용 크롬의 인스타 로그인이 풀렸습니다. login을 다시 실행해주세요.'); return { error: 'LOOKUP_BLOCKED' } }
   if (Date.now() < restUntil) { await log(`조회 ${lookup.shortcode}: 요청 제한으로 쉬는 중 (${new Date(restUntil).toLocaleTimeString('ko-KR')}까지)`); return { error: 'LOOKUP_BLOCKED' } }
   try {
-    const read = await openReel(context, lookup.shortcode, lookup.url)
+    // The short request failing for any reason but Instagram's request limit falls back to opening the page.
+    const asked = await askInfo(context, lookup.shortcode).catch(error => { if (LIMITED.test(String(error?.message))) throw error; infoTab = null; return {} })
+    if (asked.blocked) return { error: 'LOOKUP_BLOCKED' }
+    const read = asked.item ? asked : await openReel(context, lookup.shortcode, lookup.url)
     if (read.blocked) return { error: 'LOOKUP_BLOCKED' }
     const item = read.item
     if (!item) {
@@ -247,9 +276,9 @@ async function serveLookups(config, context) {
       await api(config, 'POST', `/lookups/${lookup.id}`, outcome).catch(error => log(`조회 결과 전송 실패: ${error.message}`))
       await log(`조회 ${lookup.shortcode}: ${outcome.error || '완료'}`)
     } finally { lookupBusy = false }
-    // A student is waiting on their own lookup, so those go quickly; 추천 links and the study are read slowly
-    // (Instagram limits an account that opens many reel pages in a short time).
-    if (lookup.priority > 0) await pause(30000, 45000); else await pause(1500, 3000)
+    // A student is waiting on their own lookup, so those go quickly (one short request, about one a second at most);
+    // 추천 links and the study are read slowly (Instagram limits an account that asks too much in a short time).
+    if (lookup.priority > 0) await pause(30000, 45000); else await pause(600, 1200)
   }
 }
 
@@ -263,7 +292,7 @@ async function serve() {
   // If the Chrome window is closed, every lookup after it would fail; launchd starts the collector again with a new window.
   context.on('close', () => { void log('수집 전용 크롬 창이 닫혀 수집기를 다시 시작합니다').finally(() => process.exit(1)) })
   await log('인스타 조회 대기 시작')
-  ;(async () => { for (;;) { await serveLookups(config, context); await sleep(3000) } })()
+  ;(async () => { for (;;) { await serveLookups(config, context); await sleep(1500) } })()
   for (;;) {
     const now = new Date(), day = now.toLocaleDateString('sv-SE')
     const last = await readFile(LAST_COLLECT(), 'utf8').catch(() => '')
