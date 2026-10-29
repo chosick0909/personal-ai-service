@@ -105,7 +105,7 @@ function HookTab({ hook = {} }) {
   return <div className="ct-rd-stack">
     <section className="ct-rd-card ct-rd-lead"><span className="ct-rd-pill">{hook.category}</span>
       <h3 className="ct-rd-quote">“{hook.spokenHook}”</h3></section>
-    <section className="ct-rd-card"><header><h3>내 주제에 쓰는 훅 공식</h3><CopyButton text={hook.formula} /></header>
+    <section className="ct-rd-card"><header><h3>첫 문장 공식</h3><CopyButton text={hook.formula} /></header>
       <p className="ct-rd-formula">{String(hook.formula || '').split(/(\[[^\]]+\])/).map((part, i) => /^\[/.test(part) ? <mark key={i}>{part}</mark> : part)}</p>
       <p className="ct-muted ct-rd-note">[ ] 자리에 내 주제를 넣어 바로 쓸 수 있어요.</p></section>
     <section className="ct-rd-card"><Field label="말로 하는 훅">{hook.spokenHook}</Field><Field label="화면 훅">{hook.visualHook}</Field></section>

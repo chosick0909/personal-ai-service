@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
 import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk, resumeStageJob } from '../src/creator-tools/studio/engine.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from '../src/creator-tools/studio/library.js'
-import { STORY_FORMATS } from '../src/creator-tools/success-reel-analysis.js'
+import { STORY_FORMATS, splitHookFormulas } from '../src/creator-tools/success-reel-analysis.js'
 
 const analysis = {
   overview: { summary: '약사가 연고를 판정', topic: '여드름 흉터 연고' },
@@ -23,7 +23,7 @@ function fakeDb() {
   const updates = []
   return { tables, updates, from(table) {
     const filters = []; let action = 'select', payload, single = false
-    const api = { select() { return api }, eq(k, v) { filters.push(r => r[k] === v); return api }, not(k, op, v) { filters.push(r => !(op === 'is' && (r[k] ?? null) === v)); return api }, order() { return api }, limit() { return api },
+    const api = { select() { return api }, eq(k, v) { const [col, key] = k.split('->>'); filters.push(r => (key ? r[col]?.[key] : r[col]) === v); return api }, not(k, op, v) { filters.push(r => !(op === 'is' && (r[k] ?? null) === v)); return api }, order() { return api }, limit() { return api },
       maybeSingle() { single = true; return api }, single() { single = true; return api }, update(p) { action = 'update'; payload = p; return api }, insert(p) { action = 'insert'; payload = p; return api },
       then(resolve) {
         const rows = [...tables[table].values()].filter(r => filters.every(f => f(r)))
@@ -98,6 +98,21 @@ test('a stage job cut off by a restart starts again when the plan is opened; one
   db.tables.studio_sessions.set('s2', { id: 's2', job_status: 'idle', job_stage: null })
   await resumeStageJob(deps, { ...db.tables.studio_sessions.get('s2'), job_status: 'running', job_stage: 'hook' })
   assert.deepEqual(ran, ['studio:s1:hook'])
+})
+
+test('an old mixed hook formula is split into the first-line formula and the 썸네일 카피라이팅 공식, and 내 공식 follows', async () => {
+  const db = fakeDb()
+  const old = { ...analysis, transcript: { korean: '깍지 끼고 접었다 펴면 아플수록 막힌 거예요', source: 'audio' }, hook: { category: '숫자·리스트', formula: '[목표] 전 딱 [기간]만', spokenHook: '깍지 끼고 접었다 펴면', visualHook: '살 빼기 전 딱 3일만', analysis: '', apply: [] } }
+  db.tables.creator_success_reels.set('Bbbbb2', { shortcode: 'Bbbbb2', analysis_status: 'ready', analysis: old })
+  db.tables.studio_formulas.set('f2', { id: 'f2', kind: 'hook', spec: { type: '숫자·리스트', formula: '[목표] 전 딱 [기간]만' }, source: { shortcode: 'Bbbbb2' } })
+  let asked = null
+  const providers = { json: async (op, prompt, input) => { asked = input; return { reels: [{ id: 'Bbbbb2', category: '경고', formula: '[동작] 했을 때 [느낌]일수록 [문제]예요', coverFormula: '[목표] 전 딱 [기간]만' }] } } }
+  assert.equal(await splitHookFormulas({ db, providers }, [db.tables.creator_success_reels.get('Bbbbb2')]), 1)
+  assert.equal(asked.reels[0].opening, '깍지 끼고 접었다 펴면 아플수록 막힌 거예요')
+  const hook = db.tables.creator_success_reels.get('Bbbbb2').analysis.hook
+  assert.equal(hook.formula, '[동작] 했을 때 [느낌]일수록 [문제]예요'); assert.equal(hook.coverFormula, '[목표] 전 딱 [기간]만'); assert.equal(hook.category, '경고')
+  assert.equal(db.tables.studio_formulas.get('f2').spec.formula, '[동작] 했을 때 [느낌]일수록 [문제]예요')
+  assert.equal(await splitHookFormulas({ db, providers }, [db.tables.creator_success_reels.get('Bbbbb2')]), 0, 'an analysis already split is left alone')
 })
 
 test('topic chat returns chips, proposals and a ready topic; revise chat returns proposals', async () => {

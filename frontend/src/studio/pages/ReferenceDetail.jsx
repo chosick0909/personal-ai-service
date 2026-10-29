@@ -70,7 +70,8 @@ export function AnalysisTabs({ reel, analysis, tab, setTab, onSaveFormula }) {
     </div>}
     {tab === 'hook' && <div className="st-stack">
       <section className="st-card"><div className="st-row" style={{ justifyContent: 'space-between' }}><span className="st-pill">{h.category}</span>{saveBtn('hook')}</div><h2 style={{ marginTop: 10, fontSize: 24, lineHeight: 1.45 }}>“{h.spokenHook}”</h2></section>
-      <section className="st-card"><div className="st-card-head"><h3>내 주제에 쓰는 훅 공식</h3><CopyButton text={h.formula} /></div><p className="st-formula">{String(h.formula || '').split(/(\[[^\]]+\])/).map((p, i) => /^\[/.test(p) ? <mark key={i}>{p}</mark> : p)}</p><p className="st-muted st-small" style={{ marginTop: 8 }}>[ ] 자리에 내 주제를 넣어 바로 쓸 수 있어요.</p></section>
+      <section className="st-card"><div className="st-card-head"><h3>첫 문장 공식</h3><CopyButton text={h.formula} /></div><p className="st-formula">{marked(h.formula)}</p><p className="st-muted st-small" style={{ marginTop: 8 }}>[ ] 자리에 내 주제를 넣어 바로 쓸 수 있어요.</p></section>
+      {known(h.coverFormula) && <section className="st-card"><div className="st-card-head"><h3>썸네일 카피라이팅 공식</h3><CopyButton text={h.coverFormula} /></div><p className="st-formula">{marked(h.coverFormula)}</p><p className="st-muted st-small" style={{ marginTop: 8 }}>첫 화면·커버에 크게 띄운 제목 글의 공식이에요. 첫 문장과는 따로 써요.</p></section>}
       <section className="st-card"><KV label="말로 하는 훅">{h.spokenHook}</KV><KV label="화면 훅">{h.visualHook}</KV></section>
       <section className="st-card"><h3 style={{ marginBottom: 8 }}>왜 붙잡나요</h3><Readable text={h.analysis} /></section>
       {h.apply?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>내 주제로 따라 하기</h3><ol className="st-steps">{h.apply.map((t, i) => <li key={i}>{t}</li>)}</ol></section>}
@@ -95,6 +96,9 @@ export function AnalysisTabs({ reel, analysis, tab, setTab, onSaveFormula }) {
     </div>}
   </>
 }
+
+// [ ] slots of a formula are highlighted so the student sees where their own topic goes.
+const marked = formula => String(formula || '').split(/(\[[^\]]+\])/).map((p, i) => /^\[/.test(p) ? <mark key={i}>{p}</mark> : p)
 
 // The server reports only running/ready; the stage shown follows how long the analysis has run.
 const ANALYSIS_STAGES = ['영상 가져오기', '대본 읽기', '첫 문장·전개·촬영·캡션 분석']

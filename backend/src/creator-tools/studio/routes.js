@@ -20,7 +20,7 @@ import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
 import { readPublicImage } from '../network.js'
 import { probeVideo, ff } from '../media.js'
-import { requestReelAnalysis, runReelAnalysis, schedule } from '../success-reel-analysis.js'
+import { requestReelAnalysis, runReelAnalysis, schedule, splitHookFormulas, needsHookSplit } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
@@ -612,6 +612,19 @@ export function registerStudioRoutes(router) {
       .filter(row => !String(row.source || '').startsWith('upload-'))
     schedule('rejudge-reels', async () => {
       for (let i = 0; i < rows.length; i += 30) await classifyReelCategories(db, deps().makeProviders(AbortSignal.timeout(180000)), rows.slice(i, i + 30)).catch(error => console.error('[rejudge-reels]', error?.code || 'FAILED'))
+    }, 3)
+    res.status(202).json({ started: true, reels: rows.length })
+  }))
+
+  // Split every stored analysis's old mixed hook formula into the first-line formula and the 썸네일 카피라이팅 공식 (admins only).
+  router.post('/creator-tools/studio/split-hook-formulas', asyncHandler(async (req, res) => {
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
+    const db = database()
+    const rows = (await query(db.from('creator_success_reels').select('shortcode,analysis').eq('analysis_status', 'ready').limit(5000))).filter(r => needsHookSplit(r.analysis))
+    schedule('split-hook-formulas', async () => {
+      for (let i = 0; i < rows.length; i += 10) {
+        await splitHookFormulas({ db, providers: deps().makeProviders(AbortSignal.timeout(180000)) }, rows.slice(i, i + 10)).catch(error => console.error('[split-hook-formulas]', error?.code || 'FAILED'))
+      }
     }, 3)
     res.status(202).json({ started: true, reels: rows.length })
   }))
