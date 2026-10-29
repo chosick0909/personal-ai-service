@@ -86,6 +86,14 @@ test('a song under an on-screen text card gives way to the screen, as the judge 
   assert.equal(await referenceTranscript({hasAudio:true,duration:8,transcribe:async()=>lyrics,probeSubtitles:async()=>card,judgeScript,
     readSubtitles:async()=>{throw Object.assign(new Error(),{code:'REFERENCE_TEXT_NOT_FOUND'})}}),lyrics)
 })
+test('the judge sees the video\'s frames, so a line invented over silence is weighed against what the video shows', async () => {
+  const invented={text:'시청해주셔서 감사합니다.'}
+  const frames=[{id:0,timestamp:0,dataUrl:'data:image/jpeg;base64,AA=='}]
+  let seen=null
+  const judgeScript=async(spoken,shown,images)=>{seen=images;return true}
+  assert.equal(await referenceTranscript({hasAudio:true,duration:12,transcribe:async()=>invented,probeSubtitles:async()=>({captions:['신입이 처음 출근한 날 생긴 일'],scene:[],frames}),judgeScript,readSubtitles:async()=>visual}),visual)
+  assert.deepEqual(seen,frames)
+})
 test('narration keeps the speech: captions that repeat it, a title the judge calls emphasis, or an unreadable probe', async () => {
   const speech={text:'옷을 고르기 전에 오늘 사용할 두 가지 색을 먼저 정해보세요. 그러면 아침이 훨씬 빨라져요.'}
   const cases=[[async()=>['옷을 고르기 전에','오늘 사용할 두 가지 색을 먼저 정해보세요','아침이 훨씬 빨라져요'],()=>assert.fail('nothing unheard to judge')],

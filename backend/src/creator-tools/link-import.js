@@ -196,7 +196,7 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
       probeSubtitles: dependencies.probeScreenText && (() => dependencies.probeScreenText(path, directory, info.duration, {
         signal, invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn),
       })),
-      judgeScript: (spoken, shown) => judgeScriptSource(spoken, shown, { signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }),
+      judgeScript: (spoken, shown, frames) => judgeScriptSource(spoken, shown, { frames, signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }),
       readSubtitles: () => dependencies.extractScreenSubtitles(path, directory, info.duration, {
         signal, onProgress: () => stage('reading_subtitles'),
         invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn),

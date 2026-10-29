@@ -247,7 +247,7 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
         correctSpeech: (speech, shown) => correctSpeechWithScreen(speech, shown, { signal, invoke: fn => providers.call('openai', 'speech-caption-correction', fn) }),
         probeSubtitles: () => probeScreenText(path, directory, info.duration, { signal,
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }),
-        judgeScript: (spoken, shown) => judgeScriptSource(spoken, shown, { signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }),
+        judgeScript: (spoken, shown, frames) => judgeScriptSource(spoken, shown, { frames, signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }),
         readSubtitles: () => extractScreenSubtitles(path, directory, info.duration, { signal, onProgress: () => {},
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }) })
         .catch(error => { if (String(error?.code || '').startsWith('SUBTITLE_') || ['TRANSCRIPT_EMPTY', 'TRANSCRIPTION_FAILED'].includes(error?.code)) return { subtitles: [], language: 'unknown', source: 'frames' }; throw error })

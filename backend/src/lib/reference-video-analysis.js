@@ -4973,7 +4973,7 @@ export async function analyzeReferenceVideo({
           text: value.text, segments: value.segments, durationSeconds: value.duration || duration, hasAudio,
         }).reliable,
         probeSubtitles: () => probeScreenText(created.videoPath, workspace, durationSeconds),
-        judgeScript: (spoken, shown) => judgeScriptSource(spoken, shown),
+        judgeScript: (spoken, shown, frames) => judgeScriptSource(spoken, shown, { frames }),
         readSubtitles: () => extractScreenSubtitles(created.videoPath, workspace, durationSeconds, {
           onProgress: () => stageHooks.onStart('reading-subtitles', baseContext),
         }),
