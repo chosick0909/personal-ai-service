@@ -1,6 +1,6 @@
 import { query } from '../store.js'
 import { runReelAnalysis } from '../success-reel-analysis.js'
-import { LOOKUP_PRIORITY, OFFLINE_MESSAGE, TIMEOUT_MESSAGE, collectorOnline } from '../instagram-lookup.js'
+import { LOOKUP_PRIORITY, OFFLINE_MESSAGE, TIMEOUT_MESSAGE, BLOCKED_MESSAGE, collectorOnline } from '../instagram-lookup.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { matchFormulas, discoverFormulas, buildCoverKnowledge } from './formula-study.js'
 
@@ -24,9 +24,10 @@ const DAILY_LIMIT = Number(process.env.CREATOR_STUDY_DAILY_LIMIT ?? 100)
 // Most reels come with a video link the Mac mini saw while collecting, so analysing them opens no Instagram page.
 // Reels without one each cost the Mac mini a page load, which is what pushes Instagram into its request limit.
 const LOOKUP_LIMIT = Number(process.env.CREATOR_STUDY_LOOKUP_LIMIT ?? 20)
-// Failures that are not the reel's fault (the Mac mini is off or busy, today's model budget is spent): the reel waits for
-// the next study instead of a week, and today's study stops there.
-const NOT_THE_REEL = new Set(['오늘의 외부 조회 한도에 도달했습니다.', OFFLINE_MESSAGE, TIMEOUT_MESSAGE])
+// Failures that are not the reel's fault (the Mac mini is off, busy or resting from Instagram's limit, today's model budget
+// is spent, the model service is down): the reel waits for the next study instead of a week, and today's study stops there.
+const NOT_THE_REEL = new Set(['오늘의 외부 조회 한도에 도달했습니다.', OFFLINE_MESSAGE, TIMEOUT_MESSAGE, BLOCKED_MESSAGE,
+  '외부 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.'])
 
 export const knowledgeSchema = obj({
   audience: str,

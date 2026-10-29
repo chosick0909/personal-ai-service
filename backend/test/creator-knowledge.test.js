@@ -202,3 +202,17 @@ test('a long study leaves a reel that was analyzed or started since its list was
   assert.equal(db.tables.creator_success_reels.get('N1').analysis_status, 'running', "left to the student's analysis")
   assert.equal(stats.analyzed + stats.failed, 0)
 })
+
+test('when Instagram is limiting the Mac mini the study stops and the reel waits for the next one, not a week', async () => {
+  const { BLOCKED_MESSAGE } = await import('../src/creator-tools/instagram-lookup.js')
+  const db = fakeDb({ creator_success_reels: new Map([
+    ['N1', { shortcode: 'N1', visible: true, reference_fit: true, username: 'a', analysis_status: 'none', views: 2 }],
+    ['N2', { shortcode: 'N2', visible: true, reference_fit: true, username: 'a', analysis_status: 'none', views: 1 }]]), creator_study_runs: new Map() })
+  const redis = { get: async key => key === 'hookai:collector:seen' ? String(Date.now()) : null, set: async () => {} }
+  const blocked = Object.assign(new Error(BLOCKED_MESSAGE), { code: 'LOOKUP_BLOCKED', exposeMessage: true, statusCode: 503 })
+  const makeProviders = () => ({ instagramReel: async () => { throw blocked }, json: async () => ({}) })
+  const stats = await studyOnce({ db, redis, makeProviders }, { limit: 5, lookups: 5 })
+  assert.equal(stats.stopped, 'unavailable')
+  assert.equal(db.tables.creator_success_reels.get('N1').analysis_status, 'none')
+  assert.equal(db.tables.creator_success_reels.get('N2').analysis_status, 'none', 'the rest are not marked failed')
+})
