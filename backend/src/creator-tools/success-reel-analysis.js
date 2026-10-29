@@ -166,17 +166,20 @@ export async function planThumbnailTitles({ generate = generateThumbnailTitles }
   } catch { return [] }
 }
 
-// Small in-process runner: long jobs keep running after the HTTP response.
+// Small in-process runner: long jobs keep running after the HTTP response. Each pool has its own slots, so plans a
+// whole class writes at once do not queue behind video analyses (and the reverse).
 const running = new Map()
-let active = 0
-const waiting = []
-export function schedule(key, task, limit = 2) {
+const pools = new Map()
+export const isScheduled = key => running.has(key)
+export function schedule(key, task, limit = 2, pool = 'analysis') {
   if (running.has(key)) return running.get(key)
+  if (!pools.has(pool)) pools.set(pool, { active: 0, waiting: [] })
+  const slots = pools.get(pool)
   const promise = (async () => {
-    while (active >= limit) await new Promise(resolve => waiting.push(resolve))
-    active += 1
+    while (slots.active >= limit) await new Promise(resolve => slots.waiting.push(resolve))
+    slots.active += 1
     try { await task() } catch (error) { console.error('[success-reel-task]', error?.code || 'TASK_FAILED') }
-    finally { active -= 1; waiting.shift()?.(); running.delete(key) }
+    finally { slots.active -= 1; slots.waiting.shift()?.(); running.delete(key) }
   })()
   running.set(key, promise)
   return promise

@@ -5,7 +5,7 @@ import { sessionHistory } from '../src/creator-tools/studio/routes.js'
 import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
-import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk, stageJob } from '../src/creator-tools/studio/engine.js'
+import { resolveSources, generateStage, formulaFromSession, chat, startStage, answerAsk, resumeStageJob } from '../src/creator-tools/studio/engine.js'
 import { HOOK_LIBRARY, STRUCTURE_LIBRARY } from '../src/creator-tools/studio/library.js'
 import { STORY_FORMATS } from '../src/creator-tools/success-reel-analysis.js'
 
@@ -28,7 +28,7 @@ function fakeDb() {
       then(resolve) {
         const rows = [...tables[table].values()].filter(r => filters.every(f => f(r)))
         if (action === 'insert') { const row = { id: `m${tables[table].size + 1}`, ...payload }; tables[table].set(row.id, row); return resolve({ data: row, error: null }) }
-        if (action === 'update') { rows.forEach(r => Object.assign(r, payload)); updates.push([table, payload]); return resolve({ data: null, error: null }) }
+        if (action === 'update') { rows.forEach(r => Object.assign(r, payload)); updates.push([table, payload]); return resolve({ data: rows, error: null }) }
         resolve({ data: single ? rows[0] ?? null : rows, error: null })
       } }
     return api } }
@@ -85,19 +85,19 @@ test('startStage runs a background job once and records failures on the session'
   await assert.rejects(startStage(deps, { ...session, topic: null }, 'hook'), /주제를 정해/)
 })
 
-test('a stage job cut off by a restart shows as failed with a retry, and retrying starts it again', async () => {
-  const old = new Date(Date.now() - 9 * 60000).toISOString(), recent = new Date(Date.now() - 60000).toISOString()
-  assert.equal(stageJob({ job_status: 'running', job_stage: 'hook', job_started_at: recent }).status, 'running')
-  const cut = stageJob({ job_status: 'running', job_stage: 'hook', job_started_at: old })
-  assert.equal(cut.status, 'failed'); assert.match(cut.error, /다시 시도/)
+test('a stage job cut off by a restart starts again when the plan is opened; one this server is running is left alone', async () => {
   const db = fakeDb()
-  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'hook', topic: { title: 't' }, hook: { options: [] }, job_status: 'running', job_stage: 'hook', job_started_at: old, placeholders: [] })
+  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'hook', topic: { title: 't' }, job_status: 'running', job_stage: 'hook', job_started_at: '2026-10-28T13:56:00Z', placeholders: [] })
   const ran = []
-  const deps = { db, makeProviders: () => ({}), schedule: key => { ran.push(key) } }
-  await startStage(deps, db.tables.studio_sessions.get('s1'), 'hook')
-  assert.equal(db.tables.studio_sessions.get('s1').job_status, 'idle')
-  await startStage(deps, db.tables.studio_sessions.get('s1'), 'hook', { force: true })
-  assert.equal(db.tables.studio_sessions.get('s1').job_status, 'running'); assert.deepEqual(ran, ['studio:s1:hook'])
+  const deps = { db, makeProviders: () => ({}), schedule: key => { ran.push(key) }, isScheduled: key => ran.includes(key) }
+  const resumed = await resumeStageJob(deps, db.tables.studio_sessions.get('s1'))
+  assert.deepEqual(ran, ['studio:s1:hook'])
+  assert.notEqual(resumed.job_started_at, '2026-10-28T13:56:00Z')
+  await resumeStageJob(deps, db.tables.studio_sessions.get('s1'))
+  assert.deepEqual(ran, ['studio:s1:hook'])
+  db.tables.studio_sessions.set('s2', { id: 's2', job_status: 'idle', job_stage: null })
+  await resumeStageJob(deps, { ...db.tables.studio_sessions.get('s2'), job_status: 'running', job_stage: 'hook' })
+  assert.deepEqual(ran, ['studio:s1:hook'])
 })
 
 test('topic chat returns chips, proposals and a ready topic; revise chat returns proposals', async () => {

@@ -1,7 +1,7 @@
 import { query } from '../store.js'
 import { fail } from '../domain.js'
 import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
-import { HOOK_TYPES, STORY_FORMATS, schedule } from '../success-reel-analysis.js'
+import { HOOK_TYPES, STORY_FORMATS, schedule, isScheduled } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint, SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } from './copy-principles.js'
@@ -359,16 +359,26 @@ export async function answerAsk(deps, session, text) {
 
 const message = error => error?.exposeMessage ? error.message : '훅ai가 잠시 멈췄어요. 다시 시도해주세요.'
 
-// A stage job runs inside the server process, so a deploy or restart ends it silently and the row stays 'running'.
-// A job takes at most about 7 minutes (3 for research, 4 for writing); past 8 the screen gets a failure with a retry button instead of a timer that never ends.
-const STAGE_JOB_STALE_MS = 8 * 60000
-export const stageJobStalled = row => row.job_status === 'running' && !(Date.parse(row.job_started_at) > Date.now() - STAGE_JOB_STALE_MS)
-export const stageJob = row => stageJobStalled(row) ? { status: 'failed', stage: row.job_stage, error: message(), startedAt: row.job_started_at }
-  : { status: row.job_status, stage: row.job_stage, error: row.job_error, startedAt: row.job_started_at }
+// Stage jobs run inside this server process (one replica), so a deploy or restart ends them silently and the row stays
+// 'running'. A 'running' row this process is not working on was cut off that way.
+const STAGE_JOB_SLOTS = 10
+const stageKey = (sessionId, stage) => `studio:${sessionId}:${stage}`
+const cutOff = (deps, row) => row.job_status === 'running' && !(deps.isScheduled || isScheduled)(stageKey(row.id, row.job_stage))
+
+// The next look at a cut-off plan starts its job again, so the student keeps waiting for the result instead of a timer that never ends.
+export async function resumeStageJob(deps, row) {
+  if (!cutOff(deps, row) || !row.job_stage) return row
+  const patch = { job_started_at: new Date().toISOString() }
+  // Only a row still 'running' is taken over; a job that finished meanwhile keeps its result.
+  const taken = await query(deps.db.from('studio_sessions').update(patch).eq('id', row.id).eq('job_status', 'running').select('id'))
+  if (!taken?.length) return row
+  runStageJob(deps, row.id, row.job_stage)
+  return { ...row, ...patch }
+}
 
 // Background stage job; the session row carries the job state the screen polls.
 export function runStageJob(deps, sessionId, stage) {
-  return (deps.schedule || schedule)(`studio:${sessionId}:${stage}`, async () => {
+  return (deps.schedule || schedule)(stageKey(sessionId, stage), async () => {
     const db = deps.db
     try {
       const session = await query(db.from('studio_sessions').select('*').eq('id', sessionId).single())
@@ -385,14 +395,14 @@ export function runStageJob(deps, sessionId, stage) {
     } catch (error) {
       await query(db.from('studio_sessions').update({ job_status: 'failed', job_error: message(error), updated_at: new Date().toISOString() }).eq('id', sessionId)).catch(() => {})
     }
-  })
+  }, STAGE_JOB_SLOTS, 'studio')
 }
 
 export async function startStage(deps, session, stage, { force = false } = {}) {
   if (!STAGE_ORDER.includes(stage) || stage === 'topic' || stage === 'done') fail('STAGE_UNKNOWN', '알 수 없는 단계예요.')
   if (!session.topic?.title) fail('TOPIC_REQUIRED', '먼저 주제를 정해주세요.', 409)
   const patch = { stage, updated_at: new Date().toISOString() }
-  const stale = stageJobStalled(session)
+  const stale = cutOff(deps, session)
   if (session.job_status === 'running' && !stale) return { ...session, ...patch }
   if (force || !session[stage]) Object.assign(patch, { job_status: 'running', job_stage: stage, job_error: null, job_started_at: new Date().toISOString() })
   else if (stale) Object.assign(patch, { job_status: 'idle', job_stage: null })
