@@ -11,6 +11,9 @@ const SEEN_KEY = 'hookai:collector:seen'
 const ONLINE_MS = 2 * 60000
 const REUSE_MS = 30 * 60000
 const BLOCKED_REUSE_MS = 10 * 60000
+// What the post itself is (no video, deleted, private) does not change on a retry minutes later.
+const POST_ERRORS = ['LINK_PRIVATE', 'LINK_DELETED', 'LINK_UNAVAILABLE']
+const FAILED_REUSE_MS = 10 * 60000
 const UNAVAILABLE = '영상을 가져올 수 없어요. 사진 게시물(카드뉴스)이나 연령 제한·비공개 게시물은 분석할 수 없어요. 영상 파일(MP4)이나 대본을 직접 올려 주세요.'
 export const OFFLINE_MESSAGE = '인스타 조회용 컴퓨터가 지금 응답하지 않아요. 잠시 후 다시 시도하거나 MP4·대본 업로드를 이용해주세요.'
 export const TIMEOUT_MESSAGE = '인스타 조회가 늦어지고 있어요. 잠시 후 다시 시도해주세요.'
@@ -40,6 +43,11 @@ export async function requestLookup(db, url, priority, now = Date.now()) {
     if (recent[0].status === 'queued' && priority < recent[0].priority) await query(db.from('creator_instagram_lookups').update({ priority }).eq('id', recent[0].id))
     return recent[0].id
   }
+  // A post the Mac mini just found unreadable gets the same answer at once, instead of holding the Mac mini again
+  // while other students wait behind it.
+  const failed = await query(db.from('creator_instagram_lookups').select('id').eq('shortcode', shortcode).eq('status', 'failed')
+    .in('error', POST_ERRORS).gte('created_at', new Date(now - FAILED_REUSE_MS).toISOString()).order('created_at', { ascending: false }).limit(1))
+  if (failed[0]) return failed[0].id
   return (await query(db.from('creator_instagram_lookups').insert({ shortcode, url: clean, priority }).select('id').single())).id
 }
 
