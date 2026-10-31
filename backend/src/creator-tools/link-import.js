@@ -98,9 +98,12 @@ sourceQuotes와 translatedQuotes에 판정에 사용한 정확한 부분 문자�
   if (!review || !['equivalent','changed','uncertain'].includes(review.verdict)
       || !['equivalent','changed','uncertain'].includes(review.meaningVerdict)
       || typeof review.reason !== 'string' || !review.reason.trim()) contentChanged()
+  // Quotes must come from the texts, but line breaks are only transcript segmentation: a quote that joins two
+  // lines with a space is still the source's own words.
+  const flat = text => text.replace(/\s+/g, ' ').trim()
   for (const [quotes,text] of [[review.sourceQuotes,source.text],[review.translatedQuotes,translated.text]]) {
     if (!Array.isArray(quotes) || !quotes.length
-        || quotes.some(q => typeof q !== 'string' || !q.trim() || !text.includes(q))) contentChanged()
+        || quotes.some(q => typeof q !== 'string' || !q.trim() || !flat(text).includes(flat(q)))) contentChanged()
   }
   if (review.verdict !== 'equivalent') numberChanged()
   if (review.meaningVerdict !== 'equivalent') contentChanged()

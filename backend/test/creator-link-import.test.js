@@ -85,6 +85,16 @@ test('semantic uncertainty and fabricated evidence remain blocked after one repa
     await assert.rejects(translateSegments(provider(()=>({text:korean}),input=>{const r=approve(input);mutate(r);return r}),'en',source),{code:'TRANSLATION_CONTENT_CHANGED'})
   }
 })
+test('a quote that joins transcript lines with a space is still evidence from the source',async()=>{
+  const calls=[]
+  const result=await translateSegments({json:async(op,_p,input)=>{calls.push(op)
+    if(op!=='verify-reference-numbers')return{text:korean}
+    return{...approve(input),sourceQuotes:['Sort what you already own before choosing a shelf.']}
+  }},'en',source)
+  assert.equal(result[0].text,korean)
+  assert.deepEqual(calls,['translate-reference','verify-reference-numbers'])
+  await assert.rejects(translateSegments(provider(()=>({text:korean}),input=>({...approve(input),sourceQuotes:['Sort what you own before choosing a shelf.']})),'en',source),{code:'TRANSLATION_CONTENT_CHANGED'})
+})
 test('empty and malformed responses get only one repair; no empty translation is returned',async()=>{
   for(const response of [null,{}, {text:null},{text:''},{text:'   '},{text:'가'.repeat(12001)}]){
     let calls=0
