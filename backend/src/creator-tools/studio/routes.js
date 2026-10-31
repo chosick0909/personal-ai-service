@@ -57,6 +57,17 @@ const currentPick = (field, f) => {
 }
 const pickNote = f => pickApplied(f) ? '훅ai와 고친 안' : f?.custom ? '직접 쓴 안' : optionName(f?.chosen ?? 0)
 export const sessionHistory = { remember, currentScript, currentCaption, optionName }
+// A topic the student changed leaves the 첫 문장·대본·촬영·캡션 written for the old one behind: they are cleared, so each
+// is written for the new topic when the student reaches it. A plan named after its old topic takes the new one's name.
+const LATER_STAGES = ['hook', 'script', 'filming', 'caption']
+export function topicPatch(row, topic) {
+  const changed = !row.topic || row.topic.title !== topic.title || (row.topic.brief || '') !== topic.brief
+  const patch = { topic, title: !row.title || (changed && row.title === row.topic?.title) ? topic.title : row.title }
+  if (!changed) return patch
+  for (const stage of LATER_STAGES) if (row[stage]) patch[stage] = null
+  if (LATER_STAGES.includes(row.ask?.stage)) patch.ask = null
+  return patch
+}
 
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
   topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders, ask: row.ask,
@@ -176,10 +187,11 @@ export function registerStudioRoutes(router) {
       // Research done while the topic was being found carries over, unless the student rewrote what the reel is about.
       ...(row.topic?.research ? { research: row.topic.research } : {}) }
     if (topic.title.length < 2) fail('TOPIC_REQUIRED', '주제를 한 줄로 적어주세요.')
-    await query(database().from('studio_sessions').update({ topic, title: row.title || topic.title, updated_at: new Date().toISOString() }).eq('id', row.id))
+    const patch = topicPatch(row, topic)
+    await query(database().from('studio_sessions').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id))
     await query(database().from('studio_topics').insert({ user_id: req.auth.userId, session_id: row.id, topic: topic.title, category: topic.category }))
     await addMessage(row.id, req.auth.userId, 'hookai', 'thumbnail', STAGE_OPENERS.thumbnail)
-    const session = await startStage(deps(), { ...row, topic, title: row.title || topic.title }, 'thumbnail', { force: true })
+    const session = await startStage(deps(), { ...row, ...patch }, 'thumbnail', { force: true })
     res.json({ session: publicSession(session) })
   }))
   // Move to a stage (generating it on first visit) or regenerate the current one.

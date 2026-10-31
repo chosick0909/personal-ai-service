@@ -1,7 +1,7 @@
 import test from 'node:test'
 import { COVER_PRINCIPLE_NAMES } from '../src/creator-tools/studio/copy-principles.js'
 import { ungroundedQuotes } from '../src/creator-tools/studio/engine.js'
-import { sessionHistory } from '../src/creator-tools/studio/routes.js'
+import { sessionHistory, topicPatch } from '../src/creator-tools/studio/routes.js'
 import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
@@ -209,6 +209,19 @@ test('switching or restoring a script keeps the replaced version in a short hist
   assert.deepEqual(remember(script, null, 'n'), [], 'nothing to keep when there is no current value')
   assert.deepEqual(currentCaption({ chosen: 0, options: [{ text: 'c', hashtags: ['a'] }] }), { text: 'c', hashtags: ['a'] })
   assert.equal(optionName(2), 'C안'); assert.equal(optionName(3), '4안')
+})
+
+test('a changed topic clears the first line, script, filming and caption written for the old one', () => {
+  const old = { title: '냉장고에 계란밖에 없을때', brief: '' }
+  const row = { title: old.title, topic: old, thumbnail: { chosen: 0 }, hook: { chosen: 1 }, script: { chosen: 0 }, filming: null, caption: null, ask: { stage: 'script' } }
+  const changed = topicPatch(row, { title: '다이어트 중인데 떡볶이 먹고싶을때', brief: '계란볶이 레시피' })
+  assert.equal(changed.title, '다이어트 중인데 떡볶이 먹고싶을때')
+  assert.deepEqual([changed.hook, changed.script, changed.ask], [null, null, null])
+  assert.equal(Object.hasOwn(changed, 'thumbnail'), false)
+  // The same topic confirmed again keeps the student's work, and a name the student gave the plan stays.
+  const same = topicPatch(row, { ...old })
+  assert.equal(Object.hasOwn(same, 'hook'), false)
+  assert.equal(topicPatch({ ...row, title: '내 떡볶이 기획' }, { title: '다른 주제', brief: '' }).title, '내 떡볶이 기획')
 })
 
 test('a reel analysis saves as 내 공식 in the same shapes a plan produces', () => {
