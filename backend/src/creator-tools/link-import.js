@@ -155,6 +155,10 @@ async function translatePassage(providers, language, passage, context) {
     }
   }
 }
+// A script that already has Korean in it is read as it is (as with a pasted script): a Korean reel whose captions
+// also carry English, or "3:30pm" time stamps, is not sent through translation.
+export const alreadyKorean = (language, subtitles) => ['ko', 'korean'].includes(String(language || '').toLowerCase())
+  || subtitles.some(cue => /[가-힣]/.test(cue.text))
 export async function translateSegments(providers, language, subtitles) {
   const passages = translationPassages(subtitles), translated = []
   for (const [index, passage] of passages.entries()) {
@@ -217,7 +221,7 @@ export async function importLink(ctx) {
   const transcript = await checkpoint('transcript', async () => { const { frames: scenes = [], ...collected } = await collectImportTranscript(ctx); frames = scenes; return collected })
   await stage('translating')
   const translated = await checkpoint('translationV2', async () => {
-    if (['ko', 'korean'].includes(transcript.language.toLowerCase())) return transcript.subtitles
+    if (alreadyKorean(transcript.language, transcript.subtitles)) return transcript.subtitles
     return translateSegments(providers, transcript.language, transcript.subtitles)
   })
   const translatedText = translated.map((cue) => cue.text).join('\n')

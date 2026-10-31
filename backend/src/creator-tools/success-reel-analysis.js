@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { workspace, probeVideo, transcribeFile, ff, downloadStored } from './media.js'
 import { downloadPublicMedia } from './network.js'
 import { correctSpeechWithScreen, extractScreenSubtitles, judgeScriptSource, probeScreenText, referenceTranscript, scriptSource } from '../lib/video-subtitle-transcript.js'
-import { translateSegments } from './link-import.js'
+import { alreadyKorean, translateSegments } from './link-import.js'
 import { referencePlayback, playbackUrl } from './reference-playback.js'
 import { query } from './store.js'
 import { THUMBNAIL_BUCKET, SUCCESS_REEL_MIN_VIEWS, SUCCESS_REEL_MAX_AGE_DAYS } from './success-reels.js'
@@ -290,7 +290,7 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }) })
         .catch(error => { if (String(error?.code || '').startsWith('SUBTITLE_') || ['TRANSCRIPT_EMPTY', 'TRANSCRIPTION_FAILED'].includes(error?.code)) return { subtitles: [], language: 'unknown', source: 'frames' }; throw error })
       const language = String(transcript.language || 'unknown')
-      const korean = ['ko', 'korean'].includes(language.toLowerCase()) ? transcript.subtitles : await translateSegments(providers, language, transcript.subtitles)
+      const korean = alreadyKorean(language, transcript.subtitles) ? transcript.subtitles : await translateSegments(providers, language, transcript.subtitles)
       const ratios = transcript.subtitles.length ? [0.15, 0.35, 0.55, 0.75, 0.92] : [0.08, 0.18, 0.28, 0.38, 0.48, 0.58, 0.68, 0.78, 0.88, 0.96]
       const times = [...new Set([0.3, ...ratios.map(r => Number((info.duration * r).toFixed(2)))])].filter(t => t < info.duration)
       const frames = []

@@ -204,7 +204,8 @@ test('validated transcript is visible through public polling before analysis res
 
 test('translation not yet verified never publishes a transcript preview', async () => {
   const { publicJob } = await import('../src/creator-tools/store.js')
-  const { ctx } = context({ language:'en', json:async () => { throw Object.assign(new Error('invalid translation'), {code:'TRANSLATION_NUMBER_CHANGED'}) } })
+  const transcript = { language:'en', text:'Use one bottle.', subtitles:[{ id:'0', start:0, end:1, text:'Use one bottle.' }] }
+  const { ctx } = context({ saved:{ transcript }, json:async () => { throw Object.assign(new Error('invalid translation'), {code:'TRANSLATION_NUMBER_CHANGED'}) } })
   Object.assign(ctx.job, {kind:'import-link',status:'running',result:null})
   await assert.rejects(importLink(ctx), {code:'TRANSLATION_NUMBER_CHANGED'})
   assert.equal(publicJob(ctx.job).result,null)

@@ -187,6 +187,15 @@ test('Korean transcripts bypass translation and semantic review',async()=>{
   assert.equal(result.translatedTranscript,korean);assert.deepEqual(calls,['reference-analysis'])
 })
 
+test('a Korean reel whose captions also carry English is read as it is, not translated',async()=>{
+  // Labelled English by character count: English captions or "3:30pm" stamps outweigh the Hangul beside them.
+  for(const subtitles of [[{text:'3,000-pillow pop-up in Hannam 3,000개 베개 속에서 쉬는 한남동 무료 팝업'}],[{text:'7, 6, 4살 하원 후 브이로그'},{text:'3:30pm'},{text:'3:31pm'}]]){
+    const calls=[]
+    const result=await importLink({job:{input:{}},stage:async()=>{},checkpoint:async(name,fn)=>name==='transcript'?{language:'en',text:subtitles.map(s=>s.text).join(' '),subtitles}:fn(),providers:{json:async(op)=>{calls.push(op);return{}}}})
+    assert.equal(result.translatedTranscript,subtitles.map(s=>s.text).join('\n'));assert.deepEqual(calls,['reference-analysis'])
+  }
+})
+
 test('uploaded videos bypass link collection and enter the shared transcription pipeline', async () => {
   const stages = [], calls = []
   const result = await collectImportTranscript({
