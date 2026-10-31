@@ -816,6 +816,9 @@
 @media (max-width:640px) { .pp { padding:28px 20px; } }
 @media print {
   @page { size:A4; margin:0; }
+  /* The page-wide height and sideways clip (kept for mobile) make the page one screen-tall scroll box; printed, it
+     stopped after the first page. On paper the plan runs its full length. */
+  html.st-html, html.st-html body, #root, #root > div { height:auto !important; overflow:visible !important; }
   .st-content.pp-wrap { padding:0; max-width:none; }
   .pp-sheet { border-radius:0; box-shadow:none; }
   .pp-gap { height:14mm; }
