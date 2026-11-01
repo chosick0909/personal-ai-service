@@ -386,3 +386,19 @@ test('suggested answers are held to the plan-quality rule everywhere 훅ai offer
   assert.equal(researchFresh({ brief: 'b', topic: fresh }), true)
   assert.equal(researchFresh({ brief: '다른 글', topic: fresh }), false, 'rewriting the text calls for new research')
 })
+
+test('what the student wrote is read into a topic and separate how-to requests; a request added to the same reel keeps what was made', async () => {
+  const { readBrief } = await import('../src/creator-tools/studio/research.js')
+  let asked = null
+  const providers = { json: async (op, _prompt, input) => { asked = { op, input }; return { subject: '  고명환 작가가 말하는 인생을 바꾸는 책  ', requests: ['대본은 30초 안으로', ' '], sameSubject: true } } }
+  const reading = await readBrief(providers, { brief: '고명환 작가 책 이야기\n대본은 30초 안으로', previousTopic: '고명환 작가가 추천하는 책', previousBrief: '고명환 작가 책 이야기' })
+  assert.deepEqual(reading, { subject: '고명환 작가가 말하는 인생을 바꾸는 책', requests: ['대본은 30초 안으로'], sameSubject: true })
+  assert.equal(asked.op, 'studio-brief-reading')
+  // With no earlier topic there is nothing to be the same as.
+  assert.equal((await readBrief(providers, { brief: '고명환 작가 책 이야기' })).sameSubject, false)
+  const row = { title: '고명환 작가가 추천하는 책', topic: { title: '고명환 작가가 추천하는 책', brief: '고명환 작가 책 이야기' }, hook: { a: 1 }, script: { b: 2 } }
+  const kept = topicPatch(row, { ...row.topic, brief: '고명환 작가 책 이야기\n대본은 30초 안으로', requests: ['대본은 30초 안으로'] }, { keep: true })
+  assert.equal('script' in kept, false, 'the script made for the same reel stays')
+  assert.equal(kept.topic.requests[0], '대본은 30초 안으로')
+  assert.equal(topicPatch(row, { title: '다른 주제', brief: '다른 내용' }).script, null, 'a different reel still starts over')
+})

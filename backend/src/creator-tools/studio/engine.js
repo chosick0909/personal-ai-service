@@ -67,7 +67,10 @@ function sessionContext(session, resolved, extras = {}) {
   return {
     mode: session.mode,
     sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { from: s.label, ...s.excerpt }])),
-    brief: session.brief, attachments: (session.attachments || []).map(a => ({ name: a.name, content: String(a.content || '').slice(0, 3000) })),
+    brief: session.brief,
+    // How the student asked for the reel to be made (length, tone, what to include or leave out): conditions every stage keeps.
+    ...(session.topic?.requests?.length ? { requests: { note: '수강생이 담고 싶은 내용 칸에 적은 만들기 요청. 모든 단계에서 지킵니다(주제가 아님).', items: session.topic.requests } } : {}),
+    attachments: (session.attachments || []).map(a => ({ name: a.name, content: String(a.content || '').slice(0, 3000) })),
     answers: session.topic?.answers || [],
     topic: session.topic ? { title: session.topic.title, angle: session.topic.angle, promise: session.topic.promise, facts: session.topic.facts, audience: session.topic.audience, category: session.topic.category } : null,
     // What 훅ai looked up on the web about the topic before planning (public facts with sources).

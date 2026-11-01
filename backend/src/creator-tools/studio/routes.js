@@ -14,6 +14,7 @@ import { createProviders } from '../providers.js'
 import { studio2Enabled, canRecommend } from './access.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
+import { readBrief } from './research.js'
 import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob } from './engine.js'
 import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
 import { BUCKET } from '../store.js'
@@ -61,8 +62,9 @@ export const sessionHistory = { remember, currentScript, currentCaption, optionN
 // A topic the student changed leaves the 첫 문장·대본·촬영·캡션 written for the old one behind: they are cleared, so each
 // is written for the new topic when the student reaches it. A plan named after its old topic takes the new one's name.
 const LATER_STAGES = ['hook', 'script', 'filming', 'caption']
-export function topicPatch(row, topic) {
-  const changed = !row.topic || row.topic.title !== topic.title || (row.topic.brief || '') !== topic.brief
+// keep: the student only added a request or a detail to the same reel, so what was already made stays.
+export function topicPatch(row, topic, { keep = false } = {}) {
+  const changed = !keep && (!row.topic || row.topic.title !== topic.title || (row.topic.brief || '') !== topic.brief)
   const patch = { topic, title: !row.title || (changed && row.title === row.topic?.title) ? topic.title : row.title }
   if (!changed) return patch
   for (const stage of LATER_STAGES) if (row[stage]) patch[stage] = null
@@ -181,18 +183,27 @@ export function registerStudioRoutes(router) {
     enabled(req)
     const row = await owned(req)
     const t = req.body?.topic || {}
-    const topic = { title: text(t.title, 120), angle: text(t.angle, 200), promise: text(t.promise, 200), facts: (Array.isArray(t.facts) ? t.facts : []).map(f => text(f, 200)).filter(Boolean).slice(0, 12),
+    // Started from what the student wrote: 훅ai reads the topic out of the content, and keeps how-to requests apart
+    // ("대본은 30초 안으로" is not what the reel is about). Without an answer, the first sentence stands in as before.
+    const reading = t.fromBrief && String(row.brief || '').trim().length >= 4 ? await readBrief(deps().makeProviders(AbortSignal.timeout(60000)),
+      { brief: row.brief, previousTopic: row.topic?.title || '', previousBrief: row.topic?.brief || '' }).catch(() => null) : null
+    const keep = Boolean(reading?.sameSubject && row.topic?.title)
+    const requests = [...new Set([...(keep ? row.topic.requests || [] : []), ...(t.fromBrief ? reading?.requests || [] : row.topic?.requests || [])])].slice(0, 8)
+    const topic = keep ? { ...row.topic, brief: text(row.brief, 8000), requests } : { title: text(reading?.subject || t.title, 120), angle: text(t.angle, 200), promise: text(t.promise, 200), facts: (Array.isArray(t.facts) ? t.facts : []).map(f => text(f, 200)).filter(Boolean).slice(0, 12),
       audience: text(t.audience, 120), category: SUCCESS_REEL_CATEGORIES.includes(t.category) ? t.category : '기타',
       // A topic taken straight from the student's text drops answers given for an earlier topic.
-      answers: t.fromBrief ? [] : row.topic?.answers || [], brief: text(row.brief, 8000),
+      answers: t.fromBrief ? [] : row.topic?.answers || [], brief: text(row.brief, 8000), requests,
       // Research done while the topic was being found carries over, unless the student rewrote what the reel is about.
       ...(row.topic?.research ? { research: row.topic.research } : {}) }
     if (topic.title.length < 2) fail('TOPIC_REQUIRED', '주제를 한 줄로 적어주세요.')
-    const patch = topicPatch(row, topic)
+    const patch = topicPatch(row, topic, { keep })
     await query(database().from('studio_sessions').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id))
     await query(database().from('studio_topics').insert({ user_id: req.auth.userId, session_id: row.id, topic: topic.title, category: topic.category }))
-    await addMessage(row.id, req.auth.userId, 'hookai', 'thumbnail', STAGE_OPENERS.thumbnail)
-    const session = await startStage(deps(), { ...row, ...patch }, 'thumbnail', { force: true })
+    if (keep) {
+      const added = (reading.requests || []).map(r => `'${r}'`).join(', ')
+      await addMessage(row.id, req.auth.userId, 'hookai', 'topic', `같은 영상이라 주제와 지금까지 만든 내용은 그대로 두었어요.${added ? ` 적어 주신 요청(${added})은 이제부터 만드는 단계와 '다시'를 누를 때 반영돼요.` : ''}`)
+    } else await addMessage(row.id, req.auth.userId, 'hookai', 'thumbnail', STAGE_OPENERS.thumbnail)
+    const session = await startStage(deps(), { ...row, ...patch }, 'thumbnail', { force: !keep })
     res.json({ session: publicSession(session) })
   }))
   // Move to a stage (generating it on first visit) or regenerate the current one.
