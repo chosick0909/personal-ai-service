@@ -2,9 +2,11 @@
 // HookAI success-reels collector for the client's Mac mini.
 // Uses its own Chrome data folder, separate from every personal Chrome profile.
 // Read-only on Instagram: it only opens pages and asks the read-only requests Instagram's own page makes. It never
-// follows, likes, comments or downloads videos.
+// follows, likes, comments or downloads Instagram videos. A YouTube link a student adds is downloaded for analysis.
 import { chromium } from 'playwright-core'
-import { mkdir, writeFile, readFile, appendFile } from 'node:fs/promises'
+import { mkdir, writeFile, readFile, appendFile, rm } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -264,6 +266,42 @@ async function readLookup(context, lookup) {
   }
 }
 
+// ---------- YouTube links for the server ----------
+// YouTube needs no login and no Chrome: yt-dlp downloads the video and the file itself is sent to the server
+// (YouTube refuses many server connections, but not this home connection). Only videos up to 3 minutes.
+const YOUTUBE_MAX_SECONDS = 180
+const run = promisify(execFile)
+// launchd starts this with a bare PATH; yt-dlp and ffmpeg come from Homebrew.
+const TOOL_PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || '/usr/bin:/bin'}`
+const ytdlp = (args, timeout) => run('yt-dlp', ['--ignore-config', '--no-playlist', '--no-warnings', '--socket-timeout', '20', ...args],
+  { timeout, killSignal: 'SIGKILL', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, PATH: TOOL_PATH } })
+const youtubeError = message => /private video|members-only|sign in to confirm your age|age-restricted/i.test(message) ? 'LINK_PRIVATE'
+  : /video unavailable|is unavailable|has been removed|no longer available|does not exist|terminated/i.test(message) ? 'LINK_DELETED' : 'LINK_UNAVAILABLE'
+async function readYoutube(config, lookup) {
+  const file = join(HOME, `youtube-${lookup.shortcode}.mp4`)
+  try {
+    const info = JSON.parse((await ytdlp(['--skip-download', '--dump-single-json', '--', lookup.url], 60000)).stdout)
+    if (info.is_live || !(info.duration > 0)) return { error: 'LINK_UNAVAILABLE' }
+    if (info.duration > YOUTUBE_MAX_SECONDS) return { error: 'VIDEO_TOO_LONG' }
+    await rm(file, { force: true })
+    // Up to 720p is enough to read on-screen subtitles; video and sound are joined into one mp4 by ffmpeg.
+    await ytdlp(['-f', 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b', '--merge-output-format', 'mp4',
+      '--max-filesize', '110M', '-o', file, '--', lookup.url], 240000)
+    const response = await fetch(`${config.server}/api/creator-ingest/lookups/${lookup.id}/video`, { method: 'POST',
+      headers: { authorization: `Bearer ${config.token}`, 'content-type': 'video/mp4' }, body: await readFile(file), signal: AbortSignal.timeout(180000) })
+    if (!response.ok) throw new Error(`영상 전송 실패: 서버 ${response.status}`)
+    const day = /^\d{8}$/.test(info.upload_date || '') ? `${info.upload_date.slice(0, 4)}-${info.upload_date.slice(4, 6)}-${info.upload_date.slice(6)}T00:00:00Z` : null
+    return { result: { title: info.title, caption: info.description, channel: info.channel || info.uploader, duration: info.duration,
+      views: info.view_count, likes: info.like_count, comments: info.comment_count, postedAt: info.timestamp ? new Date(info.timestamp * 1000).toISOString() : day,
+      thumbnailUrl: info.thumbnail } }
+  } catch (error) {
+    const message = String(error?.stderr || error?.message || error)
+    await log(`유튜브 ${lookup.shortcode} 오류: ${message.split('\n').filter(Boolean).pop()?.slice(0, 200)}`)
+    if (error?.code === 'ENOENT') { await log('⚠️ yt-dlp가 설치돼 있지 않습니다. 터미널에서 brew install yt-dlp ffmpeg 를 실행해주세요.'); return { error: 'LINK_UNAVAILABLE' } }
+    return { error: youtubeError(message) }
+  } finally { await rm(file, { force: true }) }
+}
+
 // Answers every queued lookup, most urgent first, until the queue is empty.
 async function serveLookups(config, context) {
   for (;;) {
@@ -272,13 +310,13 @@ async function serveLookups(config, context) {
     if (!lookup) return
     lookupBusy = true
     try {
-      const outcome = await readLookup(context, lookup)
+      const outcome = lookup.shortcode.startsWith('yt_') ? await readYoutube(config, lookup) : await readLookup(context, lookup)
       await api(config, 'POST', `/lookups/${lookup.id}`, outcome).catch(error => log(`조회 결과 전송 실패: ${error.message}`))
       await log(`조회 ${lookup.shortcode}: ${outcome.error || '완료'}`)
     } finally { lookupBusy = false }
     // A student is waiting on their own lookup, so those go quickly (one short request, about one a second at most);
     // 추천 links and the study are read slowly (Instagram limits an account that asks too much in a short time).
-    if (lookup.priority > 0) await pause(30000, 45000); else await pause(600, 1200)
+    if (lookup.priority > 0 && !lookup.shortcode.startsWith('yt_')) await pause(30000, 45000); else await pause(600, 1200)
   }
 }
 

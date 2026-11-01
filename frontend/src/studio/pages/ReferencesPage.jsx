@@ -9,7 +9,7 @@ import HookLoader from '../HookLoader'
 const FILTERS = [['all', '전체'], ['hook', '첫 문장이 좋았던'], ['structure', '흐름이 좋았던'], ['filming', '촬영/편집이 좋았던'], ['caption', '캡션이 좋았던']]
 const LIKES = [['hook', '첫 문장이 좋아요', Quote], ['structure', '흐름이 좋아요', ListOrdered], ['filming', '촬영/편집이 좋아요', Clapperboard], ['caption', '캡션이 좋아요', PenLine]]
 
-// 추가하기: an Instagram link, a video file or a pasted script becomes a reference and is analyzed right away.
+// 추가하기: an Instagram or YouTube link, a video file or a pasted script becomes a reference and is analyzed right away.
 function AddReferenceModal({ onClose, onAdded }) {
   const [tab, setTab] = useState('link')
   const [url, setUrl] = useState('')
@@ -35,12 +35,12 @@ function AddReferenceModal({ onClose, onAdded }) {
       onAdded({ shortcode: result.shortcode, username: result.title || (tab === 'link' ? url.trim().split('/').filter(Boolean).pop() : '내 레퍼런스'), analysisStatus: result.status })
     } catch (err) { setError(err.message); setBusy(false) }
   }
-  const tabs = [['link', '인스타그램 링크', Link2], ['video', '영상 업로드', Upload], ['text', '대본 텍스트', FileText]]
+  const tabs = [['link', '영상 링크', Link2], ['video', '영상 업로드', Upload], ['text', '대본 텍스트', FileText]]
   return <div className="st-modal" onClick={e => { if (e.target === e.currentTarget && !busy) onClose() }}>
     <form className="st-modal-box" onSubmit={submit}>
       <div className="st-row" style={{ justifyContent: 'space-between' }}><h2>레퍼런스 추가하기</h2><button type="button" className="st-icon-btn" aria-label="닫기" onClick={onClose} disabled={busy}><X size={20} /></button></div>
       <div className="st-chips">{tabs.map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} className="st-chip" aria-pressed={tab === id} onClick={() => setTab(id)}><Icon size={16} />{label}</button> })}</div>
-      {tab === 'link' && <div className="st-field"><label>인스타그램 링크 <small>공개 게시물만 돼요.</small></label><input className="st-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/…" inputMode="url" autoFocus /></div>}
+      {tab === 'link' && <div className="st-field"><label>인스타그램·유튜브 링크 <small>공개 영상만 돼요. 유튜브는 3분 이하.</small></label><input className="st-input" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/… 또는 https://youtube.com/shorts/…" inputMode="url" autoFocus /></div>}
       {tab === 'video' && <><div className="st-field"><label>영상 파일 <small>150MB·5분 이하</small></label><input type="file" accept="video/*" className="st-input" onChange={e => setFile(e.target.files?.[0] || null)} /></div><div className="st-field"><label>제목 (선택)</label><input className="st-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 지난달 올린 선크림 리뷰" /></div></>}
       {tab === 'text' && <><div className="st-field"><label>제목 (선택)</label><input className="st-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 경쟁사 영상 대본" /></div><div className="st-field"><label>대본 <small>말한 순서대로 붙여넣어 주세요.</small></label><textarea className="st-textarea" value={body} onChange={e => setBody(e.target.value)} placeholder="첫 문장부터 마지막 문장까지" /></div></>}
       {error && <div className="st-error" role="alert">{error}</div>}

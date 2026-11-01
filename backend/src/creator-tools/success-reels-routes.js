@@ -1,16 +1,17 @@
-import { Router } from 'express'
+import express, { Router } from 'express'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import Redis from 'ioredis'
 import { asyncHandler } from '../lib/errors.js'
 import { fail, uuid } from './domain.js'
-import { database, query, signedDownload } from './store.js'
+import { database, query, signedDownload, BUCKET } from './store.js'
 import { redisConnection } from './queue.js'
 import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
 import { ingestAccount, listSuccessReels, reelsMissingCaptions, storeReelCaptions, classifyReelCategories, reelsNeedingCategory } from './success-reels.js'
 import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
-import { markCollectorSeen, lookupResult, lookupError } from './instagram-lookup.js'
+import { markCollectorSeen, lookupResult, lookupError, youtubeLookupResult } from './instagram-lookup.js'
+import { isYoutubeShortcode, youtubeVideoPath } from './youtube.js'
 import { isDemoUser } from './demo-access.js'
 import { studio2Enabled } from './studio/access.js'
 
@@ -51,10 +52,25 @@ export function createReelIngestRouter() {
     const [row] = await query(database().rpc('creator_claim_lookup'))
     res.json({ lookup: row ? { id: row.id, url: row.url, shortcode: row.shortcode, priority: row.priority } : null })
   }))
+  // A YouTube video is downloaded by the Mac mini and sent here as the file itself, before its lookup is reported.
+  router.post('/lookups/:id/video', express.raw({ type: 'video/mp4', limit: '120mb' }), asyncHandler(async (req, res) => {
+    const db = database(), id = uuid(req.params.id)
+    const row = await query(db.from('creator_instagram_lookups').select('shortcode,status').eq('id', id).maybeSingle())
+    if (!row || row.status !== 'claimed' || !isYoutubeShortcode(row.shortcode)) fail('LOOKUP_NOT_CLAIMED', '받을 수 없는 영상입니다.', 409)
+    if (!Buffer.isBuffer(req.body) || req.body.length < 1000) fail('VIDEO_REQUIRED', '영상 파일이 비어 있습니다.', 400)
+    const path = youtubeVideoPath(row.shortcode)
+    const { error } = await db.storage.from(BUCKET).upload(path, req.body, { contentType: 'video/mp4', upsert: true })
+    if (error) fail('UPLOAD_FAILED', '영상을 저장하지 못했습니다.', 502)
+    await query(db.from('creator_instagram_lookups').update({ result: { videoPath: path } }).eq('id', id).eq('status', 'claimed'))
+    res.json({ ok: true })
+  }))
   router.post('/lookups/:id', asyncHandler(async (req, res) => {
     const db = database(), id = uuid(req.params.id)
-    const result = req.body?.result ? lookupResult(req.body.result) : null
-    const patch = result?.videoUrl ? { status: 'done', result, error: null } : { status: 'failed', error: lookupError(req.body?.error), result }
+    const row = await query(db.from('creator_instagram_lookups').select('shortcode,result').eq('id', id).maybeSingle())
+    // A YouTube lookup is done only once its file reached storage; the path is the server's own, never the Mac mini's.
+    const youtube = isYoutubeShortcode(row?.shortcode)
+    const result = !req.body?.result ? null : youtube ? youtubeLookupResult(req.body.result, row.result?.videoPath || null) : lookupResult(req.body.result)
+    const patch = (youtube ? result?.videoPath : result?.videoUrl) ? { status: 'done', result, error: null } : { status: 'failed', error: lookupError(req.body?.error), result }
     await query(db.from('creator_instagram_lookups').update({ ...patch, finished_at: new Date().toISOString() }).eq('id', id).eq('status', 'claimed'))
     res.json({ ok: true })
   }))
@@ -168,7 +184,7 @@ export function registerSuccessReelRoutes(router) {
     const row = shortcode && await query(database().from('creator_success_reels').select('shortcode,visible,owner_user_id,source,source_path').eq('shortcode', shortcode).maybeSingle())
     if (!row || !(row.visible || row.owner_user_id === req.auth.userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
     if (row.source === 'upload-text') return res.set('Cache-Control', 'private, no-store').json({ media: null })
-    if (row.source === 'upload-video') return res.set('Cache-Control', 'private, no-store').json({ media: { url: await signedDownload(database(), row.source_path) } })
+    if (['upload-video', 'upload-youtube'].includes(row.source)) return res.set('Cache-Control', 'private, no-store').json({ media: { url: await signedDownload(database(), row.source_path) } })
     const controller = new AbortController()
     res.on('close', () => { if (!res.writableEnded) controller.abort() })
     const providers = createProviders({ db: database(), redis: sharedRedis(), job: { id: null, user_id: null }, signal: controller.signal })

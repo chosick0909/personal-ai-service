@@ -19,12 +19,13 @@ import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
 import { readPublicImage } from '../network.js'
-import { probeVideo, ff } from '../media.js'
+import { probeVideo, ff, downloadStored } from '../media.js'
 import { requestReelAnalysis, runReelAnalysis, schedule, splitHookFormulas, needsHookSplit, ANALYSIS_SLOTS } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
-import { LOOKUP_PRIORITY, lookupResult } from '../instagram-lookup.js'
+import { LOOKUP_PRIORITY, lookupResult, requestLookup, awaitLookup } from '../instagram-lookup.js'
+import { youtubeVideoId, youtubeShortcode, youtubeUrl } from '../youtube.js'
 import { createDemoLink, refreshDemoUsers, startDemoRefresh } from '../demo-links.js'
 import { ideaReply } from './ideas.js'
 import { extractSupportingMaterials } from '../../lib/supporting-materials.js'
@@ -449,6 +450,11 @@ export function registerStudioRoutes(router) {
     await query(db.from('creator_reel_accounts').upsert({ username, profile: { upload: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
     return username
   }
+  // A frame half a second in becomes the card cover of a video that has no cover of its own; null when it can't be read.
+  const coverFromVideo = async (db, shortcode, path, signal) => {
+    const frame = join(tmpdir(), `${shortcode}.jpg`)
+    try { await ff(['-ss', '0.5', '-i', path, '-frames:v', '1', '-vf', 'scale=540:-2', '-q:v', '5', frame], signal); return await storeThumbnail(db, shortcode, `data:image/jpeg;base64,${(await readFile(frame)).toString('base64')}`) } catch { return null } finally { await rm(frame, { force: true }) }
+  }
   const storeThumbnail = async (db, shortcode, dataUrl) => {
     const [, type, data] = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/) || []
     if (!type) return null
@@ -483,6 +489,25 @@ export function registerStudioRoutes(router) {
       await fillFromLink(db, shortcode, url)
     } catch (error) {
       const text = error?.exposeMessage ? error.message : '영상을 가져오지 못했어요. 링크를 확인하고 다시 시도해주세요.'
+      await query(db.from('creator_success_reels').update({ analysis_status: 'failed', analysis_error: text, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
+      return
+    }
+    await runReelAnalysis(deps(), shortcode)
+  }
+  // A YouTube link: the Mac mini downloads the video into storage, then it is analyzed like an uploaded video.
+  const importYoutube = async (shortcode, url, userId) => {
+    const db = database()
+    try {
+      const media = await awaitLookup({ db, redis: sharedRedis() }, await requestLookup(db, url, LOOKUP_PRIORITY.student))
+      const path = join(tmpdir(), `${shortcode}-${randomUUID()}.mp4`)
+      let thumbnailPath = null
+      try { await downloadStored(db, media.videoPath, path, AbortSignal.timeout(120000)); thumbnailPath = await coverFromVideo(db, shortcode, path, AbortSignal.timeout(30000)) }
+      catch { /* no cover */ } finally { await rm(path, { force: true }) }
+      await query(db.from('creator_success_reels').update({ source_path: media.videoPath, title: media.title || '유튜브 영상', caption: media.caption || '',
+        views: media.views ?? 0, likes: media.likes, comments: media.comments, ...(media.postedAt ? { posted_at: media.postedAt } : {}),
+        ...(thumbnailPath ? { thumbnail_path: thumbnailPath } : {}) }).eq('shortcode', shortcode))
+    } catch (error) {
+      const text = error?.exposeMessage ? error.message : '유튜브 영상을 가져오지 못했어요. 링크를 확인하고 다시 시도해주세요.'
       await query(db.from('creator_success_reels').update({ analysis_status: 'failed', analysis_error: text, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
       return
     }
@@ -688,17 +713,19 @@ export function registerStudioRoutes(router) {
   router.post('/creator-tools/studio/references/link', asyncHandler(async (req, res) => {
     enabled(req)
     const db = database(), userId = req.auth.userId
-    const url = instagramPostUrl(String(req.body?.url || '').trim())
-    if (!url) fail('LINK_INVALID', '인스타그램 릴스 링크를 넣어주세요. 예) https://www.instagram.com/reel/XXXX/')
-    const shortcode = new URL(url).pathname.split('/')[2]
-    const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id').eq('shortcode', shortcode).maybeSingle())
-    if (!existing) {
-      await uploadQuota(userId)
+    const raw = String(req.body?.url || '').trim(), video = youtubeVideoId(raw)
+    const url = video ? youtubeUrl(video) : instagramPostUrl(raw)
+    if (!url) fail('LINK_INVALID', '인스타그램 릴스나 유튜브 영상 링크를 넣어주세요. 예) https://www.instagram.com/reel/XXXX/')
+    const shortcode = video ? youtubeShortcode(video) : new URL(url).pathname.split('/')[2]
+    const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id,source_path').eq('shortcode', shortcode).maybeSingle())
+    // A YouTube link whose video never reached storage (the earlier try failed) is fetched again.
+    if (!existing || (video && !existing.source_path)) {
+      if (!existing) await uploadQuota(userId)
       const now = new Date().toISOString()
-      await query(db.from('creator_success_reels').upsert({ shortcode, username: await uploadAccount(db, userId), views: 0, posted_at: now, caption: '', source: 'upload-link',
+      await query(db.from('creator_success_reels').upsert({ shortcode, username: await uploadAccount(db, userId), views: 0, posted_at: now, caption: '', source: video ? 'upload-youtube' : 'upload-link',
         owner_user_id: userId, visible: false, analysis_status: 'running', analysis_error: null, analysis_updated_at: now }, { onConflict: 'shortcode' }))
       await query(db.from('creator_reel_user_analyses').upsert({ user_id: userId, shortcode, created_at: now }))
-      schedule(`analysis:${shortcode}`, () => importLink(shortcode, url, userId), ANALYSIS_SLOTS)
+      schedule(`analysis:${shortcode}`, () => video ? importYoutube(shortcode, url, userId) : importLink(shortcode, url, userId), ANALYSIS_SLOTS)
       res.status(201).json({ shortcode, status: 'running' })
       return
     }
@@ -738,9 +765,7 @@ export function registerStudioRoutes(router) {
       const storagePath = `studio-uploads/${userId}/${shortcode}.mp4`
       const { error } = await db.storage.from(BUCKET).upload(storagePath, await readFile(file.path), { contentType: file.mimetype, upsert: true })
       if (error) fail('UPLOAD_FAILED', '영상을 저장하지 못했어요. 다시 시도해주세요.', 502)
-      const frame = join(tmpdir(), `${shortcode}.jpg`)
-      let thumbnailPath = null
-      try { await ff(['-ss', '0.5', '-i', file.path, '-frames:v', '1', '-vf', 'scale=540:-2', '-q:v', '5', frame], signal); thumbnailPath = await storeThumbnail(db, shortcode, `data:image/jpeg;base64,${(await readFile(frame)).toString('base64')}`) } catch { /* no cover */ } finally { await rm(frame, { force: true }) }
+      const thumbnailPath = await coverFromVideo(db, shortcode, file.path, signal)
       const username = await uploadAccount(db, userId)
       await query(db.from('creator_success_reels').insert({ shortcode, username, views: 0, posted_at: new Date().toISOString(), caption: '', source: 'upload-video', source_path: storagePath, title, owner_user_id: userId, visible: false, thumbnail_path: thumbnailPath }))
       const result = await startAnalysis(shortcode, userId)

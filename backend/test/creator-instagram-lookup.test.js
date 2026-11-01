@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { requestLookup, awaitLookup, lookupResult, lookupError, collectorOnline, markCollectorSeen, LOOKUP_PRIORITY } from '../src/creator-tools/instagram-lookup.js'
+import { requestLookup, awaitLookup, lookupResult, lookupError, youtubeLookupResult, collectorOnline, markCollectorSeen, LOOKUP_PRIORITY } from '../src/creator-tools/instagram-lookup.js'
+import { youtubeVideoId } from '../src/creator-tools/youtube.js'
 
 function fakeDb() {
   const rows = new Map()
@@ -89,4 +90,37 @@ test('a student\'s link goes to the paid reader at once while the Mac mini is li
     if (savedKey === undefined) delete process.env.BRIGHT_DATA_API_KEY
     else process.env.BRIGHT_DATA_API_KEY = savedKey
   }
+})
+
+test('YouTube Shorts, watch, live and youtu.be links name the same video; other sites and channel pages do not', () => {
+  for (const link of ['https://youtube.com/shorts/dQw4w9WgXcQ?si=abc', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s', 'https://m.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://youtu.be/dQw4w9WgXcQ?si=x', 'https://www.youtube.com/live/dQw4w9WgXcQ']) assert.equal(youtubeVideoId(link), 'dQw4w9WgXcQ', link)
+  for (const link of ['https://www.youtube.com/@channel', 'https://www.youtube.com/watch?v=short', 'https://evil.example/shorts/dQw4w9WgXcQ', 'https://youtube.com:8443/shorts/dQw4w9WgXcQ', 'not a link'])
+    assert.equal(youtubeVideoId(link), null, link)
+})
+
+test('a YouTube link is queued for the Mac mini even while Instagram is limiting it, and says why it failed in YouTube terms', async () => {
+  const db = fakeDb(), redis = store()
+  const blocked = await requestLookup(db, 'https://www.instagram.com/reel/AbCdE12345/', 0)
+  Object.assign(db.rows.get(blocked), { status: 'failed', error: 'LOOKUP_BLOCKED' })
+  const id = await requestLookup(db, 'https://youtube.com/shorts/dQw4w9WgXcQ', 0)
+  assert.notEqual(id, blocked)
+  assert.equal(db.rows.get(id).shortcode, 'yt_dQw4w9WgXcQ')
+  assert.equal(db.rows.get(id).url, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  assert.equal(await requestLookup(db, 'https://youtu.be/dQw4w9WgXcQ', 0), id)
+  Object.assign(db.rows.get(id), { status: 'failed', error: 'VIDEO_TOO_LONG' })
+  await assert.rejects(awaitLookup({ db, redis }, id, { sleep: async () => {} }), err => err.code === 'VIDEO_TOO_LONG' && /3분 이하/.test(err.message))
+  Object.assign(db.rows.get(id), { error: 'LINK_PRIVATE' })
+  await assert.rejects(awaitLookup({ db, redis }, id, { sleep: async () => {} }), err => /유튜브 영상을 가져올 수 없어요/.test(err.message))
+})
+
+test('a YouTube report keeps only checked fields, and the video path is the server\'s own', () => {
+  const r = youtubeLookupResult({ videoPath: 'evil/path.mp4', title: ' 제목 ', thumbnailUrl: 'https://i.ytimg.com/vi/x/hq.jpg', views: 5000, likes: -2, duration: 59.6, postedAt: '2026-10-01T00:00:00Z' }, 'studio-uploads/youtube/yt_x.mp4')
+  assert.equal(r.videoPath, 'studio-uploads/youtube/yt_x.mp4')
+  assert.equal(r.title, '제목')
+  assert.equal(r.thumbnailUrl, 'https://i.ytimg.com/vi/x/hq.jpg')
+  assert.equal(r.likes, null)
+  assert.equal(r.duration, 60)
+  assert.equal(youtubeLookupResult({ thumbnailUrl: 'https://evil.example/t.jpg' }, null).thumbnailUrl, null)
+  assert.equal(lookupError('VIDEO_TOO_LONG'), 'VIDEO_TOO_LONG')
 })

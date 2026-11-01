@@ -263,7 +263,7 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
     const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,likes,comments,thumbnail_path,category,source,source_path,source_text,posted_at,visible').eq('shortcode', shortcode).single())
     const media = reel.source === 'upload-text' ? await textMedia(providers, reel.source_text) : await workspace(async directory => {
       const path = join(directory, 'reel.mp4')
-      if (reel.source === 'upload-video') await downloadStored(db, reel.source_path, path, signal)
+      if (['upload-video', 'upload-youtube'].includes(reel.source)) await downloadStored(db, reel.source_path, path, signal)
       else {
         const fetchMedia = async () => {
           const found = await reelMedia({ providers, redis, lookupPriority }, shortcode)
