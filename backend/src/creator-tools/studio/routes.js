@@ -655,11 +655,15 @@ export function registerStudioRoutes(router) {
     }
     res.status(202).json({ started, missing })
   }))
-  // Re-judge every listed reel's field and reference fit after the judging rule changes (admins only), 30 per call.
+  // Re-judge the listed reels' field and reference fit after the judging rule changes (admins only), 30 per call.
+  // shortcodes: only those reels; otherwise every listed reel.
   router.post('/creator-tools/studio/rejudge-reels', asyncHandler(async (req, res) => {
     if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '관리자만 실행할 수 있어요.', 404)
     const db = database()
-    const rows = (await query(db.from('creator_success_reels').select('shortcode,username,caption,source,analysis').eq('visible', true).order('views', { ascending: false }).limit(2000)))
+    const only = (Array.isArray(req.body?.shortcodes) ? req.body.shortcodes : []).filter(code => /^[A-Za-z0-9_-]{5,40}$/.test(String(code))).slice(0, 200)
+    let request = db.from('creator_success_reels').select('shortcode,username,caption,source,analysis').eq('visible', true)
+    if (only.length) request = request.in('shortcode', only)
+    const rows = (await query(request.order('views', { ascending: false }).limit(2000)))
       .filter(row => !String(row.source || '').startsWith('upload-'))
     schedule('rejudge-reels', async () => {
       for (let i = 0; i < rows.length; i += 30) await classifyReelCategories(db, deps().makeProviders(AbortSignal.timeout(180000)), rows.slice(i, i + 30)).catch(error => console.error('[rejudge-reels]', error?.code || 'FAILED'))
