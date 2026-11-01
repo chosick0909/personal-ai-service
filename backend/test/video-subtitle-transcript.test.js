@@ -82,9 +82,9 @@ test('a song under an on-screen text card gives way to the screen, as the judge 
   assert.deepEqual(asked,{spoken:'망가져',shown:card},'the same card read on many frames is asked once')
   // Without an answer, more unheard words on screen than heard in the audio decide.
   assert.equal(await referenceTranscript({hasAudio:true,duration:8,transcribe:async()=>lyrics,probeSubtitles:async()=>card,judgeScript:async()=>{throw new Error('down')},readSubtitles:async()=>visual}),visual)
-  // A failed full read keeps the speech rather than failing the job.
-  assert.equal(await referenceTranscript({hasAudio:true,duration:8,transcribe:async()=>lyrics,probeSubtitles:async()=>card,judgeScript,
-    readSubtitles:async()=>{throw Object.assign(new Error(),{code:'REFERENCE_TEXT_NOT_FOUND'})}}),lyrics)
+  // A failed full read never puts the song back: the caller reads the scenes instead.
+  await assert.rejects(referenceTranscript({hasAudio:true,duration:8,transcribe:async()=>lyrics,probeSubtitles:async()=>card,judgeScript,
+    readSubtitles:async()=>{throw Object.assign(new Error(),{code:'REFERENCE_TEXT_NOT_FOUND'})}}),err=>err.code==='REFERENCE_TEXT_NOT_FOUND')
 })
 test('the judge sees the video\'s frames, so a line invented over silence is weighed against what the video shows', async () => {
   const invented={text:'시청해주셔서 감사합니다.'}

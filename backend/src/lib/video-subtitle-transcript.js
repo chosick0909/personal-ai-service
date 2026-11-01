@@ -98,15 +98,15 @@ export async function referenceTranscript({ hasAudio, duration, transcribe, read
       if (screen === null) screen = squash(unheard.join('')).length > squash(speech.text).length
       if (!screen) return correct(speech)
       try { return await readSubtitles() }
-      // A song over a video with no words on screen has no script at all; the lyrics never stand in for one.
-      catch (error) { signal?.throwIfAborted(); if (isSubtitleMiss(error) && unheard.length) return speech; throw error }
+      // The audio was judged not to be the script, so when no subtitles can be read either the video has no words to
+      // follow (its scenes are read instead); the lyrics or an invented line never stand in for a script.
+      catch (error) { signal?.throwIfAborted(); throw error }
     }
   }
   signal?.throwIfAborted()
   return readSubtitles()
 }
 
-const isSubtitleMiss = error => String(error?.code || '').startsWith('SUBTITLE_') || error?.code === 'REFERENCE_TEXT_NOT_FOUND'
 const squash = text => String(text || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
 const pairs = text => { const out = new Set(); for (let i = 0; i < text.length - 1; i++) out.add(text.slice(i, i + 2)); return out }
 
