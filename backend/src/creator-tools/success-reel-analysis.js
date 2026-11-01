@@ -301,7 +301,7 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
         correctSpeech: (speech, shown) => correctSpeechWithScreen(speech, shown, { signal, invoke: fn => providers.call('openai', 'speech-caption-correction', fn) }),
         probeSubtitles: async () => { trace.probe = 'failed'; const probe = await probeScreenText(path, directory, info.duration, { signal,
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }); trace.probe = { captions: probe?.captions?.length ?? (Array.isArray(probe) ? probe.length : 0), frames: probe?.frames?.length ?? 0 }; return probe },
-        judgeScript: async (spoken, shown, frames) => { trace.judged = 'failed'; const verdict = await judgeScriptSource(spoken, shown, { frames, signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }); trace.judged = { unheard: shown.length, frames: frames.length, screen: verdict }; return verdict },
+        judgeScript: async (spoken, shown, frames) => { trace.judged = 'failed'; const verdict = await judgeScriptSource(spoken, shown, { frames, caption: reel.caption, signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }); trace.judged = { unheard: shown.length, frames: frames.length, screen: verdict }; return verdict },
         readSubtitles: () => extractScreenSubtitles(path, directory, info.duration, { signal, onProgress: () => {},
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }) })
         .catch(error => { if (String(error?.code || '').startsWith('SUBTITLE_') || ['TRANSCRIPT_EMPTY', 'TRANSCRIPTION_FAILED', 'REFERENCE_TEXT_NOT_FOUND'].includes(error?.code)) return { subtitles: [], language: 'unknown', source: 'frames' }; throw error })
