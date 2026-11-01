@@ -294,15 +294,18 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
       const info = await probeVideo(path, signal, { allowSilent: true })
       const ctx = { providers, signal }
       // When the subtitle reader gives up, the analysis model reads the on-screen text from sampled frames instead.
+      // Which way the script was chosen (counts and the verdict only, never the words), so a wrong choice can be traced.
+      const trace = { probe: null, judged: 'not asked' }
       const transcript = await referenceTranscript({ hasAudio: info.hasAudio !== false, duration: info.duration, signal,
         transcribe: hints => transcribeFile(ctx, path, info.duration, hints),
         correctSpeech: (speech, shown) => correctSpeechWithScreen(speech, shown, { signal, invoke: fn => providers.call('openai', 'speech-caption-correction', fn) }),
-        probeSubtitles: () => probeScreenText(path, directory, info.duration, { signal,
-          invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }),
-        judgeScript: (spoken, shown, frames) => judgeScriptSource(spoken, shown, { frames, signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }),
+        probeSubtitles: async () => { trace.probe = 'failed'; const probe = await probeScreenText(path, directory, info.duration, { signal,
+          invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }); trace.probe = { captions: probe?.captions?.length ?? (Array.isArray(probe) ? probe.length : 0), frames: probe?.frames?.length ?? 0 }; return probe },
+        judgeScript: async (spoken, shown, frames) => { trace.judged = 'failed'; const verdict = await judgeScriptSource(spoken, shown, { frames, signal, invoke: fn => providers.call('openai', 'script-source-judgment', fn) }); trace.judged = { unheard: shown.length, frames: frames.length, screen: verdict }; return verdict },
         readSubtitles: () => extractScreenSubtitles(path, directory, info.duration, { signal, onProgress: () => {},
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }) })
         .catch(error => { if (String(error?.code || '').startsWith('SUBTITLE_') || ['TRANSCRIPT_EMPTY', 'TRANSCRIPTION_FAILED', 'REFERENCE_TEXT_NOT_FOUND'].includes(error?.code)) return { subtitles: [], language: 'unknown', source: 'frames' }; throw error })
+      console.info('[script-choice]', shortcode, JSON.stringify({ source: transcript.source || 'audio', ...trace }))
       const language = String(transcript.language || 'unknown')
       // No words heard or read: nothing to translate; the scenes are written afterwards.
       const korean = !transcript.subtitles.length || alreadyKorean(language, transcript.subtitles) ? transcript.subtitles : await translateSegments(providers, language, transcript.subtitles)
