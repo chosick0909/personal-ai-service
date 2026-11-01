@@ -206,17 +206,19 @@ export const reelCategorySchema = { type: 'object', additionalProperties: false,
   reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'region', 'referenceFit', 'fitReason'], properties: {
     shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] },
     referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } } } }
-const CATEGORY_BATCH = 6
+const CATEGORY_BATCH = 1
 export async function classifyReelCategories(db, providers, rows, now = Date.now()) {
   const input = rows.map(r => ({ shortcode: r.shortcode, username: r.username,
     ...(r.analysis?.overview?.topic ? { topic: text(r.analysis.overview.topic, 200), script: text(r.analysis.transcript?.korean, 400) } : {}), caption: text(r.caption, 700) }))
     .filter(r => r.caption.trim() || r.topic)
   if (!input.length) return 0
-  // A few reels per request: in a long batch the verdicts drift onto the wrong reels (seen with 30 per request).
+  // One reel per request: in a batch the verdicts drift onto the wrong reels (seen with 30 per request, and still with 6).
   const verdicts = []
   for (let i = 0; i < input.length; i += CATEGORY_BATCH) {
-    const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: input.slice(i, i + CATEGORY_BATCH) }, [], reelCategorySchema)
-    verdicts.push(...(judged?.reels || []))
+    const batch = input.slice(i, i + CATEGORY_BATCH)
+    const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: batch }, [], reelCategorySchema)
+    // A single reel's answer is that reel's, whatever id the model wrote back.
+    verdicts.push(...(batch.length === 1 ? (judged?.reels || []).slice(0, 1).map(v => ({ ...v, shortcode: batch[0].shortcode })) : judged?.reels || []))
   }
   let changed = 0
   for (const row of input) {

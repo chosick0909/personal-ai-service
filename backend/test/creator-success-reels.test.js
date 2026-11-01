@@ -327,7 +327,8 @@ test('reels whose views come from a character IP or a seeding box are judged unf
   const db = fakeDb()
   db.tables.creator_success_reels.set('A', { shortcode: 'A', username: 'manpick', caption: '미쳤어... #더샘 #먼작귀 #시딩깡', category: '부업', visible: true, posted_at: '2026-10-17T00:00:00Z', views: 830000 })
   db.tables.creator_success_reels.set('B', { shortcode: 'B', username: 'good.yaksa', caption: '비염약의 모든 것 정리본', category: '피부', visible: true, posted_at: '2026-10-11T00:00:00Z', views: 673000 })
-  const providers = { json: async () => ({ reels: [{ shortcode: 'A', category: '뷰티', referenceFit: false, fitReason: '먼작귀 콜라보 시딩 언박싱' }, { shortcode: 'B', category: '건강', referenceFit: true, fitReason: '' }] }) }
+  const verdicts = { A: { category: '뷰티', referenceFit: false, fitReason: '먼작귀 콜라보 시딩 언박싱' }, B: { category: '건강', referenceFit: true, fitReason: '' } }
+  const providers = { json: async (_op, _p, input) => ({ reels: input.reels.map(r => ({ shortcode: r.shortcode, region: 'domestic', ...verdicts[r.shortcode] })) }) }
   await classifyReelCategories(db, providers, [...db.tables.creator_success_reels.values()], NOW)
   assert.equal(db.tables.creator_success_reels.get('A').category, '뷰티'); assert.equal(db.tables.creator_success_reels.get('A').reference_fit, false)
   assert.equal(db.tables.creator_success_reels.get('B').category, '건강')
@@ -382,15 +383,17 @@ test('analysed 추천 reels that meet the archive bar (3 months, 500,000+) come 
   assert.deepEqual((await listSuccessReels(db, {})).reels.map(r => r.shortcode), ['FitNew1', 'FitOld1', 'OldBig1', 'NewSmall1'])
 })
 
-test('reel fields are judged a few at a time from the topic and script, and the region is stored per reel', async () => {
+test('reel fields are judged one reel at a time from the topic and script, and the region is stored per reel', async () => {
   const db = fakeDb()
   const rows = Array.from({ length: 13 }, (_, i) => ({ shortcode: `Cat${String(i).padStart(3, '0')}x`, username: 'maker', caption: '',
     analysis: { overview: { topic: `주제 ${i}` }, transcript: { korean: '대본' } } }))
   for (const row of rows) db.tables.creator_success_reels.set(row.shortcode, { ...row })
   const sizes = []
   const providers = { json: async (_op, _p, input) => { sizes.push(input.reels.length)
-    return { reels: input.reels.map(r => ({ shortcode: r.shortcode, category: '요리', region: 'domestic', referenceFit: true, fitReason: '' })) } } }
+    // The model may write back a different id; a single reel's answer is still that reel's.
+    return { reels: input.reels.map(r => ({ shortcode: r.shortcode === 'Cat005x' ? 'Cat006x' : r.shortcode, category: '요리', region: 'domestic', referenceFit: true, fitReason: '' })) } } }
   assert.equal(await classifyReelCategories(db, providers, rows), 13)
-  assert.deepEqual(sizes, [6, 6, 1])
+  assert.deepEqual(sizes, Array(13).fill(1))
+  assert.equal(db.tables.creator_success_reels.get('Cat005x').category, '요리')
   assert.equal(db.tables.creator_success_reels.get('Cat012x').region, 'domestic')
 })
