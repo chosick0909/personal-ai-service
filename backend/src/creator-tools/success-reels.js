@@ -5,7 +5,7 @@ import { obviousNonReferenceAccount } from './reference-quality.js'
 import { playbackUrl } from './reference-playback.js'
 
 // Whether a success reel teaches anything a student can reuse: the test is where its views came from.
-export const REFERENCE_FIT_RULE = `referenceFit은 이 릴스가 수강생이 자기 소재로 따라 만들 레퍼런스로 적합한지입니다. 기준은 조회수가 어디에서 나왔는지입니다. 크리에이터가 기획한 것(첫마디, 말하는 내용, 정보·관점, 구성, 편집)이 시청자를 붙잡았다면 true입니다. 수강생은 자기 얼굴·목소리·경험·제품·공간으로 찍습니다. 조회수가 크리에이터가 직접 만들 수 없는 것—카메라에 찍힌 대상 자체의 볼거리나 유명세, 남이 찍은 장면, 사회적 화제—에서 나와서, 수강생이 같은 기획을 해도 그것 없이는 다시 만들 수 없다면 false입니다(예를 들어 그 자리에 있어야만 찍을 수 있는 공연·행사·풍경, 연예인·캐릭터·IP, 브랜드 콜라보의 화제성, 협찬받은 제공품을 보여주기만 하는 영상, 방송·뉴스·연설·다른 사람 영상을 잘라 엮은 영상, 정치인·공인의 발언이나 정치·사회 논란의 화제성으로 보는 영상). 본인 제품 판매, 공동구매, 직접 써본 후기·정보처럼 크리에이터의 말과 구성이 중심이면 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).`
+export const REFERENCE_FIT_RULE = `referenceFit은 이 릴스가 수강생이 자기 소재로 따라 만들 레퍼런스로 적합한지입니다. 기준은 조회수가 어디에서 나왔는지입니다. 크리에이터가 기획한 것(첫마디, 말하는 내용, 정보·관점, 구성, 편집)이 시청자를 붙잡았다면 true입니다. 수강생은 자기 얼굴·목소리·경험·제품·공간으로 찍습니다. 조회수가 크리에이터가 직접 만들 수 없는 것—카메라에 찍힌 대상 자체의 볼거리나 유명세, 남이 찍은 장면, 사회적 화제—에서 나와서, 수강생이 같은 기획을 해도 그것 없이는 다시 만들 수 없다면 false입니다(예를 들어 그 자리에 있어야만 찍을 수 있는 공연·행사·풍경, 연예인·캐릭터·IP, 브랜드 콜라보의 화제성, 협찬받은 제공품을 보여주기만 하는 영상, 방송·뉴스·연설·다른 사람 영상을 잘라 엮은 영상, 정치인·공인의 발언이나 정치·사회 논란의 화제성으로 보는 영상). 본인 제품 판매, 공동구매, 직접 써본 후기·정보처럼 크리에이터의 말과 구성이 중심이면 false가 아닙니다. 수강생도 자기 제품이나 공구 상품으로 같은 기획을 할 수 있으므로, 제품이 나오거나 할인·공구·구매 안내가 붙었다는 것만으로는 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).`
 
 // Success reels: public Instagram reels with 500k+ views uploaded in the last 3 months,
 // from individual creators whose production is reproducible at home. Domestic and overseas.
