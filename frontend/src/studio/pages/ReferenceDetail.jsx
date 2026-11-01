@@ -56,9 +56,10 @@ export function AnalysisTabs({ reel, analysis, tab, setTab, onSaveFormula }) {
   return <>
     <nav className="st-tabs" aria-label="분석 보기">{TABS.map(([id, label]) => <button type="button" key={id} className="st-tab" aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</nav>
     {tab === 'script' && <div className="st-stack">
-      <section className="st-card"><div className="st-card-head"><h3>추출된 대본</h3><div className="st-row">{foreign && <div className="st-chips"><button type="button" className="st-chip st-btn-sm" aria-pressed={!orig} onClick={() => setOrig(false)}>한국어</button><button type="button" className="st-chip" aria-pressed={orig} onClick={() => setOrig(true)}>원문</button></div>}<CopyButton text={text} /></div></div>
+      <section className="st-card"><div className="st-card-head"><h3>{transcript.source === 'scenes' ? '장면 대본' : '추출된 대본'}</h3><div className="st-row">{foreign && <div className="st-chips"><button type="button" className="st-chip st-btn-sm" aria-pressed={!orig} onClick={() => setOrig(false)}>한국어</button><button type="button" className="st-chip" aria-pressed={orig} onClick={() => setOrig(true)}>원문</button></div>}<CopyButton text={text} /></div></div>
         <ol className="st-transcript">{lines.map((line, i) => <li key={i}>{roles[i] && <span className={`st-role st-role-${roles[i]}`}>{ROLE[roles[i]]}</span>}<span>{line}</span></li>)}</ol>
-        {transcript.source === 'screen' && <p className="st-muted st-small" style={{ marginTop: 10 }}>말소리가 없어 화면 자막에서 읽었어요.</p>}</section>
+        {['screen_subtitles', 'frames'].includes(transcript.source) && <p className="st-muted st-small" style={{ marginTop: 10 }}>말소리 대신 화면 자막에서 읽었어요.</p>}
+        {transcript.source === 'scenes' && <p className="st-muted st-small" style={{ marginTop: 10 }}>말이나 자막 없이 장면으로 보여 주는 영상이라, 장면 순서와 그 장면이 전하는 캡션 내용을 대본 대신 적었어요.</p>}</section>
       <section className="st-card"><div className="st-card-head"><h3>캡션</h3><CopyButton text={reel.caption} /></div><p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption || '캡션이 없는 영상이에요.'}</p>{reel.captionKo && reel.captionKo !== reel.caption && <p className="st-muted" style={{ whiteSpace: 'pre-wrap', marginTop: 10 }}>번역: {reel.captionKo}</p>}</section>
     </div>}
     {tab === 'overview' && <div className="st-stack">

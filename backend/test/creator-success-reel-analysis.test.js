@@ -158,3 +158,17 @@ test('cover titles reuse the workspace thumbnail generator and its cover bluepri
   assert.equal(seen[0].mimeType, 'image/jpeg')
   assert.equal(await reelCoverAnalysis({ db, analyze: async () => ({}) }, { thumbnail_path: null }, ''), null)
 })
+
+test('a video with no speech or subtitles gets a scene script, each scene paired with what the caption says about it', async () => {
+  const { wordlessScript } = await import('../src/creator-tools/success-reel-analysis.js')
+  const scenes = [{ shown: '샤워 중에 급히 뛰어나온다', screenText: '', caption: '샤워하다가 아기 울음소리 들리면 후다닥' }, { shown: '식은 커피를 본다', screenText: '또 식었다', caption: '' }, { shown: ' ', screenText: '', caption: '' }]
+  let asked = null
+  const providers = { json: async (op, _prompt, input, frames) => { asked = { op, input, frames: frames.length }; return { scenes } } }
+  const result = await wordlessScript(providers, [{ time: 1 }, { time: 2 }], '독박육아의 현실 샤워하다가 아기 울음소리 들리면 후다닥')
+  assert.equal(result.source, 'scenes')
+  assert.equal(result.korean, '샤워 중에 급히 뛰어나온다 — 샤워하다가 아기 울음소리 들리면 후다닥\n식은 커피를 본다 — 화면 글 "또 식었다"')
+  assert.deepEqual(asked, { op: 'success-reel-scenes', input: { caption: '독박육아의 현실 샤워하다가 아기 울음소리 들리면 후다닥' }, frames: 2 })
+  // No caption: a caption part could only be made up.
+  assert.equal((await wordlessScript(providers, [], '')).korean, '샤워 중에 급히 뛰어나온다\n식은 커피를 본다 — 화면 글 "또 식었다"')
+  assert.equal(await wordlessScript({ json: async () => ({ scenes: [] }) }, [], 'x'), null)
+})

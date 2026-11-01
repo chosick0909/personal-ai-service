@@ -37,11 +37,13 @@ export async function resolveSources(db, userId, sources = {}) {
       if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
       if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
       const a = reel.analysis
+      // A reference with no speech or subtitles tells its story in scenes, and its caption carries the words.
+      const delivery = a.transcript?.source === 'scenes' ? '말·자막 없이 장면으로 보여 주고, 설명은 캡션이 맡는 영상' : undefined
       // The first line is spoken, so the hook slot carries the first-line formula and what the reference actually says first;
       // the cover title's formula (coverFormula) belongs to the thumbnail, not here.
       const excerpt = slot === 'hook' ? { type: a.hook?.category, why: a.hook?.analysis, formula: a.hook?.formula, apply: a.hook?.apply,
-        original: { note: '레퍼런스 원문(작동 원리를 이해하는 참고용, 단어·장면을 옮기지 않음)', opening: String(a.transcript?.korean || '').replace(/\s+/g, ' ').trim().slice(0, 100) || undefined, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook } }
-        : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis }
+        original: { note: '레퍼런스 원문(작동 원리를 이해하는 참고용, 단어·장면을 옮기지 않음)', opening: String(a.transcript?.korean || '').replace(/\s+/g, ' ').trim().slice(0, 100) || undefined, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook }, delivery }
+        : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis, delivery }
         : slot === 'filming' ? { filming: { location: a.filming?.location, shotType: a.filming?.shotType, onScreen: a.filming?.onScreen, guide: a.filming?.guide },
           editing: a.editing || { subtitleStyle: a.filming?.textOverlay, cuts: a.filming?.editing, transitions: '확인되지 않음', effects: '확인되지 않음', sound: '확인되지 않음', guide: [] } }
         : { ...(a.caption || { firstLine: '확인되지 않음', structure: '확인되지 않음', cta: '확인되지 않음', hashtags: '확인되지 않음', analysis: '원본 캡션 분석이 없어 캡션 형식만 참고' }), original: String(reel.caption || '').slice(0, 700) }
@@ -232,7 +234,7 @@ ${PROVEN_NOTE}
 spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.
 ${SWIPE_CHECK}`,
   script: `${ASK_RULE}\n'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
-- sources.structure가 있으면 1안은 그 구간들의 역할과 순서·리듬을 이번 소재에 적용합니다(각 구간이 시청자에게 하는 일을 옮기는 것이지 그 구간의 문장을 옮기는 것이 아닙니다). 2·3안은 같은 첫 문장에서 시작하는 다른 전개 방식. sources.structure가 없으면 provenFormulas.structures 중 이번 소재·약속에 맞는 서로 다른 공식을 골라 안마다 하나씩 적용합니다.
+- sources.structure가 있으면 1안은 그 구간들의 역할과 순서·리듬을 이번 소재에 적용합니다(각 구간이 시청자에게 하는 일을 옮기는 것이지 그 구간의 문장을 옮기는 것이 아닙니다). sources.structure.delivery가 있으면(말 없이 장면으로 보여 주는 레퍼런스) 1안은 그 방식대로 한 줄이 한 장면을 맡게 하고, spoken은 그 장면 위에 띄우거나 짧게 덧붙일 한 문장으로 짧게 씁니다. 자세한 설명은 캡션으로 넘깁니다. 2·3안은 같은 첫 문장에서 시작하는 다른 전개 방식. sources.structure가 없으면 provenFormulas.structures 중 이번 소재·약속에 맞는 서로 다른 공식을 골라 안마다 하나씩 적용합니다.
 - 모든 안은 아래 대본 원칙을 지킵니다.
 ${SCRIPT_PRINCIPLES.map(p => `  - ${p.name}: ${p.how}`).join('\n')}
 ${PROVEN_NOTE}

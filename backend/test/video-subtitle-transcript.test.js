@@ -97,11 +97,21 @@ test('the judge sees the video\'s frames, so a line invented over silence is wei
 test('narration keeps the speech: captions that repeat it, a title the judge calls emphasis, or an unreadable probe', async () => {
   const speech={text:'옷을 고르기 전에 오늘 사용할 두 가지 색을 먼저 정해보세요. 그러면 아침이 훨씬 빨라져요.'}
   const cases=[[async()=>['옷을 고르기 전에','오늘 사용할 두 가지 색을 먼저 정해보세요','아침이 훨씬 빨라져요'],()=>assert.fail('nothing unheard to judge')],
-    [async()=>['출근룩 코디 꿀팁','출근룩 코디 꿀팁'],async()=>false],[async()=>[],()=>assert.fail('no screen text')],
-    [async()=>{throw new Error('provider down')},()=>assert.fail('no screen text')]]
+    [async()=>['출근룩 코디 꿀팁','출근룩 코디 꿀팁'],async()=>false],[async()=>[],async()=>false],
+    [async()=>{throw new Error('provider down')},async()=>{throw new Error('judge down too')}]]
   for(const [probeSubtitles,judgeScript] of cases){
     assert.equal(await referenceTranscript({hasAudio:true,duration:10,transcribe:async()=>speech,probeSubtitles,judgeScript,readSubtitles:()=>assert.fail('speech is the script')}),speech)
   }
+})
+
+test('a song over a video with no words on screen never becomes its script', async () => {
+  const lyrics={text:'Do you remember when it was nice to love'}
+  let asked=null
+  const judgeScript=async(spoken,shown,images)=>{asked={spoken,shown,images:images.length};return true}
+  const frames=[{id:0,timestamp:0,dataUrl:'data:image/jpeg;base64,AA=='}]
+  await assert.rejects(referenceTranscript({hasAudio:true,duration:19,transcribe:async()=>lyrics,probeSubtitles:async()=>({captions:[],scene:[],frames}),judgeScript,
+    readSubtitles:async()=>{throw Object.assign(new Error(),{code:'REFERENCE_TEXT_NOT_FOUND'})}}),err=>err.code==='REFERENCE_TEXT_NOT_FOUND')
+  assert.deepEqual(asked,{spoken:lyrics.text,shown:[],images:1},'the frames decide whether the audio is the script')
 })
 
 test('on-screen captions are handed to the transcriber as hints and fix words it misheard', async () => {
