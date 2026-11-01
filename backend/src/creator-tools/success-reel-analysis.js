@@ -304,7 +304,8 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
           invoke: fn => providers.call('openai', 'screen-subtitle-transcription', fn) }) })
         .catch(error => { if (String(error?.code || '').startsWith('SUBTITLE_') || ['TRANSCRIPT_EMPTY', 'TRANSCRIPTION_FAILED', 'REFERENCE_TEXT_NOT_FOUND'].includes(error?.code)) return { subtitles: [], language: 'unknown', source: 'frames' }; throw error })
       const language = String(transcript.language || 'unknown')
-      const korean = alreadyKorean(language, transcript.subtitles) ? transcript.subtitles : await translateSegments(providers, language, transcript.subtitles)
+      // No words heard or read: nothing to translate; the scenes are written afterwards.
+      const korean = !transcript.subtitles.length || alreadyKorean(language, transcript.subtitles) ? transcript.subtitles : await translateSegments(providers, language, transcript.subtitles)
       const ratios = transcript.subtitles.length ? [0.15, 0.35, 0.55, 0.75, 0.92] : [0.08, 0.18, 0.28, 0.38, 0.48, 0.58, 0.68, 0.78, 0.88, 0.96]
       // Many reels burn their cover title into the very first frame only, so the first frame is read as well.
       const times = [...new Set([0, 0.3, ...ratios.map(r => Number((info.duration * r).toFixed(2)))])].filter(t => t < info.duration)
