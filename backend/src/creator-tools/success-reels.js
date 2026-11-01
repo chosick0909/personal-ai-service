@@ -5,7 +5,18 @@ import { obviousNonReferenceAccount } from './reference-quality.js'
 import { playbackUrl } from './reference-playback.js'
 
 // Whether a success reel teaches anything a student can reuse: the test is where its views came from.
-export const REFERENCE_FIT_RULE = `referenceFit은 이 릴스가 수강생이 자기 소재로 따라 만들 레퍼런스로 적합한지입니다. 기준은 조회수가 어디에서 나왔는지입니다. 크리에이터가 기획한 것(첫마디, 말하는 내용, 정보·관점, 구성, 편집)이 시청자를 붙잡았다면 true입니다. 수강생은 자기 얼굴·목소리·경험·제품·공간으로 찍습니다. 조회수가 크리에이터가 직접 만들 수 없는 것—카메라에 찍힌 대상 자체의 볼거리나 유명세, 남이 찍은 장면, 사회적 화제—에서 나와서, 수강생이 같은 기획을 해도 그것 없이는 다시 만들 수 없다면 false입니다(예를 들어 그 자리에 있어야만 찍을 수 있는 공연·행사·풍경, 연예인·캐릭터·IP, 브랜드 콜라보의 화제성, 협찬받은 제공품을 보여주기만 하는 영상, 방송·뉴스·연설·다른 사람 영상을 잘라 엮은 영상, 정치인·공인의 발언이나 정치·사회 논란의 화제성으로 보는 영상). 본인 제품 판매, 공동구매, 직접 써본 후기·정보처럼 크리에이터의 말과 구성이 중심이면 false가 아닙니다. 수강생도 자기 제품이나 공구 상품으로 같은 기획을 할 수 있으므로, 제품이 나오거나 할인·공구·구매 안내가 붙었다는 것만으로는 false가 아닙니다. fitReason은 false일 때 이유 한 줄(true면 빈 문자열).`
+// Where a reel's views come from, chosen from fixed answers: only views the creator's own planning earned can be made again
+// by a student with their own face, voice, experience, product and space. Fit follows from the answer in code.
+export const VIEWS_SOURCES = ['creator', 'subject', 'othersFootage', 'controversy', 'giveaway']
+export const REFERENCE_FIT_RULE = `viewsSource는 이 릴스의 조회수가 어디에서 나왔는지입니다. 수강생은 이 릴스를 보고 자기 얼굴·목소리·경험·제품·공간으로 같은 기획을 찍으므로, 그렇게 다시 만들 수 있는 것에서 조회수가 나왔는지를 봅니다. 분야(category)와는 상관없이 판단합니다.
+- creator: 크리에이터가 기획한 것(첫마디, 말하는 내용, 정보·관점, 경험담, 상황극, 구성, 시연, 편집)이 시청자를 붙잡은 영상. 본인 제품 판매, 공동구매, 협찬 제품이라도 크리에이터가 직접 써 보고 말·시연·구성으로 보여 주면 creator입니다. 제품이 나오거나 할인·공구·구매 안내가 붙었다는 것만으로는 다른 답이 되지 않습니다.
+- subject: 카메라에 찍힌 대상 자체의 볼거리나 유명세(그 자리에 있어야만 찍을 수 있는 공연·행사·풍경, 연예인·유명인·캐릭터·IP, 브랜드 콜라보의 화제성).
+- othersFootage: 남이 찍은 장면(방송·뉴스·연설·다른 사람의 영상)을 잘라 엮은 영상.
+- controversy: 정치인·공인의 발언이나 정치·사회 논란, 사건 자체의 화제성으로 보는 영상.
+- giveaway: 협찬받은 제공품이나 특가·혜택 정보를 보여 주기만 하고 크리에이터의 말·시연·구성은 거의 없는 영상.
+fitReason은 creator가 아닐 때 이유 한 줄(creator면 빈 문자열).`
+// A verdict's fit, from its viewsSource; undefined when the answer could not be read.
+export const withFit = verdict => verdict && VIEWS_SOURCES.includes(verdict.viewsSource) ? { ...verdict, referenceFit: verdict.viewsSource === 'creator' } : verdict
 
 // Success reels: public Instagram reels with 500k+ views uploaded in the last 3 months,
 // from individual creators whose production is reproducible at home. Domestic and overseas.
@@ -92,9 +103,9 @@ export const successReelReviewSchema = { type: 'object', additionalProperties: f
     monetizationEvidence: list, replicability: { type: 'number', minimum: 0, maximum: 100 }, replicabilityEvidence: list,
     category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] }, regionEvidence: list,
     language: { type: 'string', enum: ['ko', 'en', 'ja', 'other', 'unknown'] },
-    reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'faceVisibility', 'captionKo', 'category', 'referenceFit', 'fitReason'], properties: {
+    reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'faceVisibility', 'captionKo', 'category', 'viewsSource', 'fitReason'], properties: {
       shortcode: { type: 'string' }, faceVisibility: { type: 'string', enum: ['visible', 'hidden', 'mixed', 'unknown'] }, captionKo: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES },
-      referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } },
+      viewsSource: { type: 'string', enum: VIEWS_SOURCES }, fitReason: { type: 'string' } } } },
   } }
 
 // Same exclusion policy as the account recommendations; undecidable accounts never pass.
@@ -154,7 +165,7 @@ export async function ingestAccount(deps, body) {
 
   let saved = 0
   for (const reel of qualified) {
-    const judged = review.reels?.find(r => r.shortcode === reel.shortcode)
+    const judged = withFit(review.reels?.find(r => r.shortcode === reel.shortcode))
     const current = await query(db.from('creator_success_reels').select('thumbnail_path,visible,analysis_status,caption,reference_fit').eq('shortcode', reel.shortcode).maybeSingle())
     // A reel a student saved or analyzed stays listed even if its account is later rejected.
     const kept = current?.visible && (current.analysis_status !== 'none'
@@ -203,9 +214,9 @@ export const reelCategoryPrompt = `각 릴스의 캡션(과 계정명, 분석된
 분야 구분: 피부는 스킨케어·피부 고민·성분·피부과 시술, 뷰티는 메이크업·헤어·네일·향수·뷰티템, 먹방은 먹는 장면·맛집, 요리는 레시피·조리·식재료·주방 조리도구, 살림은 청소·정리·수납·인테리어·가전·생활용품·침구, 육아는 아이·이유식·육아템·가족 일상, 패션은 옷·신발·코디, 교육은 입시·대학·시험·공부·학습법(마인드셋이나 동기부여는 교육이 아님), 자기계발은 마인드셋·동기부여·습관·커리어·성장과 재기의 이야기, 멘탈케어는 감정·불안·자존감·관계의 마음 회복, 여행은 여행지·숙소·축제·나들이 정보, 다이어트·운동은 감량·식단·운동·자세 교정, 반려동물은 반려동물이 주인공일 때, AI는 AI 도구 활용, 부동산은 집 구하기·청약·부동산 투자, 부업은 돈 버는 방법·N잡·수익 자체를 다룰 때만(제품 공동구매 홍보 영상은 그 제품의 분야), 재테크는 투자·저축, 전문직(회사홍보)은 회사·서비스 소개, 테크 가젯은 전자기기, 일상은 특정 주제 없이 하루를 담은 브이로그, 크리스천은 기독교 신앙(교회·성경·찬양·기도·큐티·기독교 일상)이 주제일 때만이고, 다른 종교·명상·마음 수련은 크리스천이 아닙니다. 피부는 스킨케어(기초 화장품·피부 고민·피부 연고)만, 뷰티는 색조 화장품이 하나라도 나오면(립·아이·베이스·하이라이터 등 메이크업)과 헤어·네일·향수, 건강은 약·영양제·질환·몸 증상·약사/의사의 건강 정보(피부 고민이면 피부). 맞는 분야가 없으면 기타.\nregion은 그 릴스가 누구를 위해 만들어졌는지로 정합니다. 캡션·화면 글·대본이 한국 시청자에게 말을 걸면(해외 영상이나 외국인 출연분을 가져와 한국어 자막·설명을 붙여 다시 만든 것 포함) domestic, 해외 시청자에게 말을 걸면 overseas, 근거가 없으면 unknown입니다. 영상 속 언어나 촬영 장소만으로 정하지 않습니다.
 ${REFERENCE_FIT_RULE}`
 export const reelCategorySchema = { type: 'object', additionalProperties: false, required: ['reels'], properties: {
-  reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'region', 'referenceFit', 'fitReason'], properties: {
+  reels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['shortcode', 'category', 'region', 'viewsSource', 'fitReason'], properties: {
     shortcode: { type: 'string' }, category: { type: 'string', enum: SUCCESS_REEL_CATEGORIES }, region: { type: 'string', enum: ['domestic', 'overseas', 'unknown'] },
-    referenceFit: { type: 'boolean' }, fitReason: { type: 'string' } } } } } }
+    viewsSource: { type: 'string', enum: VIEWS_SOURCES }, fitReason: { type: 'string' } } } } } }
 const CATEGORY_BATCH = 1
 export async function classifyReelCategories(db, providers, rows, now = Date.now()) {
   const input = rows.map(r => ({ shortcode: r.shortcode, username: r.username,
@@ -218,7 +229,7 @@ export async function classifyReelCategories(db, providers, rows, now = Date.now
     const batch = input.slice(i, i + CATEGORY_BATCH)
     const judged = await providers.json('success-reel-category', reelCategoryPrompt, { reels: batch }, [], reelCategorySchema)
     // A single reel's answer is that reel's, whatever id the model wrote back.
-    verdicts.push(...(batch.length === 1 ? (judged?.reels || []).slice(0, 1).map(v => ({ ...v, shortcode: batch[0].shortcode })) : judged?.reels || []))
+    verdicts.push(...(batch.length === 1 ? (judged?.reels || []).slice(0, 1).map(v => ({ ...v, shortcode: batch[0].shortcode })) : judged?.reels || []).map(withFit))
   }
   let changed = 0
   for (const row of input) {

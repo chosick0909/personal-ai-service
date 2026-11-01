@@ -397,3 +397,15 @@ test('reel fields are judged one reel at a time from the topic and script, and t
   assert.equal(db.tables.creator_success_reels.get('Cat005x').category, '요리')
   assert.equal(db.tables.creator_success_reels.get('Cat012x').region, 'domestic')
 })
+
+test('fit follows from where the views came from: only the creator\'s own planning keeps a reel in the list', async () => {
+  const { withFit, VIEWS_SOURCES, reelCategorySchema } = await import('../src/creator-tools/success-reels.js')
+  assert.deepEqual(reelCategorySchema.properties.reels.items.properties.viewsSource.enum, VIEWS_SOURCES)
+  const db = fakeDb()
+  const rows = [['P', 'othersFootage'], ['G', 'creator'], ['F', 'subject']].map(([shortcode, viewsSource]) => ({ shortcode, username: 'u', caption: '캡션', visible: true, posted_at: '2026-10-11T00:00:00Z', views: 600000, viewsSource }))
+  for (const row of rows) db.tables.creator_success_reels.set(row.shortcode, { ...row })
+  const providers = { json: async (_op, _p, input) => ({ reels: input.reels.map(r => ({ shortcode: r.shortcode, category: '기타', region: 'domestic', viewsSource: rows.find(x => x.shortcode === r.shortcode).viewsSource, fitReason: '' })) }) }
+  await classifyReelCategories(db, providers, rows, NOW)
+  assert.deepEqual(rows.map(r => db.tables.creator_success_reels.get(r.shortcode).reference_fit), [false, true, false])
+  assert.equal(withFit({ viewsSource: 'unknown' }).referenceFit, undefined, 'an unreadable answer leaves the stored fit alone')
+})

@@ -1,7 +1,8 @@
 // An operation override takes precedence over the writing group. No model default changes.
 const writing = new Set(['reference-analysis', 'media-hook-diagnosis'])
-// Success-reel analysis and plans are headline output, so they default to the script-writing model.
-export const premiumOperations = new Set(['success-reel-analysis', 'success-reel-plan', 'success-reel-hook-split'])
+// Success-reel analysis and plans are headline output, so they default to the script-writing model. Where a reel's views
+// came from decides what students see in 영감찾기, and smaller models mistook a clip of a news briefing for the creator's own work.
+export const premiumOperations = new Set(['success-reel-analysis', 'success-reel-plan', 'success-reel-hook-split', 'success-reel-category'])
 // CREATOR_STUDIO_MODEL moves every 훅ai (Creator Studio 2) call to one model; a Claude model needs its API key,
 // and without one the stages stay on the premium OpenAI model.
 export function studioModel(env = process.env) {
