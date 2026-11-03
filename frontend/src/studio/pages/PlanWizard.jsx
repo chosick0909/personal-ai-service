@@ -195,24 +195,6 @@ function ThumbnailStage({ session, save, restore }) {
   </div>
 }
 
-function HookStage({ session, save, restore }) {
-  const h = session.hook
-  const applied = h.applied && h.custom === h.applied.text ? h.applied : null
-  const [open, setOpen] = useState(!applied)
-  const [custom, setCustom] = useState(applied ? '' : h?.custom || '')
-  const debounced = useDebouncedSave(v => save({ hook: { custom: v } }))
-  const history = <PickHistory field="hook" title="첫 문장" session={session} restore={restore} />
-  return <div className="st-stack">
-    <PickHistory field="hook" title="첫 문장" session={session} restore={restore} top />
-    {applied && <AppliedPick label="첫 문장" text={`“${applied.text}”`} sub={applied.onScreen ? `자막 · ${applied.onScreen}` : ''} summary={applied.summary} open={open} onToggle={() => setOpen(o => !o)} history={history} />}
-    {open && <section className="st-card st-stack"><div>{!applied && <div style={{ float: 'right' }}>{history}</div>}<h3>{applied ? '처음 받은 첫 문장 3안' : '첫 문장 3안'}</h3><p className="st-muted">{applied ? '이 중 하나를 고르면 그 안으로 바뀌어요.' : '영상 첫 3초에 말할 문장이에요. 썸네일이 한 약속을 이어받아요.'}</p></div>
-      <div className="st-options">{h.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={!h.custom && h.chosen === i} onClick={() => { setCustom(''); save({ hook: { chosen: i } }) }}>
-        <div className="st-option-top"><span className="st-pill">{o.type}</span><span className="st-option-check"><Check size={16} /></span></div><strong>“{o.spoken}”</strong><span className="st-why">자막 · {o.onScreen} — {o.why}</span></button>)}</div>
-      <div className="st-field"><label>직접 쓸게요</label><input className="st-input" value={custom} onChange={e => { setCustom(e.target.value); debounced(e.target.value) }} placeholder="내가 쓸 첫 문장" /></div>
-    </section>}
-  </div>
-}
-
 // 저장 내역 also sits in the top bar (next to the theme switch), so it stays in reach however far the student scrolls.
 // Stages mount after the plan loads, so the top bar's slot is already on the page.
 function TopAction({ children }) {
@@ -328,7 +310,7 @@ const toEditor = id => setTimeout(() => document.getElementById(id)?.scrollIntoV
 function ScriptStage({ session, save, onQuick }) {
   const s = session.script
   return <div className="st-stack">
-    <section className="st-card st-stack"><div><h3>대본 3안</h3><p className="st-muted">같은 첫 문장, 다른 흐름이에요. 전체 대본을 비교해서 하나를 고르면 아래에서 바로 고칠 수 있어요.</p></div>
+    <section className="st-card st-stack"><div><h3>대본 3안</h3><p className="st-muted">첫 문장부터 마무리까지 전체 대본이에요. {s.options[0]?.reference ? 'A안은 레퍼런스의 성공 공식을 그대로 따랐고, B·C안은 다른 방식이에요. ' : ''}비교해서 하나를 고르면 아래에서 바로 고칠 수 있어요.</p></div>
       <div className="st-options st-options-scripts">{s.options.map((o, i) => <button type="button" key={i} className="st-option" aria-pressed={s.chosen === i} onClick={() => save({ script: { chosen: i } }).then(() => toEditor('st-script-editor'))}>
         <div className="st-option-top"><span className="st-pill">{OPTION_NAME[i]}</span><span className="st-muted st-small">예상 {totalSeconds(o.lines)}초</span><span className="st-option-check"><Check size={16} /></span></div>
         <strong style={{ fontSize: 16 }}>{optionTitle(o.label)}</strong>
@@ -375,13 +357,13 @@ function CaptionStage({ session, save }) {
 
 function DoneStage({ session, onSaveFormula, save, version }) {
   const { go } = useStudio()
-  const thumb = chosenOf(session.thumbnail), hook = chosenOf(session.hook)
+  const thumb = chosenOf(session.thumbnail), hook = session.opening
   const cap = session.caption?.edited || chosenOf(session.caption)
   return <div className="st-stack">
     <div className="st-note" style={{ fontSize: 17 }}>👏 기획안이 완성됐어요. 아래에서 한눈에 보고, 마음에 드는 공식은 저장해 두세요.</div>
     <div className="st-row"><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('print', { session: session.id })}><Printer size={20} />PDF로 받기 · 인쇄</button><button type="button" className="st-btn st-btn-big" onClick={() => go('new')}><Sparkles size={20} />새 기획안</button></div>
     <section className="st-card st-stack"><div className="st-card-head"><h3>썸네일 카피</h3><div className="st-row"><CopyButton text={thumb?.text} /></div></div><strong style={{ fontSize: 22 }}>{thumb?.text}</strong></section>
-    <section className="st-card st-stack"><div className="st-card-head"><h3>첫 문장</h3><div className="st-row"><CopyButton text={hook?.spoken || hook?.text} /><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('hook')}><Save size={15} />이 공식 저장</button></div></div><strong style={{ fontSize: 18 }}>“{hook?.spoken || hook?.text}”</strong></section>
+    <section className="st-card st-stack"><div className="st-card-head"><h3>첫 문장</h3><div className="st-row"><CopyButton text={hook?.spoken} /><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('hook')}><Save size={15} />이 공식 저장</button></div></div><strong style={{ fontSize: 18 }}>“{hook?.spoken}”</strong></section>
     <div className="st-row" style={{ justifyContent: 'flex-end', marginBottom: -8 }}><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('structure')}><Save size={15} />전개 공식 저장</button></div>
     <ScriptEditor key={`${version}-${session.script?.chosen}-${session.script?.edited ? 'e' : 'o'}-${session.script?.history?.length || 0}`} session={session} save={save} />
     {session.filming && <section className="st-card st-stack"><div className="st-card-head"><h3>촬영/편집</h3><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('filming')}><Save size={15} />촬영/편집 공식 저장</button></div><ol className="st-board">{session.filming.storyboard.map(s => <li key={s.scene}><div className="st-board-top"><strong>#{s.scene}</strong><span>{s.seconds}초</span></div><strong>{s.shot}</strong><span>{s.action}</span></li>)}</ol>{session.memo && <p className="st-muted" style={{ whiteSpace: 'pre-wrap' }}>메모: {session.memo}</p>}</section>}
@@ -470,7 +452,7 @@ export default function PlanWizard({ sessionId }) {
   const failed = session.job?.status === 'failed'
   const generating = running && session.job?.stage === session.stage
   const elapsed = session.job?.startedAt ? (Date.now() - Date.parse(session.job.startedAt)) / 1000 : 0
-  const nextLabel = { topic: '썸네일 카피 만들기', thumbnail: '첫 문장 만들기', hook: '대본 만들기', script: '촬영·편집 기획', filming: '캡션 만들기', caption: '완성하기' }[session.stage]
+  const nextLabel = { topic: '썸네일 카피 만들기', thumbnail: '첫 문장·대본 만들기', script: '촬영·편집 기획', filming: '캡션 만들기', caption: '완성하기' }[session.stage]
   return <div className="st-wizard">
     <div className="st-wizard-main">
       <div className="st-row" style={{ justifyContent: 'space-between' }}>
@@ -487,7 +469,6 @@ export default function PlanWizard({ sessionId }) {
             onPickSaved={t => pickTopic({ title: t.title, angle: t.angle, promise: t.promise, category: t.category || '기타', facts: [] })} />
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
         : session.stage === 'thumbnail' ? <ThumbnailStage key={`${version}-${session.thumbnail.applied?.text || ''}`} session={session} save={save} restore={restorePick} />
-        : session.stage === 'hook' ? <HookStage key={`${version}-${session.hook.applied?.text || ''}`} session={session} save={save} restore={restorePick} />
         : session.stage === 'script' ? <ScriptStage key={`${version}-${session.script.chosen}-${session.script.edited ? 'e' : 'o'}-${session.script.history?.length || 0}`} session={session} save={save} onQuick={send} />
         : session.stage === 'filming' ? <FilmingStage session={session} save={save} />
         : session.stage === 'caption' ? <CaptionStage key={`${version}-${session.caption.chosen}-${session.caption.edited ? 'e' : 'o'}-${session.caption.history?.length || 0}`} session={session} save={save} />

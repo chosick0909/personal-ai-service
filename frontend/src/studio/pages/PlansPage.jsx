@@ -17,7 +17,8 @@ export default function PlansPage() {
   }
   if (error) return <div className="st-error">{error}</div>
   if (!items) return <p className="st-muted">불러오는 중…</p>
-  const label = stage => STAGES.find(([id]) => id === stage)?.[1] || stage
+  // A plan saved at the former first-line stage now continues in the script stage.
+  const label = stage => STAGES.find(([id]) => id === (stage === 'hook' ? 'script' : stage))?.[1] || stage
   return <div className="st-stack">
     <div className="st-page-head"><p>중간에 나가도 그 자리에서 이어져요. 완성된 기획안은 PDF로 받을 수 있어요.</p><button type="button" className="st-btn st-btn-primary" onClick={() => go('new')}><Sparkles size={18} />새 기획안</button></div>
     {items.length === 0 && <div className="st-empty"><strong>아직 만든 기획안이 없어요</strong><span>오른쪽 아래 '내 기획안 만들기'를 눌러 시작해 보세요.</span></div>}

@@ -77,7 +77,7 @@ export default function PlanStart({ preset = {} }) {
   ]
   const canStart = (mode === 'saved' && savedPick) || mode === 'topic' || (mode === 'single' && sources.hook) || (mode === 'mix' && Object.keys(sources).length > 0)
   return <div className="st-stack" style={{ maxWidth: 860 }}>
-    <div className="st-note">훅ai가 주제 → 썸네일 → 첫 문장 → 대본 → 촬영·편집 → 캡션 순서로 한 단계씩 같이 만들어요. 중간에 나가도 이어져요.</div>
+    <div className="st-note">훅ai가 주제 → 썸네일 → 첫 문장·대본 → 촬영·편집 → 캡션 순서로 한 단계씩 같이 만들어요. 중간에 나가도 이어져요.</div>
     <div className="st-options">{modes.map(([id, title, desc, icon]) => { const Icon = icon; return <button type="button" key={id} className="st-option" aria-pressed={mode === id} onClick={() => { setMode(id); if (id === 'topic') setSources({}) }}>
       <div className="st-option-top"><Icon size={22} style={{ color: 'var(--st-accent)' }} /><strong>{title}</strong><span className="st-option-check"><Check size={16} /></span></div><span className="st-why">{desc}</span></button> })}</div>
     {mode === 'single' && <section className="st-card st-stack">

@@ -78,8 +78,8 @@ test('a study run is logged with what it learned', async () => {
 test('planning stages read what 훅ai learned about the field', async () => {
   const db = fakeDb({ creator_field_knowledge: new Map([['건강', { category: '건강', knowledge: { version: 2, audience: 'a', topics: [], terms: [{ word: '공복혈당', meaning: 'm', use: 'u' }], cautions: [] } }]]) })
   let input = null
-  const deps = { db, makeProviders: () => ({ json: async (_op, _i, context) => { input = context; return { questions: [], check: { referenceTraces: [], unprovidedFacts: [] }, options: [{ spoken: '첫 문장', onScreen: 'x', type: '경고', why: 'w' }], placeholders: [] } } }) }
-  await generateStage(deps, { id: 's1', user_id: 'u1', mode: 'single', sources: {}, brief: 'b', topic: { title: 't', facts: [], category: '건강' }, placeholders: [] }, 'hook')
+  const deps = { db, makeProviders: () => ({ json: async (_op, _i, context) => { input = context; return { questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: [] }, referenceMap: [], options: [{ label: 'l', why: 'w', lines: [{ part: 'hook', spoken: '첫 문장', onScreen: 'x', seconds: 3 }, { part: 'body', spoken: '본문', onScreen: '', seconds: 3 }] }], placeholders: [] } } }) }
+  await generateStage(deps, { id: 's1', user_id: 'u1', mode: 'single', sources: {}, brief: 'b', topic: { title: 't', facts: [], category: '건강' }, placeholders: [] }, 'script')
   assert.equal(input.fieldKnowledge.terms[0].word, '공복혈당')
   assert.match(HOOKAI_SYSTEM, /fieldKnowledge/)
 })

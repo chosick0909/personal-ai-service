@@ -57,18 +57,27 @@ test('slot sources resolve to excerpts from reels, formulas and the library', as
 
 test('stage generation normalizes 훅ai output and keeps placeholders', async () => {
   const db = fakeDb()
+  const transcript = { korean: '안 사요. 너무 약해요.\n효과가 약해서 안 사요.', source: 'audio' }
+  db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript }
   const calls = []
   const session = { id: 's1', user_id: 'u1', mode: 'single', brief: '선크림 3개 비교', sources: { hook: { kind: 'reel', id: 'Aaaaa1' }, structure: { kind: 'reel', id: 'Aaaaa1' } },
     topic: { title: '지성 피부 선크림 3개 판정', facts: ['백탁 없음'], category: '피부', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, thumbnail: { options: [{ text: '선크림 안 사요 사요' }], chosen: 0 }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.' }], chosen: 0 } }
+  const beats = [{ source: '안 사요. 너무 약해요.', job: '판정 선언', part: 'hook', spoken: '안 사요. 번들거려요.', onScreen: '안 사요' }, { source: '효과가 약해서 안 사요.', job: '근거', part: 'body', spoken: '[제품 A]는 백탁이 없어서 사요.', onScreen: '' }]
   const makeProviders = () => ({ json: async (op, _i, input, _f, schema) => { calls.push({ op, input, schema })
-    return { options: [{ label: '판정으로 설득', why: '빠름', lines: [{ part: 'hook', spoken: '안 사요. 번들거리면 끝.', onScreen: '안 사요', seconds: 3 }, { part: 'body', spoken: '[제품 A]? 안 사요.', onScreen: '', seconds: 500 }, { part: 'weird', spoken: '', onScreen: '', seconds: 2 }] }], placeholders: ['[제품 A]', ''] } } })
+    if (schema.properties.changed) return { changed: [] }
+    // A first leaves out the reference's second sentence; the code check names it and A is written again.
+    if (schema.properties.beats) return { questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: [] }, beats: calls.filter(c => c.schema.properties.beats).length === 1 ? beats.slice(0, 1) : beats, why: '판정형', placeholders: ['[제품 A]', ''] }
+    return { options: [{ label: '판정으로 설득', why: '빠름', lines: [{ part: 'hook', spoken: '안 사요. 번들거리면 끝.', onScreen: '안 사요', seconds: 3 }, { part: 'body', spoken: '[제품 B]? 안 사요.', onScreen: '', seconds: 500 }, { part: 'weird', spoken: '', onScreen: '', seconds: 2 }] }], placeholders: ['[제품 B]'] } } })
   const { value, placeholders } = await generateStage({ db, makeProviders }, session, 'script')
-  assert.equal(calls[0].op, 'studio-script')
+  assert.deepEqual(calls.map(c => c.op).sort(), ['studio-script', 'studio-script', 'studio-script', 'studio-script-check'], 'A is written, rewritten and checked beat by beat; B and C once alongside')
   assert.equal(calls[0].input.sources.hook.formula, analysis.hook.formula)
-  assert.equal(calls[0].input.hook.spoken, '안 사요. 번들거리면 끝.')
-  assert.deepEqual(value.options[0].lines.map(l => [l.part, l.seconds]), [['hook', 3], ['body', 2]], 'seconds come from the words, not the model guess')
-  assert.deepEqual(placeholders, ['[제품 A]'])
-  assert.ok(calls[0].schema.required.includes('options'))
+  assert.equal(calls[0].input.hook, null, 'the script writes its own first line; one from an earlier draft is not handed back')
+  assert.deepEqual(calls[0].input.referenceSentences, { hook: [], body: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.'] }, 'A follows the reference script sentence by sentence')
+  assert.equal(calls[0].input.sources.structure.script.text, transcript.korean, 'the reference script itself reaches the prompt, not only role labels')
+  assert.deepEqual(value.options.map(o => [o.label, Boolean(o.reference)]), [['레퍼런스 공식 그대로', true], ['판정으로 설득', false]])
+  assert.deepEqual(value.options[0].lines.map(l => l.spoken), beats.map(b => b.spoken), 'the rewrite carries every reference sentence')
+  assert.deepEqual(value.options[1].lines.map(l => [l.part, l.seconds]), [['hook', 3], ['body', 2]], 'seconds come from the words, not the model guess')
+  assert.deepEqual(placeholders, ['[제품 A]', '[제품 B]'])
 })
 
 test('startStage runs a background job once and records failures on the session', async () => {
@@ -76,28 +85,29 @@ test('startStage runs a background job once and records failures on the session'
   db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'topic', topic: { title: 't' }, job_status: 'idle', placeholders: [] })
   const ran = [], jobs = []
   const deps = { db, makeProviders: () => ({ json: async () => { throw Object.assign(new Error('모델 응답 없음'), { exposeMessage: true }) } }), schedule: (key, task) => { ran.push(key); const p = task(); jobs.push(p); return p } }
-  const session = await startStage(deps, db.tables.studio_sessions.get('s1'), 'hook')
+  const session = await startStage(deps, db.tables.studio_sessions.get('s1'), 'script')
   await Promise.all(jobs)
-  assert.equal(session.stage, 'hook')
-  assert.deepEqual(ran, ['studio:s1:hook'])
+  assert.equal(session.stage, 'script')
+  assert.deepEqual(ran, ['studio:s1:script'])
   assert.equal(db.tables.studio_sessions.get('s1').job_status, 'failed')
   assert.equal(db.tables.studio_sessions.get('s1').job_error, '모델 응답 없음')
-  await assert.rejects(startStage(deps, { ...session, topic: null }, 'hook'), /주제를 정해/)
+  await assert.rejects(startStage(deps, { ...session, topic: null }, 'script'), /주제를 정해/)
+  await assert.rejects(startStage(deps, session, 'hook'), /알 수 없는 단계/, 'the first line is no longer a stage of its own')
 })
 
 test('a stage job cut off by a restart starts again when the plan is opened; one this server is running is left alone', async () => {
   const db = fakeDb()
-  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'hook', topic: { title: 't' }, job_status: 'running', job_stage: 'hook', job_started_at: '2026-10-28T13:56:00Z', placeholders: [] })
+  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'script', topic: { title: 't' }, job_status: 'running', job_stage: 'script', job_started_at: '2026-10-28T13:56:00Z', placeholders: [] })
   const ran = []
   const deps = { db, makeProviders: () => ({}), schedule: key => { ran.push(key) }, isScheduled: key => ran.includes(key) }
   const resumed = await resumeStageJob(deps, db.tables.studio_sessions.get('s1'))
-  assert.deepEqual(ran, ['studio:s1:hook'])
+  assert.deepEqual(ran, ['studio:s1:script'])
   assert.notEqual(resumed.job_started_at, '2026-10-28T13:56:00Z')
   await resumeStageJob(deps, db.tables.studio_sessions.get('s1'))
-  assert.deepEqual(ran, ['studio:s1:hook'])
+  assert.deepEqual(ran, ['studio:s1:script'])
   db.tables.studio_sessions.set('s2', { id: 's2', job_status: 'idle', job_stage: null })
-  await resumeStageJob(deps, { ...db.tables.studio_sessions.get('s2'), job_status: 'running', job_stage: 'hook' })
-  assert.deepEqual(ran, ['studio:s1:hook'])
+  await resumeStageJob(deps, { ...db.tables.studio_sessions.get('s2'), job_status: 'running', job_stage: 'script' })
+  assert.deepEqual(ran, ['studio:s1:script'])
 })
 
 test('an old mixed hook formula is split into the first-line formula and the 썸네일 카피라이팅 공식, and 내 공식 follows', async () => {
@@ -135,12 +145,16 @@ test('topic chat returns chips, proposals and a ready topic; revise chat returns
 })
 
 test('formulas are saved as structure, and the library matches analysis categories', () => {
-  const session = { topic: { title: '선크림 판정' }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.', onScreen: '안 사요', type: '손실 회피' }], chosen: 0 },
-    script: { options: [{ label: '판정으로 설득', lines: [{ part: 'hook', spoken: 'a', onScreen: 'x', seconds: 3 }, { part: 'body', spoken: 'b', onScreen: '', seconds: 5 }] }], chosen: 0, edited: null } }
-  const hook = formulaFromSession(session, { hook: { excerpt: { type: '손실 회피', formula: '[주제] 판정' } } }, 'hook')
-  assert.equal(hook.spec.formula, '[주제] 판정')
-  assert.equal(formulaFromSession(session, { hook: { excerpt: { type: '질문형', formula: '[주제] 해본 적 있죠?' } } }, 'hook').spec.formula, '', 'a different hook device does not inherit the source formula')
-  assert.equal(hook.spec.type, '손실 회피')
+  const session = { topic: { title: '선크림 판정' },
+    script: { options: [{ label: '레퍼런스 공식 그대로', reference: true, lines: [{ part: 'hook', spoken: 'a', onScreen: 'x', seconds: 3 }, { part: 'body', spoken: 'b', onScreen: '', seconds: 5 }] }, { label: '다른 전개', lines: [{ part: 'hook', spoken: 'c', onScreen: '', seconds: 3 }, { part: 'body', spoken: 'd', onScreen: '', seconds: 5 }] }], chosen: 0, edited: null } }
+  const source = { hook: { excerpt: { type: '손실 회피', formula: '[주제] 판정' } } }
+  const hook = formulaFromSession(session, source, 'hook')
+  assert.deepEqual([hook.spec.spoken, hook.spec.onScreen, hook.spec.type, hook.spec.formula], ['a', 'x', '손실 회피', '[주제] 판정'], 'the first line is the script\'s opening, and A keeps the reference device')
+  assert.equal(formulaFromSession({ ...session, script: { ...session.script, chosen: 1 } }, source, 'hook').spec.formula, '', 'another version does not inherit the source formula')
+  // A plan from before the first line was written with the script keeps the first line picked on its own.
+  const legacy = { topic: { title: '선크림 판정' }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.', onScreen: '안 사요', type: '손실 회피' }], chosen: 0 } }
+  assert.equal(formulaFromSession(legacy, source, 'hook').spec.formula, '[주제] 판정')
+  assert.equal(formulaFromSession(legacy, { hook: { excerpt: { type: '질문형', formula: '[주제] 해본 적 있죠?' } } }, 'hook').spec.formula, '', 'a different hook device does not inherit the source formula')
   const structure = formulaFromSession(session, {}, 'structure')
   assert.deepEqual(structure.spec.segments, [['첫 문장', '3초 · x'], ['본문', '5초 · 자막 없음']])
   assert.equal(structure.spec.totalSeconds, 8)

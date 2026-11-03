@@ -15,7 +15,7 @@ import { studio2Enabled, canRecommend } from './access.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
 import { readBrief } from './research.js'
-import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob } from './engine.js'
+import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf } from './engine.js'
 import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
@@ -72,8 +72,9 @@ export function topicPatch(row, topic, { keep = false } = {}) {
   return patch
 }
 
+// opening: the first line in use (the script's hook lines), for the finished plan and its print view.
 const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
-  topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders, ask: row.ask,
+  topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, opening: openingOf(row), script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders, ask: row.ask,
   job: { status: row.job_status, stage: row.job_stage, error: row.job_error, startedAt: row.job_started_at }, createdAt: row.created_at, updatedAt: row.updated_at })
 const publicMessage = row => ({ id: row.id, role: row.role, stage: row.stage, content: row.content, meta: row.meta, createdAt: row.created_at })
 
@@ -120,7 +121,9 @@ export function registerStudioRoutes(router) {
   }))
   router.get('/creator-tools/studio/sessions/:id', asyncHandler(async (req, res) => {
     enabled(req)
-    const row = await resumeStageJob(deps(), await owned(req))
+    // A plan left at the former first-line stage (or cut off while writing it) continues at the script, which now writes its first line.
+    const found = await owned(req)
+    const row = found.stage === 'hook' || found.job_stage === 'hook' ? await startStage(deps(), found, 'script') : await resumeStageJob(deps(), found)
     const messages = await query(database().from('studio_messages').select('*').eq('session_id', row.id).order('created_at', { ascending: true }).limit(200))
     const resolved = await resolveSources(database(), req.auth.userId, row.sources).catch(() => ({}))
     res.set('Cache-Control', 'private, no-store').json({ session: publicSession(row), messages: messages.map(publicMessage),

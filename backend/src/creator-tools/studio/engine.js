@@ -1,7 +1,7 @@
 import { query } from '../store.js'
 import { fail } from '../domain.js'
 import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
-import { HOOK_TYPES, STORY_FORMATS, schedule, isScheduled } from '../success-reel-analysis.js'
+import { STORY_FORMATS, schedule, isScheduled } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint, SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } from './copy-principles.js'
@@ -41,13 +41,19 @@ export async function resolveSources(db, userId, sources = {}) {
       const delivery = a.transcript?.source === 'scenes' ? '말·자막 없이 장면으로 보여 주고, 설명은 캡션이 맡는 영상' : undefined
       // The first line is spoken, so the hook slot carries the first-line formula and what the reference actually says first;
       // the cover title's formula (coverFormula) belongs to the thumbnail, not here.
+      // A reference's success is in how each of its sentences is built, which role labels alone do not carry: the hook
+      // slot gets its opening sentences and the structure slot its whole script, to follow in shape, never in content.
+      const script = String(a.transcript?.korean || '').trim()
+      const shapeNote = '레퍼런스 원문(문장이 하는 일과 짜임을 따르는 참고용, 소재·사실·수치·화자 정보는 가져오지 않음)'
       const excerpt = slot === 'hook' ? { type: a.hook?.category, why: a.hook?.analysis, formula: a.hook?.formula, apply: a.hook?.apply,
-        original: { note: '레퍼런스 원문(작동 원리를 이해하는 참고용, 단어·장면을 옮기지 않음)', opening: String(a.transcript?.korean || '').replace(/\s+/g, ' ').trim().slice(0, 100) || undefined, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook }, delivery }
-        : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis, delivery }
+        original: { note: shapeNote, opening: script.split(/\n+/).slice(0, 3).join(' ').replace(/\s+/g, ' ').slice(0, 300) || undefined, spokenHook: a.hook?.spokenHook, visualHook: a.hook?.visualHook }, delivery }
+        : slot === 'structure' ? { format: a.structure?.category, description: a.structure?.description, steps: (a.structure?.steps || []).map(s => ({ role: s.role, quote: s.quote, purpose: s.purpose })), durationSeconds: a.durationSeconds, why: a.structure?.analysis,
+          ...(script ? { script: { note: shapeNote, text: script.slice(0, 3000) } } : {}), delivery }
         : slot === 'filming' ? { filming: { location: a.filming?.location, shotType: a.filming?.shotType, onScreen: a.filming?.onScreen, guide: a.filming?.guide },
           editing: a.editing || { subtitleStyle: a.filming?.textOverlay, cuts: a.filming?.editing, transitions: '확인되지 않음', effects: '확인되지 않음', sound: '확인되지 않음', guide: [] } }
         : { ...(a.caption || { firstLine: '확인되지 않음', structure: '확인되지 않음', cta: '확인되지 않음', hashtags: '확인되지 않음', analysis: '원본 캡션 분석이 없어 캡션 형식만 참고' }), original: String(reel.caption || '').slice(0, 700) }
-      resolved[slot] = { kind: 'reel', id: reel.shortcode, label: `@${reel.username}`, category: reel.category, excerpt, topic: a.overview?.topic }
+      resolved[slot] = { kind: 'reel', id: reel.shortcode, label: `@${reel.username}`, category: reel.category, excerpt, topic: a.overview?.topic,
+        lines: script.split(/\n+/).map(line => line.trim()).filter(Boolean).slice(0, 60) }
     } else if (source.kind === 'formula') {
       const row = await query(db.from('studio_formulas').select('id,kind,title,spec').eq('id', source.id).eq('user_id', userId).maybeSingle())
       if (!row) fail('SOURCE_NOT_FOUND', '저장한 공식을 찾을 수 없어요.', 404)
@@ -59,6 +65,19 @@ export async function resolveSources(db, userId, sources = {}) {
     }
   }
   return resolved
+}
+
+// The first line opens the script: the script's leading hook lines, or in a plan made before the two were one stage, the first line picked on its own.
+export function openingOf(session) {
+  const f = session.script, option = f?.options?.[f.chosen ?? 0], lines = f ? f.edited || option?.lines || [] : []
+  const hook = []
+  for (const line of lines) { if (line.part !== 'hook') break; hook.push(line) }
+  if (hook.length) return { spoken: hook.map(l => l.spoken).join(' '), onScreen: hook.find(l => l.onScreen)?.onScreen || '', fromReference: Boolean(option?.reference) }
+  const h = session.hook
+  if (!h) return null
+  if (h.custom) return { spoken: h.custom, onScreen: h.applied?.onScreen || '' }
+  const o = h.options?.[h.chosen ?? 0]
+  return o ? { spoken: o.spoken, onScreen: o.onScreen || '', type: o.type } : null
 }
 
 // Compact state 훅ai sees on every call. Never the whole chat.
@@ -77,7 +96,7 @@ function sessionContext(session, resolved, extras = {}) {
     research: session.topic?.research && !session.topic.research.failed ? { subject: session.topic.research.subject, facts: session.topic.research.facts, reviews: session.topic.research.reviews || [], unconfirmed: session.topic.research.unconfirmed || [], viewerQuestions: session.topic.research.viewerQuestions, avoid: session.topic.research.avoid } : null,
     // How 훅ai read the student's key words at the cover stage, so every later stage keeps the same meaning.
     briefReading: session.thumbnail?.plan?.terms?.length ? { terms: session.thumbnail.plan.terms, purpose: session.thumbnail.plan.purpose } : null,
-    thumbnail: chosen('thumbnail'), hook: chosen('hook'),
+    thumbnail: chosen('thumbnail'), hook: openingOf(session),
     script: session.script?.edited || chosen('script')?.lines || null,
     filming: session.filming ? { storyboard: session.filming.storyboard, editing: session.filming.editing, editingPlan: session.filming.editingPlan, memo: session.memo } : null,
     caption: session.caption?.edited || chosen('caption'),
@@ -152,7 +171,7 @@ export async function chat(deps, session, messages, text) {
     return normalizeTopicReply(raw)
   }
   // On the finished plan the student says what to change; the request decides which part is revised.
-  const stage = session.stage === 'done' ? (/캡션|해시태그/.test(text) ? 'caption' : /썸네일|커버|제목/.test(text) ? 'thumbnail' : /첫 ?문장|훅/.test(text) && !/대본/.test(text) ? 'hook' : 'script') : session.stage
+  const stage = session.stage === 'done' ? (/캡션|해시태그/.test(text) ? 'caption' : /썸네일|커버|제목/.test(text) ? 'thumbnail' : 'script') : session.stage
   const input = { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), conversation: recent, userMessage: text }
   let raw = await providersJson(providers, 'studio-revise', revisePrompt(stage), input, reviseSchema)
   // A revision that misses a condition the student set is rewritten once, with the misses named.
@@ -177,12 +196,13 @@ const revisePrompt = stage => `지금은 '${({ thumbnail: '썸네일 카피', ho
 - proposal.summary: 결과에서 실제로 바뀐 점 한 줄.
 - reply: 2~4문장. 결과에 실제로 반영된 것만 말합니다. met이 false인 조건이 있으면 무엇을 못 지켰고 왜인지 그대로 말합니다. 질문이면 그 답.
 - chips: 지금 결과를 시청자가 더 끝까지 보게 만들 다음 수정 요청 0~3개. 이 기획안에서 가장 약한 곳(넘길 위험이 있는 줄, 더 구체적일 수 있는 장면, 흐릿한 약속)을 짚은 이 기획안만의 구체적인 요청으로 쓰고, 어느 기획안에나 붙는 일반 요청은 쓰지 않습니다.
+레퍼런스(sources)의 구조·짜임·성공 요인을 살려 달라는 요청이면, 레퍼런스 원문(sources.hook.original.opening, sources.structure.script)을 한 문장씩 대조해 구간의 수·순서와 각 문장이 하는 일·짜임을 그대로 세우고 각 자리를 이번 소재로 채웁니다(원칙 5·6). 대본의 첫 문장(part hook)도 대본의 일부로 고칩니다.
 규칙: 수강생이 고친 부분은 유지하고 요청한 부분만 바꿉니다. 수강생이 건 조건은 결과 전체에서 지킵니다. 없는 사실을 넣지 않습니다. 대본은 말하듯 짧게.`
 
 function normalizeProposal(stage, p) {
   if (stage === 'script') { const lines = normalizeLines(p.lines); return lines.length >= 2 ? { stage, summary: clean(p.summary, 200), lines } : null }
   if (stage === 'caption') { const text = clean(p.text, 2200); return text ? { stage, summary: clean(p.summary, 200), text, hashtags: list(p.hashtags, 40, 8).map(t => t.replace(/^#+/, '')) } : null }
-  if (stage === 'thumbnail' || stage === 'hook') { const text = clean(p.text, 200); return text ? { stage, summary: clean(p.summary, 200), text, onScreen: clean(p.onScreen, 40) } : null }
+  if (stage === 'thumbnail') { const text = clean(p.text, 200); return text ? { stage, summary: clean(p.summary, 200), text, onScreen: clean(p.onScreen, 40) } : null }
   return null
 }
 const seconds = value => Number.isFinite(Number(value)) ? Math.max(1, Math.min(180, Math.round(Number(value)))) : 3
@@ -196,9 +216,10 @@ function normalizeLines(lines) {
 const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 // What 훅ai found when it re-read its own draft (persona rule 8); anything listed triggers one rewrite.
 const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str), swipeRisks: arr(str) })
+// Version A from a reference reel: one beat per reference sentence, in order.
+const referenceVersionSchema = obj({ questions, check, beats: arr(obj({ source: str, job: str, part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str })), why: str, placeholders: arr(str) })
 const stageSchemas = {
   thumbnail: obj({ questions, plan: obj({ terms: arr(obj({ word: str, meaning: str })), purpose: str, reader: str, promise: str, quotes: arr(str) }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
-  hook: obj({ questions, check, options: arr(obj({ spoken: str, onScreen: str, type: { type: 'string', enum: HOOK_TYPES }, why: str })), placeholders: arr(str) }),
   script: obj({ questions, check, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
   filming: obj({ questions, storyboard: arr(obj({ scene: num, seconds: num, shot: str, action: str, onScreen: str, spoken: str })), location: str, props: arr(str), camera: str, lighting: str, editing: str,
     editingPlan: obj({ subtitleStyle: str, cuts: str, transitions: str, effects: str, sound: str, checklist: arr(str) }), checklist: arr(str), placeholders: arr(str) }),
@@ -208,15 +229,27 @@ const stageSchemas = {
 // What 훅ai learned in common from success reels (공식 사전 entries with how many success reels use each).
 const PROVEN_NOTE = 'provenFormulas는 훅ai가 성공 릴스를 매일 공부하며 확인한 첫 문장·전개 공식과 그 공식을 쓴 성공 릴스 수(reels)입니다. 공식의 작동 원리를 이번 소재에 옮기는 것이지, 공식 문장을 빈칸 채우기로 쓰는 것이 아닙니다. storyTemplates는 강의 자료의 스토리텔링 대본 틀 30종입니다(구간 이름(그 구간이 하는 일): 대본 틀). 화자의 경험·사연이 중심인 소재라면 when이 맞는 틀을 골라 구간의 역할과 순서를 적용합니다. 틀의 [대괄호] 자리는 수강생이 준 사실과 research로만 채우고, 채울 사실이 없는 구간은 지어내지 않고 소재에 맞게 바꾸거나 뺍니다. 틀 문장은 말투와 리듬의 참고이고, 틀에 쓰인 예시 소재를 가져오지 않습니다.'
 // The course's storytelling templates as the hook and script stages read them.
-const storyTemplates = stage => STORY_TEMPLATES.map(t => stage === 'hook' ? { title: t.title, when: t.when, hook: t.lines[0].template } : { title: t.title, when: t.when, flow: t.lines.map(l => `${l.name}(${l.purpose}): ${l.template}`) })
+const storyTemplates = () => STORY_TEMPLATES.map(t => ({ title: t.title, when: t.when, flow: t.lines.map(l => `${l.name}(${l.purpose}): ${l.template}`) }))
 // Self-check before finishing: the lines a viewer would swipe away on. What is still left after fixing triggers one rewrite.
 const SWIPE_CHECK = '다 쓴 뒤 시청자 입장에서 한 줄씩 다시 봅니다. 넘기고 싶어지는 줄(궁금한 게 없거나, 예고만 하거나, 누구나 할 수 있는 말이거나, 앞의 말을 반복하거나, 소리 내 읽었을 때 앞뒤가 이어지지 않아 말이 안 되는 줄, 앞에서 꺼낸 문제와 뒤의 원인·해결이 서로 다른 것을 말하는 줄)을 찾아 고친 최종본을 냅니다. 고치지 못하고 남은 줄만 check.swipeRisks에 그 줄과 이유로 적습니다.'
 // Students keep reshaping the script in chat after the topic and cover were picked, so the script can end up telling
 // another story than the topic. Stages after the script follow what the video will actually say.
 const SCRIPT_IS_FINAL = `대본(script)은 수강생이 마지막으로 다듬어 확정한 영상의 실제 내용입니다. 주제(topic)·brief·썸네일·첫 문장이 대본과 다른 소재나 다른 이야기를 하고 있으면, 대본을 고치는 동안 방향이 바뀐 것이니 대본을 따르고, 대본에 없는 앞 단계의 소재·약속은 가져오지 않습니다.`
-const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. ${CHIP_RULE} questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 비워 둡니다.`
+const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. ${CHIP_RULE} questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 단계 규칙이 빈칸을 허락한 경우에만 채웁니다.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
+
+// Version A, written on its own from the reference reel's sentences.
+const REFERENCE_VERSION = `${ASK_RULE}\n'대본' 단계의 1안, '레퍼런스 공식 그대로'를 씁니다. 레퍼런스 원문(referenceSentences)의 문장을 하나씩 이번 소재로 옮겨, 레퍼런스의 성공 공식(문장의 순서, 각 문장이 시청자에게 하는 일, 말의 짜임, 길이와 리듬)을 그대로 가진 대본을 만듭니다.
+- referenceSentences.hook이 있으면 그것이 첫 문장 구간이고, referenceSentences.body가 그 뒤 구간입니다. hook이 비어 있으면 body가 처음부터 끝까지의 기준입니다. 원문의 줄은 음성 전사 구간이라 한 문장이 두 줄에 걸칠 수 있습니다.
+- beats: 따를 레퍼런스 문장마다 하나씩 순서대로 씁니다. source는 레퍼런스 문장 그대로(전사 줄이 한 문장을 나눠 담았으면 그 줄들을 이어 한 문장으로), job은 그 문장이 시청자에게 하는 일(레퍼런스의 소재 단어 없이), spoken은 이번 소재로 같은 일을 같은 짜임으로 하는 한 줄(레퍼런스 문장과 비슷한 길이의 구어), part는 hook/body/cta, onScreen은 그 문장의 자막(필요 없으면 ""). 레퍼런스 문장을 빼거나 합치거나 다른 일로 바꾸지 않습니다.
+- 첫 문장(part hook)은 고른 썸네일(thumbnail)이 한 약속을 이어받습니다. 썸네일 제목(visualHook)은 첫 문장이 아닙니다.
+- 레퍼런스의 소재·사실·수치·화자 정보는 가져오지 않습니다(원칙 6). 어떤 문장이 수강생만 줄 수 있는 재료(다룰 사례, 결과 수치, 화자의 경험·경력 등)를 요구하는데 brief·topic.facts·answers·attachments에 없으면, 그 재료는 이 안이 성립하는 데 꼭 필요한 사실이므로 질문할 수 있을 때 가장 먼저 묻습니다(다른 세부보다 이 재료가 먼저). 묻지 않을 때도 그 문장을 빼거나 다른 일로 바꾸지 않습니다. 재료 없이 할 수 있는 다른 말로 바꾸는 것도 다른 일로 바꾸는 것입니다. research의 공개 사실로 같은 일을 해낼 수 있으면 채우고, 없으면 그 문장의 짜임을 그대로 두고 화자 본인만 아는 자리를 [대괄호] 빈칸으로 남겨 placeholders에 적습니다. 지어낸 사실보다 빈칸이 낫습니다. 빈칸은 화자 본인만 아는 사실(본인의 사례·수치·경력)에만 쓰고, 이번 소재·research로 쓸 수 있는 자리와 문장의 표현은 빈칸으로 두지 않고 직접 씁니다. 빈칸 안에는 채울 내용을 10자 안팎의 짧은 이름으로 적습니다.
+- 대본에는 영상에서 실제로 할 말만 씁니다. 레퍼런스나 대본을 만드는 과정에 대한 말(무엇이 들어가면 더 좋다 등)은 넣지 않습니다.
+- 레퍼런스의 장치가 일반적인 첫 문장 기준이나 대본 원칙과 부딪히면 레퍼런스를 따릅니다. 다만 모든 문장은 따로 떼어 읽어도 말이 되어야 하고(원칙 9), 수강생의 말투(voice)로 씁니다.
+- why: 이 안이 어떤 시청자에게 맞는지 한 줄.`
+// B and C: other ways to tell the same topic than the reference's.
+const OTHER_VERSIONS = `이번에는 2안과 3안만 씁니다. 1안(레퍼런스 공식 그대로)은 따로 쓰니, options에는 레퍼런스와 다른 첫 문장 유형과 다른 전개의 두 안만 담습니다.`
 
 const stagePrompts = {
   // Covers are 훅ai's own copywriting from the student's topic; references are not sent to this stage.
@@ -229,22 +262,21 @@ ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 3. 쓰는 기준: 각 20자 안팎의 한 구절. 판매자·제품 자랑이 아니라 시청자가 얻는 것으로. 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격·할인·한정·성분·사용법 같은 사실은 brief나 research(훅ai가 출처와 함께 조사한 사실)에 있을 때만. research의 구체적인 사실(무엇을 어떻게 해 주는지, 시청자가 궁금해하는 점)은 막연한 말 대신 쓸 재료입니다.
 4. 다 쓰고 점검합니다. 소리 내 읽었을 때 걸리는 데가 없는가. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황·사건이 purpose와 같은 일을 말하는지, quotes의 구절이 brief·답변·첨부·research에 그 단어, 그 뜻 그대로 있는지 하나씩 대조합니다. 주어지지 않은 사실이나 원문을 다르게 읽은 내용이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
-  hook: `${ASK_RULE}\n'첫 문장' 단계입니다. 영상 첫 3초에 말할 문장 3개를 만듭니다. 고른 썸네일(thumbnail)이 한 약속을 첫 문장이 이어받아야 합니다.
-1안: sources.hook이 있으면 레퍼런스의 첫 문장 공식(formula)과 레퍼런스가 처음 하는 말(original.opening)이 시청자를 붙잡는 장치, 곧 그 말이 시청자에게 무엇을 하게·느끼게·궁금하게 만드는지와 그 말의 짜임을 이번 소재로 옮긴 말(단어는 옮기지 않음). 썸네일 제목(visualHook)은 첫 문장이 아니므로 그 장치를 spoken에 옮기지 않습니다. 없으면 provenFormulas.hooks 중 이번 약속에 가장 맞는 공식의 작동 원리를 이번 소재로 옮긴 말. 2·3안: 서로 다른 훅 유형.
-첫 문장의 기준:
+  // The first line and the script are written together: a reference's success is its opening and flow as one whole,
+  // and A is that whole kept, while B and C are other ways to tell the same topic.
+  script: `${ASK_RULE}\n'대본' 단계입니다. 첫 문장부터 마무리까지 전체 대본 3안을 만듭니다. 각 안은 그 안의 첫 문장(part hook, 영상 첫 3~5초에 말하는 1~3줄)으로 시작하고, 첫 문장은 고른 썸네일(thumbnail)이 한 약속을 이어받습니다.
+- 레퍼런스(sources.hook 또는 sources.structure)가 있으면 1안은 레퍼런스의 성공 공식을 가장 그대로 따른 안이고, label은 "레퍼런스 공식 그대로"입니다. 레퍼런스 원문을 한 문장씩 읽어 각 문장이 시청자에게 하는 일과 말의 짜임을 순서대로 세운 뒤, 같은 순서·같은 수의 구간과 비슷한 문장 길이·리듬으로 이번 소재를 채웁니다. 첫 문장 구간은 sources.hook이 처음 하는 말(original.opening)의 장치와 짜임을, 그 뒤 구간은 sources.structure의 원문(script)과 구간(steps)을 따릅니다(한쪽만 있으면 그 레퍼런스가 처음부터 끝까지의 기준). 썸네일 제목(visualHook)은 첫 문장이 아니므로 첫 문장에 옮기지 않습니다. 1안에서 레퍼런스의 장치가 아래 첫 문장 기준이나 대본 원칙과 부딪히면 레퍼런스를 따릅니다. sources.structure.delivery가 있으면(말 없이 장면으로 보여 주는 레퍼런스) 1안은 그 방식대로 한 줄이 한 장면을 맡게 하고, spoken은 그 장면 위에 띄우거나 짧게 덧붙일 한 문장으로 쓰며 자세한 설명은 캡션으로 넘깁니다.
+- 레퍼런스의 짜임 중 어떤 자리가 수강생만 줄 수 있는 재료(다룰 사례, 결과 수치, 화자의 경험·경력 등)를 요구하는데 brief·topic.facts·answers·attachments에 없으면, 그 재료는 1안이 성립하는 데 꼭 필요한 사실이므로 질문할 수 있을 때 가장 먼저 묻습니다(다른 세부보다 이 재료가 먼저). 묻지 않을 때도 그 자리를 빼거나 다른 일로 바꾸지 않습니다. research의 공개 사실로 그 자리의 일을 해낼 수 있으면 채우고, 없으면 수강생이 채울 [대괄호] 빈칸으로 남기고 그 빈칸을 placeholders에 적습니다. 지어낸 사실보다 빈칸이 낫습니다.
+- 2·3안은 같은 소재를 1안과 다른 첫 문장 유형과 다른 전개로 씁니다. provenFormulas와 storyTemplates에서 이번 소재·약속에 맞는 서로 다른 공식을 골라 안마다 하나씩 적용합니다. 레퍼런스가 없으면 3안 모두 이렇게 서로 다른 공식을 하나씩 적용합니다.
+첫 문장의 기준(1안은 레퍼런스가 우선):
 ${HOOK_PRINCIPLES.map(p => `- ${p}`).join('\n')}
+대본 원칙(1안은 레퍼런스가 우선):
+${SCRIPT_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 ${PROVEN_NOTE}
-spoken은 40자 이내 구어체, onScreen은 첫 화면 자막(15자 이내), type은 훅 유형, why는 왜 붙잡는지 한 줄.
-${SWIPE_CHECK}`,
-  script: `${ASK_RULE}\n'대본' 단계입니다. 고른 첫 문장(hook)으로 시작하는 전체 대본을 서로 다른 전개 3안으로 만듭니다.
-- sources.structure가 있으면 1안은 그 구간들의 역할과 순서·리듬을 이번 소재에 적용합니다(각 구간이 시청자에게 하는 일을 옮기는 것이지 그 구간의 문장을 옮기는 것이 아닙니다). sources.structure.delivery가 있으면(말 없이 장면으로 보여 주는 레퍼런스) 1안은 그 방식대로 한 줄이 한 장면을 맡게 하고, spoken은 그 장면 위에 띄우거나 짧게 덧붙일 한 문장으로 짧게 씁니다. 자세한 설명은 캡션으로 넘깁니다. 2·3안은 같은 첫 문장에서 시작하는 다른 전개 방식. sources.structure가 없으면 provenFormulas.structures 중 이번 소재·약속에 맞는 서로 다른 공식을 골라 안마다 하나씩 적용합니다.
-- 모든 안은 아래 대본 원칙을 지킵니다.
-${SCRIPT_PRINCIPLES.map(p => `  - ${p.name}: ${p.how}`).join('\n')}
-${PROVEN_NOTE}
-- label은 그 안의 전개 방식을 짧게, why는 어떤 시청자에게 맞는지 한 줄.
-- lines: part는 hook/body/cta, spoken은 말할 문장(짧고 구어체), onScreen은 그 구간 자막, seconds는 구간 길이. 전체 길이는 sources.structure.durationSeconds와 비슷하게, 없으면 30~50초.
-- 마무리는 sources의 마무리 장치를 옮기거나, 이 영상을 저장·공유할 이유가 되는 말로 씁니다.
-${SWIPE_CHECK}`,
+- label은 그 안의 전개 방식을 짧게(1안은 "레퍼런스 공식 그대로"), why는 어떤 시청자에게 맞는지 한 줄.
+- lines: part는 hook/body/cta, spoken은 말할 문장(짧고 구어체), onScreen은 그 구간 자막, seconds는 구간 길이. 1안의 전체 길이는 sources.structure.durationSeconds와 비슷하게, 나머지는 30~50초.
+- 마무리는 레퍼런스의 마무리 장치를 옮기거나(1안), 이 영상을 저장·공유할 이유가 되는 말로 씁니다.
+${SWIPE_CHECK} 1안을 고칠 때는 짜임은 그대로 두고 그 자리의 말만 고칩니다.`,
   filming: `${ASK_RULE}\n${SCRIPT_IS_FINAL}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
 - sources.filming.filming이 있으면 그 구도·화면 장치를 적용합니다. storyboard: scene 번호, seconds, shot(구도·거리), action(화면 속 행동·보여줄 것), onScreen(자막), spoken(그 장면 대사; script에서 그대로).
 - 촬영: location, props(준비물), camera(거치·각도), lighting, checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로. editing에는 편집 방향 한 줄.
@@ -283,34 +315,98 @@ export async function successCovers(db, category, limit = 12) {
   return [...same, ...rest].map(r => r.cover_title).filter(Boolean).slice(0, limit)
 }
 
+const squash = text => String(text || '').replace(/[^\p{L}\p{N}]+/gu, '')
+// The sentences version A follows: the structure reel's script, opened by the first lines of the hook reel when
+// another reel gave the first line. Without a reel script (a library entry or saved formula) there is none.
+export function referenceSentences(resolved) {
+  const lines = resolved.structure?.lines || []
+  if (!lines.length) return null
+  const hook = resolved.hook?.lines && resolved.hook.id !== resolved.structure.id ? resolved.hook.lines.slice(0, 2) : []
+  // Another reel's opening replaces the structure reel's own: its lines before the first non-opening step are left out.
+  const firstBody = squash((resolved.structure.excerpt?.steps || []).find(step => step.role !== 'hook')?.quote).slice(0, 12)
+  const at = hook.length && firstBody ? lines.findIndex(line => squash(line).includes(firstBody)) : -1
+  return { hook, body: lines.slice(at > 0 && at <= 4 ? at : 0) }
+}
+// An independent read of version A, beat by beat: does each line do what its reference sentence did, in the same shape?
+// The writer judging its own beats let them drift into another script; this check does not see the writer's reasons.
+const beatCheckSchema = obj({ changed: arr(obj({ source: str, spoken: str, why: str })) })
+async function changedBeats(providers, raw) {
+  const pairs = (Array.isArray(raw.beats) ? raw.beats : []).filter(b => clean(b?.spoken, 400)).map(b => ({ source: clean(b.source, 300), spoken: clean(b.spoken, 400) }))
+  if (!pairs.length) return []
+  const result = await providers.json('studio-script-check', `레퍼런스 대본의 문장(source)과, 그 문장을 다른 소재로 옮긴 문장(spoken)의 짝을 하나씩 대조합니다. 소재·단어·사실이 다른 것은 당연하고 판정 기준이 아닙니다. spoken이 source가 시청자에게 하던 역할(결과를 먼저 말하기, 습관을 찌르는 질문, 개수 예고, 하나씩 짚기, 항목 하나를 소개하고 이유를 한 줄로 대기, 앞 내용을 반전으로 잇기, 결과로 맺기, 행동 요청 같은 문장의 역할)을 같은 짜임으로 하는지만 봅니다. 그 역할을 무엇으로 하는지(근거의 종류, 행동의 수단, 다루는 대상·장치·수치)는 소재라서 달라도 같은 일입니다. 역할이 바뀌었거나, 역할을 하지 않고 일반적인 설명·조언으로 바뀐 짝만 changed에 source와 spoken을 그대로 옮겨 적고 why에 무엇이 달라졌는지 한 줄로 씁니다. 같은 일을 하면 적지 않습니다.`,
+    { pairs }, [], beatCheckSchema)
+  return (Array.isArray(result?.changed) ? result.changed : []).map(m => ({ source: clean(m?.source, 120), spoken: clean(m?.spoken, 160), why: clean(m?.why, 160) })).filter(m => m.source && m.why).slice(0, 8)
+}
+// Reference sentences no beat of version A carries. Lines a transcript split mid-sentence count once a beat quotes them.
+export function uncoveredSentences(sentences, raw) {
+  const quoted = squash((Array.isArray(raw.beats) ? raw.beats : []).filter(b => squash(b?.spoken)).map(b => b.source).join(' '))
+  return [...sentences.hook, ...sentences.body].filter(line => squash(line) && !quoted.includes(squash(line))).slice(0, 8)
+}
+
 // One round of questions per plan: afterwards (or once the student delegated) every stage drafts without asking.
 export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !session.topic?.delegated
 export async function generateStage(deps, session, stage) {
   // The first draft of a plan waits for its field and web research; later stages reuse what is saved.
   if (stage !== 'topic' && session.topic?.title && (!researchFresh(session) || !session.topic.categoryChecked)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)))
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
-  const providers = deps.makeProviders(AbortSignal.timeout(240000))
-  const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'hook' || stage === 'script' ? { provenFormulas: await provenFormulas(deps.db), storyTemplates: storyTemplates(stage) } : {}) }
+  // A script from a reference reel takes several calls (A, its checks and rewrites, alongside B and C).
+  const providers = deps.makeProviders(AbortSignal.timeout(stage === 'script' ? 600000 : 240000))
+  // The script writes its own first line, so a first line from an earlier draft is not handed back to it.
+  const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'script' ? { provenFormulas: await provenFormulas(deps.db), storyTemplates: storyTemplates(), hook: null } : {}) }
   const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category), coverLessons: await coverKnowledge(deps.db) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
-  let raw = await providersJson(providers, `studio-${stage}`, asking ? stagePrompts[stage] : `${stagePrompts[stage]}\n${NO_QUESTIONS}`, context, stageSchemas[stage])
   const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...chipList(q.chips, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
-  let asks = parseAsks(raw)
-  if (asks.length && asking) return { questions: asks, placeholders: [] }
-  if (asks.length) {
-    // 훅ai asked anyway: the unanswered points become its own call, and it drafts once more.
-    const facts = [...(session.topic?.facts || []), ...asks.map(q => `${q.key}: 훅ai 재량(묻지 않고 정함)`)]
-    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}`, sessionContext({ ...session, topic: { ...(session.topic || {}), facts } }, resolved, knowledge), stageSchemas[stage])
-    asks = parseAsks(raw)
-    if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
+  // One draft: questions first when 훅ai may still ask, then one rewrite for whatever the checks found (gaps: checks done in code).
+  const draft = async (prompt, schema, extra = {}, { ask = asking, gaps = () => [], rounds = 1, fix = '' } = {}) => {
+    const input = { ...context, ...extra }
+    let raw = await providersJson(providers, `studio-${stage}`, ask ? prompt : `${prompt}\n${NO_QUESTIONS}`, input, schema)
+    let asks = parseAsks(raw)
+    if (asks.length && ask) return { asks }
+    if (asks.length) {
+      // 훅ai asked anyway: the unanswered points become its own call, and it drafts once more.
+      const facts = [...(session.topic?.facts || []), ...asks.map(q => `${q.key}: 훅ai 재량(묻지 않고 정함)`)]
+      raw = await providersJson(providers, `studio-${stage}`, `${prompt}\n${NO_QUESTIONS}`, { ...sessionContext({ ...session, topic: { ...(session.topic || {}), facts } }, resolved, knowledge), ...extra }, schema)
+      asks = parseAsks(raw)
+      if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
+    }
+    // Each rewrite is checked again, up to the rounds this draft allows.
+    for (let round = 0; round < rounds; round++) {
+      const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6), ...(stage === 'script' ? list(raw.check.swipeRisks, 120, 6).map(r => `시청자가 넘길 줄: ${r}`) : [])] : []
+      found.push(...await gaps(raw))
+      // Grounding: a cover may only lean on words the student actually wrote. A "quote" that is not in their text
+      // means 훅ai re-read a word as something else, so the draft is rewritten from the original words.
+      if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, [...(raw.plan?.quotes || []), ...(raw.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
+      if (!found.length) break
+      raw = await providersJson(providers, `studio-${stage}`, `${prompt}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : stage === 'script' ? '이 단계의 기준과 원칙 7' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.${fix}`, input, schema)
+    }
+    return { raw }
   }
-  const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6), ...(stage === 'hook' || stage === 'script' ? list(raw.check.swipeRisks, 120, 6).map(r => `시청자가 넘길 줄: ${r}`) : [])] : []
-  // Grounding: a cover may only lean on words the student actually wrote. A "quote" that is not in their text
-  // means 훅ai re-read a word as something else, so the draft is rewritten from the original words.
-  if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, [...(raw.plan?.quotes || []), ...(raw.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
-  if (found.length) {
-    raw = await providersJson(providers, `studio-${stage}`, `${stagePrompts[stage]}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : stage === 'hook' || stage === 'script' ? '이 단계의 기준과 원칙 7' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, context, stageSchemas[stage])
+  // A reference reel's script: A is written sentence by sentence from it, apart from the other two versions,
+  // so writing three versions at once cannot reshape it. B and C are then written as other ways to tell the topic.
+  const sentences = stage === 'script' ? referenceSentences(resolved) : null
+  if (sentences) {
+    // Gaps: reference sentences no beat carries (code), then beats an independent check finds doing another job than their sentence.
+    const gaps = async raw => {
+      const missing = uncoveredSentences(sentences, raw).map(line => `레퍼런스의 이 문장을 옮긴 줄이 없음: "${line}"`)
+      return missing.length ? missing : (await changedBeats(providers, raw)).map(m => `"${m.source}" → "${m.spoken}": ${m.why}`)
+    }
+    // B and C do not wait for A: they are told to differ from the reference's shape, which A keeps.
+    const [a, others] = await Promise.all([
+      draft(REFERENCE_VERSION, referenceVersionSchema, { referenceSentences: sentences }, { gaps, rounds: 2,
+        fix: ' 화자 본인만 아는 사실(본인의 사례·수치·경력)이 없어 그 일을 못 한 문장은 다른 말로 바꾸지 말고 짜임을 그대로 둔 채 그 자리만 [대괄호] 빈칸으로 남깁니다. 그 밖의 자리는 이번 소재와 research로 직접 씁니다.' }),
+      draft(`${stagePrompts.script}\n${OTHER_VERSIONS}`, stageSchemas.script, {}, { ask: false }),
+    ])
+    if (a.asks) return { questions: a.asks, placeholders: [] }
+    const lines = normalizeLines((Array.isArray(a.raw.beats) ? a.raw.beats : []).map(b => ({ part: b?.part, spoken: b?.spoken, onScreen: b?.onScreen })))
+    if (lines.length < 2) fail('STAGE_EMPTY', '대본을 만들지 못했어요. 다시 시도해주세요.', 422)
+    const rest = (Array.isArray(others.raw.options) ? others.raw.options : []).map(o => ({ label: clean(o.label, 40), why: clean(o.why, 200), lines: normalizeLines(o.lines) })).filter(o => o.lines.length >= 2).slice(0, 2)
+    const options = [{ label: '레퍼런스 공식 그대로', why: clean(a.raw.why, 200), lines, reference: true }, ...rest]
+    return { value: { options, chosen: 0, edited: null }, placeholders: [...new Set([...list(a.raw.placeholders, 120, 12), ...list(others.raw.placeholders, 120, 12)])].slice(0, 12) }
   }
+  const result = await draft(stagePrompts[stage], stageSchemas[stage])
+  if (result.asks) return { questions: result.asks, placeholders: [] }
+  const raw = result.raw
+  const fromReference = stage === 'script' && Boolean(resolved.hook || resolved.structure)
   const placeholders = list(raw.placeholders, 120, 12)
   if (stage === 'thumbnail') {
     // Each cover names the copy principle it uses; the hint tells a first-time student what that principle does.
@@ -319,13 +415,10 @@ export async function generateStage(deps, session, stage) {
     const terms = (Array.isArray(raw.plan?.terms) ? raw.plan.terms : []).map(t => ({ word: clean(t?.word, 40), meaning: clean(t?.meaning, 120) })).filter(t => t.word && t.meaning).slice(0, 8)
     return { value: { options, chosen: 0, custom: null, plan: raw.plan ? { terms, purpose: clean(raw.plan.purpose, 200), reader: clean(raw.plan.reader, 200), promise: clean(raw.plan.promise, 200) } : null }, placeholders }
   }
-  if (stage === 'hook') {
-    const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ spoken: clean(o.spoken, 200), onScreen: clean(o.onScreen, 40), type: HOOK_TYPES.includes(o.type) ? o.type : '기타', why: clean(o.why, 200) })).filter(o => o.spoken).slice(0, 3)
-    if (!options.length) fail('STAGE_EMPTY', '첫 문장을 만들지 못했어요. 다시 시도해주세요.', 422)
-    return { value: { options, chosen: 0, custom: null }, placeholders }
-  }
   if (stage === 'script') {
+    // With a reference, A is the version that keeps the reference's success formula.
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ label: clean(o.label, 40), why: clean(o.why, 200), lines: normalizeLines(o.lines) })).filter(o => o.lines.length >= 2).slice(0, 3)
+      .map((o, i) => fromReference && i === 0 ? { ...o, label: '레퍼런스 공식 그대로', reference: true } : o)
     if (!options.length) fail('STAGE_EMPTY', '대본을 만들지 못했어요. 다시 시도해주세요.', 422)
     return { value: { options, chosen: 0, edited: null }, placeholders }
   }
@@ -424,11 +517,11 @@ export async function startStage(deps, session, stage, { force = false } = {}) {
 export function formulaFromSession(session, resolved, kind) {
   const chosen = (field) => { const f = session[field]; if (!f) return null; if (f.custom) return { text: f.custom }; return f.options?.[f.chosen ?? 0] ?? null }
   if (kind === 'hook') {
-    const hook = chosen('hook'); if (!hook) return null
+    const hook = openingOf(session); if (!hook) return null
     // The source formula only applies when the student kept the source's hook device.
     const sourceType = resolved.hook?.excerpt?.type
-    const type = hook.type || sourceType || '기타'
-    return { title: `첫 문장: ${hook.spoken || hook.text}`.slice(0, 80), spec: { type, formula: type === sourceType ? resolved.hook?.excerpt?.formula || '' : '', spoken: hook.spoken || hook.text, onScreen: hook.onScreen || '' }, example: hook.spoken || hook.text || '' }
+    const type = hook.type || (hook.fromReference && sourceType) || '기타'
+    return { title: `첫 문장: ${hook.spoken}`.slice(0, 80), spec: { type, formula: type === sourceType ? resolved.hook?.excerpt?.formula || '' : '', spoken: hook.spoken, onScreen: hook.onScreen || '' }, example: hook.spoken }
   }
   if (kind === 'structure') {
     const lines = session.script?.edited || chosen('script')?.lines; if (!lines?.length) return null

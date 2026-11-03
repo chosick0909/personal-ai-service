@@ -21,7 +21,7 @@ export default function PrintView({ sessionId }) {
   if (error) return <div className="st-content"><div className="st-error">{error}</div></div>
   if (!data) return <div className="st-content"><p className="st-muted">불러오는 중…</p></div>
   const s = data.session
-  const thumb = chosenOf(s.thumbnail), hook = chosenOf(s.hook), lines = s.script?.edited || chosenOf(s.script)?.lines || [], cap = s.caption?.edited || chosenOf(s.caption)
+  const thumb = chosenOf(s.thumbnail), hook = s.opening, lines = s.script?.edited || chosenOf(s.script)?.lines || [], cap = s.caption?.edited || chosenOf(s.caption)
   const total = lines.reduce((a, l) => a + estimateLineSeconds(l.spoken), 0)
   const f = s.filming
   const setting = f ? [['장소', f.location], ['카메라', f.camera], ['조명', f.lighting]].filter(([, v]) => v) : []
@@ -40,7 +40,7 @@ export default function PrintView({ sessionId }) {
 
         {thumb && <Section n={next()} title="썸네일 카피"><div className="pp-thumb">{thumb.text}</div></Section>}
 
-        {hook && <Section n={next()} title="첫 문장"><blockquote className="pp-hook">“{hook.spoken || hook.text}”</blockquote>{hook.onScreen && <p className="pp-onscreen"><i>자막</i>{hook.onScreen}</p>}</Section>}
+        {hook && <Section n={next()} title="첫 문장"><blockquote className="pp-hook">“{hook.spoken}”</blockquote>{hook.onScreen && <p className="pp-onscreen"><i>자막</i>{hook.onScreen}</p>}</Section>}
 
         {lines.length > 0 && <Section n={next()} title="대본" extra={`약 ${total}초`}>
           <ol className="pp-script">{lines.map((l, i) => <li key={i}>
