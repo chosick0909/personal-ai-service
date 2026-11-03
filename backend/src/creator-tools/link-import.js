@@ -99,11 +99,16 @@ sourceQuotes와 translatedQuotes에 판정에 사용한 정확한 부분 문자�
       || !['equivalent','changed','uncertain'].includes(review.meaningVerdict)
       || typeof review.reason !== 'string' || !review.reason.trim()) contentChanged()
   // Quotes must come from the texts, but line breaks are only transcript segmentation: a quote that joins two
-  // lines with a space is still the source's own words.
-  const flat = text => text.replace(/\s+/g, ' ').trim()
+  // lines with a space is still the source's own words. So is one that starts a sentence with a capital letter
+  // or marks skipped words with an ellipsis: each part between ellipses must still be found in the text.
+  const flat = text => text.replace(/\s+/g, ' ').trim().toLowerCase()
+  const quoted = (q, text) => {
+    const parts = flat(q).split(/\.{3,}|…/).map(part => part.trim()).filter(Boolean)
+    return parts.length > 0 && parts.every(part => flat(text).includes(part))
+  }
   for (const [quotes,text] of [[review.sourceQuotes,source.text],[review.translatedQuotes,translated.text]]) {
     if (!Array.isArray(quotes) || !quotes.length
-        || quotes.some(q => typeof q !== 'string' || !q.trim() || !flat(text).includes(flat(q)))) contentChanged()
+        || quotes.some(q => typeof q !== 'string' || !q.trim() || !quoted(q, text))) contentChanged()
   }
   if (review.verdict !== 'equivalent') numberChanged()
   if (review.meaningVerdict !== 'equivalent') contentChanged()

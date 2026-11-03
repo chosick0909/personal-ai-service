@@ -95,6 +95,15 @@ test('a quote that joins transcript lines with a space is still evidence from th
   assert.deepEqual(calls,['translate-reference','verify-reference-numbers'])
   await assert.rejects(translateSegments(provider(()=>({text:korean}),input=>({...approve(input),sourceQuotes:['Sort what you own before choosing a shelf.']})),'en',source),{code:'TRANSLATION_CONTENT_CHANGED'})
 })
+test('a quote that capitalizes a sentence start or skips words with an ellipsis is still evidence from the source',async()=>{
+  for(const quote of ['SORT what you already own','...what you already own','Sort what…choosing a shelf.']){
+    const result=await translateSegments(provider(()=>({text:korean}),input=>({...approve(input),sourceQuotes:[quote]})),'en',source)
+    assert.equal(result[0].text,korean)
+  }
+  for(const quote of ['...','Sort what…choosing a table.']){
+    await assert.rejects(translateSegments(provider(()=>({text:korean}),input=>({...approve(input),sourceQuotes:[quote]})),'en',source),{code:'TRANSLATION_CONTENT_CHANGED'})
+  }
+})
 test('empty and malformed responses get only one repair; no empty translation is returned',async()=>{
   for(const response of [null,{}, {text:null},{text:''},{text:'   '},{text:'가'.repeat(12001)}]){
     let calls=0
