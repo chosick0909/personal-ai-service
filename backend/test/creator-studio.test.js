@@ -57,12 +57,12 @@ test('slot sources resolve to excerpts from reels, formulas and the library', as
 
 test('stage generation normalizes 훅ai output and keeps placeholders', async () => {
   const db = fakeDb()
-  const transcript = { korean: '안 사요. 너무 약해요.\n효과가 약해서 안 사요.', source: 'audio' }
+  const transcript = { korean: '안 사요. 너무 약해요.\n효과가 약해서 안 사요.\n사는 건 하나예요.', source: 'audio' }
   db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript }
   const calls = []
   const session = { id: 's1', user_id: 'u1', mode: 'single', brief: '선크림 3개 비교', sources: { hook: { kind: 'reel', id: 'Aaaaa1' }, structure: { kind: 'reel', id: 'Aaaaa1' } },
     topic: { title: '지성 피부 선크림 3개 판정', facts: ['백탁 없음'], category: '피부', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, thumbnail: { options: [{ text: '선크림 안 사요 사요' }], chosen: 0 }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.' }], chosen: 0 } }
-  const beats = [{ source: '안 사요. 너무 약해요.', job: '판정 선언', part: 'hook', spoken: '안 사요. 번들거려요.', onScreen: '안 사요' }, { source: '효과가 약해서 안 사요.', job: '근거', part: 'body', spoken: '[제품 A]는 백탁이 없어서 사요.', onScreen: '' }]
+  const beats = [{ source: '안 사요. 너무 약해요.', job: '판정 선언', part: 'hook', spoken: '안 사요. 번들거려요.', onScreen: '안 사요' }, { source: '효과가 약해서 안 사요.', job: '근거', part: 'body', spoken: '[제품 A]는 백탁이 없어서 사요.', onScreen: '' }, { source: '사는 건 하나예요.', job: '결론', part: 'cta', spoken: '살 건 하나예요.', onScreen: '' }]
   const makeProviders = () => ({ json: async (op, _i, input, _f, schema) => { calls.push({ op, input, schema })
     if (schema.properties.changed) return { changed: [] }
     // A first leaves out the reference's second sentence; the code check names it and A is written again.
@@ -72,12 +72,27 @@ test('stage generation normalizes 훅ai output and keeps placeholders', async ()
   assert.deepEqual(calls.map(c => c.op).sort(), ['studio-script', 'studio-script', 'studio-script', 'studio-script-check'], 'A is written, rewritten and checked beat by beat; B and C once alongside')
   assert.equal(calls[0].input.sources.hook.formula, analysis.hook.formula)
   assert.equal(calls[0].input.hook, null, 'the script writes its own first line; one from an earlier draft is not handed back')
-  assert.deepEqual(calls[0].input.referenceSentences, { hook: [], body: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.'] }, 'A follows the reference script sentence by sentence')
+  assert.deepEqual(calls[0].input.referenceSentences, { hook: [], body: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.', '사는 건 하나예요.'] }, 'A follows the reference script sentence by sentence')
   assert.equal(calls[0].input.sources.structure.script.text, transcript.korean, 'the reference script itself reaches the prompt, not only role labels')
   assert.deepEqual(value.options.map(o => [o.label, Boolean(o.reference)]), [['레퍼런스 공식 그대로', true], ['판정으로 설득', false]])
   assert.deepEqual(value.options[0].lines.map(l => l.spoken), beats.map(b => b.spoken), 'the rewrite carries every reference sentence')
   assert.deepEqual(value.options[1].lines.map(l => [l.part, l.seconds]), [['hook', 3], ['body', 2]], 'seconds come from the words, not the model guess')
   assert.deepEqual(placeholders, ['[제품 A]', '[제품 B]'])
+})
+
+test('a reference that says only a line is followed by its steps, not sentence by sentence', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript: { korean: '오늘도 잘 먹었습니다', source: 'audio' } }
+  const calls = []
+  const session = { id: 's1', user_id: 'u1', mode: 'single', brief: 'b', sources: { structure: { kind: 'reel', id: 'Aaaaa1' } },
+    topic: { title: 't', category: '요리', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, thumbnail: { options: [{ text: 'x' }], chosen: 0 } }
+  const line = (part, spoken) => ({ part, spoken, onScreen: '' })
+  const makeProviders = () => ({ json: async (op, _i, input, _f, schema) => { calls.push({ op, input, schema })
+    return { questions: [], options: [{ label: 'a', why: 'w', lines: [line('hook', '하나'), line('body', '둘')] }, { label: 'b', why: 'w', lines: [line('hook', '셋'), line('body', '넷')] }], placeholders: [] } } })
+  const { value } = await generateStage({ db, makeProviders }, session, 'script')
+  assert.deepEqual(calls.map(c => c.op), ['studio-script'], 'one call writes the three versions')
+  assert.equal(calls[0].input.referenceSentences, undefined)
+  assert.deepEqual(value.options.map(o => [o.label, Boolean(o.reference)]), [['레퍼런스 공식 그대로', true], ['b', false]])
 })
 
 test('startStage runs a background job once and records failures on the session', async () => {

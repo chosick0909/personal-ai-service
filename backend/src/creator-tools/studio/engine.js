@@ -320,7 +320,9 @@ const squash = text => String(text || '').replace(/[^\p{L}\p{N}]+/gu, '')
 // another reel gave the first line. Without a reel script (a library entry or saved formula) there is none.
 export function referenceSentences(resolved) {
   const lines = resolved.structure?.lines || []
-  if (!lines.length) return null
+  // A reel that says only a line or two (a caption-like remark over scenes) has no sentence order to follow;
+  // its formula is in its steps, so the three versions are written from those instead.
+  if (lines.length < 3) return null
   const hook = resolved.hook?.lines && resolved.hook.id !== resolved.structure.id ? resolved.hook.lines.slice(0, 2) : []
   // Another reel's opening replaces the structure reel's own: its lines before the first non-opening step are left out.
   const firstBody = squash((resolved.structure.excerpt?.steps || []).find(step => step.role !== 'hook')?.quote).slice(0, 12)
@@ -398,9 +400,10 @@ export async function generateStage(deps, session, stage) {
     ])
     if (a.asks) return { questions: a.asks, placeholders: [] }
     const lines = normalizeLines((Array.isArray(a.raw.beats) ? a.raw.beats : []).map(b => ({ part: b?.part, spoken: b?.spoken, onScreen: b?.onScreen })))
-    if (lines.length < 2) fail('STAGE_EMPTY', '대본을 만들지 못했어요. 다시 시도해주세요.', 422)
     const rest = (Array.isArray(others.raw.options) ? others.raw.options : []).map(o => ({ label: clean(o.label, 40), why: clean(o.why, 200), lines: normalizeLines(o.lines) })).filter(o => o.lines.length >= 2).slice(0, 2)
-    const options = [{ label: '레퍼런스 공식 그대로', why: clean(a.raw.why, 200), lines, reference: true }, ...rest]
+    // A version A too short to be a script is dropped rather than failing the other two with it.
+    const options = [...(lines.length >= 2 ? [{ label: '레퍼런스 공식 그대로', why: clean(a.raw.why, 200), lines, reference: true }] : []), ...rest]
+    if (!options.length) fail('STAGE_EMPTY', '대본을 만들지 못했어요. 다시 시도해주세요.', 422)
     return { value: { options, chosen: 0, edited: null }, placeholders: [...new Set([...list(a.raw.placeholders, 120, 12), ...list(others.raw.placeholders, 120, 12)])].slice(0, 12) }
   }
   const result = await draft(stagePrompts[stage], stageSchemas[stage])
