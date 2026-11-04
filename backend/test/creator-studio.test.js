@@ -380,6 +380,17 @@ test('before the first draft 훅ai sets the field and looks the topic up once by
   assert.equal(db.tables.studio_sessions.get('s20').topic.category, '피부')
 })
 
+test('a topic confirmed while 훅ai was still looking things up is kept', async () => {
+  const { prepareTopic } = await import('../src/creator-tools/studio/research.js')
+  const db = fakeDb()
+  // The plan was read before the student confirmed a topic; the topic was saved during the lookup.
+  db.tables.studio_sessions.set('s21', { id: 's21', topic: { title: '확정한 주제', facts: ['사실'] } })
+  const providers = { json: async () => ({ category: '요리' }) }
+  const prepared = await prepareTopic({ db }, { id: 's21', brief: 'b', topic: null }, providers, { research: false })
+  assert.deepEqual(db.tables.studio_sessions.get('s21').topic, { title: '확정한 주제', facts: ['사실'], category: '요리', categoryChecked: true })
+  assert.equal(prepared.topic.title, '확정한 주제')
+})
+
 test('a cover may quote what 훅ai researched as well as what the student wrote', () => {
   const session = { brief: '내돈내산 피지템', topic: { title: '피지템', research: { subject: '피지 연화 제품', facts: ['화장솜에 적셔 10분 올려 두는 제품'], viewerQuestions: [] } } }
   assert.deepEqual(ungroundedQuotes(session, ['10분 올려 두는', '내돈내산', '모공이 사라지는']), ['모공이 사라지는'])

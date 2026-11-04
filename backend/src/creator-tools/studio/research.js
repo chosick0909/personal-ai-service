@@ -111,8 +111,14 @@ export async function prepareTopic(deps, session, providers, { research = true, 
     topic.research = await researchTopic(providers, session).catch(() => ({ subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [], at: new Date().toISOString(), failed: true }))
     changed = true
   }
-  if (changed && session.id) await query(deps.db.from('studio_sessions').update({ topic }).eq('id', session.id)).catch(() => {})
-  return { ...session, topic }
+  if (!changed || !session.id) return { ...session, topic }
+  // Research takes a while, and the student may confirm a topic meanwhile: only what was found here is written,
+  // onto the topic as it is now, so a topic set during the search is not overwritten by the one read before it.
+  const found = Object.fromEntries(['category', 'categoryChecked', 'research'].filter(key => topic[key] !== session.topic?.[key]).map(key => [key, topic[key]]))
+  const now = await query(deps.db.from('studio_sessions').select('topic').eq('id', session.id).maybeSingle()).catch(() => null)
+  const merged = { ...(now?.topic || session.topic || {}), ...found }
+  await query(deps.db.from('studio_sessions').update({ topic: merged }).eq('id', session.id)).catch(() => {})
+  return { ...session, topic: merged }
 }
 
 // What the student wrote in '담고 싶은 내용' mixes what the reel is about with how they want it made ("대본은 30초 안으로",
