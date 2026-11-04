@@ -21,8 +21,10 @@ function IdeaCard({ card, saved, onSave, onPlan, onAsk }) {
       {card.promise && <div><dt>시청자가 얻는 것</dt><dd>{card.promise}</dd></div>}
       {card.why && <div><dt><Lightbulb size={14} />지금 먹히는 이유</dt><dd>{card.why}</dd></div>}
       {card.materials?.length > 0 && <div><dt>찍으려면 필요한 것</dt><dd><ul>{card.materials.map(m => <li key={m}>{m}</li>)}</ul></dd></div>}
-      {card.reels?.length > 0 && <div><dt>이 분야에서 터진 영상</dt><dd className="st-idea-reels">{card.reels.map(r => <button type="button" key={r.id} onClick={() => go('reference', { ref: r.id })} title={`@${r.username}`}>
+      {card.reels?.length > 0 && <div><dt>이 주제로 터진 영상</dt><dd className="st-idea-reels">{card.reels.map(r => <button type="button" key={r.id} onClick={() => go('reference', { ref: r.id })} title={`@${r.username}`}>
         {r.thumbnailUrl ? <img src={r.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-idea-reel-empty" />}<small>▶ {compactCount(r.views)}</small></button>)}</dd></div>}
+      {/* Reels are matched to the card's subject; none on it yet, the student can bring their own. */}
+      {card.reels?.length === 0 && <div><dt>이 주제로 터진 영상</dt><dd><span className="st-muted">아직 모인 영상이 없어요. 찾으신 영상 링크를 내 레퍼런스의 [추가하기]에 넣으면 바로 분석해서 레퍼런스로 쓸 수 있어요.</span> <button type="button" className="st-btn st-btn-sm" onClick={() => go('references')}>내 레퍼런스로 가기</button></dd></div>}
     </dl>
     <div className="st-idea-actions">
       <button type="button" className={`st-btn st-btn-sm${saved ? '' : ' st-btn-primary'}`} disabled={saved} onClick={onSave}>{saved ? <><Check size={16} />보관함에 저장됨</> : <><Star size={16} />이 주제 저장</>}</button>
@@ -106,6 +108,8 @@ export default function IdeasPage({ threadId: initialThread }) {
     try { const r = await studio.planFromIdea(item.id); go('plan', { session: r.session.id }) } catch (e) { toast({ kind: 'failed', title: '기획안을 만들지 못했어요', body: e.message }) }
   }
   const newThread = () => { setThreadId(null); setMessages([]); go('ideas', {}, { replace: true }) }
+  // An opened conversation goes into the address too, so coming back from a reel opens it again.
+  const openThread = id => { setThreadId(id); go('ideas', { thread: id }, { replace: true }) }
   const last = messages.at(-1)
   const starting = !threadId && !messages.length && !pending && !busy
   const savedPanel = <aside className="st-card st-ideas-saved" data-tour="ideas-saved">
@@ -127,7 +131,7 @@ export default function IdeasPage({ threadId: initialThread }) {
         <AttachChips items={files} onRemove={i => setFiles(f => f.filter((_, j) => j !== i))} />
         <div className="st-ideas-composer-foot">
           <div className="st-row" style={{ gap: 4 }}><AttachButton uploading={uploading} onFiles={upload} />
-          {threads.length > 0 ? <select className="st-input st-ideas-threads" value="" onChange={e => e.target.value && setThreadId(e.target.value)} aria-label="지난 대화">
+          {threads.length > 0 ? <select className="st-input st-ideas-threads" value="" onChange={e => e.target.value && openThread(e.target.value)} aria-label="지난 대화">
             <option value="">지난 대화 열기</option>{threads.map(t => <option key={t.id} value={t.id}>{t.title || '제목 없는 대화'}</option>)}</select> : null}</div>
           <button type="submit" className="st-btn st-btn-primary" disabled={(!text.trim() && !files.length) || uploading} aria-label="보내기"><Send size={18} /></button>
         </div>
@@ -142,7 +146,7 @@ export default function IdeasPage({ threadId: initialThread }) {
       <div className="st-ideas-head">
         <div className="st-row" style={{ gap: 10 }}><HookAvatar size={36} /><strong>훅ai와 주제 찾기</strong></div>
         <div className="st-row" style={{ gap: 8 }}>
-          {threads.length > 0 && <select className="st-input st-ideas-threads" value={threadId || ''} onChange={e => e.target.value ? setThreadId(e.target.value) : newThread()} aria-label="지난 대화">
+          {threads.length > 0 && <select className="st-input st-ideas-threads" value={threadId || ''} onChange={e => e.target.value ? openThread(e.target.value) : newThread()} aria-label="지난 대화">
             <option value="">지난 대화 열기</option>{threads.map(t => <option key={t.id} value={t.id}>{t.title || '제목 없는 대화'}</option>)}</select>}
           <button type="button" className="st-btn st-btn-sm" onClick={newThread}><Plus size={16} />새 대화</button>
         </div>

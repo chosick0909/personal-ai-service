@@ -82,7 +82,8 @@ export default function StudioApp() {
 
   const go = useCallback((page, params = {}, { replace = false } = {}) => {
     const q = new URLSearchParams({ p: page, ...Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) })
-    window.history[replace ? 'replaceState' : 'pushState']({}, '', `/studio?${q}`)
+    // Each page remembers the page it was opened from, so a detail page can lead back there.
+    window.history[replace ? 'replaceState' : 'pushState'](replace ? window.history.state : { from: routeRef.current?.page }, '', `/studio?${q}`)
     setRoute({ page, params })
     setMenuOpen(false)
     window.scrollTo(0, 0)
@@ -130,7 +131,10 @@ export default function StudioApp() {
     return () => clearInterval(timer)
   }, [running, go, toast, dismiss, announceReady])
 
-  const value = useMemo(() => ({ go, route, toast, dismiss, analyze, tracking, categories, features, user: currentUser }), [go, route, toast, dismiss, analyze, tracking, categories, features, currentUser])
+  // back: the page this one was opened from and its name; null when it was opened directly.
+  const from = window.history.state?.from
+  const back = from && from !== route.page && TITLES[from] ? { name: TITLES[from][0], go: () => window.history.back() } : null
+  const value = useMemo(() => ({ go, back, route, toast, dismiss, analyze, tracking, categories, features, user: currentUser }), [go, back?.name, route, toast, dismiss, analyze, tracking, categories, features, currentUser])
   const [title, sub] = TITLES[route.page] || TITLES.reels
   // Every visit opens with the upgrade popup until it is closed in that visit ('24시간 동안 보지 않기' skips it for a day), then the guided tour once.
   const [guide, setGuide] = useState(null)

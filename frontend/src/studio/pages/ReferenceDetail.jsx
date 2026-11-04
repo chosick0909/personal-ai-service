@@ -106,7 +106,7 @@ const ANALYSIS_STAGES = ['영상 가져오기', '대본 읽기', '첫 문장·�
 const analysisStage = startedAt => { const s = startedAt ? (Date.now() - Date.parse(startedAt)) / 1000 : 0; return s < 20 ? 0 : s < 60 ? 1 : 2 }
 
 export default function ReferenceDetail({ shortcode }) {
-  const { go, analyze, tracking, toast } = useStudio()
+  const { go, back, analyze, tracking, toast } = useStudio()
   const saveFormula = async kind => { try { const r = await studio.saveFormula({ kind, shortcode }); toast({ kind: 'ready', title: r.duplicate ? '이미 내 공식에 있어요' : '내 공식에 저장했어요', body: r.formula.spec?.formula ? `${r.formula.title} · 공식: ${r.formula.spec.formula}` : r.formula.title, ttl: 10000, action: { label: '내 공식 보기', onClick: () => go('formulas') } }) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }
   const [reel, setReel] = useState(null)
   const [error, setError] = useState('')
@@ -124,7 +124,8 @@ export default function ReferenceDetail({ shortcode }) {
   const analysis = reel.analysisStatus === 'ready' ? reel.analysis : null
   return <div className="st-stack">
     <div className="st-row" style={{ justifyContent: 'space-between' }}>
-      <button type="button" className="st-btn st-btn-ghost" onClick={() => go('reels')}><ArrowLeft size={20} />영감 찾기</button>
+      {/* Back to the page the reel was opened from (주제 찾기, 내 레퍼런스…); opened directly, to 영감 찾기. */}
+      <button type="button" className="st-btn st-btn-ghost" onClick={() => back ? back.go() : go('reels')}><ArrowLeft size={20} />{back?.name || '영감 찾기'}</button>
       {analysis && <button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('new', { ref: shortcode })}><Sparkles size={20} />이 레퍼런스로 기획안 만들기</button>}
     </div>
     <div className="st-detail">

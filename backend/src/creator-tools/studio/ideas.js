@@ -23,7 +23,7 @@ const chipList = (value, count) => (Array.isArray(value) ? value : []).map(v => 
 export const ideaSchema = obj({
   lookup: str,
   category,
-  cards: arr(obj({ title: str, angle: str, promise: str, why: str, evidence: arr(str), materials: arr(str), category })),
+  cards: arr(obj({ title: str, angle: str, promise: str, why: str, evidence: arr(str), materials: arr(str), keywords: arr(str), category })),
   reply: str,
   chips: arr(str),
 })
@@ -34,17 +34,34 @@ export const ideaPrompt = `지금은 '주제 찾기' 대화입니다. 기획안�
 - lookup: 수강생이 특정 제품·서비스·장소·정보 주제를 꺼냈는데 research가 그 대상을 다루지 않으면, 그 대상을 검색할 정확한 이름을 적고 cards는 비웁니다(훅ai가 조사한 뒤 다시 답합니다). 그 밖에는 빈 문자열.
 - category: 지금까지 대화로 보이는 분야(모르면 기타).
 - cards: 주제 후보 3개, 서로 다른 방향. title은 영상이 무엇인지 바로 보이는 한 줄, angle은 같은 소재의 다른 영상과 다른 점, promise는 시청자가 얻는 것, why는 지금 이 주제가 먹히는 이유를 실제 근거로(fieldKnowledge.topics, trending의 최근 터진 릴스, research의 사실·구매자 후기·시청자 궁금증 중), evidence는 why의 근거를 짧게 2~3개, materials는 이 주제를 찍으려면 수강생에게 필요한 경험·사실·장면 2~4개(수강생이 이미 말한 것은 빼고), category는 분야. cards를 낼 상황이 아니면 [].
+- keywords: 카드마다, 같은 소재를 다룬 릴스의 주제나 캡션에 실제로 쓰일 구체적인 말 3~5개. 분야 이름이나 어느 주제에나 붙는 말은 넣지 않습니다.
 - 이 대화는 떠오른 아이디어를 적어 두는 곳이기도 합니다. 수강생이 아이디어·메모·자료(conversation의 attachments)를 그냥 남기면 질문을 쌓지 말고 그 내용을 받아, 바로 저장해 둘 수 있게 주제 카드로 다듬어 냅니다. 첨부 자료는 수강생이 준 재료입니다.
 - 수강생이 말하지 않은 경험·성과·수치를 주제에 넣지 않습니다. 필요한 것은 materials에 적어 둡니다.
 - savedTopics와 recentTopics는 수강생이 이미 저장했거나 만든 주제입니다. 같은 주제를 다시 내지 않습니다.
 - reply: 수강생에게 할 말 2~4문장. cards를 냈으면 무엇을 보고 골랐는지 짧게.
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개. ${CHIP_RULE} cards를 냈으면 고른 뒤 이어갈 요청(더 구체적으로 좁히기, 다른 방향 등)을 이 카드들에 맞게. 마지막은 "알아서 추천해주세요".`
 
-// Success reels that worked in the card's field, shown under each card as proof and as a reference to analyze.
-async function reelsFor(db, field, limit = 2) {
-  let request = db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,category').eq('visible', true).eq('analysis_status', 'ready')
-  if (field && field !== '기타') request = request.eq('category', field)
-  const rows = await query(request.order('views', { ascending: false }).limit(limit)).catch(() => [])
+// Success reels on a card's own subject, shown under the card as proof and as references to analyze. They are matched on
+// what each reel is about (its analyzed topic and caption), not taken from the top of the card's field: a field's most
+// viewed reels are often about something else. A reel must carry at least two of the card's keywords; when none does,
+// no reel is shown rather than one on another subject.
+const REELS_PER_CARD = 5
+async function reelPool(db) {
+  return query(db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,caption,caption_ko,topic:analysis->overview->>topic')
+    .eq('visible', true).eq('analysis_status', 'ready').neq('username', 'recommended').or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
+    .order('views', { ascending: false }).limit(3000)).catch(() => [])
+}
+const flat = text => String(text || '').toLowerCase().replace(/\s+/g, '')
+export function matchReels(pool, keywords, limit = REELS_PER_CARD) {
+  const words = [...new Set(keywords.map(flat).filter(word => word.length >= 2))]
+  return pool.map(reel => {
+    const topic = flat(reel.topic), text = flat(`${reel.caption || ''} ${reel.caption_ko || ''}`)
+    const hits = words.filter(word => topic.includes(word) || text.includes(word))
+    // A keyword in what the reel is about weighs more than one only in its caption.
+    return { reel, hits: hits.length, score: hits.reduce((sum, word) => sum + (topic.includes(word) ? 2 : 1), 0) }
+  }).filter(m => m.hits >= 2).sort((a, b) => b.score - a.score || (b.reel.views || 0) - (a.reel.views || 0)).slice(0, limit).map(m => m.reel)
+}
+async function withThumbnails(db, rows) {
   const paths = rows.map(r => r.thumbnail_path).filter(Boolean)
   const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)).catch(() => []) : []
   const urls = new Map((signed || []).filter(i => i.signedUrl).map(i => [i.path, i.signedUrl]))
@@ -79,10 +96,11 @@ export async function ideaReply(deps, thread, messages, text) {
     if (research) await query(db.from('studio_idea_threads').update({ research, updated_at: new Date().toISOString() }).eq('id', thread.id)).catch(() => {})
     raw = await ask()
   }
+  const pool = Array.isArray(raw?.cards) && raw.cards.length ? await reelPool(db) : []
   const cards = await Promise.all((Array.isArray(raw?.cards) ? raw.cards : []).map(async c => {
     const field = SUCCESS_REEL_CATEGORIES.includes(c?.category) ? c.category : thread.category || '기타'
     return { title: clean(c?.title, 120), angle: clean(c?.angle, 240), promise: clean(c?.promise, 240), why: clean(c?.why, 400), evidence: list(c?.evidence, 160, 3),
-      materials: list(c?.materials, 160, 4), category: field, reels: await reelsFor(db, field) }
+      materials: list(c?.materials, 160, 4), category: field, reels: await withThumbnails(db, matchReels(pool, list(c?.keywords, 30, 6))) }
   }))
   return { content: clean(raw?.reply, 800) || '좋아요, 이어서 같이 찾아볼게요.', meta: { chips: chipList(raw?.chips, 4), cards: cards.filter(c => c.title).slice(0, 3) },
     category: thread.category || null }
