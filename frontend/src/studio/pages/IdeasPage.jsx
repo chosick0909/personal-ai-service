@@ -44,8 +44,8 @@ function SavedTopic({ item, onPlan, onRemove, onMemo }) {
     {item.angle && <p className="st-muted st-small">{item.angle}</p>}
     <textarea className="st-textarea" rows={2} value={memo} placeholder="메모(찍을 때 떠오른 것, 쓸 소품 등)" onChange={e => setMemo(e.target.value)} onBlur={() => memo !== (item.memo || '') && onMemo(memo)} />
     <div className="st-row" style={{ gap: 6 }}>
-      {item.sessionId ? <button type="button" className="st-btn st-btn-sm" onClick={() => go('plan', { session: item.sessionId })}>기획안 열기<ArrowRight size={15} /></button>
-        : <button type="button" className="st-btn st-btn-sm st-btn-primary" onClick={onPlan}>기획안 만들기<ArrowRight size={15} /></button>}
+      {item.sessionId && <button type="button" className="st-btn st-btn-sm" onClick={() => go('plan', { session: item.sessionId })}>만든 기획안 열기<ArrowRight size={15} /></button>}
+      <button type="button" className={`st-btn st-btn-sm${item.sessionId ? '' : ' st-btn-primary'}`} onClick={onPlan}>{item.sessionId ? '새 기획안 하나 더' : '기획안 만들기'}<ArrowRight size={15} /></button>
       <button type="button" className="st-icon-btn" aria-label="삭제" onClick={onRemove}><Trash2 size={16} /></button>
     </div>
   </article>

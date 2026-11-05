@@ -47,7 +47,7 @@ export default function PlanStart({ preset = {} }) {
   const [data, setData] = useState({ refs: [], formulas: [], library: null })
   const [busy, setBusy] = useState(false)
   useEffect(() => {
-    studio.ideas().then(d => setSavedTopics((d.saved || []).filter(s => !s.sessionId))).catch(() => {})
+    studio.ideas().then(d => setSavedTopics(d.saved || [])).catch(() => {})
     Promise.all([studio.references(), studio.formulas(), studio.library().catch(() => null)]).then(([r, f, l]) => {
       // Only analyzed references can feed a plan; the rest stay in 내 레퍼런스 until their analysis finishes.
       const refs = r.references.filter(x => x.analysisStatus === 'ready')
@@ -95,10 +95,10 @@ export default function PlanStart({ preset = {} }) {
       </div>)}
     </section>}
     {mode === 'saved' && <section className="st-card st-stack">
-      <div><h3>어떤 주제로 만들까요?</h3><p className="st-muted">주제 찾기에서 저장한 주제예요. 고르면 썸네일 단계부터 바로 시작해요.</p></div>
+      <div><h3>어떤 주제로 만들까요?</h3><p className="st-muted">주제 찾기에서 저장한 주제예요. 고르면 썸네일 단계부터 바로 시작해요. 이미 기획안을 만든 주제로도 새 기획안을 또 만들 수 있어요.</p></div>
       {!savedTopics.length ? <div className="st-stack"><p className="st-muted">아직 저장한 주제가 없어요.</p><button type="button" className="st-btn st-btn-soft" onClick={() => go('ideas')}>주제 찾기로 가기</button></div>
         : <div className="st-options">{savedTopics.map(t => <button type="button" key={t.id} className="st-option" aria-pressed={savedPick === t.id} onClick={() => setSavedPick(t.id)}>
-          <div className="st-option-top">{t.category && <span className="st-pill">{t.category}</span>}<span className="st-option-check"><Check size={16} /></span></div><strong>{t.title}</strong>{t.angle && <span className="st-why">{t.angle}</span>}</button>)}</div>}
+          <div className="st-option-top"><span className="st-row" style={{ gap: 6 }}>{t.category && <span className="st-pill">{t.category}</span>}{t.sessionId && <span className="st-pill st-pill-green">기획안 만듦</span>}</span><span className="st-option-check"><Check size={16} /></span></div><strong>{t.title}</strong>{t.angle && <span className="st-why">{t.angle}</span>}</button>)}</div>}
     </section>}
     {mode && <button type="button" className="st-btn st-btn-primary st-btn-big st-btn-block" disabled={!canStart || busy} onClick={start}>{busy ? '훅ai 부르는 중…' : '훅ai와 시작하기'}</button>}
     {picking && <SlotPicker slot={picking} refs={data.refs} formulas={data.formulas} library={data.library} onClose={() => setPicking(null)} onPick={src => { setSources(s => ({ ...s, [picking]: src })); setPicking(null) }} />}
