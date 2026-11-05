@@ -37,7 +37,6 @@ const deps = () => ({ db: database(), redis: sharedRedis(), makeProviders: signa
 const TAGS = ['hook', 'structure', 'filming', 'caption']
 const uploadMaterials = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 5, fields: 1, fieldSize: 4096 } })
 const uploadVideo = multer({ storage: multer.diskStorage({ destination: (_req, _file, cb) => cb(null, tmpdir()), filename: (_req, _file, cb) => cb(null, `studio-${randomUUID()}.upload`) }), limits: { fileSize: 150 * 1024 * 1024, files: 1 } })
-const UPLOADS_PER_DAY = 10
 // 말로 입력: one recording up to about three minutes, read as text by the transcription model.
 const uploadVoice = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1, fields: 0 } })
 const voiceTries = new Map()
@@ -454,11 +453,6 @@ export function registerStudioRoutes(router) {
   }))
 
   // ----- 내 레퍼런스 직접 추가: 인스타그램 링크 · 영상 파일 · 대본 텍스트 -----
-  const uploadQuota = async userId => {
-    const since = new Date(Date.now() - 86400000).toISOString()
-    const rows = await query(database().from('creator_success_reels').select('shortcode').eq('owner_user_id', userId).gte('first_collected_at', since).limit(UPLOADS_PER_DAY + 1))
-    if (rows.length >= UPLOADS_PER_DAY) fail('UPLOAD_LIMIT', `레퍼런스 직접 추가는 하루 ${UPLOADS_PER_DAY}개까지예요.`, 429)
-  }
   const uploadAccount = async (db, userId) => {
     const username = `up_${userId.replace(/-/g, '').slice(0, 12)}`
     await query(db.from('creator_reel_accounts').upsert({ username, profile: { upload: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
@@ -738,7 +732,6 @@ export function registerStudioRoutes(router) {
     const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id,source_path').eq('shortcode', shortcode).maybeSingle())
     // A YouTube link whose video never reached storage (the earlier try failed) is fetched again.
     if (!existing || (video && !existing.source_path)) {
-      if (!existing) await uploadQuota(userId)
       const now = new Date().toISOString()
       await query(db.from('creator_success_reels').upsert({ shortcode, username: await uploadAccount(db, userId), views: 0, posted_at: now, caption: '', source: video ? 'upload-youtube' : 'upload-link',
         owner_user_id: userId, visible: false, analysis_status: 'running', analysis_error: null, analysis_updated_at: now }, { onConflict: 'shortcode' }))
@@ -760,7 +753,6 @@ export function registerStudioRoutes(router) {
     const db = database(), userId = req.auth.userId
     const body = text(req.body?.text, 12000), title = text(req.body?.title, 80) || body.split(/\n/)[0].slice(0, 40)
     if (body.length < 20) fail('TEXT_TOO_SHORT', '대본을 20자 이상 넣어주세요.')
-    await uploadQuota(userId)
     const shortcode = `up_${randomUUID().replace(/-/g, '').slice(0, 24)}`
     const username = await uploadAccount(db, userId)
     await query(db.from('creator_success_reels').insert({ shortcode, username, views: 0, posted_at: new Date().toISOString(), caption: '', source: 'upload-text', source_text: body, title, owner_user_id: userId, visible: false }))
@@ -775,7 +767,6 @@ export function registerStudioRoutes(router) {
     if (!file) fail('VIDEO_REQUIRED', '영상 파일을 골라주세요.')
     try {
       if (!/^video\//.test(file.mimetype)) fail('NOT_VIDEO', '영상 파일만 올릴 수 있어요.')
-      await uploadQuota(userId)
       const signal = AbortSignal.timeout(120000)
       await probeVideo(file.path, signal, { allowSilent: true })
       const shortcode = `up_${randomUUID().replace(/-/g, '').slice(0, 24)}`
