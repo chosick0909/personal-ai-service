@@ -55,6 +55,16 @@ test('slot sources resolve to excerpts from reels, formulas and the library', as
   await assert.rejects(resolveSources(db, 'u1', { hook: { kind: 'reel', id: 'Nope' } }), /찾을 수 없어요/)
 })
 
+test('a link two students added stays usable for the first after the second added it', async () => {
+  const db = fakeDb()
+  // The second student's add moved the single owner to them; the first still has it in their references.
+  db.tables.creator_success_reels.set('Priv01', { shortcode: 'Priv01', username: 'up_x', caption: '', analysis, analysis_status: 'ready', visible: false, owner_user_id: 'u2' })
+  db.tables.creator_reel_user_analyses = new Map([['a1', { user_id: 'u1', shortcode: 'Priv01' }]])
+  const resolved = await resolveSources(db, 'u1', { structure: { kind: 'reel', id: 'Priv01' } })
+  assert.equal(resolved.structure.id, 'Priv01')
+  await assert.rejects(resolveSources(db, 'u3', { structure: { kind: 'reel', id: 'Priv01' } }), /찾을 수 없어요/, 'a student who never added it still cannot open it')
+})
+
 test('stage generation normalizes 훅ai output and keeps placeholders', async () => {
   const db = fakeDb()
   const transcript = { korean: '안 사요. 너무 약해요.\n효과가 약해서 안 사요.\n사는 건 하나예요.', source: 'audio' }

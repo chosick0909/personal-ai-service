@@ -21,7 +21,7 @@ import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
 import { readPublicImage } from '../network.js'
 import { probeVideo, ff, downloadStored } from '../media.js'
-import { requestReelAnalysis, runReelAnalysis, schedule, splitHookFormulas, needsHookSplit, ANALYSIS_SLOTS } from '../success-reel-analysis.js'
+import { requestReelAnalysis, runReelAnalysis, schedule, canOpenReel, splitHookFormulas, needsHookSplit, ANALYSIS_SLOTS } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { fieldKnowledge, studyOnce, startDailyStudy } from './knowledge.js'
 import { libraryEntries, libraryEntry } from './formula-study.js'
@@ -429,7 +429,6 @@ export function registerStudioRoutes(router) {
     const urls = new Map(signed.filter(i => i.signedUrl).map(i => [i.path, i.signedUrl]))
     const byCode = new Map(reels.map(r => [r.shortcode, r]))
     res.set('Cache-Control', 'private, no-store').json({ references: mine.flatMap(m => { const r = byCode.get(m.shortcode); if (!r) return []
-      if (!r.visible && r.owner_user_id !== req.auth.userId) return []
       return [{ kind: 'reel', id: r.shortcode, username: r.username, views: r.views, postedAt: r.posted_at, caption: r.caption_ko || r.caption, category: r.category, thumbnailUrl: urls.get(r.thumbnail_path) || null, source: r.source, title: r.title, permalink: r.source && r.source !== 'upload-link' && r.source.startsWith('upload') ? null : `https://www.instagram.com/reel/${r.shortcode}/`,
         analysisStatus: r.analysis_status, analysisRequests: r.analysis_requests || 0, tags: m.tags || [], memo: m.memo || '', addedAt: m.created_at,
         summary: r.analysis?.overview?.summary || null, hookType: r.analysis?.hook?.category || null, format: r.analysis?.structure?.category || null }] }) })
@@ -802,7 +801,7 @@ export function registerStudioRoutes(router) {
     } else if (typeof req.body?.shortcode === 'string') {
       const code = /^[A-Za-z0-9_-]{5,40}$/.test(req.body.shortcode) ? req.body.shortcode : fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
       const reel = await query(database().from('creator_success_reels').select('shortcode,username,caption,visible,owner_user_id,analysis,analysis_status').eq('shortcode', code).maybeSingle())
-      if (!reel || !(reel.visible || reel.owner_user_id === req.auth.userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+      if (!(await canOpenReel(database(), reel, req.auth.userId))) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
       if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 릴스예요.', 409)
       draft = formulaFromReel(reel, kind)
       if (!draft) fail('FORMULA_EMPTY', '이 릴스 분석에는 저장할 내용이 없어요.', 409)

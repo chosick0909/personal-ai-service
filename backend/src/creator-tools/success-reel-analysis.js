@@ -353,9 +353,19 @@ export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority
   } finally { clearTimeout(timer) }
 }
 
+// A reel nobody can browse (a link, video or text someone added) opens for whoever has it in their references.
+// One owner is kept per reel, so a second student adding the same link must not take it away from the first.
+export async function canOpenReel(db, reel, userId) {
+  if (!reel) return false
+  if (reel.visible || (userId && reel.owner_user_id === userId)) return true
+  if (!userId) return false
+  const row = await query(db.from('creator_reel_user_analyses').select('shortcode').eq('user_id', userId).eq('shortcode', reel.shortcode).maybeSingle()).catch(() => null)
+  return Boolean(row)
+}
+
 export async function requestReelAnalysis(deps, shortcode, now = Date.now(), userId = null) {
   const row = await query(deps.db.from('creator_success_reels').select('shortcode,visible,analysis_status,analysis_updated_at,owner_user_id').eq('shortcode', shortcode).maybeSingle())
-  if (!row || !(row.visible || (userId && row.owner_user_id === userId))) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+  if (!(await canOpenReel(deps.db, row, userId))) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
   if (userId) await query(deps.db.from('creator_reel_user_analyses').upsert({ user_id: userId, shortcode, created_at: new Date(now).toISOString() }))
   if (row.analysis_status === 'ready') return { status: 'ready' }
   const fresh = row.analysis_status === 'running' && Date.parse(row.analysis_updated_at) > now - STALE_MS
@@ -422,7 +432,7 @@ export async function requestReelPlan(deps, userId, shortcode, briefValue, now =
 export async function reelDetail(db, userId, shortcode) {
   const reel = await query(db.from('creator_success_reels').select('shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,visible,analysis,analysis_status,analysis_error,analysis_updated_at,source,title,source_text,owner_user_id')
     .eq('shortcode', shortcode).maybeSingle())
-  if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+  if (!(await canOpenReel(db, reel, userId))) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
   const [saved, plans] = await Promise.all([
     query(db.from('creator_reel_saves').select('shortcode').eq('user_id', userId).eq('shortcode', shortcode).maybeSingle()),
     query(db.from('creator_reel_plans').select('id,brief,status,plan,error,created_at').eq('user_id', userId).eq('shortcode', shortcode).order('created_at', { ascending: false }).range(0, 9)),

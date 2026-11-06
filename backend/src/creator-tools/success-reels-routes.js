@@ -8,7 +8,7 @@ import { redisConnection } from './queue.js'
 import { createProviders } from './providers.js'
 import { readPublicImage } from './network.js'
 import { ingestAccount, listSuccessReels, reelsMissingCaptions, storeReelCaptions, classifyReelCategories, reelsNeedingCategory } from './success-reels.js'
-import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity } from './success-reel-analysis.js'
+import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelActivity, canOpenReel } from './success-reel-analysis.js'
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
 import { markCollectorSeen, lookupResult, lookupError, youtubeLookupResult } from './instagram-lookup.js'
 import { isYoutubeShortcode, youtubeVideoPath } from './youtube.js'
@@ -182,7 +182,7 @@ export function registerSuccessReelRoutes(router) {
     enabled(req)
     const shortcode = /^[A-Za-z0-9_-]{5,40}$/.test(req.params.shortcode) ? req.params.shortcode : null
     const row = shortcode && await query(database().from('creator_success_reels').select('shortcode,visible,owner_user_id,source,source_path').eq('shortcode', shortcode).maybeSingle())
-    if (!row || !(row.visible || row.owner_user_id === req.auth.userId)) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
+    if (!shortcode || !(await canOpenReel(database(), row, req.auth.userId))) fail('REEL_NOT_FOUND', '확인할 수 없는 릴스입니다.', 404)
     if (row.source === 'upload-text') return res.set('Cache-Control', 'private, no-store').json({ media: null })
     if (['upload-video', 'upload-youtube'].includes(row.source)) return res.set('Cache-Control', 'private, no-store').json({ media: { url: await signedDownload(database(), row.source_path) } })
     const controller = new AbortController()

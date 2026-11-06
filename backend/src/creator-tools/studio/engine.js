@@ -1,7 +1,7 @@
 import { query } from '../store.js'
 import { fail } from '../domain.js'
 import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
-import { STORY_FORMATS, schedule, isScheduled } from '../success-reel-analysis.js'
+import { STORY_FORMATS, schedule, isScheduled, canOpenReel } from '../success-reel-analysis.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint, SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } from './copy-principles.js'
@@ -34,7 +34,7 @@ export async function resolveSources(db, userId, sources = {}) {
     if (!source?.kind || !source?.id) continue
     if (source.kind === 'reel') {
       const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,analysis,analysis_status,category,visible,owner_user_id').eq('shortcode', source.id).maybeSingle())
-      if (!reel || !(reel.visible || reel.owner_user_id === userId)) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
+      if (!(await canOpenReel(db, reel, userId))) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
       if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
       const a = reel.analysis
       // A reference with no speech or subtitles tells its story in scenes, and its caption carries the words.
