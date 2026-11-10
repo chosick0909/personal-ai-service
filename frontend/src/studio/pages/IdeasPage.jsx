@@ -51,11 +51,18 @@ function SavedTopic({ item, onPlan, onRemove, onMemo }) {
   </article>
 }
 
+// The conversation open in this tab, so leaving 주제 찾기 for another menu and coming back reopens it (with 훅ai's
+// answer still on its way) instead of a blank start. [새 대화] forgets it.
+const LAST_THREAD = 'hk:ideas:thread'
+const lastThread = { get: () => { try { return sessionStorage.getItem(LAST_THREAD) } catch { return null } },
+  set: id => { try { id ? sessionStorage.setItem(LAST_THREAD, id) : sessionStorage.removeItem(LAST_THREAD) } catch { /* nothing to remember */ } } }
+const ANSWER_WAIT_MS = 8 * 60000
+
 export default function IdeasPage({ threadId: initialThread }) {
   const { go, toast } = useStudio()
   const [threads, setThreads] = useState([])
   const [saved, setSaved] = useState([])
-  const [threadId, setThreadId] = useState(initialThread || null)
+  const [threadId, setThreadId] = useState(() => initialThread || lastThread.get() || null)
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -65,7 +72,47 @@ export default function IdeasPage({ threadId: initialThread }) {
   const log = useRef(null)
   const loadList = useCallback(() => studio.ideas().then(d => { setThreads(d.threads || []); setSaved(d.saved || []) }).catch(() => {}), [])
   useEffect(() => { loadList() }, [loadList])
-  useEffect(() => { if (!threadId) { setMessages([]); return } studio.ideaThread(threadId).then(d => setMessages(d.messages || [])).catch(e => toast({ kind: 'failed', title: '대화를 불러오지 못했어요', body: e.message })) }, [threadId, toast])
+  const waiting = useRef(null)
+  // Checks the conversation every 2 s until 훅ai's answer to the student's message `mine` is in.
+  const awaitReply = useCallback(async (id, mine, since) => {
+    waiting.current = id
+    const until = since + ANSWER_WAIT_MS
+    for (;;) {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      if (waiting.current !== id) return
+      const d = await studio.ideaThread(id).catch(() => null)
+      const reply = d?.messages.slice(d.messages.findIndex(m => m.id === mine) + 1).find(m => m.role === 'hookai')
+      if (d) setMessages(d.messages)
+      if (reply) { if (reply.meta?.failed) toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: '같은 말을 한 번만 다시 보내주세요.' }); break }
+      if (Date.now() > until) { toast({ kind: 'failed', title: '답이 늦어지고 있어요', body: '잠시 뒤 다시 열면 답이 보일 거예요.' }); break }
+    }
+  }, [toast])
+  useEffect(() => () => { waiting.current = null }, [])
+  useEffect(() => {
+    lastThread.set(threadId)
+    // Another conversation (or a new one) was opened: stop waiting on the previous one's answer.
+    if (waiting.current && waiting.current !== threadId) waiting.current = null
+    if (!threadId) { setMessages([]); return }
+    if (!initialThread) go('ideas', { thread: threadId }, { replace: true })
+    let live = true
+    studio.ideaThread(threadId).then(async d => {
+      if (!live) return
+      const list = d.messages || []
+      setMessages(list)
+      // Came back while 훅ai was still answering: keep waiting for that answer here.
+      const last = list.at(-1), at = Date.parse(last?.created_at)
+      if (last && last.role !== 'hookai' && waiting.current !== threadId && Date.now() - at < ANSWER_WAIT_MS) {
+        setBusy(true)
+        try { await awaitReply(threadId, last.id, at); loadList() } finally { setBusy(false) }
+      }
+    }).catch(e => {
+      if (!live) return
+      // A conversation that cannot be opened (deleted, or the network) leaves a fresh start, not a broken page.
+      setThreadId(null); go('ideas', {}, { replace: true })
+      toast({ kind: 'failed', title: '대화를 불러오지 못했어요', body: e.message })
+    })
+    return () => { live = false }
+  }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
   // The conversation scrolls with the page (the input stays pinned at the bottom), so the page follows the newest message.
   useEffect(() => { if (log.current) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }) }, [messages, pending, busy])
 
@@ -88,15 +135,7 @@ export default function IdeasPage({ threadId: initialThread }) {
       const id = threadId || r.thread.id
       if (!threadId) { setThreadId(id); go('ideas', { thread: id }, { replace: true }) }
       setMessages(m => [...m, ...r.messages]); setPending(null)
-      const mine = r.messages[0].id, until = Date.now() + 8 * 60000
-      for (;;) {
-        await new Promise(resolve => setTimeout(resolve, 2000))
-        const d = await studio.ideaThread(id).catch(() => null)
-        const reply = d?.messages.slice(d.messages.findIndex(m => m.id === mine) + 1).find(m => m.role === 'hookai')
-        if (d) setMessages(d.messages)
-        if (reply) { if (reply.meta?.failed) toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: '같은 말을 한 번만 다시 보내주세요.' }); break }
-        if (Date.now() > until) { toast({ kind: 'failed', title: '답이 늦어지고 있어요', body: '잠시 뒤 다시 열면 답이 보일 거예요.' }); break }
-      }
+      await awaitReply(id, r.messages[0].id, Date.now())
       loadList()
     } catch (e) { setText(t); setFiles(attached); toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: e.message }) } finally { setBusy(false); setPending(null) }
   }

@@ -738,7 +738,9 @@
 .st-idea-reels small { position: absolute; left: 4px; bottom: 4px; color: #fff; font-size: 11px; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
 @media (max-width: 640px) { .st-idea-facts > div { grid-template-columns: 1fr; } }
 .st-idea-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 14px; border-top: 1px solid var(--st-line); }
-.st-ideas-saved { display: grid; gap: 12px; position: sticky; top: 84px; max-height: calc(100vh - 150px); overflow-y: auto; }
+/* The saved list scrolls with the page: a scroll box of its own hid every topic below the third behind a scrollbar
+   that does not show until scrolled. */
+.st-ideas-saved { display: grid; gap: 12px; align-content: start; }
 .st-ideas-saved h3 { display: flex; align-items: center; gap: 6px; }
 .st-saved-topic { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--st-line); border-radius: 14px; }
 .st-saved-topic strong { font-size: 15px; line-height: 1.4; }
@@ -746,7 +748,6 @@
 @media (max-width: 1100px) {
   .st-ideas { grid-template-columns: 1fr; }
   
-  .st-ideas-saved { position: static; max-height: none; }
 }
 
 /* 주제 찾기 start: no boxes, avatar + heading + a large input in the middle, like a chat app's home */
