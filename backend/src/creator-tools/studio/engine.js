@@ -109,7 +109,7 @@ function sessionContext(session, resolved, extras = {}) {
 // What 훅ai has learned about the plan's field from its daily study; null until the field is known and studied.
 const knowledgeFor = async (db, session) => ({ fieldKnowledge: await fieldKnowledge(db, session.topic?.category) })
 
-const providersJson = (providers, op, instructions, input, schema) => providers.json(op, `${HOOKAI_SYSTEM}\n\n${instructions}`, input, [], schema)
+const providersJson = (providers, op, instructions, input, schema, shared = null) => providers.json(op, `${HOOKAI_SYSTEM}\n\n${instructions}`, input, [], schema, shared)
 
 // ---------- topic chat ----------
 const topicSchema = obj({
@@ -354,20 +354,22 @@ export async function generateStage(deps, session, stage) {
   // A script from a reference reel takes several calls (A, its checks and rewrites, alongside B and C).
   const providers = deps.makeProviders(AbortSignal.timeout(stage === 'script' ? 600000 : 240000))
   // The script writes its own first line, so a first line from an earlier draft is not handed back to it.
-  const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'script' ? { provenFormulas: await provenFormulas(deps.db), storyTemplates: storyTemplates(), hook: null } : {}) }
+  const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'script' ? { hook: null } : {}) }
+  // The 공식 사전 is the same for every student, so it travels apart from the plan's own context (see providers.json).
+  const shared = stage === 'script' ? { provenFormulas: await provenFormulas(deps.db), storyTemplates: storyTemplates() } : null
   const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category), coverLessons: await coverKnowledge(deps.db) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
   const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...chipList(q.chips, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
   // One draft: questions first when 훅ai may still ask, then one rewrite for whatever the checks found (gaps: checks done in code).
   const draft = async (prompt, schema, extra = {}, { ask = asking, gaps = () => [], rounds = 1, fix = '' } = {}) => {
     const input = { ...context, ...extra }
-    let raw = await providersJson(providers, `studio-${stage}`, ask ? prompt : `${prompt}\n${NO_QUESTIONS}`, input, schema)
+    let raw = await providersJson(providers, `studio-${stage}`, ask ? prompt : `${prompt}\n${NO_QUESTIONS}`, input, schema, shared)
     let asks = parseAsks(raw)
     if (asks.length && ask) return { asks }
     if (asks.length) {
       // 훅ai asked anyway: the unanswered points become its own call, and it drafts once more.
       const facts = [...(session.topic?.facts || []), ...asks.map(q => `${q.key}: 훅ai 재량(묻지 않고 정함)`)]
-      raw = await providersJson(providers, `studio-${stage}`, `${prompt}\n${NO_QUESTIONS}`, { ...sessionContext({ ...session, topic: { ...(session.topic || {}), facts } }, resolved, knowledge), ...extra }, schema)
+      raw = await providersJson(providers, `studio-${stage}`, `${prompt}\n${NO_QUESTIONS}`, { ...sessionContext({ ...session, topic: { ...(session.topic || {}), facts } }, resolved, knowledge), ...extra }, schema, shared)
       asks = parseAsks(raw)
       if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
     }
@@ -379,7 +381,7 @@ export async function generateStage(deps, session, stage) {
       // means 훅ai re-read a word as something else, so the draft is rewritten from the original words.
       if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, [...(raw.plan?.quotes || []), ...(raw.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
       if (!found.length) break
-      raw = await providersJson(providers, `studio-${stage}`, `${prompt}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : stage === 'script' ? '이 단계의 기준과 원칙 7' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.${fix}`, input, schema)
+      raw = await providersJson(providers, `studio-${stage}`, `${prompt}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : stage === 'script' ? '이 단계의 기준과 원칙 7' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.${fix}`, input, schema, shared)
     }
     return { raw }
   }

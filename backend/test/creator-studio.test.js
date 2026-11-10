@@ -353,11 +353,13 @@ test('first lines and scripts are written by the script principles, with the for
   const calls = []
   const line = (part, spoken) => ({ part, spoken, onScreen: '', seconds: 3 })
   const draft = risks => ({ questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: risks }, options: [{ label: 'a', why: 'w', lines: [line('hook', '첫 줄'), line('body', '둘째 줄'), line('cta', '끝')] }], placeholders: [] })
-  const deps = { db, makeProviders: () => ({ json: async (_op, instructions, input) => { calls.push({ instructions, input }); return calls.length === 1 ? draft(['쓰는 모습 보여드릴게요: 예고만 함']) : draft([]) } }) }
+  const deps = { db, makeProviders: () => ({ json: async (_op, instructions, input, _frames, _schema, shared) => { calls.push({ instructions, input, shared }); return calls.length === 1 ? draft(['쓰는 모습 보여드릴게요: 예고만 함']) : draft([]) } }) }
   const session = { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, brief: 'b', topic: { title: 't', facts: [], category: '피부', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, hook: { options: [{ spoken: '첫 줄' }], chosen: 0 }, placeholders: [] }
   const { value } = await generateStage(deps, session, 'script')
   for (const p of SCRIPT_PRINCIPLES) assert.ok(calls[0].instructions.includes(p.name), p.name)
-  assert.ok(calls[0].input.provenFormulas.structures.length > 0, 'the 공식 사전 goes along even before reels are filed')
+  assert.ok(calls[0].shared.provenFormulas.structures.length > 0, 'the 공식 사전 goes along even before reels are filed')
+  assert.ok(calls[0].shared.storyTemplates.length > 0 && !('storyTemplates' in calls[0].input), 'the 공식 사전 travels apart from the plan context, so it can be cached for every student')
+  assert.deepEqual(calls[1].shared, calls[0].shared, 'a rewrite sends the same 공식 사전, byte for byte')
   assert.equal(calls.length, 2, 'a line left that viewers would swipe on triggers one rewrite')
   assert.match(calls[1].instructions, /예고만 함/)
   assert.equal(value.options.length, 1)
@@ -451,4 +453,34 @@ test('what the student wrote is read into a topic and separate how-to requests; 
   assert.equal('script' in kept, false, 'the script made for the same reel stays')
   assert.equal(kept.topic.requests[0], '대본은 30초 안으로')
   assert.equal(topicPatch(row, { title: '다른 주제', brief: '다른 내용' }).script, null, 'a different reel still starts over')
+})
+
+test('the 공식 사전 goes to Claude as its own hour-long cached block ahead of the instructions', async () => {
+  const saved = { key: process.env.ANTHROPIC_API_KEY, model: process.env.CREATOR_STUDIO_MODEL }
+  process.env.ANTHROPIC_API_KEY = 'test-key'
+  process.env.CREATOR_STUDIO_MODEL = 'claude-sonnet-5-5'
+  const { createProviders } = await import('../src/creator-tools/providers.js')
+  const { getAnthropicClient } = await import('../src/lib/anthropic.js')
+  const sent = []
+  const stream = getAnthropicClient().beta.messages.stream
+  getAnthropicClient().beta.messages.stream = body => { sent.push(body); return { finalMessage: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"ok":true}' }] }) } }
+  try {
+    const providers = createProviders({ job: { id: null }, db: { from: () => ({ insert: async () => ({ error: null }) }) }, redis: { get: async () => 0, incr: async () => 1, expire: async () => {}, del: async () => {} } })
+    const shared = { storyTemplates: [{ title: '경험담' }] }
+    await providers.json('studio-script', '1안 지시', { topic: 'a' }, [], null, shared)
+    await providers.json('studio-script', '고쳐 쓰는 지시', { topic: 'a' }, [], null, shared)
+    const [first, second] = sent
+    assert.equal(first.system.length, 2)
+    assert.deepEqual(first.system[0].cache_control, { type: 'ephemeral', ttl: '1h' })
+    assert.ok(first.system[0].text.includes('"storyTemplates"') && first.system[1].text.startsWith('1안 지시'))
+    assert.equal(first.system[0].text, second.system[0].text, 'every call with different instructions starts with the same cached block')
+    assert.ok(!first.messages[0].content.includes('storyTemplates'), 'the plan context no longer carries it')
+    await providers.json('studio-topic', '주제 지시', { topic: 'a' })
+    assert.equal(sent[2].system.length, 1, 'calls without shared material are unchanged')
+  } finally {
+    getAnthropicClient().beta.messages.stream = stream
+    process.env.ANTHROPIC_API_KEY = saved.key ?? ''
+    if (saved.model === undefined) delete process.env.CREATOR_STUDIO_MODEL; else process.env.CREATOR_STUDIO_MODEL = saved.model
+    if (saved.key === undefined) delete process.env.ANTHROPIC_API_KEY
+  }
 })
