@@ -467,10 +467,12 @@ export async function answerAsk(deps, session, text) {
 
 const message = error => error?.exposeMessage ? error.message : '훅ai가 잠시 멈췄어요. 다시 시도해주세요.'
 
+// Plans are written at once without a queue: each job mostly waits on the model, and the API limits (Claude Sonnet 5.5:
+// 10M input tokens a minute; a busy day used 1%) are far above what students start, so a student never waits behind others.
+const STAGE_JOB_SLOTS = Infinity
+const stageKey = (sessionId, stage) => `studio:${sessionId}:${stage}`
 // Stage jobs run inside this server process (one replica), so a deploy or restart ends them silently and the row stays
 // 'running'. A 'running' row this process is not working on was cut off that way.
-const STAGE_JOB_SLOTS = 10
-const stageKey = (sessionId, stage) => `studio:${sessionId}:${stage}`
 const cutOff = (deps, row) => row.job_status === 'running' && !(deps.isScheduled || isScheduled)(stageKey(row.id, row.job_stage))
 
 // The next look at a cut-off plan starts its job again, so the student keeps waiting for the result instead of a timer that never ends.
