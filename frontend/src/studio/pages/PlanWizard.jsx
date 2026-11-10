@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star, Play } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star, Play, Plus } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS, readMaterials } from '../api'
 import { AttachButton, AttachChips } from '../Attachments'
@@ -12,6 +12,8 @@ import VoiceButton from '../VoiceButton'
 import { estimateLineSeconds } from '../../lib/scriptText'
 
 const ORDER = STAGES.map(([id]) => id)
+// Stages a student may skip: the script is the plan itself (filming and caption are written from it), and the topic feeds every stage.
+const SKIPPABLE = new Set(['thumbnail', 'filming', 'caption'])
 // Wide screens dock the chat to the right edge (open by default, folds away); narrow screens use a bottom sheet.
 const wide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1101px)').matches
 const GEN_STAGES = ['재료 모으는 중', '훅ai가 쓰는 중', '정리하는 중']
@@ -362,7 +364,7 @@ function DoneStage({ session, onSaveFormula, save, version }) {
   return <div className="st-stack">
     <div className="st-note" style={{ fontSize: 17 }}>👏 기획안이 완성됐어요. 아래에서 한눈에 보고, 마음에 드는 공식은 저장해 두세요.</div>
     <div className="st-row"><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('print', { session: session.id })}><Printer size={20} />PDF로 받기 · 인쇄</button><button type="button" className="st-btn st-btn-big" onClick={() => go('new')}><Sparkles size={20} />새 기획안</button></div>
-    <section className="st-card st-stack"><div className="st-card-head"><h3>썸네일 카피</h3><div className="st-row"><CopyButton text={thumb?.text} /></div></div><strong style={{ fontSize: 22 }}>{thumb?.text}</strong></section>
+    {thumb && <section className="st-card st-stack"><div className="st-card-head"><h3>썸네일 카피</h3><div className="st-row"><CopyButton text={thumb?.text} /></div></div><strong style={{ fontSize: 22 }}>{thumb?.text}</strong></section>}
     <section className="st-card st-stack"><div className="st-card-head"><h3>첫 문장</h3><div className="st-row"><CopyButton text={hook?.spoken} /><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('hook')}><Save size={15} />이 공식 저장</button></div></div><strong style={{ fontSize: 18 }}>“{hook?.spoken}”</strong></section>
     <div className="st-row" style={{ justifyContent: 'flex-end', marginBottom: -8 }}><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('structure')}><Save size={15} />전개 공식 저장</button></div>
     <ScriptEditor key={`${version}-${session.script?.chosen}-${session.script?.edited ? 'e' : 'o'}-${session.script?.history?.length || 0}`} session={session} save={save} />
@@ -435,6 +437,8 @@ export default function PlanWizard({ sessionId }) {
   }
   const pickTopic = async topic => { if (!wide()) setChatOpen(false); try { const r = await studio.setTopic(sessionId, topic); setData(d => ({ ...d, session: r.session })); load() } catch (e) { toast({ kind: 'failed', title: '주제를 정하지 못했어요', body: e.message }) } }
   const toStage = async (stage, regenerate = false) => { if (!wide()) setChatOpen(false); try { const r = await studio.stage(sessionId, stage, regenerate); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load(); window.scrollTo(0, 0) } catch (e) { toast({ kind: 'failed', title: '이동하지 못했어요', body: e.message }) } }
+  // Skipping the stage being written: stop it, then move on to the stage after it.
+  const skipRunning = async () => { const stage = session.stage; try { await studio.cancelStage(sessionId) } catch { /* moving on anyway */ } toStage(ORDER[ORDER.indexOf(stage) + 1]) }
   // A press by mistake: stop waiting and go back to the screen before it (the plan keeps what it had).
   const cancel = async () => { try { const r = await studio.cancelStage(sessionId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load() } catch (e) { toast({ kind: 'failed', title: '취소하지 못했어요', body: e.message }) } }
   const apply = async messageId => { try { const r = await studio.apply(sessionId, messageId); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); setAppliedId(messageId); toast({ kind: 'ready', title: '적용했어요', body: '화면에 반영됐어요.' }) } catch (e) { toast({ kind: 'failed', title: '적용 실패', body: e.message }) } }
@@ -447,6 +451,8 @@ export default function PlanWizard({ sessionId }) {
   if (error) return <div className="st-error">{error}</div>
   if (!session) return <p className="st-muted">불러오는 중…</p>
   const idx = ORDER.indexOf(session.stage)
+  // A stage passed without being made; pressing it in the stepper makes it now.
+  const skipped = id => SKIPPABLE.has(id) && !session[id]
   const hasTopic = Boolean(session.topic?.title)
   // No separate topic box: the first sentence of what the student wrote becomes the topic when they move on.
   const briefTopic = () => briefLive.split(/[.!?\n]/).map(t => t.trim()).find(Boolean)?.slice(0, 60) || ''
@@ -463,23 +469,29 @@ export default function PlanWizard({ sessionId }) {
       <div className="st-row" style={{ justifyContent: 'space-between' }}>
         <div className="st-row" style={{ gap: 4, flexWrap: 'nowrap', minWidth: 0 }}>
           <button type="button" className="st-btn st-btn-ghost" onClick={() => go('plans')}><ArrowLeft size={20} />내 기획안</button>
-          <select className="st-input st-plan-switch" value="" aria-label="다른 기획안 열기" onChange={e => { const v = e.target.value; if (v === 'new') go('new'); else if (v) go('plan', { session: v }) }}>
-            <option value="">다른 기획안</option>
-            <option value="new">+ 새 기획안 만들기</option>
-            {others.map(s => <option key={s.id} value={s.id}>{s.title || '제목 없는 기획안'}{s.jobStatus === 'running' ? ' · 만드는 중' : ''}</option>)}
-          </select>
+          {/* Each plan opens in its own window, so several plans can be made at once while this one keeps going. */}
+          <details className="st-plan-switch">
+            <summary className="st-btn st-btn-ghost st-btn-sm">다른 기획안<ChevronDown size={16} /></summary>
+            <div className="st-plan-switch-menu" role="menu">
+              <a role="menuitem" href="/studio?p=new" target="_blank" rel="noreferrer"><Plus size={15} />새 기획안 만들기 (새 창)</a>
+              {others.map(s => <a role="menuitem" key={s.id} href={`/studio?p=plan&session=${s.id}`} target="_blank" rel="noreferrer">{s.title || '제목 없는 기획안'}{s.jobStatus === 'running' ? <em> · 만드는 중</em> : null}</a>)}
+            </div>
+          </details>
         </div>
         {hasTopic && !topicStale && <strong className="st-muted st-wizard-title" style={{ fontSize: 15 }}>{session.topic.title}</strong>}
         <button type="button" className="st-btn st-btn-ghost st-chat-toggle" onClick={() => setChatOpen(o => !o)}><MessageSquareText size={18} />훅ai</button>
       </div>
-      <nav className="st-stepper" aria-label="기획 단계">{STAGES.map(([id, label], i) => <span key={id} style={{ display: 'contents' }}>{i > 0 && <span className="st-step-gap" />}<button type="button" className={`st-step${i < idx ? ' is-done' : ''}`} aria-current={id === session.stage ? 'step' : undefined} disabled={i > idx} onClick={() => i < idx && toStage(id)}><i>{i < idx ? <Check size={15} /> : i + 1}</i>{label}</button></span>)}</nav>
+      <nav className="st-stepper" aria-label="기획 단계">{STAGES.map(([id, label], i) => <span key={id} style={{ display: 'contents' }}>{i > 0 && <span className="st-step-gap" />}<button type="button" className={`st-step${i < idx && !skipped(id) ? ' is-done' : ''}`} aria-current={id === session.stage ? 'step' : undefined} disabled={i > idx} title={i < idx && skipped(id) ? '건너뛴 단계예요. 누르면 지금 만들어요.' : undefined} onClick={() => i < idx && toStage(id)}><i>{i < idx && !skipped(id) ? <Check size={15} /> : i + 1}</i>{label}{i < idx && skipped(id) ? <small className="st-muted"> 건너뜀</small> : null}</button></span>)}</nav>
       {Object.keys(session.sources || {}).length > 0 && data.sources && <div className="st-chips">{Object.entries(data.sources).map(([slot, s]) => s.kind === 'reel'
         // A reference video opens in a new tab (Instagram, or its 레퍼런스 분석 page for an uploaded video), so the plan being written stays as it is.
         ? <a key={slot} className="st-pill st-pill-gray st-pill-link" style={{ fontSize: 14 }} href={s.permalink || `/studio?p=reference&ref=${encodeURIComponent(s.id)}`} target="_blank" rel="noreferrer" title="레퍼런스 영상 보기"><Play size={13} />{SLOT_LABELS[slot]} · {s.label}</a>
         : <span key={slot} className="st-pill st-pill-gray" style={{ fontSize: 14 }}>{SLOT_LABELS[slot]} · {s.label}</span>)}</div>}
       {session.ask && session.ask.stage === session.stage && !generating ? <AskCard ask={session.ask} busy={chatBusy} onAnswer={a => send(a, { openChat: false })} />
         : generating ? <div className="st-stack"><HookLoader title={`훅ai가 ${STAGES.find(([id]) => id === session.stage)?.[1]} 만드는 중`} stages={GEN_STAGES} stageIndex={elapsed < 5 ? 0 : elapsed < 60 ? 1 : 2} startedAt={session.job.startedAt} />
-            <button type="button" className="st-btn st-btn-ghost" style={{ justifySelf: 'center' }} onClick={cancel}><X size={18} />취소하고 돌아가기</button></div>
+            <div className="st-row" style={{ justifyContent: 'center', gap: 8 }}>
+              <button type="button" className="st-btn st-btn-ghost" onClick={cancel}><X size={18} />취소하고 돌아가기</button>
+              {SKIPPABLE.has(session.stage) && <button type="button" className="st-btn st-btn-ghost" onClick={skipRunning}>이 단계 건너뛰기<ArrowRight size={18} /></button>}
+            </div></div>
         : failed ? <div className="st-card st-stack"><div className="st-error">{session.job.error}</div><button type="button" className="st-btn st-btn-primary" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시 만들기</button></div>
         : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive}
             onPickSaved={t => pickTopic({ title: t.title, angle: t.angle, promise: t.promise, category: t.category || '기타', facts: [] })} />
@@ -495,6 +507,7 @@ export default function PlanWizard({ sessionId }) {
         {session.stage !== 'topic' && stageReady && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시</button>}
         {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic && !briefTopic()} onClick={() => hasTopic && !topicStale ? toStage('thumbnail') : startFromBrief()}>{hasTopic && !topicStale ? `${nextLabel}` : briefTopic() ? '이 내용으로 바로 시작' : '담고 싶은 내용을 적어주세요'}<ArrowRight size={20} /></button>
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
+        {SKIPPABLE.has(ORDER[idx + 1]) && (session.stage === 'topic' ? hasTopic && !topicStale : stageReady) && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx + 2])}>{STAGES.find(([id]) => id === ORDER[idx + 1])?.[1]} 건너뛰기</button>}
       </div>}
     </div>
     <ChatPanel session={session} messages={data.messages} pending={pending} busy={chatBusy || awaitingOpener} onSend={send} onPickTopic={pickTopic} onApply={apply} appliedId={appliedId} open={chatOpen} setOpen={setChatOpen} />

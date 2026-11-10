@@ -918,6 +918,12 @@ html.st-html body { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 /* A reference chip on the plan screen that opens the reference video */
 .st a.st-pill-link { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; color: inherit; cursor: pointer; }
 .st a.st-pill-link:hover { text-decoration: underline; }
-/* Switch to another plan from inside a plan */
-.st .st-plan-switch { width: auto; max-width: 180px; min-height: 36px; padding: 0 8px; font-size: 14px; color: var(--st-muted); }
-@media (max-width: 640px) { .st .st-plan-switch { max-width: 120px; } }
+/* Open another plan (or a new one) in its own window from inside a plan */
+.st .st-plan-switch { position: relative; }
+.st .st-plan-switch > summary { list-style: none; cursor: pointer; color: var(--st-muted); white-space: nowrap; }
+.st .st-plan-switch > summary::-webkit-details-marker { display: none; }
+.st .st-plan-switch-menu { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; min-width: 240px; max-width: min(360px, 86vw); max-height: 60vh; overflow-y: auto;
+  display: grid; padding: 6px; background: var(--st-panel); border: 1px solid var(--st-line); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.14); }
+.st .st-plan-switch-menu a { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-radius: 8px; color: inherit; text-decoration: none; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st .st-plan-switch-menu a:hover { background: var(--st-bg); }
+.st .st-plan-switch-menu em { font-style: normal; color: var(--st-accent-text); }

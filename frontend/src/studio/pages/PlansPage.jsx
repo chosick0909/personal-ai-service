@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Trash2, Sparkles, Printer } from 'lucide-react'
+import { ArrowRight, Trash2, Sparkles, Printer, ExternalLink } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, when, STAGES } from '../api'
 
@@ -30,6 +30,7 @@ export default function PlansPage() {
       </div>
       {s.stage === 'done' && <button type="button" className="st-icon-btn" aria-label="인쇄·PDF" title="인쇄·PDF" onClick={() => go('print', { session: s.id })}><Printer size={18} /></button>}
       <button type="button" className="st-icon-btn" aria-label="삭제" title="삭제" onClick={() => remove(s)}><Trash2 size={18} /></button>
+      <a className="st-icon-btn" href={`/studio?p=plan&session=${s.id}`} target="_blank" rel="noreferrer" aria-label="새 창으로 열기" title="새 창으로 열기"><ExternalLink size={18} /></a>
       <button type="button" className="st-btn st-btn-primary" onClick={() => go('plan', { session: s.id })}>{s.stage === 'done' ? '보기' : '이어하기'}<ArrowRight size={18} /></button>
     </div>)}</div>
   </div>
