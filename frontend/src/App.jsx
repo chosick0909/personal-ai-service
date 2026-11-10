@@ -2066,15 +2066,23 @@ function RecommendScreenV2() {
   )
 }
 
-function LoginScreen() {
+// returnTo: the studio page a signed-out visitor opened (a plan, a page of the studio). After signing in they land
+// back on it instead of the studio's first page. Google sign-in leaves through /analyze, so the page is kept in
+// session storage for the studio to reopen (see StudioShell).
+function LoginScreen({ returnTo = '' }) {
   const { login, isLoggedIn, isAuthReady } = useAppState()
-  const postAuthRedirectPath = getPostAuthRedirectPath('/studio')
+  const postAuthRedirectPath = returnTo || getPostAuthRedirectPath('/studio')
+
+  useEffect(() => {
+    if (returnTo) setPostAuthRedirectPath(returnTo)
+  }, [returnTo])
 
   useEffect(() => {
     if (isAuthReady && isLoggedIn) {
+      if (returnTo) consumePostAuthRedirectPath()
       window.location.replace(postAuthRedirectPath)
     }
-  }, [isAuthReady, isLoggedIn, postAuthRedirectPath])
+  }, [isAuthReady, isLoggedIn, postAuthRedirectPath, returnTo])
 
   if (isAuthReady && isLoggedIn) {
     return null
@@ -2089,6 +2097,7 @@ function LoginScreen() {
       secondaryHref="/signup"
       secondaryLabel="회원가입"
       onSubmit={login}
+      {...(returnTo ? { redirectAfterSubmit: false, authRedirectPath: '/analyze' } : {})}
     />
   )
 }
@@ -3654,6 +3663,14 @@ function StudioShell() {
   } = useAppState()
   const isCreatorStudio = activeToolPage === 'creator-tools' || activeToolPage === 'studio'
   const forcedEntitlementRefreshKeyRef = useRef('')
+  // Back from Google sign-in on the studio's first page: reopen the studio page the visitor had open.
+  useEffect(() => {
+    if (!isAuthReady || !isLoggedIn || !/^\/studio\/?$/.test(window.location.pathname) || new URLSearchParams(window.location.search).has('p')) return
+    const saved = getPostAuthRedirectPath('')
+    if (!/^\/studio\?/.test(saved)) return
+    consumePostAuthRedirectPath()
+    window.location.replace(saved)
+  }, [isAuthReady, isLoggedIn])
   useEffect(() => {
     if (isAuthReady && !isLoggedIn && isCreatorStudioPath(window.location.pathname)) {
       window.location.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
@@ -3696,7 +3713,7 @@ function StudioShell() {
   }
 
   if (!isLoggedIn) {
-    return <LoginScreen />
+    return <LoginScreen returnTo={/^\/studio\/?$/.test(window.location.pathname) && window.location.search ? `/studio${window.location.search}` : ''} />
   }
 
   if (!isCreatorStudio && entitlementStatus?.error && !entitlementStatus?.hasAccess) {
