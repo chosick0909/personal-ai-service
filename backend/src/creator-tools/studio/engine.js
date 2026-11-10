@@ -482,6 +482,19 @@ export async function resumeStageJob(deps, row) {
   return { ...row, ...patch }
 }
 
+// A job writes its outcome only while the plan still waits on it: a job the student cancelled leaves no trace.
+const stillRunning = (request, stage) => request.eq('job_status', 'running').eq('job_stage', stage)
+
+// The student pressed [취소] while 훅ai was writing a stage: the plan goes back to where it was before that press.
+// Making a stage again keeps its current version on screen; moving on to a new stage returns to the one before it.
+export async function cancelStage(deps, session) {
+  if (session.job_status !== 'running' || !session.job_stage) return session
+  const stage = session[session.job_stage] ? session.job_stage : STAGE_ORDER[Math.max(0, STAGE_ORDER.indexOf(session.job_stage) - 1)]
+  const patch = { stage, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }
+  const done = await query(deps.db.from('studio_sessions').update(patch).eq('id', session.id).eq('job_status', 'running').select('*'))
+  return done?.[0] || { ...session, ...patch }
+}
+
 // Background stage job; the session row carries the job state the screen polls.
 export function runStageJob(deps, sessionId, stage) {
   return (deps.schedule || schedule)(stageKey(sessionId, stage), async () => {
@@ -492,14 +505,14 @@ export function runStageJob(deps, sessionId, stage) {
       if (asks) {
         // 훅ai needs facts first: park the stage, ask the first question in chat, wait for answers.
         const topic = { ...(session.topic || {}), askedStages: [...(session.topic?.askedStages || []), stage] }
-        await query(db.from('studio_sessions').update({ topic, ask: { stage, questions: asks, index: 0 }, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId))
-        await query(db.from('studio_messages').insert({ session_id: sessionId, user_id: session.user_id, role: 'hookai', stage, content: asks[0].question, meta: { chips: asks[0].chips, ask: asks[0].key } }))
+        const parked = await query(stillRunning(db.from('studio_sessions').update({ topic, ask: { stage, questions: asks, index: 0 }, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId), stage).select('id'))
+        if (parked?.length) await query(db.from('studio_messages').insert({ session_id: sessionId, user_id: session.user_id, role: 'hookai', stage, content: asks[0].question, meta: { chips: asks[0].chips, ask: asks[0].key } }))
         return
       }
       const merged = [...new Set([...(session.placeholders || []), ...placeholders])].slice(0, 20)
-      await query(db.from('studio_sessions').update({ [stage]: value, placeholders: merged, ask: null, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId))
+      await query(stillRunning(db.from('studio_sessions').update({ [stage]: value, placeholders: merged, ask: null, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId), stage))
     } catch (error) {
-      await query(db.from('studio_sessions').update({ job_status: 'failed', job_error: message(error), updated_at: new Date().toISOString() }).eq('id', sessionId)).catch(() => {})
+      await query(stillRunning(db.from('studio_sessions').update({ job_status: 'failed', job_error: message(error), updated_at: new Date().toISOString() }).eq('id', sessionId), stage)).catch(() => {})
     }
   }, STAGE_JOB_SLOTS, 'studio')
 }

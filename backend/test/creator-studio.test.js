@@ -484,3 +484,28 @@ test('the 공식 사전 goes to Claude as its own hour-long cached block ahead o
     if (saved.key === undefined) delete process.env.ANTHROPIC_API_KEY
   }
 })
+
+test('[취소] while a stage is being written returns the plan to the screen before the press, and the late result is dropped', async () => {
+  const { cancelStage } = await import('../src/creator-tools/studio/engine.js')
+  const db = fakeDb()
+  db.tables.studio_sessions.set('s1', { id: 's1', user_id: 'u1', mode: 'topic', sources: {}, stage: 'thumbnail', thumbnail: { options: [{ text: '커버' }], chosen: 0 }, topic: { title: '선크림 3개 판정', facts: [], research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, job_status: 'idle', placeholders: [], ask: null })
+  let open
+  const gate = new Promise(resolve => { open = resolve })
+  const jobs = []
+  const deps = { db, schedule: (_k, task) => { const p = task(); jobs.push(p); return p }, makeProviders: () => ({ json: async () => { await gate
+    return { questions: [], options: [{ label: '판정', why: 'w', lines: [{ part: 'hook', spoken: '안 사요.', onScreen: '', seconds: 3 }, { part: 'body', spoken: '사요.', onScreen: '', seconds: 5 }] }], placeholders: [] } } }) }
+  await startStage(deps, db.tables.studio_sessions.get('s1'), 'script')
+  assert.equal(db.tables.studio_sessions.get('s1').job_status, 'running')
+  const back = await cancelStage(deps, db.tables.studio_sessions.get('s1'))
+  assert.equal(back.stage, 'thumbnail', 'moving on to a new stage goes back to the one before it')
+  assert.equal(back.job_status, 'idle')
+  open(); await Promise.all(jobs)
+  const after = db.tables.studio_sessions.get('s1')
+  assert.equal(after.script, undefined, 'the job finished after the cancel writes nothing')
+  assert.equal(after.stage, 'thumbnail'); assert.equal(after.job_status, 'idle')
+  // Making a stage again and cancelling keeps that stage and its current version.
+  const again = await startStage(deps, after, 'thumbnail', { force: true })
+  const kept = await cancelStage(deps, { ...after, ...again })
+  assert.equal(kept.stage, 'thumbnail'); assert.equal(db.tables.studio_sessions.get('s1').thumbnail.options[0].text, '커버')
+  await Promise.all(jobs)
+})

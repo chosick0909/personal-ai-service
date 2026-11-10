@@ -15,7 +15,7 @@ import { studio2Enabled, canRecommend } from './access.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
 import { readBrief } from './research.js'
-import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf } from './engine.js'
+import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf, cancelStage } from './engine.js'
 import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
@@ -220,6 +220,11 @@ export function registerStudioRoutes(router) {
     if (!row[stage] && STAGE_OPENERS[stage] && row.stage !== stage) await addMessage(row.id, req.auth.userId, 'hookai', stage, STAGE_OPENERS[stage])
     const session = await startStage(deps(), row, stage, { force })
     res.json({ session: publicSession(session) })
+  }))
+  router.post('/creator-tools/studio/sessions/:id/cancel', asyncHandler(async (req, res) => {
+    enabled(req)
+    const row = await owned(req)
+    res.json({ session: publicSession(await cancelStage(deps(), row)) })
   }))
   router.post('/creator-tools/studio/sessions/:id/chat', asyncHandler(async (req, res) => {
     enabled(req)

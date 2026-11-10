@@ -20,6 +20,7 @@ export const studio = {
   removeSession: id => creatorRequest(`/creator-tools/studio/sessions/${id}`, { method: 'DELETE' }),
   setTopic: (id, topic) => creatorRequest(`/creator-tools/studio/sessions/${id}/topic`, { method: 'POST', body: { topic } }),
   stage: (id, stage, regenerate = false) => creatorRequest(`/creator-tools/studio/sessions/${id}/stage`, { method: 'POST', body: { stage, regenerate } }),
+  cancelStage: id => creatorRequest(`/creator-tools/studio/sessions/${id}/cancel`, { method: 'POST', body: {} }),
   chat: (id, text) => creatorRequest(`/creator-tools/studio/sessions/${id}/chat`, { method: 'POST', body: { text } }),
   apply: (id, messageId) => creatorRequest(`/creator-tools/studio/sessions/${id}/apply`, { method: 'POST', body: { messageId } }),
   formulas: () => creatorRequest('/creator-tools/studio/formulas'),
