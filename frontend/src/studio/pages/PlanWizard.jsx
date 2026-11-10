@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star, Play } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS, readMaterials } from '../api'
 import { AttachButton, AttachChips } from '../Attachments'
@@ -398,6 +398,9 @@ export default function PlanWizard({ sessionId }) {
   const [appliedId, setAppliedId] = useState(null)
   const [pending, setPending] = useState(null)
   const session = data?.session
+  // The student's other plans, to switch to one (or start a new one) without going back to 내 기획안.
+  const [others, setOthers] = useState([])
+  useEffect(() => { studio.sessions().then(d => setOthers((d.sessions || []).filter(s => s.id !== sessionId))).catch(() => {}) }, [sessionId])
   const load = useCallback(() => studio.session(sessionId).then(setData).catch(e => setError(e.message)), [sessionId])
   useEffect(() => { load() }, [load])
   const running = session?.job?.status === 'running'
@@ -458,12 +461,22 @@ export default function PlanWizard({ sessionId }) {
   return <div className="st-wizard">
     <div className="st-wizard-main">
       <div className="st-row" style={{ justifyContent: 'space-between' }}>
-        <button type="button" className="st-btn st-btn-ghost" onClick={() => go('plans')}><ArrowLeft size={20} />내 기획안</button>
+        <div className="st-row" style={{ gap: 4, flexWrap: 'nowrap', minWidth: 0 }}>
+          <button type="button" className="st-btn st-btn-ghost" onClick={() => go('plans')}><ArrowLeft size={20} />내 기획안</button>
+          <select className="st-input st-plan-switch" value="" aria-label="다른 기획안 열기" onChange={e => { const v = e.target.value; if (v === 'new') go('new'); else if (v) go('plan', { session: v }) }}>
+            <option value="">다른 기획안</option>
+            <option value="new">+ 새 기획안 만들기</option>
+            {others.map(s => <option key={s.id} value={s.id}>{s.title || '제목 없는 기획안'}{s.jobStatus === 'running' ? ' · 만드는 중' : ''}</option>)}
+          </select>
+        </div>
         {hasTopic && !topicStale && <strong className="st-muted st-wizard-title" style={{ fontSize: 15 }}>{session.topic.title}</strong>}
         <button type="button" className="st-btn st-btn-ghost st-chat-toggle" onClick={() => setChatOpen(o => !o)}><MessageSquareText size={18} />훅ai</button>
       </div>
       <nav className="st-stepper" aria-label="기획 단계">{STAGES.map(([id, label], i) => <span key={id} style={{ display: 'contents' }}>{i > 0 && <span className="st-step-gap" />}<button type="button" className={`st-step${i < idx ? ' is-done' : ''}`} aria-current={id === session.stage ? 'step' : undefined} disabled={i > idx} onClick={() => i < idx && toStage(id)}><i>{i < idx ? <Check size={15} /> : i + 1}</i>{label}</button></span>)}</nav>
-      {Object.keys(session.sources || {}).length > 0 && data.sources && <div className="st-chips">{Object.entries(data.sources).map(([slot, s]) => <span key={slot} className="st-pill st-pill-gray" style={{ fontSize: 14 }}>{SLOT_LABELS[slot]} · {s.label}</span>)}</div>}
+      {Object.keys(session.sources || {}).length > 0 && data.sources && <div className="st-chips">{Object.entries(data.sources).map(([slot, s]) => s.kind === 'reel'
+        // A reference video opens in a new tab (Instagram, or its 레퍼런스 분석 page for an uploaded video), so the plan being written stays as it is.
+        ? <a key={slot} className="st-pill st-pill-gray st-pill-link" style={{ fontSize: 14 }} href={s.permalink || `/studio?p=reference&ref=${encodeURIComponent(s.id)}`} target="_blank" rel="noreferrer" title="레퍼런스 영상 보기"><Play size={13} />{SLOT_LABELS[slot]} · {s.label}</a>
+        : <span key={slot} className="st-pill st-pill-gray" style={{ fontSize: 14 }}>{SLOT_LABELS[slot]} · {s.label}</span>)}</div>}
       {session.ask && session.ask.stage === session.stage && !generating ? <AskCard ask={session.ask} busy={chatBusy} onAnswer={a => send(a, { openChat: false })} />
         : generating ? <div className="st-stack"><HookLoader title={`훅ai가 ${STAGES.find(([id]) => id === session.stage)?.[1]} 만드는 중`} stages={GEN_STAGES} stageIndex={elapsed < 5 ? 0 : elapsed < 60 ? 1 : 2} startedAt={session.job.startedAt} />
             <button type="button" className="st-btn st-btn-ghost" style={{ justifySelf: 'center' }} onClick={cancel}><X size={18} />취소하고 돌아가기</button></div>

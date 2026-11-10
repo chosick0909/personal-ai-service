@@ -914,3 +914,10 @@ html.st-html body { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 /* 사파리(WebKit)는 grid 칸의 최소 폭을 안의 가장 긴 줄로 잡아 화면보다 넓어질 수 있어요. 세로로 쌓는 묶음은 늘 화면 폭에 맞춰요. */
 .st-stack { grid-template-columns:minmax(0, 1fr); }
 .st-stack > *, .st-content > * { min-width:0; max-width:100%; }
+
+/* A reference chip on the plan screen that opens the reference video */
+.st a.st-pill-link { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; color: inherit; cursor: pointer; }
+.st a.st-pill-link:hover { text-decoration: underline; }
+/* Switch to another plan from inside a plan */
+.st .st-plan-switch { width: auto; max-width: 180px; min-height: 36px; padding: 0 8px; font-size: 14px; color: var(--st-muted); }
+@media (max-width: 640px) { .st .st-plan-switch { max-width: 120px; } }

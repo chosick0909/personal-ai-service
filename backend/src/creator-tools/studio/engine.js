@@ -33,7 +33,7 @@ export async function resolveSources(db, userId, sources = {}) {
     const source = sources?.[slot]
     if (!source?.kind || !source?.id) continue
     if (source.kind === 'reel') {
-      const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,analysis,analysis_status,category,visible,owner_user_id').eq('shortcode', source.id).maybeSingle())
+      const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,analysis,analysis_status,category,visible,owner_user_id,source').eq('shortcode', source.id).maybeSingle())
       if (!(await canOpenReel(db, reel, userId))) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
       if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
       const a = reel.analysis
@@ -52,7 +52,9 @@ export async function resolveSources(db, userId, sources = {}) {
         : slot === 'filming' ? { filming: { location: a.filming?.location, shotType: a.filming?.shotType, onScreen: a.filming?.onScreen, guide: a.filming?.guide },
           editing: a.editing || { subtitleStyle: a.filming?.textOverlay, cuts: a.filming?.editing, transitions: '확인되지 않음', effects: '확인되지 않음', sound: '확인되지 않음', guide: [] } }
         : { ...(a.caption || { firstLine: '확인되지 않음', structure: '확인되지 않음', cta: '확인되지 않음', hashtags: '확인되지 않음', analysis: '원본 캡션 분석이 없어 캡션 형식만 참고' }), original: String(reel.caption || '').slice(0, 700) }
-      resolved[slot] = { kind: 'reel', id: reel.shortcode, label: `@${reel.username}`, category: reel.category, excerpt, topic: a.overview?.topic,
+      // Where the student can watch it again: the Instagram post, except for a video file or script they uploaded themselves.
+      const upload = String(reel.source || '').startsWith('upload') && reel.source !== 'upload-link'
+      resolved[slot] = { kind: 'reel', id: reel.shortcode, label: `@${reel.username}`, category: reel.category, excerpt, topic: a.overview?.topic, permalink: upload ? null : `https://www.instagram.com/reel/${reel.shortcode}/`,
         lines: script.split(/\n+/).map(line => line.trim()).filter(Boolean).slice(0, 60) }
     } else if (source.kind === 'formula') {
       const row = await query(db.from('studio_formulas').select('id,kind,title,spec').eq('id', source.id).eq('user_id', userId).maybeSingle())

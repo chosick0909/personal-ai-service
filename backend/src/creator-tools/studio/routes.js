@@ -126,7 +126,7 @@ export function registerStudioRoutes(router) {
     const messages = await query(database().from('studio_messages').select('*').eq('session_id', row.id).order('created_at', { ascending: true }).limit(200))
     const resolved = await resolveSources(database(), req.auth.userId, row.sources).catch(() => ({}))
     res.set('Cache-Control', 'private, no-store').json({ session: publicSession(row), messages: messages.map(publicMessage),
-      sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { kind: s.kind, id: s.id, label: s.label }])) })
+      sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { kind: s.kind, id: s.id, label: s.label, permalink: s.permalink || null }])) })
   }))
   router.delete('/creator-tools/studio/sessions/:id', asyncHandler(async (req, res) => {
     enabled(req)
