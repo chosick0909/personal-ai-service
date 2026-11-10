@@ -354,7 +354,7 @@ export async function generateStage(deps, session, stage) {
   if (stage !== 'topic' && session.topic?.title && (!researchFresh(session) || !session.topic.categoryChecked)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)))
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   // A script from a reference reel takes several calls (A, its checks and rewrites, alongside B and C).
-  const providers = deps.makeProviders(AbortSignal.timeout(stage === 'script' ? 600000 : 240000))
+  const providers = deps.makeProviders(AbortSignal.timeout(600000))
   // The script writes its own first line, so a first line from an earlier draft is not handed back to it.
   const knowledge = { ...(await knowledgeFor(deps.db, session)), ...(stage === 'script' ? { hook: null } : {}) }
   // The 공식 사전 is the same for every student, so it travels apart from the plan's own context (see providers.json).
