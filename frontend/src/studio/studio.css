@@ -113,7 +113,7 @@
 
 /* ----- option cards (choose one) ----- */
 .st-options { display:grid; gap:12px; }
-.st-option { display:grid; gap:6px; padding:18px 20px; border:2px solid var(--st-line); border-radius:14px; background:var(--st-panel); text-align:left; }
+.st-option { display:grid; align-content:start; gap:6px; padding:18px 20px; border:2px solid var(--st-line); border-radius:14px; background:var(--st-panel); text-align:left; }
 .st-option:hover { border-color:var(--st-line-strong); }
 .st-option[aria-pressed=true] { border-color:var(--st-accent); background:var(--st-accent-soft); }
 .st-option-top { display:flex; align-items:center; gap:10px; }
