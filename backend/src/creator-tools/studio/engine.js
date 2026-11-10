@@ -493,7 +493,13 @@ const stillRunning = (request, stage) => request.eq('job_status', 'running').eq(
 // Making a stage again keeps its current version on screen; moving on to a new stage returns to the one before it.
 export async function cancelStage(deps, session) {
   if (session.job_status !== 'running' || !session.job_stage) return session
-  const stage = session[session.job_stage] ? session.job_stage : STAGE_ORDER[Math.max(0, STAGE_ORDER.indexOf(session.job_stage) - 1)]
+  // Going back skips over stages the student skipped (nothing to show there) to the last one that was made.
+  let stage = session.job_stage
+  if (!session[stage]) {
+    let at = STAGE_ORDER.indexOf(stage) - 1
+    while (at > 0 && !session[STAGE_ORDER[at]]) at -= 1
+    stage = STAGE_ORDER[Math.max(0, at)]
+  }
   const patch = { stage, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }
   const done = await query(deps.db.from('studio_sessions').update(patch).eq('id', session.id).eq('job_status', 'running').select('*'))
   return done?.[0] || { ...session, ...patch }

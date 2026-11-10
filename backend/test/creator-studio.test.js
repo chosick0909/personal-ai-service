@@ -508,4 +508,8 @@ test('[취소] while a stage is being written returns the plan to the screen bef
   const kept = await cancelStage(deps, { ...after, ...again })
   assert.equal(kept.stage, 'thumbnail'); assert.equal(db.tables.studio_sessions.get('s1').thumbnail.options[0].text, '커버')
   await Promise.all(jobs)
+  // Cancelling a stage reached by skipping returns past the skipped stage to the last one made.
+  const skippedTo = { ...db.tables.studio_sessions.get('s1'), script: { options: [] }, filming: undefined, stage: 'caption', job_status: 'running', job_stage: 'caption' }
+  db.tables.studio_sessions.set('s1', skippedTo)
+  assert.equal((await cancelStage(deps, skippedTo)).stage, 'script', 'the skipped 촬영·편집 has nothing to show, so it goes back to the script')
 })
