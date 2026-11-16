@@ -72,22 +72,46 @@ test('stage generation normalizes 훅ai output and keeps placeholders', async ()
   const calls = []
   const session = { id: 's1', user_id: 'u1', mode: 'single', brief: '선크림 3개 비교', sources: { hook: { kind: 'reel', id: 'Aaaaa1' }, structure: { kind: 'reel', id: 'Aaaaa1' } },
     topic: { title: '지성 피부 선크림 3개 판정', facts: ['백탁 없음'], category: '피부', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true }, thumbnail: { options: [{ text: '선크림 안 사요 사요' }], chosen: 0 }, hook: { options: [{ spoken: '안 사요. 번들거리면 끝.' }], chosen: 0 } }
-  const beats = [{ source: '안 사요. 너무 약해요.', job: '판정 선언', part: 'hook', spoken: '안 사요. 번들거려요.', onScreen: '안 사요' }, { source: '효과가 약해서 안 사요.', job: '근거', part: 'body', spoken: '[제품 A]는 백탁이 없어서 사요.', onScreen: '' }, { source: '사는 건 하나예요.', job: '결론', part: 'cta', spoken: '살 건 하나예요.', onScreen: '' }]
+  // The first two reference lines do one job (a verdict and its reason), so A says it in one line: line counts need not match.
+  const segments = [{ sources: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.'], job: '판정 선언과 근거', lines: [{ part: 'hook', spoken: '안 사요. 번들거려서요.', onScreen: '안 사요' }] }, { sources: ['사는 건 하나예요.'], job: '결론', lines: [{ part: 'cta', spoken: '[제품 A] 하나만 사요.', onScreen: '' }] }]
   const makeProviders = () => ({ json: async (op, _i, input, _f, schema) => { calls.push({ op, input, schema })
     if (schema.properties.changed) return { changed: [] }
-    // A first leaves out the reference's second sentence; the code check names it and A is written again.
-    if (schema.properties.beats) return { questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: [] }, beats: calls.filter(c => c.schema.properties.beats).length === 1 ? beats.slice(0, 1) : beats, why: '판정형', placeholders: ['[제품 A]', ''] }
+    if (schema.properties.awkward) return { awkward: [] }
+    // A first leaves out the reference's last sentence; the code check names it and A is written again.
+    if (schema.properties.segments) return { questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: [] }, segments: calls.filter(c => c.schema.properties.segments).length === 1 ? segments.slice(0, 1) : segments, why: '판정형', placeholders: ['[제품 A]', ''] }
     return { options: [{ label: '판정으로 설득', why: '빠름', lines: [{ part: 'hook', spoken: '안 사요. 번들거리면 끝.', onScreen: '안 사요', seconds: 3 }, { part: 'body', spoken: '[제품 B]? 안 사요.', onScreen: '', seconds: 500 }, { part: 'weird', spoken: '', onScreen: '', seconds: 2 }] }], placeholders: ['[제품 B]'] } } })
   const { value, placeholders } = await generateStage({ db, makeProviders }, session, 'script')
-  assert.deepEqual(calls.map(c => c.op).sort(), ['studio-script', 'studio-script', 'studio-script', 'studio-script-check'], 'A is written, rewritten and checked beat by beat; B and C once alongside')
+  assert.deepEqual(calls.map(c => c.op).sort(), ['studio-script', 'studio-script', 'studio-script', 'studio-script-check', 'studio-script-read'], 'A is written, rewritten, checked segment by segment and read aloud; B and C once alongside')
+  assert.deepEqual(calls.find(c => c.op === 'studio-script-read').input.segments, [{ reference: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.'], lines: ['안 사요. 번들거려서요.'] }, { reference: ['사는 건 하나예요.'], lines: ['[제품 A] 하나만 사요.'] }], 'the read-aloud check hears the whole script with the reference each segment followed')
   assert.equal(calls[0].input.sources.hook.formula, analysis.hook.formula)
   assert.equal(calls[0].input.hook, null, 'the script writes its own first line; one from an earlier draft is not handed back')
-  assert.deepEqual(calls[0].input.referenceSentences, { hook: [], body: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.', '사는 건 하나예요.'] }, 'A follows the reference script sentence by sentence')
+  assert.deepEqual(calls[0].input.referenceSentences, { hook: [], body: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.', '사는 건 하나예요.'] }, 'A reads the whole reference script')
   assert.equal(calls[0].input.sources.structure.script.text, transcript.korean, 'the reference script itself reaches the prompt, not only role labels')
   assert.deepEqual(value.options.map(o => [o.label, Boolean(o.reference)]), [['레퍼런스 공식 그대로', true], ['판정으로 설득', false]])
-  assert.deepEqual(value.options[0].lines.map(l => l.spoken), beats.map(b => b.spoken), 'the rewrite carries every reference sentence')
+  assert.deepEqual(value.options[0].lines.map(l => l.spoken), segments.flatMap(g => g.lines.map(l => l.spoken)), 'the rewrite covers every reference sentence, in fewer lines than the reference had')
   assert.deepEqual(value.options[1].lines.map(l => [l.part, l.seconds]), [['hook', 3], ['body', 2]], 'seconds come from the words, not the model guess')
   assert.deepEqual(placeholders, ['[제품 A]', '[제품 B]'])
+})
+
+test('version A lines that do not sound like the speaker are named and the segment is written again', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript: { korean: '안 사요. 너무 약해요.\n효과가 약해서 안 사요.\n사는 건 하나예요.', source: 'audio' } }
+  const calls = []
+  const session = { id: 's1', user_id: 'u1', mode: 'single', brief: '선크림 3개 비교', sources: { structure: { kind: 'reel', id: 'Aaaaa1' } },
+    topic: { title: '선크림 판정', facts: [], category: '피부', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true, askedStages: ['script'] }, thumbnail: { options: [{ text: 'x' }], chosen: 0 } }
+  const segments = [{ sources: ['안 사요. 너무 약해요.', '효과가 약해서 안 사요.', '사는 건 하나예요.'], job: '판정', lines: [{ part: 'hook', spoken: '첫 줄', onScreen: '' }, { part: 'body', spoken: '둘째 줄', onScreen: '' }] }]
+  const makeProviders = () => ({ json: async (op, instructions, input, _f, schema) => { calls.push({ op, instructions, schema })
+    if (schema.properties.changed) return { changed: [] }
+    // The first read hears a borrowed line; after the rewrite nothing is left.
+    if (schema.properties.awkward) return { awkward: calls.filter(c => c.op === 'studio-script-read').length === 1 ? [{ line: '둘째 줄', why: '레퍼런스 표현을 옮겨 와 뜻이 어긋남' }] : [] }
+    if (schema.properties.segments) return { questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: [] }, segments, why: 'w', placeholders: [] }
+    return { options: [{ label: 'B', why: 'w', lines: [{ part: 'hook', spoken: 'b1', onScreen: '' }, { part: 'body', spoken: 'b2', onScreen: '' }] }], placeholders: [] } } })
+  await generateStage({ db, makeProviders }, session, 'script')
+  const writes = calls.filter(c => c.op === 'studio-script' && c.schema.properties.segments)
+  assert.equal(writes.length, 2, 'one rewrite after the read-aloud check')
+  assert.match(writes[1].instructions, /어색한 줄 "둘째 줄": 레퍼런스 표현을 옮겨 와 뜻이 어긋남/)
+  assert.match(writes[1].instructions, /앞뒤 줄과 이어지게 그 구간을 다시 씁니다/)
+  assert.equal(calls.filter(c => c.op === 'studio-script-read').length, 2, 'the rewrite is read aloud again')
 })
 
 test('a reference that says only a line is followed by its steps, not sentence by sentence', async () => {

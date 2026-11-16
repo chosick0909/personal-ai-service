@@ -219,7 +219,7 @@ const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 // What 훅ai found when it re-read its own draft (persona rule 8); anything listed triggers one rewrite.
 const check = obj({ referenceTraces: arr(str), unprovidedFacts: arr(str), swipeRisks: arr(str) })
 // Version A from a reference reel: one beat per reference sentence, in order.
-const referenceVersionSchema = obj({ questions, check, beats: arr(obj({ source: str, job: str, part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str })), why: str, placeholders: arr(str) })
+const referenceVersionSchema = obj({ questions, check, segments: arr(obj({ sources: arr(str), job: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str })) })), why: str, placeholders: arr(str) })
 const stageSchemas = {
   thumbnail: obj({ questions, plan: obj({ terms: arr(obj({ word: str, meaning: str })), purpose: str, reader: str, promise: str, quotes: arr(str) }), check, options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, text: str, why: str })), placeholders: arr(str) }),
   script: obj({ questions, check, options: arr(obj({ label: str, why: str, lines: arr(obj({ part: { type: 'string', enum: PARTS }, spoken: str, onScreen: str, seconds: num })) })), placeholders: arr(str) }),
@@ -241,14 +241,18 @@ const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
 const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
 
-// Version A, written on its own from the reference reel's sentences.
-const REFERENCE_VERSION = `${ASK_RULE}\n'대본' 단계의 1안, '레퍼런스 공식 그대로'를 씁니다. 레퍼런스 원문(referenceSentences)의 문장을 하나씩 이번 소재로 옮겨, 레퍼런스의 성공 공식(문장의 순서, 각 문장이 시청자에게 하는 일, 말의 짜임, 길이와 리듬)을 그대로 가진 대본을 만듭니다.
+// Version A, written on its own from the reference reel's script: its flow kept segment by segment, its sentences
+// written anew in the student's own speech (a sentence-for-sentence transplant read as someone else's words).
+const REFERENCE_VERSION = `${ASK_RULE}\n'대본' 단계의 1안, '레퍼런스 공식 그대로'를 씁니다. 레퍼런스의 성공 공식은 흐름입니다: 구간의 순서, 각 구간이 시청자에게 하는 일과 그 일을 하는 말의 장치(무엇을 먼저 말하고, 무엇을 묻고, 무엇을 예고하고, 무엇과 대조하고, 어떻게 다음 구간으로 넘기는지), 각 구간이 영상에서 차지하는 비중, 전체 길이와 리듬. 이 흐름은 그대로 지키고, 문장은 수강생이 자기 이야기를 처음 말할 때 쓸 말로 새로 씁니다(원칙 5·6).
 - referenceSentences.hook이 있으면 그것이 첫 문장 구간이고, referenceSentences.body가 그 뒤 구간입니다. hook이 비어 있으면 body가 처음부터 끝까지의 기준입니다. 원문의 줄은 음성 전사 구간이라 한 문장이 두 줄에 걸칠 수 있습니다.
-- beats: 따를 레퍼런스 문장마다 하나씩 순서대로 씁니다. source는 레퍼런스 문장 그대로(전사 줄이 한 문장을 나눠 담았으면 그 줄들을 이어 한 문장으로), job은 그 문장이 시청자에게 하는 일(레퍼런스의 소재 단어 없이), spoken은 이번 소재로 같은 일을 같은 짜임으로 하는 한 줄(레퍼런스 문장과 비슷한 길이의 구어), part는 hook/body/cta, onScreen은 그 문장의 자막(필요 없으면 ""). 레퍼런스 문장을 빼거나 합치거나 다른 일로 바꾸지 않습니다.
+- segments: 레퍼런스 원문을 처음부터 끝까지 읽고, 시청자에게 같은 일을 하는 이어진 문장끼리 한 구간으로 묶어 순서대로 씁니다. sources는 그 구간의 원문 줄을 한 글자도 바꾸지 않고 순서대로 옮긴 것이고, 원문의 모든 줄은 정확히 한 구간에 들어갑니다. job은 그 구간이 시청자에게 하는 일과 쓰는 장치(레퍼런스의 소재 단어 없이). lines는 그 구간의 일을 같은 장치로, 이번 소재와 수강생의 사실로 해내는 대본 줄입니다(part는 hook/body/cta, spoken은 말할 문장, onScreen은 그 줄의 자막이며 필요 없으면 "").
+- lines의 줄 수와 문장 길이는 원문 문장에 맞추지 않습니다. 수강생의 이야기가 자연스럽게 흐르도록 원문 여러 문장의 일을 한 줄로 합치거나 한 문장의 일을 두 줄로 나눕니다. 구간의 분량은 원문과 비슷하게 두고, 전체 길이는 sources.structure.durationSeconds와 비슷하게 맞춥니다.
+- 원문의 표현·비유·말버릇·단어를 이번 소재에 끼워 넣지 않습니다. 원문의 한 문장이 원문 화자의 사연에만 있는 구체적인 내용으로 일을 했다면, 이번 화자의 사실로 그 구간의 일을 해낼 다른 내용을 찾습니다. 문장의 생김새를 옮기는 것은 공식을 따르는 것이 아닙니다.
 - 첫 문장(part hook)은 고른 썸네일(thumbnail)이 한 약속을 이어받습니다. 썸네일 제목(visualHook)은 첫 문장이 아닙니다.
-- 레퍼런스의 소재·사실·수치·화자 정보는 가져오지 않습니다(원칙 6). 어떤 문장이 수강생만 줄 수 있는 재료(다룰 사례, 결과 수치, 화자의 경험·경력 등)를 요구하는데 brief·topic.facts·answers·attachments에 없으면, 그 재료는 이 안이 성립하는 데 꼭 필요한 사실이므로 질문할 수 있을 때 가장 먼저 묻습니다(다른 세부보다 이 재료가 먼저). 묻지 않을 때도 그 문장을 빼거나 다른 일로 바꾸지 않습니다. 재료 없이 할 수 있는 다른 말로 바꾸는 것도 다른 일로 바꾸는 것입니다. research의 공개 사실로 같은 일을 해낼 수 있으면 채우고, 없으면 그 문장의 짜임을 그대로 두고 화자 본인만 아는 자리를 [대괄호] 빈칸으로 남겨 placeholders에 적습니다. 지어낸 사실보다 빈칸이 낫습니다. 빈칸은 화자 본인만 아는 사실(본인의 사례·수치·경력)에만 쓰고, 이번 소재·research로 쓸 수 있는 자리와 문장의 표현은 빈칸으로 두지 않고 직접 씁니다. 빈칸 안에는 채울 내용을 10자 안팎의 짧은 이름으로 적습니다.
+- 레퍼런스의 소재·사실·수치·화자 정보는 가져오지 않습니다(원칙 6). 어떤 구간이 수강생만 줄 수 있는 재료(다룰 사례, 결과 수치, 화자의 경험·경력 등)를 요구하는데 brief·topic.facts·answers·attachments에 없으면, 그 재료는 이 안이 성립하는 데 꼭 필요한 사실이므로 질문할 수 있을 때 가장 먼저 묻습니다(다른 세부보다 이 재료가 먼저). 묻지 않을 때도 그 구간을 빼거나 다른 일로 바꾸지 않습니다. research의 공개 사실로 같은 일을 해낼 수 있으면 채우고, 없으면 화자 본인만 아는 자리를 [대괄호] 빈칸으로 남겨 placeholders에 적습니다. 지어낸 사실보다 빈칸이 낫습니다. 빈칸은 화자 본인만 아는 사실(본인의 사례·수치·경력)에만 쓰고, 이번 소재·research로 쓸 수 있는 자리와 문장의 표현은 빈칸으로 두지 않고 직접 씁니다. 빈칸 안에는 채울 내용을 10자 안팎의 짧은 이름으로 적고, 빈칸이 든 문장은 빈칸에 어떤 말이 들어가도 조사·어미가 맞게 읽히도록 씁니다.
 - 대본에는 영상에서 실제로 할 말만 씁니다. 레퍼런스나 대본을 만드는 과정에 대한 말(무엇이 들어가면 더 좋다 등)은 넣지 않습니다.
 - 레퍼런스의 장치가 일반적인 첫 문장 기준이나 대본 원칙과 부딪히면 레퍼런스를 따릅니다. 다만 모든 문장은 따로 떼어 읽어도 말이 되어야 하고(원칙 9), 수강생의 말투(voice)로 씁니다.
+- 다 쓴 뒤 화자가 카메라 앞에서 처음부터 끝까지 이어서 말한다고 생각하고 소리 내어 읽습니다. 앞 줄에서 다음 줄로 이야기가 끊기는 곳, 이 화자가 자기 이야기를 할 때 쓰지 않을 말, 조사·어미가 맞지 않는 곳, 같은 말의 반복을 찾아, 구간의 일과 장치는 지키면서 고친 최종본을 냅니다.
 - why: 이 안이 어떤 시청자에게 맞는지 한 줄.`
 // B and C: other ways to tell the same topic than the reference's.
 const OTHER_VERSIONS = `이번에는 2안과 3안만 씁니다. 1안(레퍼런스 공식 그대로)은 따로 쓰니, options에는 레퍼런스와 다른 첫 문장 유형과 다른 전개의 두 안만 담습니다.`
@@ -267,7 +271,7 @@ why는 이 제목을 왜 누르게 되는지 시청자 입장에서 한 줄.`,
   // The first line and the script are written together: a reference's success is its opening and flow as one whole,
   // and A is that whole kept, while B and C are other ways to tell the same topic.
   script: `${ASK_RULE}\n'대본' 단계입니다. 첫 문장부터 마무리까지 전체 대본 3안을 만듭니다. 각 안은 그 안의 첫 문장(part hook, 영상 첫 3~5초에 말하는 1~3줄)으로 시작하고, 첫 문장은 고른 썸네일(thumbnail)이 한 약속을 이어받습니다.
-- 레퍼런스(sources.hook 또는 sources.structure)가 있으면 1안은 레퍼런스의 성공 공식을 가장 그대로 따른 안이고, label은 "레퍼런스 공식 그대로"입니다. 레퍼런스 원문을 한 문장씩 읽어 각 문장이 시청자에게 하는 일과 말의 짜임을 순서대로 세운 뒤, 같은 순서·같은 수의 구간과 비슷한 문장 길이·리듬으로 이번 소재를 채웁니다. 첫 문장 구간은 sources.hook이 처음 하는 말(original.opening)의 장치와 짜임을, 그 뒤 구간은 sources.structure의 원문(script)과 구간(steps)을 따릅니다(한쪽만 있으면 그 레퍼런스가 처음부터 끝까지의 기준). 썸네일 제목(visualHook)은 첫 문장이 아니므로 첫 문장에 옮기지 않습니다. 1안에서 레퍼런스의 장치가 아래 첫 문장 기준이나 대본 원칙과 부딪히면 레퍼런스를 따릅니다. sources.structure.delivery가 있으면(말 없이 장면으로 보여 주는 레퍼런스) 1안은 그 방식대로 한 줄이 한 장면을 맡게 하고, spoken은 그 장면 위에 띄우거나 짧게 덧붙일 한 문장으로 쓰며 자세한 설명은 캡션으로 넘깁니다.
+- 레퍼런스(sources.hook 또는 sources.structure)가 있으면 1안은 레퍼런스의 성공 공식을 가장 그대로 따른 안이고, label은 "레퍼런스 공식 그대로"입니다. 레퍼런스 원문을 읽어 시청자에게 같은 일을 하는 문장끼리 구간으로 묶고, 구간의 순서·각 구간이 하는 일과 말의 장치·구간별 분량을 그대로 둔 채, 문장은 이번 소재와 수강생의 말로 새로 씁니다(원문의 문장 수나 표현을 맞추지 않음, 원칙 5). 첫 문장 구간은 sources.hook이 처음 하는 말(original.opening)의 장치와 짜임을, 그 뒤 구간은 sources.structure의 원문(script)과 구간(steps)을 따릅니다(한쪽만 있으면 그 레퍼런스가 처음부터 끝까지의 기준). 썸네일 제목(visualHook)은 첫 문장이 아니므로 첫 문장에 옮기지 않습니다. 1안에서 레퍼런스의 장치가 아래 첫 문장 기준이나 대본 원칙과 부딪히면 레퍼런스를 따릅니다. sources.structure.delivery가 있으면(말 없이 장면으로 보여 주는 레퍼런스) 1안은 그 방식대로 한 줄이 한 장면을 맡게 하고, spoken은 그 장면 위에 띄우거나 짧게 덧붙일 한 문장으로 쓰며 자세한 설명은 캡션으로 넘깁니다.
 - 레퍼런스의 짜임 중 어떤 자리가 수강생만 줄 수 있는 재료(다룰 사례, 결과 수치, 화자의 경험·경력 등)를 요구하는데 brief·topic.facts·answers·attachments에 없으면, 그 재료는 1안이 성립하는 데 꼭 필요한 사실이므로 질문할 수 있을 때 가장 먼저 묻습니다(다른 세부보다 이 재료가 먼저). 묻지 않을 때도 그 자리를 빼거나 다른 일로 바꾸지 않습니다. research의 공개 사실로 그 자리의 일을 해낼 수 있으면 채우고, 없으면 수강생이 채울 [대괄호] 빈칸으로 남기고 그 빈칸을 placeholders에 적습니다. 지어낸 사실보다 빈칸이 낫습니다.
 - 2·3안은 같은 소재를 1안과 다른 첫 문장 유형과 다른 전개로 씁니다. provenFormulas와 storyTemplates에서 이번 소재·약속에 맞는 서로 다른 공식을 골라 안마다 하나씩 적용합니다. 레퍼런스가 없으면 3안 모두 이렇게 서로 다른 공식을 하나씩 적용합니다.
 첫 문장의 기준(1안은 레퍼런스가 우선):
@@ -278,7 +282,7 @@ ${PROVEN_NOTE}
 - label은 그 안의 전개 방식을 짧게(1안은 "레퍼런스 공식 그대로"), why는 어떤 시청자에게 맞는지 한 줄.
 - lines: part는 hook/body/cta, spoken은 말할 문장(짧고 구어체), onScreen은 그 구간 자막, seconds는 구간 길이. 1안의 전체 길이는 sources.structure.durationSeconds와 비슷하게, 나머지는 30~50초.
 - 마무리는 레퍼런스의 마무리 장치를 옮기거나(1안), 이 영상을 저장·공유할 이유가 되는 말로 씁니다.
-${SWIPE_CHECK} 1안을 고칠 때는 짜임은 그대로 두고 그 자리의 말만 고칩니다.`,
+${SWIPE_CHECK} 1안을 고칠 때는 구간의 순서와 일은 그대로 두고 그 자리의 말만 고칩니다.`,
   filming: `${ASK_RULE}\n${SCRIPT_IS_FINAL}\n'촬영·편집' 단계입니다. 확정된 대본(script)을 그대로 찍을 수 있게 장면 4~8개의 스토리보드와 촬영 가이드를 만듭니다.
 - sources.filming.filming이 있으면 그 구도·화면 장치를 적용합니다. storyboard: scene 번호, seconds, shot(구도·거리), action(화면 속 행동·보여줄 것), onScreen(자막), spoken(그 장면 대사; script에서 그대로).
 - 촬영: location, props(준비물), camera(거치·각도), lighting, checklist(촬영 전 확인 3~6개). 집·스마트폰으로 가능한 수준으로. editing에는 편집 방향 한 줄.
@@ -331,19 +335,34 @@ export function referenceSentences(resolved) {
   const at = hook.length && firstBody ? lines.findIndex(line => squash(line).includes(firstBody)) : -1
   return { hook, body: lines.slice(at > 0 && at <= 4 ? at : 0) }
 }
-// An independent read of version A, beat by beat: does each line do what its reference sentence did, in the same shape?
-// The writer judging its own beats let them drift into another script; this check does not see the writer's reasons.
-const beatCheckSchema = obj({ changed: arr(obj({ source: str, spoken: str, why: str })) })
-async function changedBeats(providers, raw) {
-  const pairs = (Array.isArray(raw.beats) ? raw.beats : []).filter(b => clean(b?.spoken, 400)).map(b => ({ source: clean(b.source, 300), spoken: clean(b.spoken, 400) }))
+// Version A's segments as one reference-to-script pair each: the reference lines a segment follows and what it says now.
+const segmentList = raw => (Array.isArray(raw.segments) ? raw.segments : []).map(g => ({
+  sources: (Array.isArray(g?.sources) ? g.sources : []).map(x => clean(x, 300)).filter(Boolean),
+  lines: (Array.isArray(g?.lines) ? g.lines : []).filter(l => clean(l?.spoken, 400)) }))
+// An independent read of version A, segment by segment: does each segment do what its reference segment did, with the
+// same device? The writer judging its own segments let them drift into another script; this check does not see its reasons.
+const segmentCheckSchema = obj({ changed: arr(obj({ source: str, spoken: str, why: str })) })
+async function changedSegments(providers, raw) {
+  const pairs = segmentList(raw).filter(g => g.sources.length && g.lines.length).map(g => ({ source: clean(g.sources.join(' '), 600), spoken: clean(g.lines.map(l => l.spoken).join(' '), 800) }))
   if (!pairs.length) return []
-  const result = await providers.json('studio-script-check', `레퍼런스 대본의 문장(source)과, 그 문장을 다른 소재로 옮긴 문장(spoken)의 짝을 하나씩 대조합니다. 소재·단어·사실이 다른 것은 당연하고 판정 기준이 아닙니다. spoken이 source가 시청자에게 하던 역할(결과를 먼저 말하기, 습관을 찌르는 질문, 개수 예고, 하나씩 짚기, 항목 하나를 소개하고 이유를 한 줄로 대기, 앞 내용을 반전으로 잇기, 결과로 맺기, 행동 요청 같은 문장의 역할)을 같은 짜임으로 하는지만 봅니다. 그 역할을 무엇으로 하는지(근거의 종류, 행동의 수단, 다루는 대상·장치·수치)는 소재라서 달라도 같은 일입니다. 역할이 바뀌었거나, 역할을 하지 않고 일반적인 설명·조언으로 바뀐 짝만 changed에 source와 spoken을 그대로 옮겨 적고 why에 무엇이 달라졌는지 한 줄로 씁니다. 같은 일을 하면 적지 않습니다.`,
-    { pairs }, [], beatCheckSchema)
+  const result = await providers.json('studio-script-check', `레퍼런스 대본의 한 구간(source)과, 그 구간을 다른 소재로 다시 쓴 구간(spoken)의 짝을 하나씩 대조합니다. 소재·단어·사실·문장 수·문장 길이가 다른 것은 당연하고 판정 기준이 아닙니다. spoken이 source가 시청자에게 하던 일(결과를 먼저 말하기, 습관을 찌르는 질문, 개수 예고, 하나씩 짚기, 항목 하나를 소개하고 이유를 대기, 앞 내용을 반전으로 잇기, 결과로 맺기, 행동 요청 같은 구간의 역할)을 같은 장치로 하는지만 봅니다. 그 일을 무엇으로 하는지(근거의 종류, 행동의 수단, 다루는 대상·사례·수치)는 소재라서 달라도 같은 일입니다. 역할이 바뀌었거나, 역할을 하지 않고 일반적인 설명·조언으로 바뀐 짝만 changed에 source와 spoken을 그대로 옮겨 적고 why에 무엇이 달라졌는지 한 줄로 씁니다. 같은 일을 하면 적지 않습니다.`,
+    { pairs }, [], segmentCheckSchema)
   return (Array.isArray(result?.changed) ? result.changed : []).map(m => ({ source: clean(m?.source, 120), spoken: clean(m?.spoken, 160), why: clean(m?.why, 160) })).filter(m => m.source && m.why).slice(0, 8)
 }
-// Reference sentences no beat of version A carries. Lines a transcript split mid-sentence count once a beat quotes them.
+// An independent read-aloud of version A as one speech: following a reference's flow tends to leave the reference
+// speaker's wording and joints in it, which the writer reading its own lines does not hear.
+const readCheckSchema = obj({ awkward: arr(obj({ line: str, why: str })) })
+async function awkwardLines(providers, raw) {
+  const segments = segmentList(raw).filter(g => g.lines.length).map(g => ({ reference: g.sources, lines: g.lines.map(l => clean(l.spoken, 400)) }))
+  if (!segments.length) return []
+  const result = await providers.json('studio-script-read', `수강생이 카메라 앞에서 처음부터 끝까지 이어서 말할 대본(segments[].lines를 순서대로 이은 것)을 소리 내어 읽듯 검토합니다. reference는 그 구간이 흐름을 따른 다른 사람의 레퍼런스 원문이고, 흐름을 따른 것 자체는 의도된 것입니다. 다음에 해당하는 줄만 awkward에 그 줄을 한 글자도 바꾸지 않고 옮겨 적고, why에 무엇이 어색한지 한 줄로 씁니다: 조사·어미·문법이 맞지 않는 줄, 앞 줄에서 이야기가 이어지지 않는 줄, 앞에서 한 말을 되풀이하는 줄, 이 화자가 자기 이야기를 할 때 쓰지 않을 말(reference의 표현·비유·말버릇을 옮겨 와 이번 소재·상황에서 뜻이 어긋나는 말 포함), [대괄호] 빈칸에 들어갈 말을 넣어 읽어도 어색한 줄. 실제 사람이 하는 말처럼 자연스러운 줄은 적지 않습니다.`,
+    { segments }, [], readCheckSchema)
+  return (Array.isArray(result?.awkward) ? result.awkward : []).map(m => ({ line: clean(m?.line, 160), why: clean(m?.why, 160) })).filter(m => m.line && m.why).slice(0, 8)
+}
+// Reference sentences that no segment of version A carries (a segment with no spoken line carries nothing).
+// Lines a transcript split mid-sentence count once a segment quotes them.
 export function uncoveredSentences(sentences, raw) {
-  const quoted = squash((Array.isArray(raw.beats) ? raw.beats : []).filter(b => squash(b?.spoken)).map(b => b.source).join(' '))
+  const quoted = squash(segmentList(raw).filter(g => g.lines.length).flatMap(g => g.sources).join(' '))
   return [...sentences.hook, ...sentences.body].filter(line => squash(line) && !quoted.includes(squash(line))).slice(0, 8)
 }
 
@@ -387,23 +406,26 @@ export async function generateStage(deps, session, stage) {
     }
     return { raw }
   }
-  // A reference reel's script: A is written sentence by sentence from it, apart from the other two versions,
+  // A reference reel's script: A follows its flow segment by segment, written apart from the other two versions,
   // so writing three versions at once cannot reshape it. B and C are then written as other ways to tell the topic.
   const sentences = stage === 'script' ? referenceSentences(resolved) : null
   if (sentences) {
-    // Gaps: reference sentences no beat carries (code), then beats an independent check finds doing another job than their sentence.
+    // Gaps: reference sentences no segment carries (code), then two independent reads: segments doing another job than
+    // their reference segment, and lines that do not sound like this speaker talking.
     const gaps = async raw => {
-      const missing = uncoveredSentences(sentences, raw).map(line => `레퍼런스의 이 문장을 옮긴 줄이 없음: "${line}"`)
-      return missing.length ? missing : (await changedBeats(providers, raw)).map(m => `"${m.source}" → "${m.spoken}": ${m.why}`)
+      const missing = uncoveredSentences(sentences, raw).map(line => `레퍼런스의 이 문장이 들어간 구간이 없음: "${line}"`)
+      if (missing.length) return missing
+      const [changed, awkward] = await Promise.all([changedSegments(providers, raw), awkwardLines(providers, raw)])
+      return [...changed.map(m => `구간 "${m.source}" → "${m.spoken}": ${m.why}`), ...awkward.map(m => `어색한 줄 "${m.line}": ${m.why}`)]
     }
     // B and C do not wait for A: they are told to differ from the reference's shape, which A keeps.
     const [a, others] = await Promise.all([
       draft(REFERENCE_VERSION, referenceVersionSchema, { referenceSentences: sentences }, { gaps, rounds: 2,
-        fix: ' 화자 본인만 아는 사실(본인의 사례·수치·경력)이 없어 그 일을 못 한 문장은 다른 말로 바꾸지 말고 짜임을 그대로 둔 채 그 자리만 [대괄호] 빈칸으로 남깁니다. 그 밖의 자리는 이번 소재와 research로 직접 씁니다.' }),
+        fix: ' 어색한 줄은 그 줄만 바꿔 끼우지 말고 앞뒤 줄과 이어지게 그 구간을 다시 씁니다. 화자 본인만 아는 사실(본인의 사례·수치·경력)이 없어 일을 못 한 자리는 다른 일로 바꾸지 말고 그 자리만 [대괄호] 빈칸으로 남깁니다. 그 밖의 자리는 이번 소재와 research로 직접 씁니다.' }),
       draft(`${stagePrompts.script}\n${OTHER_VERSIONS}`, stageSchemas.script, {}, { ask: false }),
     ])
     if (a.asks) return { questions: a.asks, placeholders: [] }
-    const lines = normalizeLines((Array.isArray(a.raw.beats) ? a.raw.beats : []).map(b => ({ part: b?.part, spoken: b?.spoken, onScreen: b?.onScreen })))
+    const lines = normalizeLines(segmentList(a.raw).flatMap(g => g.lines).map(l => ({ part: l?.part, spoken: l?.spoken, onScreen: l?.onScreen })))
     const rest = (Array.isArray(others.raw.options) ? others.raw.options : []).map(o => ({ label: clean(o.label, 40), why: clean(o.why, 200), lines: normalizeLines(o.lines) })).filter(o => o.lines.length >= 2).slice(0, 2)
     // A version A too short to be a script is dropped rather than failing the other two with it.
     const options = [...(lines.length >= 2 ? [{ label: '레퍼런스 공식 그대로', why: clean(a.raw.why, 200), lines, reference: true }] : []), ...rest]
