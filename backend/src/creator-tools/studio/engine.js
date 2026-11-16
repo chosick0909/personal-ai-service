@@ -208,8 +208,10 @@ function normalizeProposal(stage, p) {
   return null
 }
 const seconds = value => Number.isFinite(Number(value)) ? Math.max(1, Math.min(180, Math.round(Number(value)))) : 3
+// A script line cap well above any reel: a long reference (40+ transcript lines) cut at 24 lost its ending and its call to action.
+export const MAX_SCRIPT_LINES = 60
 function normalizeLines(lines) {
-  return (Array.isArray(lines) ? lines : []).map(l => ({ part: PARTS.includes(l?.part) ? l.part : 'body', spoken: clean(l?.spoken, 400), onScreen: clean(l?.onScreen, 60) })).filter(l => l.spoken).slice(0, 24)
+  return (Array.isArray(lines) ? lines : []).map(l => ({ part: PARTS.includes(l?.part) ? l.part : 'body', spoken: clean(l?.spoken, 400), onScreen: clean(l?.onScreen, 60) })).filter(l => l.spoken).slice(0, MAX_SCRIPT_LINES)
     // Seconds come from the words, not the model's guess, so the editor, print view and saved formulas agree.
     .map(l => ({ ...l, seconds: estimateLineSeconds(l.spoken) }))
 }

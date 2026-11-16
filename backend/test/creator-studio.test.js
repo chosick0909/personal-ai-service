@@ -137,6 +137,23 @@ test('version A that folds the reference into too few words is caught, and the b
   assert.deepEqual(value.options[0].lines.map(l => l.spoken), full.segments.flatMap(g => g.lines.map(l => l.spoken)), 'the last rewrite folded the reference again, so the earlier full draft is kept')
 })
 
+test('a long version A keeps every line up to its ending, past the old 24-line cut', async () => {
+  const db = fakeDb()
+  const ref = Array.from({ length: 30 }, (_, i) => `레퍼런스 ${i + 1}번째 문장입니다`)
+  db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript: { korean: ref.join('\n'), source: 'audio' } }
+  const session = { id: 's1', user_id: 'u1', mode: 'single', brief: 'b', sources: { structure: { kind: 'reel', id: 'Aaaaa1' } },
+    topic: { title: 't', facts: [], category: '일상', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true, askedStages: ['script'] }, thumbnail: { options: [{ text: 'x' }], chosen: 0 } }
+  const segments = ref.map((r, i) => ({ sources: [r], job: 'j', lines: [{ part: i === 29 ? 'cta' : 'body', spoken: `이번 대본 ${i + 1}번째 줄이에요`, onScreen: '' }] }))
+  const makeProviders = () => ({ json: async (op, _i, _input, _f, schema) => {
+    if (schema.properties.changed) return { changed: [] }
+    if (schema.properties.awkward) return { awkward: [] }
+    if (schema.properties.segments) return { questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: [] }, segments, why: 'w', placeholders: [] }
+    return { options: [{ label: 'B', why: 'w', lines: [{ part: 'hook', spoken: 'b1', onScreen: '' }, { part: 'body', spoken: 'b2', onScreen: '' }] }], placeholders: [] } } })
+  const { value } = await generateStage({ db, makeProviders }, session, 'script')
+  assert.equal(value.options[0].lines.length, 30)
+  assert.equal(value.options[0].lines.at(-1).spoken, '이번 대본 30번째 줄이에요', 'the call to action at the end survives')
+})
+
 test('a reference that says only a line is followed by its steps, not sentence by sentence', async () => {
   const db = fakeDb()
   db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript: { korean: '오늘도 잘 먹었습니다', source: 'audio' } }

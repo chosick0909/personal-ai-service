@@ -15,7 +15,7 @@ import { studio2Enabled, canRecommend } from './access.js'
 import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
 import { readBrief } from './research.js'
-import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf, cancelStage } from './engine.js'
+import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf, cancelStage, MAX_SCRIPT_LINES } from './engine.js'
 import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
@@ -172,7 +172,7 @@ export function registerStudioRoutes(router) {
       if (typeof change.custom === 'string' && 'custom' in next) next.custom = text(change.custom, 200) || null
       // Picking an option or typing one's own replaces a chat-applied version.
       if ((Number.isInteger(change.chosen) || typeof change.custom === 'string') && next.applied) next.applied = null
-      if (field === 'script' && Array.isArray(change.edited)) next.edited = change.edited.map(l => ({ part: ['hook', 'body', 'cta'].includes(l?.part) ? l.part : 'body', spoken: text(l?.spoken, 400), onScreen: text(l?.onScreen, 60), seconds: Math.max(1, Math.min(180, Math.round(Number(l?.seconds) || 3))) })).filter(l => l.spoken).slice(0, 24)
+      if (field === 'script' && Array.isArray(change.edited)) next.edited = change.edited.map(l => ({ part: ['hook', 'body', 'cta'].includes(l?.part) ? l.part : 'body', spoken: text(l?.spoken, 400), onScreen: text(l?.onScreen, 60), seconds: Math.max(1, Math.min(180, Math.round(Number(l?.seconds) || 3))) })).filter(l => l.spoken).slice(0, MAX_SCRIPT_LINES)
       if (field === 'caption' && change.edited && typeof change.edited === 'object') next.edited = { text: text(change.edited.text, 2200), hashtags: (Array.isArray(change.edited.hashtags) ? change.edited.hashtags : []).map(t => text(t, 40).replace(/^#+/, '')).filter(Boolean).slice(0, 8) }
       patch[field] = next
     }
