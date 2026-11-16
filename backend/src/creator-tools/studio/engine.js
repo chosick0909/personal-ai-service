@@ -359,6 +359,14 @@ async function awkwardLines(providers, raw) {
     { segments }, [], readCheckSchema)
   return (Array.isArray(result?.awkward) ? result.awkward : []).map(m => ({ line: clean(m?.line, 160), why: clean(m?.why, 160) })).filter(m => m.line && m.why).slice(0, 8)
 }
+const STRUCTURAL_GAP = /^(레퍼런스의 이 문장이 들어간 구간이 없음|구간의 말이 원문 분량의 절반에 못 미침)/
+// Segments whose script says far less than the reference segment did: the job of the lines left out is not done.
+// (A writer free to merge sentences tended to fold the reference's last part into one short line.)
+export function thinSegments(raw) {
+  return segmentList(raw).map(g => ({ g, from: squash(g.sources.join('')).length, now: squash(g.lines.map(l => l.spoken).join('')).length }))
+    .filter(({ from, now }) => from >= 30 && now < from * 0.5).slice(0, 6)
+    .map(({ g, from, now }) => `구간의 말이 원문 분량의 절반에 못 미침(원문 ${from}자, 지금 ${now}자): "${g.sources[0].slice(0, 40)}…"로 시작하는 구간이 하는 일을 다 해내도록 씁니다`)
+}
 // Reference sentences that no segment of version A carries (a segment with no spoken line carries nothing).
 // Lines a transcript split mid-sentence count once a segment quotes them.
 export function uncoveredSentences(sentences, raw) {
@@ -382,7 +390,7 @@ export async function generateStage(deps, session, stage) {
   const asking = mayAsk(session)
   const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...chipList(q.chips, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
   // One draft: questions first when 훅ai may still ask, then one rewrite for whatever the checks found (gaps: checks done in code).
-  const draft = async (prompt, schema, extra = {}, { ask = asking, gaps = () => [], rounds = 1, fix = '' } = {}) => {
+  const draft = async (prompt, schema, extra = {}, { ask = asking, gaps = () => [], rounds = 1, fix = '', best = false } = {}) => {
     const input = { ...context, ...extra }
     let raw = await providersJson(providers, `studio-${stage}`, ask ? prompt : `${prompt}\n${NO_QUESTIONS}`, input, schema, shared)
     let asks = parseAsks(raw)
@@ -394,16 +402,22 @@ export async function generateStage(deps, session, stage) {
       asks = parseAsks(raw)
       if (asks.length) fail('STAGE_EMPTY', '훅ai가 초안을 내지 못했어요. 다시 시도해주세요.', 422)
     }
-    // Each rewrite is checked again, up to the rounds this draft allows.
-    for (let round = 0; round < rounds; round++) {
+    // Each rewrite is checked again, up to the rounds this draft allows. With best, the last rewrite is checked too and
+    // the draft with the fewest findings is kept: a rewrite can fix one thing and break another.
+    const tried = []
+    for (let round = 0; round <= rounds; round++) {
+      if (round === rounds && !best) break
       const found = raw.check ? [...list(raw.check.referenceTraces, 80, 6), ...list(raw.check.unprovidedFacts, 80, 6), ...(stage === 'script' ? list(raw.check.swipeRisks, 120, 6).map(r => `시청자가 넘길 줄: ${r}`) : [])] : []
       found.push(...await gaps(raw))
       // Grounding: a cover may only lean on words the student actually wrote. A "quote" that is not in their text
       // means 훅ai re-read a word as something else, so the draft is rewritten from the original words.
       if (stage === 'thumbnail') found.push(...ungroundedQuotes(session, [...(raw.plan?.quotes || []), ...(raw.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`))
-      if (!found.length) break
+      // A draft missing part of the reference (found in code) is worse than any number of wording notes.
+      tried.push({ raw, findings: found.reduce((n, f) => n + (STRUCTURAL_GAP.test(f) ? 10 : 1), 0) })
+      if (!found.length || round === rounds) break
       raw = await providersJson(providers, `studio-${stage}`, `${prompt}\n${NO_QUESTIONS}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. ${stage === 'thumbnail' ? '이 단계의 쓰는 기준' : stage === 'script' ? '이 단계의 기준과 원칙 7' : '원칙 7'}을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.${fix}`, input, schema, shared)
     }
+    if (best && tried.length) raw = tried.reduce((keep, t) => t.findings <= keep.findings ? t : keep).raw
     return { raw }
   }
   // A reference reel's script: A follows its flow segment by segment, written apart from the other two versions,
@@ -413,14 +427,14 @@ export async function generateStage(deps, session, stage) {
     // Gaps: reference sentences no segment carries (code), then two independent reads: segments doing another job than
     // their reference segment, and lines that do not sound like this speaker talking.
     const gaps = async raw => {
-      const missing = uncoveredSentences(sentences, raw).map(line => `레퍼런스의 이 문장이 들어간 구간이 없음: "${line}"`)
+      const missing = [...uncoveredSentences(sentences, raw).map(line => `레퍼런스의 이 문장이 들어간 구간이 없음: "${line}"`), ...thinSegments(raw)]
       if (missing.length) return missing
       const [changed, awkward] = await Promise.all([changedSegments(providers, raw), awkwardLines(providers, raw)])
       return [...changed.map(m => `구간 "${m.source}" → "${m.spoken}": ${m.why}`), ...awkward.map(m => `어색한 줄 "${m.line}": ${m.why}`)]
     }
     // B and C do not wait for A: they are told to differ from the reference's shape, which A keeps.
     const [a, others] = await Promise.all([
-      draft(REFERENCE_VERSION, referenceVersionSchema, { referenceSentences: sentences }, { gaps, rounds: 2,
+      draft(REFERENCE_VERSION, referenceVersionSchema, { referenceSentences: sentences }, { gaps, rounds: 2, best: true,
         fix: ' 어색한 줄은 그 줄만 바꿔 끼우지 말고 앞뒤 줄과 이어지게 그 구간을 다시 씁니다. 화자 본인만 아는 사실(본인의 사례·수치·경력)이 없어 일을 못 한 자리는 다른 일로 바꾸지 말고 그 자리만 [대괄호] 빈칸으로 남깁니다. 그 밖의 자리는 이번 소재와 research로 직접 씁니다.' }),
       draft(`${stagePrompts.script}\n${OTHER_VERSIONS}`, stageSchemas.script, {}, { ask: false }),
     ])

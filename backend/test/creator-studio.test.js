@@ -114,6 +114,29 @@ test('version A lines that do not sound like the speaker are named and the segme
   assert.equal(calls.filter(c => c.op === 'studio-script-read').length, 2, 'the rewrite is read aloud again')
 })
 
+test('version A that folds the reference into too few words is caught, and the best of the drafts is kept', async () => {
+  const db = fakeDb()
+  const ref = ['처음엔 아무것도 몰라서 정말 막막했고 하루하루가 불안했어요.', '그러다 한 가지를 바꾸고 나서 모든 게 달라지기 시작했어요.', '지금은 그 방법을 다른 분들께 알려드리고 있어요.']
+  db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript: { korean: ref.join('\n'), source: 'audio' } }
+  const calls = []
+  const session = { id: 's1', user_id: 'u1', mode: 'single', brief: 'b', sources: { structure: { kind: 'reel', id: 'Aaaaa1' } },
+    topic: { title: 't', facts: [], category: '일상', research: { subject: '', facts: [], viewerQuestions: [], avoid: [], sources: [] }, categoryChecked: true, askedStages: ['script'] }, thumbnail: { options: [{ text: 'x' }], chosen: 0 } }
+  const line = spoken => ({ part: 'body', spoken, onScreen: '' })
+  const thin = { segments: [{ sources: ref, job: '전부', lines: [line('바꿨어요.')] }] }
+  const full = { segments: [{ sources: ref.slice(0, 1), job: '막막함', lines: [line('처음엔 뭘 해야 할지 몰라서 막막하고 불안했어요.')] }, { sources: ref.slice(1), job: '전환과 결과', lines: [line('그러다 사진 하나를 바꿨는데 그때부터 달라졌어요.'), line('지금은 그 방법을 다른 분들께 나눠요.')] }] }
+  const drafts = [thin, full, thin]
+  const makeProviders = () => ({ json: async (op, instructions, input, _f, schema) => { calls.push({ op, instructions, schema })
+    if (schema.properties.changed) return { changed: [] }
+    if (schema.properties.awkward) return { awkward: [{ line: '지금은 그 방법을 다른 분들께 나눠요.', why: '맺음이 약함' }] }
+    if (schema.properties.segments) return { questions: [], check: { referenceTraces: [], unprovidedFacts: [], swipeRisks: [] }, ...drafts[calls.filter(c => c.schema.properties.segments).length - 1], why: 'w', placeholders: [] }
+    return { options: [{ label: 'B', why: 'w', lines: [line('b1'), line('b2')] }], placeholders: [] } } })
+  const { value } = await generateStage({ db, makeProviders }, session, 'script')
+  const writes = calls.filter(c => c.op === 'studio-script' && c.schema.properties.segments)
+  assert.equal(writes.length, 3)
+  assert.match(writes[1].instructions, /구간의 말이 원문 분량의 절반에 못 미침/)
+  assert.deepEqual(value.options[0].lines.map(l => l.spoken), full.segments.flatMap(g => g.lines.map(l => l.spoken)), 'the last rewrite folded the reference again, so the earlier full draft is kept')
+})
+
 test('a reference that says only a line is followed by its steps, not sentence by sentence', async () => {
   const db = fakeDb()
   db.tables.creator_success_reels.get('Aaaaa1').analysis = { ...analysis, transcript: { korean: '오늘도 잘 먹었습니다', source: 'audio' } }
