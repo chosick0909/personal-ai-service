@@ -59,7 +59,7 @@ test('a post just found unreadable answers again at once instead of queueing the
 
 test('only checked fields of what the Mac mini reports are kept', () => {
   const r = lookupResult({ videoUrl: 'https://scontent-ssn1-1.cdninstagram.com/o1/v.mp4?oe=1', thumbnailUrl: 'https://evil.example/t.jpg', username: '@Some.One', views: 1200000, likes: -1, comments: 3.5, caption: '캡션', postedAt: '2026-10-01T00:00:00Z', extra: 'x' })
-  assert.deepEqual(r, { videoUrl: 'https://scontent-ssn1-1.cdninstagram.com/o1/v.mp4?oe=1', thumbnailUrl: null, caption: '캡션', username: 'some.one', views: 1200000, likes: null, comments: null, postedAt: '2026-10-01T00:00:00.000Z' })
+  assert.deepEqual(r, { videoUrl: 'https://scontent-ssn1-1.cdninstagram.com/o1/v.mp4?oe=1', thumbnailUrl: null, slides: [], caption: '캡션', username: 'some.one', views: 1200000, likes: null, comments: null, postedAt: '2026-10-01T00:00:00.000Z' })
   assert.equal(lookupError('LINK_DELETED'), 'LINK_DELETED')
   assert.equal(lookupError('anything else'), 'LINK_UNAVAILABLE')
 })

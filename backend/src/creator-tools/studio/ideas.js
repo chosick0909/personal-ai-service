@@ -1,7 +1,7 @@
 import { query } from '../store.js'
 import { HOOKAI_SYSTEM } from './persona.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
-import { THUMBNAIL_BUCKET } from '../success-reels.js'
+import { THUMBNAIL_BUCKET, reelsOnly } from '../success-reels.js'
 import { fieldKnowledge } from './knowledge.js'
 import { researchTopic } from './research.js'
 import { trendingFor, CHIP_RULE } from './engine.js'
@@ -47,7 +47,7 @@ export const ideaPrompt = `지금은 '주제 찾기' 대화입니다. 기획안�
 // no reel is shown rather than one on another subject.
 const REELS_PER_CARD = 5
 async function reelPool(db) {
-  return query(db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,caption,caption_ko,topic:analysis->overview->>topic')
+  return query(reelsOnly(db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,caption,caption_ko,topic:analysis->overview->>topic'))
     .eq('visible', true).eq('analysis_status', 'ready').neq('username', 'recommended').or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
     .order('views', { ascending: false }).limit(3000)).catch(() => [])
 }

@@ -50,7 +50,8 @@ export default function PlanStart({ preset = {} }) {
     studio.ideas().then(d => setSavedTopics(d.saved || [])).catch(() => {})
     Promise.all([studio.references(), studio.formulas(), studio.library().catch(() => null)]).then(([r, f, l]) => {
       // Only analyzed references can feed a plan; the rest stay in 내 레퍼런스 until their analysis finishes.
-      const refs = r.references.filter(x => x.analysisStatus === 'ready')
+      // A carousel's analysis has no script to follow, so it is not offered as a plan's reference yet.
+      const refs = r.references.filter(x => x.analysisStatus === 'ready' && x.media !== 'carousel')
       setData({ refs, formulas: f.formulas, library: l })
       if (preset.formula && preset.kind) { const found = f.formulas.find(x => x.id === preset.formula); if (found) setSources({ [preset.kind]: { kind: 'formula', id: found.id, label: found.title } }) }
       // From 공식 사전: the chosen formula or story template fills its slot.

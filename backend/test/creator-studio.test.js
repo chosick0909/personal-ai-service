@@ -23,7 +23,7 @@ function fakeDb() {
   const updates = []
   return { tables, updates, from(table) {
     const filters = []; let action = 'select', payload, single = false
-    const api = { select() { return api }, eq(k, v) { const [col, key] = k.split('->>'); filters.push(r => (key ? r[col]?.[key] : r[col]) === v); return api }, not(k, op, v) { filters.push(r => !(op === 'is' && (r[k] ?? null) === v)); return api }, order() { return api }, limit() { return api },
+    const api = { select() { return api }, eq(k, v) { const [col, key] = k.split('->>'); filters.push(r => (key ? r[col]?.[key] : r[col]) === v); return api }, not(k, op, v) { filters.push(r => !(op === 'is' && (r[k] ?? null) === v)); return api }, is(k, v) { const [col, key] = k.split('->>'); filters.push(r => ((key ? r[col]?.[key] : r[col]) ?? null) === v); return api }, order() { return api }, limit() { return api },
       maybeSingle() { single = true; return api }, single() { single = true; return api }, update(p) { action = 'update'; payload = p; return api }, insert(p) { action = 'insert'; payload = p; return api },
       then(resolve) {
         const rows = [...tables[table].values()].filter(r => filters.every(f => f(r)))

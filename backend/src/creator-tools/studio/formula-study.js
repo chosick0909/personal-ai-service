@@ -1,3 +1,4 @@
+import { reelsOnly } from '../success-reels.js'
 import { createHash } from 'node:crypto'
 import { query } from '../store.js'
 import { HOOK_TYPES, STORY_FORMATS } from '../success-reel-analysis.js'
@@ -14,7 +15,7 @@ const obj = properties => ({ type: 'object', additionalProperties: false, requir
 const str = { type: 'string' }
 const arr = items => ({ type: 'array', items })
 const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, max) : ''
-const usable = request => request.eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
+const usable = request => reelsOnly(request.eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true'))
 
 export const MIN_MEMBERS = 3
 const MATCH_BATCH = 12

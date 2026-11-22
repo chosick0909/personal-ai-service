@@ -27,6 +27,12 @@ export const SUCCESS_REEL_REVIEW_DAYS = 30
 // Accounts this large are celebrities or media, never reproducible ordinary creators.
 export const SUCCESS_REEL_MAX_FOLLOWERS = 5000000
 export const THUMBNAIL_BUCKET = 'creator-reel-thumbnails'
+// Carousels share this table with the reels; analysis.kind = 'carousel' marks one from the moment its link is read.
+export const isCarousel = analysis => analysis?.kind === 'carousel'
+// For every reader that expects a reel's analysis (study, 공식 사전, ideas, planning): carousels are left out.
+export const reelsOnly = request => request.is('analysis->>kind', null)
+export const postUrl = (shortcode, carousel = false) => `https://www.instagram.com/${carousel ? 'p' : 'reel'}/${shortcode}/`
+export const slidesKey = shortcode => `success-carousel-slides:${shortcode}`
 const DAY = 86400000
 // Instagram media ids embed the upload time: (id >> 23) ms after this epoch.
 const INSTAGRAM_EPOCH = 1314220021721
@@ -219,6 +225,7 @@ export const reelCategorySchema = { type: 'object', additionalProperties: false,
     viewsSource: { type: 'string', enum: VIEWS_SOURCES }, fitReason: { type: 'string' } } } } } }
 const CATEGORY_BATCH = 1
 export async function classifyReelCategories(db, providers, rows, now = Date.now()) {
+  const carousels = new Set(rows.filter(r => isCarousel(r.analysis)).map(r => r.shortcode))
   const input = rows.map(r => ({ shortcode: r.shortcode, username: r.username,
     ...(r.analysis?.overview?.topic ? { topic: text(r.analysis.overview.topic, 200), script: text(r.analysis.transcript?.korean, 400) } : {}), caption: text(r.caption, 700) }))
     .filter(r => r.caption.trim() || r.topic)
@@ -237,7 +244,8 @@ export async function classifyReelCategories(db, providers, rows, now = Date.now
     const patch = { category_checked_at: new Date(now).toISOString() }
     if (SUCCESS_REEL_CATEGORIES.includes(verdict?.category)) { patch.category = verdict.category; changed += 1 }
     if (['domestic', 'overseas'].includes(verdict?.region)) patch.region = verdict.region
-    if (typeof verdict?.referenceFit === 'boolean') { patch.reference_fit = verdict.referenceFit; patch.reference_fit_reason = verdict.referenceFit ? null : text(verdict.fitReason, 200) || null }
+    // Where a reel's views came from is a question about reels; a carousel keeps no such verdict.
+    if (typeof verdict?.referenceFit === 'boolean' && !carousels.has(row.shortcode)) { patch.reference_fit = verdict.referenceFit; patch.reference_fit_reason = verdict.referenceFit ? null : text(verdict.fitReason, 200) || null }
     await query(db.from('creator_success_reels').update(patch).eq('shortcode', row.shortcode))
   }
   return changed
@@ -322,19 +330,22 @@ export function searchTerm(value) {
 export async function listSuccessReels(db, filters = {}, userId = null) {
   // With no sort chosen, reels that already have an analysis come first: opening one shows it at once.
   const sort = LIST_SORTS[filters.sort] ? filters.sort : 'ready'
+  // 영감 찾기 shows reels and carousels on separate tabs.
+  const carousel = filters.kind === 'carousel'
   const limit = 48
   const page = Math.max(0, Math.min(50, Number.parseInt(filters.page, 10) || 0))
   const listed = (columns, options) => {
     // A 추천 link the Mac mini has never read (age-restricted, private) has no account, play count or real upload date.
     let request = db.from('creator_success_reels').select(columns, options)
       .eq('visible', true).neq('username', 'recommended').or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
+    request = carousel ? request.eq('analysis->>kind', 'carousel') : reelsOnly(request)
     if (filters.recommended === '1') request = request.eq('recommended', true)
     if (SUCCESS_REEL_CATEGORIES.includes(filters.category)) request = request.eq('category', filters.category)
     if (['visible', 'hidden', 'mixed'].includes(filters.face)) request = request.eq('face_visibility', filters.face)
     if (['domestic', 'overseas'].includes(filters.region)) request = request.eq('region', filters.region)
     return request
   }
-  const COLUMNS = 'shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests,recommended'
+  const COLUMNS = 'shortcode,username,views,likes,comments,posted_at,caption,caption_ko,language,region,audio,category,face_visibility,thumbnail_path,analysis_status,analysis_requests,recommended,slideCount:analysis->>slideCount'
   let request = listed(COLUMNS)
   const saves = userId ? await query(db.from('creator_reel_saves').select('shortcode').eq('user_id', userId).limit(5000)) : []
   const savedCodes = new Set(saves.map(row => row.shortcode))
@@ -355,7 +366,13 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   }
   const from = page * limit, to = from + limit - 1
   let rows
-  if (sort === 'ready') {
+  if (carousel) {
+    // A carousel shows no play count: 추천 first, then newest; 조회수순 means most liked here.
+    request = narrow(request)
+    if (sort === 'ready') request = request.order('recommended', { ascending: false, nullsFirst: false })
+    rows = await query(request.order(sort === 'views' ? 'likes' : sort === 'popular' ? 'analysis_requests' : 'posted_at', { ascending: false, nullsFirst: false })
+      .order('shortcode', { ascending: true }).range(from, to))
+  } else if (sort === 'ready') {
     // Pages fill group by group, newest first within each: analysed 추천 that meet the archive bar (posted within
     // 3 months, 500,000+ plays), older analysed 추천 with 500,000+ plays, other analysed 추천, other analysed,
     // unanalysed 추천, the rest.
@@ -387,7 +404,7 @@ export async function listSuccessReels(db, filters = {}, userId = null) {
   // Shown as "업데이트 ..." on the screen: when the last daily collection finished.
   const lastRun = page === 0 ? await query(db.from('creator_reel_ingest_runs').select('finished_at')
     .order('finished_at', { ascending: false, nullsFirst: false }).limit(1)) : []
-  return { lastUpdatedAt: lastRun[0]?.finished_at || null, reels: rows.map(row => ({ shortcode: row.shortcode, permalink: `https://www.instagram.com/reel/${row.shortcode}/`,
+  return { lastUpdatedAt: lastRun[0]?.finished_at || null, reels: rows.map(row => ({ shortcode: row.shortcode, permalink: postUrl(row.shortcode, carousel), kind: carousel ? 'carousel' : 'reel', slideCount: carousel ? Number(row.slideCount) || null : null,
     username: row.username, views: row.views, likes: row.likes, comments: row.comments, postedAt: row.posted_at,
     caption: row.caption, captionKo: row.caption_ko, language: row.language, region: row.region, audio: row.audio,
     category: row.category, faceVisibility: row.face_visibility, thumbnailUrl: urls.get(row.thumbnail_path) || null,

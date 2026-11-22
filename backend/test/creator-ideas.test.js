@@ -6,7 +6,7 @@ function fakeDb(tables) {
   return { tables, storage: { from: () => ({ createSignedUrls: async paths => ({ data: paths.map(p => ({ path: p, signedUrl: `https://cdn.example.com/${p}` })), error: null }) }) },
     from(table) {
       const filters = []; let single = false, action = 'select', payload
-      const api = { select() { return api }, order() { return api }, limit() { return api }, or() { return api }, eq(k, v) { filters.push(r => r[k] === v); return api }, neq(k, v) { filters.push(r => r[k] !== v); return api },
+      const api = { select() { return api }, order() { return api }, limit() { return api }, or() { return api }, is(k, v) { const [col, key] = k.split('->>'); filters.push(r => ((key ? r[col]?.[key] : r[col]) ?? null) === v); return api }, eq(k, v) { filters.push(r => r[k] === v); return api }, neq(k, v) { filters.push(r => r[k] !== v); return api },
         maybeSingle() { single = true; return api }, update(p) { action = 'update'; payload = p; return api },
         then(resolve) {
           const rows = [...(tables[table] || [])].filter(r => filters.every(f => f(r)))

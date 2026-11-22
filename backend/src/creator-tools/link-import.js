@@ -196,6 +196,7 @@ export async function collectImportTranscript(ctx, dependencies = importDependen
     } else {
       await stage('collecting_video')
       const media = await providers.instagramReel(job.input.url, ctx.checkpoint)
+      if (!media.videoUrl) fail('LINK_UNAVAILABLE', '영상이 아닌 게시물이에요. 릴스 링크를 넣어 주세요.', 422)
       caption = String(media.caption || '').slice(0, 2000)
       await dependencies.downloadPublicMedia(media.videoUrl, path, signal)
     }

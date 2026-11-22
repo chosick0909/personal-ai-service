@@ -92,7 +92,10 @@ function fakeDb() {
       return single ? out[0] ?? null : out
     }
     const api = {
-      select(_columns, options) { head = Boolean(options?.head); return api }, eq(k, v) { filters.push([k, v]); return api }, maybeSingle() { single = true; return api },
+      select(_columns, options) { head = Boolean(options?.head); return api },
+      // 'analysis->>kind' reads a key inside the analysis, as the queries that tell reels and carousels apart do.
+      eq(k, v) { const [col, key] = k.split('->>'); filters.push(key ? [null, row => row[col]?.[key] === v] : [k, v]); return api },
+      is(k, v) { const [col, key] = k.split('->>'); filters.push([null, row => ((key ? row[col]?.[key] : row[col]) ?? null) === v]); return api }, maybeSingle() { single = true; return api },
       neq(k, v) { filters.push([null, row => row[k] !== v]); return api }, gte(k, v) { filters.push([null, row => row[k] != null && row[k] >= v]); return api }, lt(k, v) { filters.push([null, row => row[k] != null && row[k] < v]); return api },
       upsert(row) { action = 'upsert'; payload = row; return api }, update(row) { action = 'update'; payload = row; return api },
       in(k, values) { filters.push([null, row => values.includes(row[k])]); return api },
@@ -408,4 +411,28 @@ test('fit follows from where the views came from: only the creator\'s own planni
   await classifyReelCategories(db, providers, rows, NOW)
   assert.deepEqual(rows.map(r => db.tables.creator_success_reels.get(r.shortcode).reference_fit), [false, true, false])
   assert.equal(withFit({ viewsSource: 'unknown' }).referenceFit, undefined, 'an unreadable answer leaves the stored fit alone')
+})
+
+test('reels and carousels are listed on separate tabs, and a carousel row says how many slides it has and links to the post', async () => {
+  const db = fakeDb()
+  const base = { visible: true, username: 'someone', caption: '', posted_at: '2026-10-20T00:00:00Z', analysis_status: 'none' }
+  db.tables.creator_success_reels.set('Reel0001', { ...base, shortcode: 'Reel0001', views: 900000 })
+  db.tables.creator_success_reels.set('Reel0002', { ...base, shortcode: 'Reel0002', views: 700000, analysis_status: 'ready', analysis: { overview: { topic: '주제' } } })
+  db.tables.creator_success_reels.set('Card0001', { ...base, shortcode: 'Card0001', views: 0, likes: 1200, recommended: true, analysis: { kind: 'carousel', slideCount: 9 }, slideCount: '9' })
+  const reels = await listSuccessReels(db, {}, null)
+  assert.deepEqual(reels.reels.map(r => r.shortcode).sort(), ['Reel0001', 'Reel0002'])
+  assert.ok(reels.reels.every(r => r.kind === 'reel' && r.slideCount === null && r.permalink.includes('/reel/')))
+  const carousels = await listSuccessReels(db, { kind: 'carousel' }, null)
+  assert.deepEqual(carousels.reels.map(r => [r.shortcode, r.kind, r.slideCount, r.permalink]), [['Card0001', 'carousel', 9, 'https://www.instagram.com/p/Card0001/']])
+  assert.deepEqual((await listSuccessReels(db, { kind: 'carousel', sort: 'views' }, null)).reels.map(r => r.shortcode), ['Card0001'])
+})
+
+test('a carousel gets its field from the caption, but no verdict on where a reel\'s views came from', async () => {
+  const db = fakeDb()
+  db.tables.creator_success_reels.set('Card0001', { shortcode: 'Card0001', username: 'mag', caption: '주말에 읽기 좋은 책 다섯 권', analysis: { kind: 'carousel', slideCount: 5 } })
+  const providers = { json: async () => ({ reels: [{ shortcode: 'Card0001', category: SUCCESS_REEL_CATEGORIES[0], region: 'domestic', viewsSource: 'othersFootage', fitReason: '남의 영상' }] }) }
+  await classifyReelCategories(db, providers, [...db.tables.creator_success_reels.values()], NOW)
+  const row = db.tables.creator_success_reels.get('Card0001')
+  assert.equal(row.category, SUCCESS_REEL_CATEGORIES[0])
+  assert.equal(row.reference_fit, undefined)
 })

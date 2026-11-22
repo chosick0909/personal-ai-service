@@ -16,7 +16,7 @@ import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.
 import { planContextFor } from './plan-context.js'
 import { readBrief } from './research.js'
 import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf, cancelStage, MAX_SCRIPT_LINES } from './engine.js'
-import { THUMBNAIL_BUCKET, classifyReelCategories } from '../success-reels.js'
+import { THUMBNAIL_BUCKET, classifyReelCategories, isCarousel, reelsOnly, postUrl, slidesKey } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
 import { readPublicImage } from '../network.js'
@@ -428,13 +428,13 @@ export function registerStudioRoutes(router) {
     // Until the memo column is added in production, the list still loads without notes.
     const mine = await query(list('shortcode,tags,memo,created_at')).catch(() => query(list('shortcode,tags,created_at')))
     const codes = mine.map(r => r.shortcode)
-    const reels = codes.length ? await query(db.from('creator_success_reels').select('shortcode,username,views,posted_at,caption,caption_ko,category,thumbnail_path,analysis_status,analysis_requests,analysis,source,title,visible,owner_user_id').in('shortcode', codes)) : []
+    const reels = codes.length ? await query(db.from('creator_success_reels').select('shortcode,username,views,likes,posted_at,caption,caption_ko,category,thumbnail_path,analysis_status,analysis_requests,analysis,source,title,visible,owner_user_id').in('shortcode', codes)) : []
     const paths = reels.map(r => r.thumbnail_path).filter(Boolean)
     const signed = paths.length ? await query(db.storage.from(THUMBNAIL_BUCKET).createSignedUrls(paths, 3600)) : []
     const urls = new Map(signed.filter(i => i.signedUrl).map(i => [i.path, i.signedUrl]))
     const byCode = new Map(reels.map(r => [r.shortcode, r]))
     res.set('Cache-Control', 'private, no-store').json({ references: mine.flatMap(m => { const r = byCode.get(m.shortcode); if (!r) return []
-      return [{ kind: 'reel', id: r.shortcode, username: r.username, views: r.views, postedAt: r.posted_at, caption: r.caption_ko || r.caption, category: r.category, thumbnailUrl: urls.get(r.thumbnail_path) || null, source: r.source, title: r.title, permalink: r.source && r.source !== 'upload-link' && r.source.startsWith('upload') ? null : `https://www.instagram.com/reel/${r.shortcode}/`,
+      return [{ kind: 'reel', id: r.shortcode, username: r.username, views: r.views, likes: r.likes, postedAt: r.posted_at, caption: r.caption_ko || r.caption, category: r.category, thumbnailUrl: urls.get(r.thumbnail_path) || null, source: r.source, title: r.title, permalink: r.source && r.source !== 'upload-link' && r.source.startsWith('upload') ? null : postUrl(r.shortcode, isCarousel(r.analysis)), media: isCarousel(r.analysis) ? 'carousel' : 'reel', slideCount: isCarousel(r.analysis) ? r.analysis.slideCount || null : null,
         analysisStatus: r.analysis_status, analysisRequests: r.analysis_requests || 0, tags: m.tags || [], memo: m.memo || '', addedAt: m.created_at,
         summary: r.analysis?.overview?.summary || null, hookType: r.analysis?.hook?.category || null, format: r.analysis?.structure?.category || null }] }) })
   }))
@@ -483,15 +483,21 @@ export function registerStudioRoutes(router) {
     const media = read || await createProviders({ db, redis: sharedRedis(), job: { id: null, user_id: null }, signal: AbortSignal.timeout(180000) })
       .instagramReel(url, undefined, priority)
     const username = String(media.username || '').replace(/^@/, '').toLowerCase()
-    if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 릴스의 계정 정보를 읽지 못했어요.', 422)
+    if (!/^[a-zA-Z0-9_.]{1,30}$/.test(username)) fail('LINK_UNAVAILABLE', '이 게시물의 계정 정보를 읽지 못했어요.', 422)
+    // No video but slide images: a carousel. It is marked now so the analysis and every list treat it as one.
+    const carousel = !media.videoUrl && media.slides?.length > 0
+    const current = carousel ? await query(db.from('creator_success_reels').select('analysis').eq('shortcode', shortcode).maybeSingle()) : null
     await query(db.from('creator_reel_accounts').upsert({ username, profile: { fromLink: true }, last_seen_at: new Date().toISOString() }, { onConflict: 'username', ignoreDuplicates: true }))
-    const image = media.thumbnailUrl ? await readPublicImage(media.thumbnailUrl, AbortSignal.timeout(20000)).catch(() => null) : null
+    const cover = media.thumbnailUrl || (carousel ? media.slides[0] : null)
+    const image = cover ? await readPublicImage(cover, AbortSignal.timeout(20000)).catch(() => null) : null
     const thumbnailPath = image ? await storeThumbnail(db, shortcode, image) : null
     await query(db.from('creator_success_reels').update({ username, views: media.views ?? 0, likes: media.likes, comments: media.comments,
-      posted_at: media.postedAt || new Date().toISOString(), ...(media.caption ? { caption: media.caption } : {}), ...(thumbnailPath ? { thumbnail_path: thumbnailPath } : {}) }).eq('shortcode', shortcode))
-    // The link fetch already paid for the video URL; keep it for the analysis download.
+      posted_at: media.postedAt || new Date().toISOString(), ...(media.caption ? { caption: media.caption } : {}), ...(thumbnailPath ? { thumbnail_path: thumbnailPath } : {}),
+      ...(carousel && !isCarousel(current?.analysis) ? { analysis: { kind: 'carousel', slideCount: media.slides.length } } : {}) }).eq('shortcode', shortcode))
+    // The link fetch already paid for the video URL (or the slide images); keep them for the analysis.
     if (media.videoUrl) await sharedRedis().set(`success-reel-video:${shortcode}`, media.videoUrl, 'EX', 3600).catch(() => {})
-    return { thumbnail: Boolean(thumbnailPath) }
+    if (carousel) await sharedRedis().set(slidesKey(shortcode), JSON.stringify(media.slides), 'EX', 3600).catch(() => {})
+    return { thumbnail: Boolean(thumbnailPath), carousel }
   }
   // Bright Data takes a minute or more, so the row is created at once and filled in the background;
   // the student watches the same analysis tracker as for any other reel.
@@ -500,7 +506,7 @@ export function registerStudioRoutes(router) {
     try {
       await fillFromLink(db, shortcode, url)
     } catch (error) {
-      const text = error?.exposeMessage ? error.message : '영상을 가져오지 못했어요. 링크를 확인하고 다시 시도해주세요.'
+      const text = error?.exposeMessage ? error.message : '게시물을 가져오지 못했어요. 링크를 확인하고 다시 시도해주세요.'
       await query(db.from('creator_success_reels').update({ analysis_status: 'failed', analysis_error: text, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode)).catch(() => {})
       return
     }
@@ -532,11 +538,17 @@ export function registerStudioRoutes(router) {
   const recommendLink = async (shortcode, url, read = null) => {
     const db = database()
     try {
-      const { thumbnail } = await fillFromLink(db, shortcode, url, LOOKUP_PRIORITY.recommend, read)
+      const { thumbnail, carousel } = await fillFromLink(db, shortcode, url, LOOKUP_PRIORITY.recommend, read)
       if (thumbnail) await query(db.from('creator_success_reels').update({ visible: true }).eq('shortcode', shortcode))
       // The field is judged from the caption right away instead of waiting for the Mac mini's next run.
       const row = await query(db.from('creator_success_reels').select('shortcode,username,caption,analysis').eq('shortcode', shortcode).single())
       await classifyReelCategories(db, deps().makeProviders(AbortSignal.timeout(120000)), [row]).catch(error => console.error('[recommend-category]', error?.code || 'FAILED'))
+      // A 추천 carousel is analysed right away, while the slide images just read are still reachable: its analysis is
+      // then ready for every student, and nobody's 분석하기 has to wait for the Mac mini to read the post again.
+      if (carousel && row.analysis?.overview === undefined) {
+        await query(db.from('creator_success_reels').update({ analysis_status: 'running', analysis_error: null, analysis_updated_at: new Date().toISOString() }).eq('shortcode', shortcode))
+        await runReelAnalysis({ ...deps(), lookupPriority: LOOKUP_PRIORITY.recommend }, shortcode)
+      }
     } catch (error) {
       console.error('[recommend-link]', shortcode, error?.code || 'LINK_FAILED')
       // A link Instagram no longer shows (deleted or made private) is marked once, so restarts do not retry it.
@@ -550,7 +562,7 @@ export function registerStudioRoutes(router) {
     try {
       const db = database()
       const pending = await query(db.from('creator_success_reels').select('shortcode').eq('recommended', true).eq('username', 'recommended').neq('analysis_status', 'failed').limit(300))
-      for (const { shortcode } of pending) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, `https://www.instagram.com/reel/${shortcode}/`), 1, 'recommend')
+      for (const { shortcode } of pending) schedule(`recommend:${shortcode}`, () => recommendLink(shortcode, postUrl(shortcode)), 1, 'recommend')
     } catch (error) { console.error('[recommend-resume]', error?.code || 'FAILED') }
   }, 30000).unref?.()
   // 영상 편집: speech-to-text mishears words; with the plan's script 훅ai fixes only the misheard words and keeps every cue's timing.
@@ -691,7 +703,7 @@ export function registerStudioRoutes(router) {
   }))
 
   router.post('/creator-tools/studio/recommended', asyncHandler(async (req, res) => {
-    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 릴스는 관리자만 추가할 수 있어요.', 404)
+    if (!canRecommend(req.auth.userId)) fail('FEATURE_DISABLED', '추천 레퍼런스는 관리자만 추가할 수 있어요.', 404)
     const db = database()
     // items: [{ url, title, read }] — title is the cover copy written above the link (a proven success cover); read is the
     // reel as read in 지영's logged-in Chrome (checked like a Mac mini report); links: plain URLs.
@@ -702,7 +714,7 @@ export function registerStudioRoutes(router) {
       const raw = item?.url
       const title = text(item?.title, 80) || null
       const read = item?.read ? lookupResult(item.read) : null
-      if (read && !read.videoUrl) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
+      if (read && !read.videoUrl && !read.slides.length) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
       const url = instagramPostUrl(String(raw || '').trim())
       const shortcode = url ? new URL(url).pathname.split('/')[2] : null
       if (!shortcode) { result.invalid.push(String(raw || '').slice(0, 200)); continue }
@@ -731,7 +743,7 @@ export function registerStudioRoutes(router) {
     const db = database(), userId = req.auth.userId
     const raw = String(req.body?.url || '').trim(), video = youtubeVideoId(raw)
     const url = video ? youtubeUrl(video) : instagramPostUrl(raw)
-    if (!url) fail('LINK_INVALID', '인스타그램 릴스나 유튜브 영상 링크를 넣어주세요. 예) https://www.instagram.com/reel/XXXX/')
+    if (!url) fail('LINK_INVALID', '인스타그램 릴스·캐러셀이나 유튜브 영상 링크를 넣어주세요. 예) https://www.instagram.com/reel/XXXX/')
     const shortcode = video ? youtubeShortcode(video) : new URL(url).pathname.split('/')[2]
     const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id,source_path').eq('shortcode', shortcode).maybeSingle())
     // A YouTube link whose video never reached storage (the earlier try failed) is fetched again.
@@ -833,7 +845,7 @@ export function registerStudioRoutes(router) {
   router.get('/creator-tools/studio/library', asyncHandler(async (req, res) => {
     enabled(req)
     const db = database()
-    const rows = await query(db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,analysis').eq('visible', true).eq('analysis_status', 'ready').order('views', { ascending: false }).limit(400))
+    const rows = await query(reelsOnly(db.from('creator_success_reels').select('shortcode,username,views,thumbnail_path,analysis')).eq('visible', true).eq('analysis_status', 'ready').order('views', { ascending: false }).limit(400))
     // Examples are the reels 훅ai's daily study filed under each entry; a reel it has not filed yet falls back to the analysis type.
     const filed = new Map((await query(db.from('creator_reel_formulas').select('shortcode,hook_id,structure_id')).catch(() => [])).map(m => [m.shortcode, m]))
     const library = await libraryEntries(db)

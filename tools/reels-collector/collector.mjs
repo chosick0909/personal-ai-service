@@ -48,7 +48,8 @@ async function login() {
 const FIELDS = new Set(['play_count', 'ig_play_count', 'view_count', 'video_view_count', 'video_play_count',
   'taken_at', 'taken_at_timestamp', 'like_count', 'comment_count', 'code', 'shortcode', 'image_versions2',
   'display_url', 'thumbnail_src', 'music_info', 'original_sound_info', 'follower_count', 'edge_followed_by',
-  'biography', 'external_url', 'is_private', 'category_name', 'product_type', 'media_type'])
+  'biography', 'external_url', 'is_private', 'category_name', 'product_type', 'media_type', 'carousel_media', 'carousel_media_count',
+  'edge_sidecar_to_children'])
 function scan(value, found, path = '', depth = 0) {
   if (depth > 10 || value === null || typeof value !== 'object') return
   if (Array.isArray(value)) { value.slice(0, 3).forEach(item => scan(item, found, `${path}[]`, depth + 1)); return }
@@ -174,6 +175,8 @@ const limited = async where => {
 // uses returns in one short request (about 0.4s instead of about 9s for opening the reel page). It is asked from
 // one Instagram tab kept open on a page that loads nothing else; the reel page is opened only when it has no answer.
 let infoTab = null
+// What a lookup can answer with: a reel's video file, or a carousel's slide images.
+const readable = item => Boolean(item?.videoUrl || item?.slides?.length)
 async function askInfo(context, shortcode) {
   if (!infoTab || infoTab.isClosed() || !/^https:\/\/www\.instagram\.com\//.test(infoTab.url())) {
     await infoTab?.close().catch(() => {})
@@ -192,7 +195,7 @@ async function askInfo(context, shortcode) {
   const media = new Map()
   parseBodies(text).forEach(body => collectMedia(body, media))
   const item = media.get(shortcode) || media.get(shortcode.slice(0, 11))
-  return item?.videoUrl ? { item } : {}
+  return readable(item) ? { item } : {}
 }
 
 async function openReel(context, shortcode, url) {
@@ -210,10 +213,10 @@ async function openReel(context, shortcode, url) {
     if (BLOCKED.test(page.url())) return { blocked: true }
     const inline = await page.$$eval('script[type="application/json"]', nodes => nodes.map(node => node.textContent || '')).catch(() => [])
     for (const text of inline) if (/"code"/.test(text)) bodies.push(...parseBodies(text))
-    for (let i = 0; i < 3 && !found()?.videoUrl; i += 1) await pause(2000, 3000)
+    for (let i = 0; i < 3 && !readable(found()); i += 1) await pause(2000, 3000)
     // A single reel page carries likes but not plays, and some reel pages never list the video file at all;
     // the media info endpoint Instagram's own page uses has both, so it is asked whenever either is missing.
-    if (!found()?.videoUrl || !found().views) {
+    if (!readable(found()) || (found().videoUrl && !found().views)) {
       const info = await page.evaluate(async id => {
         const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''
         const response = await fetch(`/api/v1/media/${id}/info/`, { credentials: 'include', headers: { 'x-ig-app-id': '936619743392459', 'x-csrftoken': csrf, 'x-requested-with': 'XMLHttpRequest' } })
@@ -222,7 +225,7 @@ async function openReel(context, shortcode, url) {
       if (info) bodies.push(...parseBodies(info))
     }
     const item = found()
-    if (item?.videoUrl) return { item }
+    if (readable(item)) return { item }
     return { gone: await page.getByText(/사용할 수 없|isn.t available|not available/i).count().catch(() => 0) > 0 }
   } finally { await page.close().catch(() => {}) }
 }
@@ -253,7 +256,7 @@ async function readLookup(context, lookup) {
     }
     misses = 0
     lastGood = { shortcode: lookup.shortcode, url: lookup.url }
-    return { result: { videoUrl: item.videoUrl, thumbnailUrl: item.thumbnailUrl, caption: item.caption, username: item.owner,
+    return { result: { videoUrl: item.videoUrl, slides: item.videoUrl ? [] : item.slides, thumbnailUrl: item.thumbnailUrl, caption: item.caption, username: item.owner,
       views: item.views, likes: item.likes, comments: item.comments, postedAt: postedAt(item.code)?.toISOString() || null } }
   } catch (error) {
     const message = String(error?.message || error)
@@ -357,12 +360,27 @@ function postedAt(code) {
 // The numeric media id is the shortcode read as base-64 digits.
 const mediaId = code => [...code].reduce((value, char) => value * 64n + BigInt(ALPHABET.indexOf(char)), 0n).toString()
 const num = value => Number.isSafeInteger(value) && value >= 0 ? value : null
+// The widest image Instagram lists for one media item, up to 1440px: the text on a carousel slide has to stay readable.
+const largestImage = item => {
+  const candidates = (item?.image_versions2?.candidates || []).filter(c => typeof c?.url === 'string')
+  const fitting = candidates.filter(c => (c.width || 0) <= 1440)
+  return [...(fitting.length ? fitting : candidates)].sort((a, b) => (b.width || 0) - (a.width || 0))[0]?.url || (typeof item?.display_url === 'string' ? item.display_url : null)
+}
+// A carousel's slides in order (a video slide gives its cover image); a single photo post is a carousel of one.
+function slidesOf(value) {
+  const children = Array.isArray(value.carousel_media) ? value.carousel_media
+    : Array.isArray(value.edge_sidecar_to_children?.edges) ? value.edge_sidecar_to_children.edges.map(edge => edge?.node) : null
+  if (children) return children.map(largestImage).filter(Boolean).slice(0, 20)
+  const photo = value.media_type === 1 && !Array.isArray(value.video_versions) && value.product_type !== 'clips'
+  return photo ? [largestImage(value)].filter(Boolean) : []
+}
 // Walk any captured Instagram JSON and merge every media object by its shortcode.
 function collectMedia(value, media, depth = 0) {
   if (depth > 14 || value === null || typeof value !== 'object') return
   if (Array.isArray(value)) { value.forEach(item => collectMedia(item, media, depth + 1)); return }
-  if (typeof value.code === 'string' && (value.image_versions2 || value.play_count !== undefined || value.view_count !== undefined)) {
+  if (typeof value.code === 'string' && (value.image_versions2 || value.carousel_media || value.play_count !== undefined || value.view_count !== undefined)) {
     const previous = media.get(value.code) || {}
+    const slides = slidesOf(value)
     const owner = value.user?.username || value.owner?.username || previous.owner
     const candidates = value.image_versions2?.candidates || []
     const thumb = [...candidates].sort((a, b) => (a.width || 0) - (b.width || 0)).find(c => (c.width || 0) >= 300) || candidates.at(-1)
@@ -378,6 +396,7 @@ function collectMedia(value, media, depth = 0) {
       // The reel page lists playable CDN files; the largest one serves the hover preview and the analysis download.
       videoUrl: [...(Array.isArray(value.video_versions) ? value.video_versions : [])].sort((a, b) => (b.width || 0) - (a.width || 0)).find(v => typeof v.url === 'string')?.url || previous.videoUrl || null,
       clip: value.product_type === 'clips' || value.media_type === 2 || previous.clip || false,
+      slides: slides.length ? slides : previous.slides || [],
     })
   }
   for (const child of Object.values(value)) collectMedia(child, media, depth + 1)

@@ -254,6 +254,8 @@
 .st-reel { display:grid; gap:8px; min-width:0; }
 .st-reel-thumb { position:relative; aspect-ratio:9/16; overflow:hidden; border-radius:14px; background:#1b1825; }
 .st-reel-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+/* A carousel cover is 4:5; its card keeps that shape so the title on the cover is not cropped. */
+.st-reel-carousel .st-reel-thumb { aspect-ratio:4/5; }
 .st-reel-thumb::after { content:''; position:absolute; left:0; right:0; bottom:0; height:46%; background:linear-gradient(transparent, rgba(0,0,0,.72)); pointer-events:none; }
 .st-reel-open { position:absolute; inset:0; border:0; background:none; padding:0; }
 .st-reel-date { position:absolute; top:10px; right:10px; z-index:1; color:#fff; font-size:13px; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,.6); }
@@ -313,6 +315,19 @@
 .st-video { position:relative; aspect-ratio:9/16; overflow:hidden; border-radius:16px; background:#000; }
 .st-video video, .st-video img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 .st-video video { object-fit:contain; }
+.st-video.st-cover { aspect-ratio:4/5; background:var(--st-bg); }
+.st-detail > aside .st-video.st-cover { height:auto; width:100%; }
+.st-video.st-cover img { object-fit:contain; }
+.st-cover-count { position:absolute; right:10px; top:10px; display:flex; align-items:center; gap:5px; padding:5px 10px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff; font-size:13px; font-weight:800; }
+.st-kind-tabs { margin-bottom:-4px; }
+.st-slides { list-style:none; margin:0; padding:0; display:grid; gap:14px; }
+.st-slides li { display:grid; grid-template-columns:52px minmax(0,1fr); gap:12px; align-items:start; padding-bottom:14px; border-bottom:1px solid var(--st-line); }
+.st-slides li:last-child { border-bottom:0; padding-bottom:0; }
+.st-slide-n { font-weight:800; color:var(--st-muted); padding-top:2px; }
+.st-slide-text { margin:6px 0 4px; font-size:16px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.st-swatches { display:flex; flex-wrap:wrap; gap:10px; }
+.st-swatch { display:inline-flex; align-items:center; gap:6px; font-size:14px; font-weight:700; }
+.st-swatch i { width:20px; height:20px; border-radius:6px; border:1px solid var(--st-line-strong); }
 .st-video-link { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); padding:10px 16px; border-radius:999px; background:#fff; color:var(--st-accent-text); font-weight:800; white-space:nowrap; }
 .st-tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1px solid var(--st-line); scrollbar-width:none; }
 .st-tab { flex:none; min-height:48px; padding:0 16px; border:0; border-bottom:3px solid transparent; background:none; font-size:16px; font-weight:700; color:var(--st-muted); }

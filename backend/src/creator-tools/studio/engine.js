@@ -2,6 +2,7 @@ import { query } from '../store.js'
 import { fail } from '../domain.js'
 import { HOOKAI_SYSTEM, STAGE_ORDER, nextStage } from './persona.js'
 import { STORY_FORMATS, schedule, isScheduled, canOpenReel } from '../success-reel-analysis.js'
+import { isCarousel, reelsOnly } from '../success-reels.js'
 import { SUCCESS_REEL_CATEGORIES } from '../categories.js'
 import { estimateLineSeconds } from '../../../../shared/script-duration.mjs'
 import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint, SCRIPT_PRINCIPLES, HOOK_PRINCIPLES } from './copy-principles.js'
@@ -36,6 +37,8 @@ export async function resolveSources(db, userId, sources = {}) {
       const reel = await query(db.from('creator_success_reels').select('shortcode,username,caption,views,analysis,analysis_status,category,visible,owner_user_id,source').eq('shortcode', source.id).maybeSingle())
       if (!(await canOpenReel(db, reel, userId))) fail('SOURCE_NOT_FOUND', '레퍼런스를 찾을 수 없어요.', 404)
       if (reel.analysis_status !== 'ready') fail('SOURCE_NOT_READY', '아직 분석이 끝나지 않은 레퍼런스가 있어요.', 409)
+      // A carousel's analysis has no script or filming to follow; planning from one is not open yet.
+      if (isCarousel(reel.analysis)) fail('SOURCE_IS_CAROUSEL', '캐러셀 레퍼런스로 기획안을 만드는 기능은 준비 중이에요.', 409)
       const a = reel.analysis
       // A reference with no speech or subtitles tells its story in scenes, and its caption carries the words.
       const delivery = a.transcript?.source === 'scenes' ? '말·자막 없이 장면으로 보여 주고, 설명은 캡션이 맡는 영상' : undefined
@@ -129,7 +132,7 @@ const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 
 규칙: brief가 있으면 그 소재가 곧 주제이고, 질문과 제안은 그 소재 안에서만 합니다. 레퍼런스(sources)가 있으면 첫 질문은 그 형식을 수강생의 소재에 살리는 데 필요한 재료(형식이 요구하는 비교 대상, 경험, 기준 등)를 묻습니다. 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 수강생이 답한 사실은 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어갑니다. facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
 
 export async function trendingFor(db, category) {
-  let request = db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready')
+  let request = reelsOnly(db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready'))
   if (category && SUCCESS_REEL_CATEGORIES.includes(category)) request = request.eq('category', category)
   const rows = await query(request.order('analysis_requests', { ascending: false }).order('views', { ascending: false }).limit(6))
   return rows.map(r => ({ account: `@${r.username}`, category: r.category, views: r.views, topic: r.analysis?.overview?.topic, hookType: r.analysis?.hook?.category, hookFormula: r.analysis?.hook?.formula, format: r.analysis?.structure?.category }))

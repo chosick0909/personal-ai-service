@@ -15,7 +15,7 @@ const BLOCKED_REUSE_MS = 10 * 60000
 // What the post itself is (no video, deleted, private) does not change on a retry minutes later.
 const POST_ERRORS = ['LINK_PRIVATE', 'LINK_DELETED', 'LINK_UNAVAILABLE', 'VIDEO_TOO_LONG']
 const FAILED_REUSE_MS = 10 * 60000
-const UNAVAILABLE = '영상을 가져올 수 없어요. 사진 게시물(카드뉴스)이나 연령 제한·비공개 게시물은 분석할 수 없어요. 영상 파일(MP4)이나 대본을 직접 올려 주세요.'
+const UNAVAILABLE = '게시물을 가져올 수 없어요. 연령 제한·비공개 게시물은 분석할 수 없어요. 영상 파일(MP4)이나 대본을 직접 올려 주세요.'
 export const OFFLINE_MESSAGE = '링크 조회용 컴퓨터가 지금 응답하지 않아요. 잠시 후 다시 시도하거나 MP4·대본 업로드를 이용해주세요.'
 export const TIMEOUT_MESSAGE = '링크 조회가 늦어지고 있어요. 잠시 후 다시 시도해주세요.'
 export const BLOCKED_MESSAGE = '지금 인스타에서 릴스를 읽지 못하고 있어요(조회용 계정 확인 중). 잠시 후 다시 시도하거나 MP4·대본 업로드를 이용해주세요.'
@@ -72,10 +72,13 @@ export async function awaitLookup({ db, redis, signal }, id, { timeoutMs = 18000
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null
 const https = (value, hosts) => { try { const u = new URL(value); return u.protocol === 'https:' && hosts.test(u.hostname) ? u.href : null } catch { return null } }
 const CDN = /(^|\.)(cdninstagram\.com|fbcdn\.net)$/
+// slides: a carousel's images in order (a photo post is a carousel of one); empty for a reel.
+export const MAX_SLIDES = 20
 export function lookupResult(raw) {
   const username = String(raw?.username || '').replace(/^@/, '').toLowerCase()
   return {
     videoUrl: https(raw?.videoUrl, CDN), thumbnailUrl: https(raw?.thumbnailUrl, CDN),
+    slides: (Array.isArray(raw?.slides) ? raw.slides : []).slice(0, MAX_SLIDES).map(url => https(url, CDN)).filter(Boolean),
     caption: typeof raw?.caption === 'string' ? raw.caption.normalize('NFC').slice(0, 5000) : '',
     username: /^[a-z0-9_.]{1,30}$/.test(username) ? username : null,
     views: count(raw?.views), likes: count(raw?.likes), comments: count(raw?.comments),

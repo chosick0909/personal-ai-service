@@ -1,3 +1,4 @@
+import { reelsOnly } from '../success-reels.js'
 import { query } from '../store.js'
 import { runReelAnalysis } from '../success-reel-analysis.js'
 import { LOOKUP_PRIORITY, OFFLINE_MESSAGE, TIMEOUT_MESSAGE, BLOCKED_MESSAGE, collectorOnline } from '../instagram-lookup.js'
@@ -57,7 +58,7 @@ export async function fieldKnowledge(db, category) {
   return value
 }
 
-const usable = request => request.eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true')
+const usable = request => reelsOnly(request.eq('visible', true).or('reference_fit.is.null,reference_fit.eq.true,recommended.eq.true'))
 
 // Unanalyzed archive reels, 추천 first and then by views. Reels whose video link is still cached go ahead of the rest,
 // and only `lookups` of those without one are taken. Reels that failed are tried again after a week, and

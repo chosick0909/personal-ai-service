@@ -70,7 +70,7 @@ export function createReelIngestRouter() {
     // A YouTube lookup is done only once its file reached storage; the path is the server's own, never the Mac mini's.
     const youtube = isYoutubeShortcode(row?.shortcode)
     const result = !req.body?.result ? null : youtube ? youtubeLookupResult(req.body.result, row.result?.videoPath || null) : lookupResult(req.body.result)
-    const patch = (youtube ? result?.videoPath : result?.videoUrl) ? { status: 'done', result, error: null } : { status: 'failed', error: lookupError(req.body?.error), result }
+    const patch = (youtube ? result?.videoPath : result?.videoUrl || result?.slides?.length) ? { status: 'done', result, error: null } : { status: 'failed', error: lookupError(req.body?.error), result }
     await query(db.from('creator_instagram_lookups').update({ ...patch, finished_at: new Date().toISOString() }).eq('id', id).eq('status', 'claimed'))
     res.json({ ok: true })
   }))

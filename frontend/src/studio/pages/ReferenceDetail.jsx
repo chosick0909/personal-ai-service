@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Check, Copy, Heart, MessageCircle, Play, Sparkles, LoaderCircle, Save } from 'lucide-react'
+import { ArrowLeft, Check, Copy, Heart, MessageCircle, Play, Sparkles, LoaderCircle, Save, Images } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount, day } from '../api'
 import { InstagramIcon } from './ReelsPage'
@@ -98,11 +98,59 @@ export function AnalysisTabs({ reel, analysis, tab, setTab, onSaveFormula }) {
   </>
 }
 
+// A carousel is read slide by slide: its cover title, what each slide does, how it is designed and how it ends.
+const CAROUSEL_TABS = [['overview', '한눈에'], ['cover', '표지'], ['structure', '구성'], ['design', '디자인'], ['closing', '마지막 장·캡션']]
+const SLIDE_ROLE = { cover: '표지', problem: '문제 제기', empathy: '공감', evidence: '근거', method: '방법', twist: '반전', summary: '정리', cta: '마무리', other: '전개' }
+const SLIDE_ROLE_CLASS = { cover: 'hook', cta: 'cta' }
+export function CarouselAnalysisTabs({ reel, analysis, tab, setTab }) {
+  const o = analysis.overview || {}, cover = analysis.cover || {}, s = analysis.structure || {}, d = analysis.design || {}, last = analysis.closing || {}, c = analysis.caption || {}
+  const slides = s.slides || []
+  const slideText = slides.filter(slide => slide.text).map(slide => `${slide.n}장\n${slide.text}`).join('\n\n')
+  return <>
+    <nav className="st-tabs" aria-label="분석 보기">{CAROUSEL_TABS.map(([id, label]) => <button type="button" key={id} className="st-tab" aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</nav>
+    {tab === 'overview' && <div className="st-stack">
+      <section className="st-card"><h3 style={{ marginBottom: 8 }}>한눈에 보기</h3><p style={{ fontSize: 17 }}>{o.summary}</p></section>
+      <div className="st-metrics"><div><span>장 수</span><strong>{analysis.slideCount || slides.length}장</strong></div><div><span>좋아요</span><strong>{reel.likes ? compactCount(reel.likes) : '숨김'}</strong></div><div><span>댓글</span><strong>{compactCount(reel.comments)}</strong></div></div>
+      <section className="st-card"><KV label="주제">{o.topic}</KV><KV label="핵심 아이디어">{o.ideaSeed}</KV><KV label="차별 포인트">{o.uniqueAngle}</KV></section>
+      {o.evidence?.length > 0 && <section className="st-card"><div className="st-card-head"><h3>설득 포인트</h3><p>주장을 믿게 하려고 캐러셀이 이유로 든 내용</p></div><ul className="st-lines-read">{o.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul></section>}
+    </div>}
+    {tab === 'cover' && <div className="st-stack">
+      <section className="st-card"><span className="st-pill">표지 제목</span><h2 style={{ marginTop: 10, fontSize: 24, lineHeight: 1.45 }}>“{cover.title}”</h2></section>
+      {known(cover.formula) && <section className="st-card"><div className="st-card-head"><h3>표지 제목 공식</h3><CopyButton text={cover.formula} /></div><p className="st-formula">{marked(cover.formula)}</p><p className="st-muted st-small" style={{ marginTop: 8 }}>[ ] 자리에 내 주제를 넣어 바로 쓸 수 있어요.</p></section>}
+      <section className="st-card"><KV label="제목을 받치는 화면">{cover.visual}</KV></section>
+      <section className="st-card"><h3 style={{ marginBottom: 8 }}>왜 멈추게 하나요</h3><Readable text={cover.analysis} /></section>
+      {cover.apply?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>내 주제로 따라 하기</h3><ol className="st-steps">{cover.apply.map((t, i) => <li key={i}>{t}</li>)}</ol></section>}
+    </div>}
+    {tab === 'structure' && <div className="st-stack">
+      <section className="st-card"><span className="st-pill">{s.category}</span><p style={{ marginTop: 10, fontSize: 17 }}>{s.description}</p></section>
+      <section className="st-card"><div className="st-card-head"><h3>장별 구성</h3><CopyButton text={slideText} label="장별 글 복사" /></div>
+        <ol className="st-slides">{slides.map(slide => <li key={slide.n}><span className="st-slide-n">{slide.n}장</span><div>
+          <span className={`st-role st-role-${SLIDE_ROLE_CLASS[slide.role] || slide.role}`}>{SLIDE_ROLE[slide.role] || '전개'}</span>
+          <p className="st-slide-text">{slide.text || <span className="st-muted">글 없이 사진만 있는 장이에요.</span>}</p>
+          {slide.turn && slide.turn !== '없음' && <p className="st-muted st-small">다음 장으로 넘기는 장치: {slide.turn}</p>}</div></li>)}</ol></section>
+      <section className="st-card"><h3 style={{ marginBottom: 8 }}>왜 끝까지 넘기나요</h3><Readable text={s.analysis} /></section>
+      {s.apply?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>내 캐러셀에 적용하기</h3><ol className="st-steps">{s.apply.map((t, i) => <li key={i}>{t}</li>)}</ol></section>}
+    </div>}
+    {tab === 'design' && <div className="st-stack">
+      <section className="st-card"><KV label="틀">{d.frame}</KV><KV label="배경">{d.background}</KV><KV label="강조 방식">{d.emphasis}</KV><KV label="한 장의 글 양">{d.textAmount}</KV><KV label="사진·그림">{d.imageUse}</KV>
+        {d.colors?.length > 0 && <div className="st-kv"><span>주로 쓴 색</span><div className="st-swatches">{d.colors.map(color => <span key={color} className="st-swatch"><i style={{ background: color }} />{color}</span>)}</div></div>}</section>
+      {d.guide?.length > 0 && <section className="st-card"><h3 style={{ marginBottom: 10 }}>이렇게 디자인해 보세요</h3><ol className="st-steps">{d.guide.map((g, i) => <li key={i}>{g}</li>)}</ol></section>}
+    </div>}
+    {tab === 'closing' && <div className="st-stack">
+      <section className="st-card"><div className="st-row" style={{ justifyContent: 'space-between' }}><h3>마지막 장</h3>{last.cta && last.cta !== '없음' && <span className="st-pill">{last.cta} 유도</span>}</div>
+        <p style={{ marginTop: 10, fontSize: 17, whiteSpace: 'pre-wrap' }}>{last.text || '글 없이 사진만 있는 장이에요.'}</p>{last.analysis && <p className="st-muted" style={{ marginTop: 10 }}>{last.analysis}</p>}</section>
+      <section className="st-card"><h3 style={{ marginBottom: 8 }}>캡션 분석</h3><KV label="첫 줄 장치">{c.firstLine}</KV><KV label="본문 구성">{c.structure}</KV><KV label="마무리 유도">{c.cta}</KV><KV label="해시태그 전략">{c.hashtags}</KV><KV label="역할">{c.analysis}</KV></section>
+      <section className="st-card"><div className="st-card-head"><h3>캡션 원문</h3><CopyButton text={reel.caption} /></div><p style={{ whiteSpace: 'pre-wrap' }}>{reel.caption || '캡션이 없는 게시물이에요.'}</p></section>
+    </div>}
+  </>
+}
+
 // [ ] slots of a formula are highlighted so the student sees where their own topic goes.
 const marked = formula => String(formula || '').split(/(\[[^\]]+\])/).map((p, i) => /^\[/.test(p) ? <mark key={i}>{p}</mark> : p)
 
 // The server reports only running/ready; the stage shown follows how long the analysis has run.
 const ANALYSIS_STAGES = ['영상 가져오기', '대본 읽기', '첫 문장·전개·촬영·캡션 분석']
+const CAROUSEL_STAGES = ['게시물 가져오기', '장별 글 읽기', '표지·구성·디자인·캡션 분석']
 const analysisStage = startedAt => { const s = startedAt ? (Date.now() - Date.parse(startedAt)) / 1000 : 0; return s < 20 ? 0 : s < 60 ? 1 : 2 }
 
 export default function ReferenceDetail({ shortcode }) {
@@ -111,6 +159,7 @@ export default function ReferenceDetail({ shortcode }) {
   const [reel, setReel] = useState(null)
   const [error, setError] = useState('')
   const [tab, setTab] = useState('script')
+  const [carouselTab, setCarouselTab] = useState('overview')
   const running = Boolean(tracking[shortcode]) || reel?.analysisStatus === 'running'
   useEffect(() => {
     let alive = true
@@ -122,24 +171,27 @@ export default function ReferenceDetail({ shortcode }) {
   if (error) return <div className="st-error" role="alert">{error}</div>
   if (!reel) return <p className="st-muted">불러오는 중…</p>
   const analysis = reel.analysisStatus === 'ready' ? reel.analysis : null
+  const carousel = reel.kind === 'carousel'
   return <div className="st-stack">
     <div className="st-row" style={{ justifyContent: 'space-between' }}>
       {/* Back to the page the reel was opened from (주제 찾기, 내 레퍼런스…); opened directly, to 영감 찾기. */}
       <button type="button" className="st-btn st-btn-ghost" onClick={() => back ? back.go() : go('reels')}><ArrowLeft size={20} />{back?.name || '영감 찾기'}</button>
-      {analysis && <button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('new', { ref: shortcode })}><Sparkles size={20} />이 레퍼런스로 기획안 만들기</button>}
+      {analysis && !carousel && <button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('new', { ref: shortcode })}><Sparkles size={20} />이 레퍼런스로 기획안 만들기</button>}
     </div>
     <div className="st-detail">
       <aside className="st-stack" style={{ gap: 12 }}>
         {reel.source === 'upload-text' ? <div className="st-card st-stack" style={{ gap: 8 }}><span className="st-pill st-pill-gray">내가 넣은 대본</span><strong style={{ fontSize: 18 }}>{reel.title}</strong><p className="st-muted st-small">영상 없이 대본만으로 분석했어요.</p></div>
+          : carousel ? <div className="st-video st-cover">{reel.thumbnailUrl && <img src={reel.thumbnailUrl} alt="캐러셀 표지" />}<span className="st-cover-count"><Images size={15} />{reel.slideCount ? `${reel.slideCount}장` : '캐러셀'}</span></div>
           : <Video shortcode={shortcode} poster={reel.thumbnailUrl} permalink={reel.permalink} />}
-        {reel.permalink ? <div className="st-row" style={{ justifyContent: 'space-between' }}><a href={`https://www.instagram.com/${reel.username}/`} target="_blank" rel="noreferrer" style={{ fontWeight: 800, color: 'var(--st-text)' }}>@{reel.username}</a><a className="st-btn st-btn-sm" href={reel.permalink} target="_blank" rel="noreferrer"><InstagramIcon size={17} />인스타그램에서 보기</a></div>
+        {reel.permalink ? <div className="st-row" style={{ justifyContent: 'space-between' }}><a href={`https://www.instagram.com/${reel.username}/`} target="_blank" rel="noreferrer" style={{ fontWeight: 800, color: 'var(--st-text)' }}>@{reel.username}</a><a className="st-btn st-btn-sm" href={reel.permalink} target="_blank" rel="noreferrer"><InstagramIcon size={17} />{carousel ? '인스타그램에서 넘겨 보기' : '인스타그램에서 보기'}</a></div>
           : <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>{reel.title || '내 레퍼런스'}</strong><span className="st-pill st-pill-gray">나만 보여요</span></div>}
-        {reel.permalink && <div className="st-row st-muted st-small" style={{ gap: 14 }}><span><Play size={14} /> {compactCount(reel.views)}</span><span><Heart size={14} /> {compactCount(reel.likes)}</span><span><MessageCircle size={14} /> {compactCount(reel.comments)}</span><span>{day(reel.postedAt)}</span></div>}
+        {reel.permalink && <div className="st-row st-muted st-small" style={{ gap: 14 }}>{!carousel && <span><Play size={14} /> {compactCount(reel.views)}</span>}<span><Heart size={14} /> {carousel && !reel.likes ? '숨김' : compactCount(reel.likes)}</span><span><MessageCircle size={14} /> {compactCount(reel.comments)}</span><span>{day(reel.postedAt)}</span></div>}
       </aside>
       <div className="st-stack">
-        {analysis ? <AnalysisTabs reel={reel} analysis={analysis} tab={tab} setTab={setTab} onSaveFormula={saveFormula} />
-          : running ? <HookLoader title="훅ai가 분석하는 중" stages={ANALYSIS_STAGES} stageIndex={analysisStage(tracking[shortcode] ? null : reel.analysisUpdatedAt)} startedAt={tracking[shortcode] ? null : reel.analysisUpdatedAt} note="보통 1~2분 걸려요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드릴게요." />
-          : <div className="st-card st-stack"><h3>{reel.analysisStatus === 'failed' ? '분석하지 못했어요' : '아직 분석하지 않은 영상이에요'}</h3>{reel.analysisError && <p className="st-muted">{reel.analysisError}</p>}<button type="button" className="st-btn st-btn-primary st-btn-big" style={{ justifySelf: 'start' }} onClick={() => analyze(reel)}><Sparkles size={20} />분석하기</button></div>}
+        {analysis && carousel ? <CarouselAnalysisTabs reel={reel} analysis={analysis} tab={carouselTab} setTab={setCarouselTab} />
+          : analysis ? <AnalysisTabs reel={reel} analysis={analysis} tab={tab} setTab={setTab} onSaveFormula={saveFormula} />
+          : running ? <HookLoader title="훅ai가 분석하는 중" stages={carousel ? CAROUSEL_STAGES : ANALYSIS_STAGES} stageIndex={analysisStage(tracking[shortcode] ? null : reel.analysisUpdatedAt)} startedAt={tracking[shortcode] ? null : reel.analysisUpdatedAt} note="보통 1~2분 걸려요. 이 화면을 떠나도 계속 분석되고, 끝나면 알려드릴게요." />
+          : <div className="st-card st-stack"><h3>{reel.analysisStatus === 'failed' ? '분석하지 못했어요' : carousel ? '아직 분석하지 않은 캐러셀이에요' : '아직 분석하지 않은 영상이에요'}</h3>{reel.analysisError && <p className="st-muted">{reel.analysisError}</p>}<button type="button" className="st-btn st-btn-primary st-btn-big" style={{ justifySelf: 'start' }} onClick={() => analyze(reel)}><Sparkles size={20} />분석하기</button></div>}
       </div>
     </div>
   </div>

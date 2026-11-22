@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSearch, CircleCheck, ChevronDown } from 'lucide-react'
+import { Play, Search, LoaderCircle, Sparkles, X, Heart, MessageCircle, ScanSearch, CircleCheck, ChevronDown, Images } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount, day, when } from '../api'
 
@@ -9,6 +9,9 @@ const handle = reel => reel.username === 'recommended' ? '계정 확인 중' : `
 const FACE = [['any', '전체'], ['visible', '공개'], ['mixed', '일부'], ['hidden', '비공개']]
 const REGION = [['any', '전체'], ['domestic', '국내'], ['overseas', '해외']]
 const SORT = [['latest', '최신순'], ['views', '조회수순'], ['popular', '인기순']]
+// A carousel shows no play count, so its second sort is by likes.
+const CAROUSEL_SORT = [['latest', '최신순'], ['views', '좋아요순'], ['popular', '인기순']]
+const KINDS = [['reel', '릴스'], ['carousel', '캐러셀']]
 // Playback links are short-lived and the server resolves them one at a time, so a miss is retried on the next hover.
 const playbackCache = new Map()
 const playbackUrl = shortcode => {
@@ -65,29 +68,31 @@ export function PlayerModal({ reel, onClose, onAnalyze, onOpenAnalysis }) {
 }
 
 // Hover: the reel plays muted in place and the action bar rises. Click: full player.
+// A carousel has no video: its cover stays still, and it shows likes and the number of slides instead of plays.
 export function ReelCard({ reel, onPlay, onAnalyze, onOpenAnalysis, badge, children, footer, tour }) {
+  const carousel = reel.kind === 'carousel'
   const [preview, setPreview] = useState(null)
   const [hover, setHover] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [playing, setPlaying] = useState(false)
   const ready = reel.analysisStatus === 'ready', busy = reel.analysisStatus === 'running'
   useEffect(() => {
-    if (!hover || preview || reel.source === 'upload-text') return undefined
+    if (!hover || preview || carousel || reel.source === 'upload-text') return undefined
     let alive = true
     const timer = setTimeout(() => { if (alive) setLoadingPreview(true) }, 0)
     playbackUrl(reel.shortcode).then(u => { if (!alive) return; setLoadingPreview(false); if (u) setPreview(u) })
     return () => { alive = false; clearTimeout(timer) }
-  }, [hover, preview, reel.shortcode, reel.source])
-  return <article className="st-reel" data-tour={tour}>
+  }, [hover, preview, carousel, reel.shortcode, reel.source])
+  return <article className={`st-reel${carousel ? ' st-reel-carousel' : ''}`} data-tour={tour}>
     <div className="st-reel-thumb" onMouseEnter={() => setHover(true)} onMouseLeave={() => { setHover(false); setPlaying(false) }}>
-      <button type="button" className="st-reel-open" onClick={onPlay} aria-label={`@${reel.username} 영상 재생`}>
+      <button type="button" className="st-reel-open" onClick={onPlay} aria-label={carousel ? `@${reel.username} 캐러셀 열기` : `@${reel.username} 영상 재생`}>
         {reel.thumbnailUrl ? <img src={reel.thumbnailUrl} alt="" loading="lazy" /> : <span className="st-reel-placeholder">{reel.source === 'upload-text' ? '📝' : '🎬'}<b>{reel.title || handle(reel)}</b></span>}
         {hover && preview && <video src={preview} muted autoPlay loop playsInline className={`st-reel-preview${playing ? ' is-playing' : ''}`} onPlaying={() => setPlaying(true)} onEmptied={() => setPlaying(false)} />}
       </button>
       <span className="st-reel-date">{day(reel.postedAt)}</span>
       {hover && (loadingPreview || (preview && !playing)) && <span className="st-reel-loading"><LoaderCircle size={14} className="st-spin" /> 영상 불러오는 중</span>}
       <div className="st-reel-tags">{reel.recommended && <span className="st-reel-badge st-reel-rec">추천</span>}{badge !== undefined ? badge : ready ? <span className="st-reel-badge">분석됨</span> : reel.region === 'overseas' ? <span className="st-reel-badge">해외</span> : null}</div>
-      <div className="st-reel-stats"><span><Play size={14} fill="currentColor" />{reel.views ? compactCount(reel.views) : '확인 중'}</span></div>
+      <div className="st-reel-stats">{carousel ? <><span><Images size={14} />{reel.slideCount ? `${reel.slideCount}장` : '캐러셀'}</span><span><Heart size={14} fill="currentColor" />{reel.likes ? compactCount(reel.likes) : '숨김'}</span></> : <span><Play size={14} fill="currentColor" />{reel.views ? compactCount(reel.views) : '확인 중'}</span>}</div>
       <div className="st-reel-hover">
         <button type="button" className="st-reel-analyze" disabled={busy} onClick={ready ? onOpenAnalysis : onAnalyze}>
           {busy ? <><LoaderCircle size={16} className="st-spin" />분석 중</> : ready ? <><Sparkles size={16} />분석 보기</> : <><ScanSearch size={16} />분석하기</>}</button>
@@ -127,7 +132,7 @@ function ReferenceGuide() {
 
 export default function ReelsPage() {
   const { go, analyze, tracking, categories } = useStudio()
-  const [filters, setFilters] = useState({ category: 'all', face: 'any', region: 'any', sort: '', q: '', recommended: false })
+  const [filters, setFilters] = useState({ kind: 'reel', category: 'all', face: 'any', region: 'any', sort: '', q: '', recommended: false })
   const [draft, setDraft] = useState('')
   const [reels, setReels] = useState([])
   const [page, setPage] = useState(0)
@@ -144,6 +149,7 @@ export default function ReelsPage() {
     if (filters.region !== 'any') params.set('region', filters.region)
     if (filters.q) params.set('q', filters.q)
     if (filters.recommended) params.set('recommended', '1')
+    if (filters.kind === 'carousel') params.set('kind', 'carousel')
     studio.reels(params).then(data => { if (controller.signal.aborted) return; setReels(prev => page === 0 ? data.reels : [...prev, ...data.reels]); setHasMore(data.hasMore); if (page === 0 && data.lastUpdatedAt) setLastUpdatedAt(data.lastUpdatedAt) })
       .catch(e => { if (!controller.signal.aborted) setError(e.message) }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -151,15 +157,20 @@ export default function ReelsPage() {
   // Warm the first row's playback links one by one so hovering the top cards plays at once.
   useEffect(() => {
     let alive = true
-    const warm = async () => { for (const reel of reels.slice(0, 6)) { if (!alive) return; await playbackUrl(reel.shortcode) } }
+    const warm = async () => { for (const reel of reels.slice(0, 6)) { if (!alive) return; if (reel.kind !== 'carousel') await playbackUrl(reel.shortcode) } }
     const id = setTimeout(warm, 800)
     return () => { alive = false; clearTimeout(id) }
   }, [reels])
   const change = patch => { setFilters(f => ({ ...f, ...patch })); setPage(0); setLoading(true); setError('') }
   const shown = reels.map(r => tracking[r.shortcode] ? { ...r, analysisStatus: 'running' } : r)
+  const carousel = filters.kind === 'carousel'
+  // A carousel has nothing to play: its cover opens the analysis once there is one, the post on Instagram until then.
+  const openCard = reel => reel.kind !== 'carousel' ? setOpen(reel) : reel.analysisStatus === 'ready' ? go('reference', { ref: reel.shortcode }) : window.open(reel.permalink, '_blank', 'noopener')
   return <div className="st-stack">
     <ReferenceGuide />
-    <div className="st-page-head st-reels-info"><p>최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 영상을 매일 모아요. 분석하면 '내 레퍼런스'에 자동으로 저장돼요.</p>{lastUpdatedAt && <span className="st-pill st-pill-gray">업데이트 {when(lastUpdatedAt)}</span>}</div>
+    <nav className="st-tabs st-kind-tabs" aria-label="콘텐츠 종류" data-tour="kind-tabs">{KINDS.map(([id, label]) => <button type="button" key={id} className="st-tab" aria-pressed={filters.kind === id}
+      onClick={() => { if (filters.kind === id) return; setReels([]); change({ kind: id, sort: '', face: 'any', recommended: false }) }}>{label}</button>)}</nav>
+    <div className="st-page-head st-reels-info"><p>{carousel ? "여러 장을 넘겨 보는 캐러셀 중 반응이 좋았던 게시물이에요. 분석하면 표지 제목, 장별 구성, 디자인을 볼 수 있고 '내 레퍼런스'에 자동으로 저장돼요." : "최근 3개월 안에 올라와 조회수 50만을 넘긴 개인 크리에이터의 영상을 매일 모아요. 분석하면 '내 레퍼런스'에 자동으로 저장돼요."}</p>{!carousel && lastUpdatedAt && <span className="st-pill st-pill-gray">업데이트 {when(lastUpdatedAt)}</span>}</div>
     <form className="st-search" role="search" onSubmit={e => { e.preventDefault(); change({ q: draft.trim().slice(0, 40) }) }}>
       <Search size={20} className="st-muted" aria-hidden="true" />
       <input type="search" value={draft} maxLength={40} onChange={e => { setDraft(e.target.value); if (!e.target.value && filters.q) change({ q: '' }) }} placeholder="키워드로 찾기 (예: 다이소, 여드름, 자취요리)" aria-label="키워드 검색" />
@@ -170,14 +181,14 @@ export default function ReelsPage() {
         <Chips label="분야" options={[['all', '전체'], ...categories.map(c => [c, c])]} value={filters.category} onChange={category => change({ category })} /></div>
       <div className="st-filter-row st-filter-groups">
         <Segmented label="보기" options={[['all', '전체'], ['recommended', '추천만']]} value={filters.recommended ? 'recommended' : 'all'} onChange={v => change({ recommended: v === 'recommended' })} />
-        <Segmented label="정렬" options={SORT} value={filters.sort} onChange={sort => change({ sort: sort === filters.sort ? '' : sort })} />
-        <Segmented label="얼굴" options={FACE} value={filters.face} onChange={face => change({ face })} />
+        <Segmented label="정렬" options={carousel ? CAROUSEL_SORT : SORT} value={filters.sort} onChange={sort => change({ sort: sort === filters.sort ? '' : sort })} />
+        {!carousel && <Segmented label="얼굴" options={FACE} value={filters.face} onChange={face => change({ face })} />}
         <Segmented label="지역" options={REGION} value={filters.region} onChange={region => change({ region })} />
       </div>
     </section>
     {error && <div className="st-error" role="alert">{error}</div>}
-    {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : filters.recommended ? '추천 영상을 준비하고 있어요' : '조건에 맞는 영상이 아직 없어요'}</strong><span>매일 새로 모으고 있어요.</span></div>}
-    <div className="st-reels">{shown.map((reel, i) => <ReelCard key={reel.shortcode} tour={i === 0 ? 'reel-card' : undefined} reel={reel} onPlay={() => setOpen(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>
+    {!loading && !error && reels.length === 0 && <div className="st-empty"><strong>{filters.q ? `'${filters.q}' 검색 결과가 없어요` : carousel ? '조건에 맞는 캐러셀이 아직 없어요' : filters.recommended ? '추천 영상을 준비하고 있어요' : '조건에 맞는 영상이 아직 없어요'}</strong><span>{carousel ? '캐러셀을 차례로 채우고 있어요.' : '매일 새로 모으고 있어요.'}</span></div>}
+    <div className="st-reels">{shown.map((reel, i) => <ReelCard key={reel.shortcode} tour={i === 0 ? 'reel-card' : undefined} reel={reel} onPlay={() => openCard(reel)} onAnalyze={() => analyze(reel)} onOpenAnalysis={() => go('reference', { ref: reel.shortcode })} />)}</div>
     {loading && <p className="st-muted" role="status">불러오는 중…</p>}
     {hasMore && !loading && <button type="button" className="st-btn st-btn-block" onClick={() => { setPage(p => p + 1); setLoading(true) }}>더 보기</button>}
     {open && <PlayerModal reel={shown.find(r => r.shortcode === open.shortcode) || open} onClose={() => setOpen(null)} onAnalyze={() => analyze(open)} onOpenAnalysis={() => go('reference', { ref: open.shortcode })} />}

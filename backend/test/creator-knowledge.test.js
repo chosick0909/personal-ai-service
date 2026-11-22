@@ -13,6 +13,7 @@ function fakeDb(tables) {
       select() { return api }, order() { return api }, limit() { return api },
       eq(k, v) { filters.push(r => r[k] === v); return api },
       neq(k, v) { filters.push(r => r[k] !== v); return api },
+      is(k, v) { const [col, key] = k.split('->>'); filters.push(r => ((key ? r[col]?.[key] : r[col]) ?? null) === v); return api },
       not(k, op, v) { filters.push(r => !(op === 'is' && (r[k] ?? null) === v)); return api },
       in(k, vs) { filters.push(r => vs.includes(r[k])); return api },
       or(expr) { const parts = expr.split(',').map(p => p.split('.')); filters.push(r => parts.some(([k, , v]) => (r[k] ?? null) === literal(v))); return api },

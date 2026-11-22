@@ -6,7 +6,7 @@ import { correctSpeechWithScreen, extractScreenSubtitles, judgeScriptSource, pro
 import { alreadyKorean, translateSegments } from './link-import.js'
 import { referencePlayback, playbackUrl } from './reference-playback.js'
 import { query } from './store.js'
-import { THUMBNAIL_BUCKET, SUCCESS_REEL_MIN_VIEWS, SUCCESS_REEL_MAX_AGE_DAYS } from './success-reels.js'
+import { THUMBNAIL_BUCKET, SUCCESS_REEL_MIN_VIEWS, SUCCESS_REEL_MAX_AGE_DAYS, isCarousel, postUrl } from './success-reels.js'
 import { SUCCESS_REEL_CATEGORIES } from './categories.js'
 import { analyzeThumbnailImage, generateThumbnailTitles } from '../lib/thumbnail-title.js'
 import { fail } from './domain.js'
@@ -234,6 +234,7 @@ export async function reelMedia({ providers, redis, playback = referencePlayback
   let url = free?.url, caption = String(free?.caption || '')
   if (!url) {
     const record = await providers.instagramReel(href, undefined, lookupPriority)
+    if (!record.videoUrl) fail('REEL_VIDEO_UNAVAILABLE', '영상이 아닌 게시물이에요. 링크를 다시 넣어 주세요.', 422)
     url = playbackUrl(record.videoUrl); caption = String(record.caption || '')
   }
   if (!url) fail('REEL_VIDEO_UNAVAILABLE', '영상을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.', 422)
@@ -269,6 +270,9 @@ async function textMedia(providers, text) {
 }
 
 export async function runReelAnalysis({ db, redis, makeProviders, lookupPriority }, shortcode) {
+  // A carousel has its own analysis (images instead of a video). Loaded on demand: that module reads this one's lists.
+  const kind = await query(db.from('creator_success_reels').select('kind:analysis->>kind').eq('shortcode', shortcode).maybeSingle()).catch(() => null)
+  if (kind?.kind === 'carousel') return (await import('./success-carousel-analysis.js')).runCarouselAnalysis({ db, redis, makeProviders, lookupPriority }, shortcode)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 12 * 60000)
   const signal = controller.signal
@@ -438,7 +442,8 @@ export async function reelDetail(db, userId, shortcode) {
     query(db.from('creator_reel_plans').select('id,brief,status,plan,error,created_at').eq('user_id', userId).eq('shortcode', shortcode).order('created_at', { ascending: false }).range(0, 9)),
   ])
   const upload = String(reel.source || '').startsWith('upload') ? reel.source : null
-  return { shortcode, permalink: upload && upload !== 'upload-link' ? null : `https://www.instagram.com/reel/${shortcode}/`, username: reel.username, views: reel.views, likes: reel.likes,
+  const carousel = isCarousel(reel.analysis)
+  return { shortcode, permalink: upload && upload !== 'upload-link' ? null : postUrl(shortcode, carousel), kind: carousel ? 'carousel' : 'reel', slideCount: carousel ? reel.analysis.slideCount || null : null, username: reel.username, views: reel.views, likes: reel.likes,
     source: reel.source, title: reel.title, sourceText: upload === 'upload-text' ? reel.source_text : null, mine: reel.owner_user_id === userId,
     comments: reel.comments, postedAt: reel.posted_at, caption: reel.caption, captionKo: reel.caption_ko, language: reel.language, region: reel.region,
     audio: reel.audio, category: reel.category, faceVisibility: reel.face_visibility, saved: Boolean(saved),
