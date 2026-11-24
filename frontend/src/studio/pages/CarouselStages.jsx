@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Check, Copy, Merge, Plus, Scissors, Trash2, Triangl
 import { useStudio } from '../context'
 import { chosenBody, chosenCaption, slidesText } from '../carousel/plan'
 import SlidePreview from '../carousel/SlidePreview'
-import { CAROUSEL_TEMPLATES, carouselTemplate, slideOverflows, slideLength, MAX_CAROUSEL_SLIDES } from '../../../../shared/carousel-templates.mjs'
+import { CAROUSEL_TEMPLATES, carouselTemplate, slideOverflows, slideLength, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT } from '../../../../shared/carousel-templates.mjs'
 
 const OPTION_NAME = ['1안', '2안', '3안']
 const PREVIEW_DESIGN = { template: 'dark-accent', ratio: '4:5', colors: {}, fonts: {}, slides: {} }
@@ -34,7 +34,7 @@ export function CoverStage({ carousel, save }) {
       <p className="st-muted st-small">왼쪽 그림은 프로필에서 작게 보일 때의 크기예요. 틀과 색은 디자인 단계에서 정해요.</p>
     </section>
     <section className="st-card st-stack"><h3>직접 쓰기</h3>
-      <div className="st-field"><label htmlFor="cr-kicker">제목 위 작은 한 줄<small>없어도 돼요</small></label><input id="cr-kicker" className="st-input" value={kicker} maxLength={40} onChange={e => setKicker(e.target.value)} onBlur={typed} /></div>
+      <div className="st-field"><label htmlFor="cr-kicker">제목 위 작은 한 줄<small>없어도 돼요</small></label><input id="cr-kicker" className="st-input" value={kicker} maxLength={COVER_KICKER_LIMIT} onChange={e => setKicker(e.target.value)} onBlur={typed} /></div>
       <div className="st-field"><label htmlFor="cr-title">표지 제목</label><input id="cr-title" className="st-input" value={custom} maxLength={60} onChange={e => setCustom(e.target.value)} onBlur={typed} placeholder="직접 쓰면 위 3안 대신 이 제목을 써요" /></div>
     </section>
   </div>

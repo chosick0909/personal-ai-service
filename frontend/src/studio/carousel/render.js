@@ -636,7 +636,7 @@ const kicker = (e, options) => e.text(e.slide.text, { weight: 'bold', size: [40,
 const darkBand = e => ({ style: 'band', bg: css(e.c.accent), color: css(e.onAccent), weight: 'heavy' })
 
 function darkTopRow(e) {
-  const { W, M, c } = e
+  const { W, M } = e
   const y = M + 20
   const width = e.line(pad2(e.index + 1), { slot: 'heading', weight: 'heavy', size: 40, color: css(e.accentInk), x: M, y })
   e.line(`/ ${pad2(e.total)}`, { size: 26, color: css(e.muted(0.55)), x: M + width + 14, y: y + 3 })
@@ -924,7 +924,7 @@ const blog = {
     const chipTop = card.y + card.pad
     // The kicker is the post's category chip when it fits on one line, otherwise a plain line above the title.
     const category = slide.text.replace(/\*\*/g, '').replace(/\s+/g, ' ')
-    const asChip = Boolean(category) && e.lineWidth(category, { size: 30 }) + 64 <= w
+    const asChip = Boolean(category) && e.lineWidth(category, { size: 30 }) + 64 <= w * 0.62
     if (asChip) e.pill(category, { x, y: chipTop, h: 64, padX: 32, fill: css(mix(c.bg, c.accent, 0.14)), color: css(mix(e.accentInk, c.text, 0.12)), size: 30, maxWidth: w })
     const rowY = card.y + card.h - card.pad - 48
     const divider = rowY - 48 - 44

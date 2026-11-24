@@ -90,7 +90,7 @@ export function DesignStage({ carousel, images, save }) {
     setDownloading(true)
     try {
       const ai = aiSlideIds(design, images)
-      if (one) await downloadSlide(current, index, slides.length, view, { name: `${carousel.title || 'carousel'}-${index + 1}`, aiGenerated: ai.includes(current.id) })
+      if (one) await downloadSlide(current, index, slides.length, view, { name: carousel.title || 'carousel', aiGenerated: ai.includes(current.id) })
       else await downloadSlides(slides, view, { name: carousel.title || 'carousel', aiSlideIds: ai, onProgress: (done, total) => setProgress(`${done} / ${total}`) })
       if (ai.length) toast({ kind: 'ready', title: '받았어요', body: 'AI로 만든 그림이 들어간 장에는 파일 정보에 표시가 기록돼요. 인스타그램이 이를 읽고 AI 정보 라벨을 붙일 수 있어요.', ttl: 9000 })
     } catch (e) { toast({ kind: 'failed', title: '이미지를 만들지 못했어요', body: e.message }) } finally { setDownloading(false); setProgress('') }

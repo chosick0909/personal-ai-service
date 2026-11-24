@@ -45,25 +45,38 @@ function withPngText(png, entries) {
 
 const AI_LABEL = { Software: 'HookAI', Comment: 'Contains AI-generated imagery' }
 
-function canvasBlob(canvas) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('이미지를 만들지 못했어요')), 'image/png')
-  })
+// PNG bytes of a canvas, encoded right now. `canvas.toBlob` is not used on purpose: the browser runs it when the
+// page is idle and, on a page that is busy or in the background, waits up to a second per image before it starts.
+function canvasPng(canvas) {
+  const url = canvas.toDataURL('image/png')
+  const base64 = url.slice(url.indexOf(',') + 1)
+  if (!base64) throw new Error('이미지를 만들지 못했어요')
+  if (typeof Uint8Array.fromBase64 === 'function') return Uint8Array.fromBase64(base64)
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes
 }
 
-async function renderBlob(canvas, slide, index, total, design, assets, aiGenerated) {
+function renderPng(canvas, slide, index, total, design, assets, aiGenerated) {
   drawSlide(canvas, { slide, index, total, design, assets })
-  const blob = await canvasBlob(canvas)
-  if (!aiGenerated) return blob
-  const bytes = new Uint8Array(await blob.arrayBuffer())
-  return new Blob([withPngText(bytes, AI_LABEL)], { type: 'image/png' })
+  const bytes = canvasPng(canvas)
+  return aiGenerated ? withPngText(bytes, AI_LABEL) : bytes
 }
 
 // One slide as a PNG Blob. `assets` is what `prepare` returned; without it the slide's own are loaded here.
 export async function slideBlob(slide, index, total, design, assets, { aiGenerated = false } = {}) {
   const ready = assets || await prepare([slide], design)
-  return renderBlob(document.createElement('canvas'), slide, index, total, design, ready, aiGenerated)
+  return new Blob([renderPng(document.createElement('canvas'), slide, index, total, design, ready, aiGenerated)], { type: 'image/png' })
 }
+
+// Lets the page paint (a progress count, a spinner) between two slides. A message task instead of a timer or an
+// animation frame: those are slowed to one a second, or stopped, while the page is in the background.
+const breathe = () => new Promise(resolve => {
+  const channel = new MessageChannel()
+  channel.port1.onmessage = () => { channel.port1.close(); resolve() }
+  channel.port2.postMessage(null)
+})
 
 function dosTime(date) {
   const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1)
@@ -139,15 +152,17 @@ function saveBlob(blob, filename) {
 const safeName = name => String(name || 'carousel').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'carousel'
 const fileNumber = index => String(index + 1).padStart(2, '0')
 
-// Every slide as 01.png, 02.png, … inside one ZIP download. Resolves with the ZIP Blob.
-export async function downloadSlides(slides, design, { name = 'carousel', aiSlideIds = [] } = {}) {
+// Every slide as 01.png, 02.png, … inside one ZIP download. `onProgress(done, total)` is called after each slide.
+// Fonts and photos are loaded once, before the first slide. Resolves with the ZIP Blob.
+export async function downloadSlides(slides, design, { name = 'carousel', aiSlideIds = [], onProgress } = {}) {
   const assets = await prepare(slides, design)
   const ai = new Set(aiSlideIds)
   const canvas = document.createElement('canvas')
   const files = []
   for (let index = 0; index < slides.length; index += 1) {
-    const blob = await renderBlob(canvas, slides[index], index, slides.length, design, assets, ai.has(slides[index].id))
-    files.push({ name: `${fileNumber(index)}.png`, bytes: new Uint8Array(await blob.arrayBuffer()) })
+    files.push({ name: `${fileNumber(index)}.png`, bytes: renderPng(canvas, slides[index], index, slides.length, design, assets, ai.has(slides[index].id)) })
+    onProgress?.(index + 1, slides.length)
+    await breathe()
   }
   const zip = zipStore(files)
   saveBlob(zip, `${safeName(name)}.zip`)

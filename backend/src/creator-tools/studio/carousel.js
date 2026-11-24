@@ -7,7 +7,7 @@ import { isCarousel } from '../success-reels.js'
 import { fieldKnowledge } from './knowledge.js'
 import { prepareTopic, readBrief, researchFresh } from './research.js'
 import { ungroundedQuotes } from './engine.js'
-import { CAROUSEL_TEMPLATES, CAROUSEL_TEMPLATE_IDS, carouselTemplate, MAX_CAROUSEL_SLIDES, slideOverflows } from '../../../../shared/carousel-templates.mjs'
+import { CAROUSEL_TEMPLATES, CAROUSEL_TEMPLATE_IDS, carouselTemplate, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT, slideOverflows } from '../../../../shared/carousel-templates.mjs'
 
 // 캐러셀 만들기: 훅ai plans a carousel in the order a student thinks about it — the cover title, the whole body,
 // the split into slides — and the browser designs the slides from a template. Kept apart from the reel plans.
@@ -93,7 +93,7 @@ const coverPrompt = `'표지 제목' 단계입니다. 캐러셀 첫 장에 크�
 1. plan을 먼저 채웁니다. terms: brief의 핵심 단어(소재, 하려는 일)를 원문 그대로 word에 적고 meaning에 그 단어의 사전적인 뜻을 풉니다. meaning은 단어를 바르게 읽기 위한 것이고, 제목에는 수강생이 쓴 원래 표현을 씁니다. purpose: terms의 뜻만으로 이 캐러셀이 '누가 무엇을 하려는 글인지' 한 문장. quotes: 이번 제목들이 기대는 brief·research의 구절을 한 글자도 바꾸지 않고 옮겨 적습니다. reader: 이 표지를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 끝까지 넘겨 본 사람이 얻는 것 한 가지(한 캐러셀에 약속 하나). promise는 수강생의 목적(소개·추천)을 그대로 쓰지 않고, research에서 이 대상이 읽는 사람에게 실제로 해 주는 일과 궁금해하는 점에서 찾습니다.
 2. 아래 표지 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
-3. 쓰는 기준. 표지는 피드와 프로필 격자에서 손톱만 하게 보이고, 누르는 게 아니라 옆으로 넘기게 만드는 것이 일입니다. text는 작게 봐도 한눈에 읽히는 한 구절(두 줄로 끊어 놓을 수 있는 길이)이고, kicker는 제목 위에 작게 놓는 한 줄입니다. kicker는 제목이 누구에게 하는 말인지, 또는 제목을 읽고 생기는 물음을 먼저 꺼내는 일을 하며, 제목만으로 충분하면 빈 문자열로 둡니다(제목을 되풀이하지 않음). 제목은 판매자·제품 자랑이 아니라 읽는 사람이 얻는 것으로 쓰고, 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격 같은 사실은 brief나 research에 있을 때만 씁니다. 제목에 숫자를 걸면 본문이 실제로 그 개수를 다뤄야 합니다.
+3. 쓰는 기준. 표지는 피드와 프로필 격자에서 손톱만 하게 보이고, 누르는 게 아니라 옆으로 넘기게 만드는 것이 일입니다. text는 작게 봐도 한눈에 읽히는 한 구절(두 줄로 끊어 놓을 수 있는 길이)이고, kicker는 제목 위에 작게 놓는 한 줄입니다(${COVER_KICKER_LIMIT}자 이내). kicker는 제목이 누구에게 하는 말인지, 또는 제목을 읽고 생기는 물음을 먼저 꺼내는 일을 하며, 제목만으로 충분하면 빈 문자열로 둡니다(제목을 되풀이하지 않음). 제목은 판매자·제품 자랑이 아니라 읽는 사람이 얻는 것으로 쓰고, 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격 같은 사실은 brief나 research에 있을 때만 씁니다. 제목에 숫자를 걸면 본문이 실제로 그 개수를 다뤄야 합니다.
 4. 다 쓰고 점검합니다. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황이 purpose와 같은 일을 말하는지, quotes의 구절이 brief·research에 그 단어, 그 뜻 그대로 있는지 대조합니다. 주어지지 않은 사실이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 표지를 본 사람이 왜 다음 장으로 넘기게 되는지 읽는 사람 입장에서 한 줄.`
 
@@ -289,7 +289,7 @@ const reviseSchema = obj({
 const revisePrompt = stage => `지금은 '${STAGE_NAMES[stage]}' 단계입니다. 수강생의 요청이나 질문에 답하고, 현재 내용을 고쳐 달라는 요청이면 proposal에 고친 결과를 담습니다.
 쓰는 순서대로 채웁니다.
 - proposal.has: 고친 결과가 있으면 true. 없으면 false와 빈 값.
-- 단계별 proposal: 표지 제목 → text(큰 제목)와 kicker(제목 위 작은 한 줄, 없으면 빈 문자열). 본문 기획 → units(본문 전체를 읽는 순서대로, 한 덩어리에 한 가지)와 closing(마지막 장 문구). 슬라이드 나누기 → slides(표지와 마지막 장 사이의 장 전체를 순서대로: heading, text, image)와 last(마지막 장). 캡션 → text(캡션 본문)와 hashtags(# 없이). 디자인 → proposal 없이 reply에 조언만(색·글꼴·사진은 수강생이 화면에서 바꿉니다).
+- 단계별 proposal: 표지 제목 → text(큰 제목)와 kicker(제목 위 작은 한 줄, ${COVER_KICKER_LIMIT}자 이내, 없으면 빈 문자열). 본문 기획 → units(본문 전체를 읽는 순서대로, 한 덩어리에 한 가지)와 closing(마지막 장 문구). 슬라이드 나누기 → slides(표지와 마지막 장 사이의 장 전체를 순서대로: heading, text, image)와 last(마지막 장). 캡션 → text(캡션 본문)와 hashtags(# 없이). 디자인 → proposal 없이 reply에 조언만(색·글꼴·사진은 수강생이 화면에서 바꿉니다).
 - 슬라이드를 고칠 때는 template의 limits를 지키고, 한 장에서 가장 중요한 구절 한 군데만 **별표 두 개**로 감쌉니다. 요청하지 않은 장은 글자 하나 바꾸지 않고 그대로 다시 적습니다.
 - proposal.requests: 다 쓴 결과를 수강생의 요청과 하나씩 대조합니다. 이번 요청과, 대화에서 수강생이 앞서 정해 두어 아직 유효한 조건을 각각 condition으로 적고, 방금 쓴 결과에서 그 조건이 어떻게 드러나는지 evidence에 실제 글자 그대로 옮긴 뒤 met을 판정합니다. 개수·위치·순서·길이·뺄 것·넣을 것처럼 글자로 확인할 수 있는 조건은 세어서 확인합니다.
 - proposal.summary: 결과에서 실제로 바뀐 점 한 줄.
