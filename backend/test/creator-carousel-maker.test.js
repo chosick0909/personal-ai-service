@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { carouselChat, applyCarouselProposal, chatStage, generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources, publicCarousel } from '../src/creator-tools/studio/carousel.js'
 import { carouselMakerEnabled } from '../src/creator-tools/studio/access.js'
 import { IMAGE_TIERS, generateImage, monthlyAllowance, storeImage, designImages } from '../src/creator-tools/studio/carousel-images.js'
+import { normalizeSheet, sheetLines, sheetPrompt, checkSheet, makeSheet, draftSheet } from '../src/creator-tools/studio/carousel-sheet.js'
 import { CAROUSEL_TEMPLATES, slideOverflows, slideLength, MAX_CAROUSEL_SLIDES } from '../../shared/carousel-templates.mjs'
 
 const BRIEF = '퇴근 후 2시간으로 구움과자 주문 제작을 시작한 이야기. 집 오븐으로 시작했다.'
@@ -198,4 +199,36 @@ test('the library keeps one copy of the same file, stops at its limit, and an AI
   const images = await designImages(db, 'u1', { slides: { s1: { image: { id: ai.id }, image2: null } } })
   assert.deepEqual(images[ai.id], { url: `https://signed/${ai.path}`, ai: true })
   assert.equal(rows.find(r => r.id === ai.id).kept, true)
+})
+
+test('총정리 한 장: the words are fixed before drawing, the picture is read back letter by letter, and a wrong one is drawn once more', async () => {
+  const sheet = normalizeSheet({ title: '구움과자 **주문 제작** 시작 순서', subtitle: '', footer: '@bake.note', sections: [{ heading: '1. 메뉴는 하나', lines: ['휘낭시에 하나로 시작', '', '둘째 줄', '셋째 줄', '넷째 줄'] }, { heading: '', lines: [] }] })
+  assert.equal(sheet.title, '구움과자 주문 제작 시작 순서', 'emphasis markers are not drawn')
+  assert.deepEqual(sheet.sections, [{ heading: '1. 메뉴는 하나', lines: ['휘낭시에 하나로 시작', '둘째 줄', '셋째 줄'] }])
+  assert.deepEqual(sheetLines(sheet), ['구움과자 주문 제작 시작 순서', '1. 메뉴는 하나', '휘낭시에 하나로 시작', '둘째 줄', '셋째 줄', '@bake.note'])
+  const prompt = sheetPrompt(sheet, { accent: '#FF4D3D' })
+  for (const line of sheetLines(sheet)) assert.ok(prompt.includes(`"${line}"`), line)
+  assert.match(prompt, /QR 코드/)
+  assert.match(prompt, /#FF4D3D/)
+  // Reading back: the reader's "exact" is not trusted, spacing differences are, and anything added is reported.
+  const reader = answer => ({ json: async (operation, _prompt, input, frames) => { assert.equal(operation, 'studio-carousel-sheet-check'); assert.equal(frames.length, 1); return answer(input.expected) } })
+  assert.deepEqual(await checkSheet(reader(expected => ({ lines: expected.map(e => ({ expected: e, found: e.replace(/ /g, '  '), exact: false })), extras: [] })), 'data:image/jpeg;base64,AAAA', sheet), [])
+  const problems = await checkSheet(reader(expected => ({ lines: expected.slice(1).map((e, i) => ({ expected: e, found: i === 0 ? '1. 메뉴는 둘' : e, exact: true })), extras: ['www.example.kr'] })), 'data:image/jpeg;base64,AAAA', sheet)
+  assert.deepEqual(problems, ['"구움과자 주문 제작 시작 순서" 빠짐', '"1. 메뉴는 하나" → "1. 메뉴는 둘"로 그려짐', '넣지 않은 글이 그려짐: www.example.kr'])
+  // Drawing: a second try when the first has mistakes; the one with fewer mistakes is kept and stays in the library.
+  const sent = [], stored = []
+  const redis = { get: async () => 0, multi: () => { const m = { incrby: () => m, expire: () => m, exec: async () => {} }; return m } }
+  const fetcher = async (url, options) => { if (options?.body) sent.push(JSON.parse(options.body)); return url.startsWith('https://fal.run/') ? { ok: true, status: 200, json: async () => ({ images: [{ url: `https://v3.fal.media/files/${sent.length}.jpg` }] }) } : { ok: true, arrayBuffer: async () => new Uint8Array([sent.length]).buffer } }
+  const db = { storage: { from: () => ({ upload: async () => ({ error: null }) }) }, from: () => { const api = { select: () => api, eq: () => api, maybeSingle: () => api, single: () => api, insert: r => { stored.push(r); return api }, then: resolve => resolve({ data: stored.at(-1) || null, count: 0, error: null }) }; return api } }
+  let checks = 0
+  const made = await makeSheet({ db, redis, providers: { call: async (_p, _o, fn) => fn() }, env: { FAL_KEY: 'test-only' }, fetcher }, 'u1', sheet, { check: async () => (++checks === 1 ? ['"둘째 줄" 빠짐', '"셋째 줄" 빠짐'] : ['"셋째 줄" 빠짐']) })
+  assert.equal(sent.length, 2)
+  assert.deepEqual(sent[0].image_size, { width: 1088, height: 1936 })
+  assert.match(sent[1].prompt, /"둘째 줄" 빠짐/)
+  assert.deepEqual(made.problems, ['"셋째 줄" 빠짐'])
+  assert.equal(stored.length, 1)
+  assert.equal(stored[0].tier, 'infographic')
+  assert.equal(stored[0].kept, true)
+  await assert.rejects(makeSheet({ db, redis, providers: {}, env: { FAL_KEY: 'x' }, fetcher }, 'u1', { title: '', sections: [] }), { code: 'SHEET_EMPTY' })
+  await assert.rejects(draftSheet({ json: async () => ({}) }, { slides: null }), { code: 'STAGE_ORDER' })
 })

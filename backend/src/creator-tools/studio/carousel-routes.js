@@ -4,8 +4,10 @@ import { fail, uuid } from '../domain.js'
 import { database, query } from '../store.js'
 import { schedule, isScheduled } from '../success-reel-analysis.js'
 import { carouselMakerEnabled } from './access.js'
-import { CAROUSEL_STAGES, CAROUSEL_OPENERS, nextCarouselStage, generateCarouselStage, applyCarouselPatch, applyCarouselProposal, carouselChat, publicCarousel, resolveCarouselSources, normalizeCarouselSources } from './carousel.js'
+import { CAROUSEL_STAGES, CAROUSEL_OPENERS, nextCarouselStage, generateCarouselStage, applyCarouselPatch, applyCarouselProposal, carouselChat, publicCarousel, resolveCarouselSources, normalizeCarouselSources, normalizeDesign } from './carousel.js'
 import { IMAGE_TIERS, IMAGE_SHAPES, writeImagePrompt, generateImage, storeImage, listImages, designImages, removeImage, signImages, allowanceUsed, monthlyAllowance, sweepUnkept, LIBRARY_LIMIT } from './carousel-images.js'
+
+import { draftSheet, makeSheet, SHEET_LIMITS } from './carousel-sheet.js'
 
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 const message = error => error?.exposeMessage ? error.message : '훅ai가 잠시 멈췄어요. 다시 시도해주세요.'
@@ -141,6 +143,31 @@ export function registerCarouselRoutes(router, deps) {
     const patch = applyCarouselProposal(row, message?.meta?.proposal)
     const updated = await query(database().from('studio_carousels').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id).select('*').single())
     res.json(await full(updated, req.auth.userId))
+  }))
+
+  // 총정리 한 장: 훅ai drafts the words from the finished slides, the student confirms them, then the sheet is drawn.
+  router.post('/creator-tools/studio/carousels/:id/sheet/draft', asyncHandler(async (req, res) => {
+    enabled(req)
+    const row = await owned(req)
+    res.json({ sheet: await draftSheet(deps().makeProviders(AbortSignal.timeout(120000)), row), limits: SHEET_LIMITS })
+  }))
+  router.post('/creator-tools/studio/carousels/:id/sheet', asyncHandler(async (req, res) => {
+    enabled(req)
+    const row = await owned(req)
+    const d = deps()
+    const made = await makeSheet({ db: database(), redis: d.redis, providers: d.makeProviders(AbortSignal.timeout(420000)) }, req.auth.userId, req.body?.sheet, { colors: row.design?.colors || {} })
+    res.status(201).json({ image: (await signImages(database(), [made.row]))[0], sheet: made.sheet, problems: made.problems, ai: made.ai })
+  }))
+
+  // 내 디자인: the look a student keeps (template, colours, fonts, account name), so every new carousel starts as theirs.
+  router.put('/creator-tools/studio/carousel-design', asyncHandler(async (req, res) => {
+    enabled(req)
+    const { template, ratio, colors, fonts, handle } = normalizeDesign(req.body || {})
+    const saved = { template, ratio, colors, fonts, handle }
+    const row = await query(database().from('studio_styles').select('choices').eq('user_id', req.auth.userId).maybeSingle())
+    if (row) await query(database().from('studio_styles').update({ choices: { ...(row.choices || {}), carouselDesign: saved } }).eq('user_id', req.auth.userId))
+    else await query(database().from('studio_styles').insert({ user_id: req.auth.userId, choices: { carouselDesign: saved } }))
+    res.json({ design: saved })
   }))
 
   // ----- 내 이미지 보관함 -----

@@ -333,9 +333,12 @@ export function applyCarouselPatch(row, body) {
     if (body.body.edited && typeof body.body.edited === 'object') next.edited = { closing: block(body.body.edited.closing, 200),
       units: (Array.isArray(body.body.edited.units) ? body.body.edited.units : []).map(u => ({ text: block(u?.text, 400) })).filter(u => u.text).slice(0, 30) }
     patch.body = next
+    // Slides already split from the earlier body are kept (they may hold the student's own edits) but marked,
+    // so the screen can offer to split the new body again.
+    if (row.slides?.items && JSON.stringify(chosenBody({ body: next })) !== JSON.stringify(chosenBody(row))) patch.slides = { ...row.slides, stale: true }
   }
   if (body.slides && row.slides) {
-    const next = { ...row.slides }
+    const next = { ...(patch.slides || row.slides) }
     if (Array.isArray(body.slides.items)) {
       next.items = normalizeSlides(body.slides.items)
       if (!next.items.some(s => s.role === 'cover') || !next.items.some(s => s.role === 'last')) fail('SLIDES_INVALID', '표지와 마지막 장은 지울 수 없어요.', 422)
