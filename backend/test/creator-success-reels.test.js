@@ -297,7 +297,7 @@ test('captions can carry the reel video link, which is cached until shortly befo
   assert.deepEqual(normalizeCaptions({ captions: [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn }] }), [{ shortcode: 'DcdnugUTjcE', caption: '', videoUrl: cdn, views: null, likes: null, comments: null, thumbnailUrl: null }])
   const db = fakeDb()
   db.tables.creator_success_reels.set('DcdnugUTjcE', { shortcode: 'DcdnugUTjcE', username: 'u', caption: '', analysis_status: 'none' })
-  const result = await storeReelCaptions(db, { captions: [{ shortcode: 'DcdnugUTjcE', caption: '욕실 청소', videoUrl: cdn }] }, redis)
+  const result = await storeReelCaptions(db, { captions: [{ shortcode: 'DcdnugUTjcE', caption: '욕실 청소', videoUrl: cdn }] }, redis, { now })
   assert.deepEqual(result, { saved: 1, reanalyze: [], filled: [{ shortcode: 'DcdnugUTjcE', username: 'u', caption: '욕실 청소' }] })
   assert.equal(store.get('success-reel-video:DcdnugUTjcE'), cdn)
 })
