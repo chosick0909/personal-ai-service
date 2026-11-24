@@ -318,6 +318,45 @@
 .st-video.st-cover { aspect-ratio:4/5; background:var(--st-bg); }
 .st-detail > aside .st-video.st-cover { height:auto; width:100%; }
 .st-video.st-cover img { object-fit:contain; }
+/* 캐러셀 만들기 */
+.st-cr-cover-option { grid-template-columns:112px minmax(0,1fr); align-items:center; gap:16px; }
+.st-cr-cover-mini { display:block; width:112px; border-radius:8px; overflow:hidden; line-height:0; }
+.st-cr-cover-mini canvas { width:100%; height:auto; display:block; }
+.st-cr-unit { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:start; }
+.st-cr-num { display:grid; place-items:center; width:32px; height:32px; border-radius:999px; background:var(--st-accent-soft); color:var(--st-accent-text); font-weight:800; font-size:14px; flex:none; }
+.st-cr-tools { display:flex; gap:4px; flex-wrap:wrap; }
+.st-cr-tools .st-icon-btn { width:36px; height:36px; }
+.st-cr-unit .st-cr-tools { flex-direction:column; }
+.st-cr-templates { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.st-cr-slides { margin:0; padding:0; list-style:none; display:grid; gap:14px; }
+.st-cr-slides > li { display:grid; gap:8px; padding:16px; border:1px solid var(--st-line); border-radius:14px; background:var(--st-bg); }
+.st-cr-slides > li.is-over { border-color:var(--st-danger); }
+.st-cr-slide-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.st-cr-over { display:flex; align-items:center; gap:6px; color:var(--st-danger); font-weight:700; }
+.st-cr-controls { display:flex; gap:14px; flex-wrap:wrap; align-items:end; }
+.st-cr-color { display:grid; gap:4px; font-size:14px; font-weight:700; color:var(--st-muted); }
+.st-cr-color input { width:56px; height:44px; padding:2px; border:1px solid var(--st-line-strong); border-radius:10px; background:var(--st-panel); cursor:pointer; }
+.st-cr-font { display:grid; gap:4px; font-size:14px; font-weight:700; color:var(--st-muted); min-width:150px; }
+.st-cr-design { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:16px; align-items:start; }
+.st-cr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+.st-cr-cell { position:relative; padding:0; border:3px solid transparent; border-radius:12px; background:none; overflow:hidden; cursor:pointer; line-height:0; }
+.st-cr-cell[aria-pressed=true] { border-color:var(--st-accent); }
+.st-cr-cell canvas, .st-cr-side canvas, .st-cr-strip canvas { width:100%; height:auto; display:block; border-radius:8px; }
+.st-cr-cell-n { position:absolute; left:8px; top:8px; padding:2px 8px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff; font-size:12px; font-weight:800; line-height:1.5; }
+.st-cr-side { position:sticky; top:84px; }
+.st-cr-crop { display:grid; gap:6px; font-size:13px; color:var(--st-muted); }
+.st-cr-crop label { display:grid; grid-template-columns:40px 1fr; align-items:center; gap:8px; }
+.st-cr-strip { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(180px,220px); gap:12px; overflow-x:auto; padding-bottom:8px; }
+.st-cr-library { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; }
+.st-cr-thumb { position:relative; aspect-ratio:1; border-radius:12px; overflow:hidden; background:var(--st-bg); }
+.st-cr-thumb > button:first-child { width:100%; height:100%; padding:0; border:0; background:none; cursor:pointer; }
+.st-cr-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.st-cr-thumb .st-pill { position:absolute; left:6px; top:6px; }
+.st-cr-thumb-del { position:absolute; right:6px; top:6px; width:30px; height:30px; background:rgba(255,255,255,.92); }
+.st-cr-made { display:grid; gap:12px; justify-items:start; }
+.st-cr-made img { width:min(320px,100%); border-radius:12px; }
+@media (max-width:1100px) { .st-cr-design { grid-template-columns:1fr; } .st-cr-side { position:static; } .st-cr-templates { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:640px) { .st-cr-templates { grid-template-columns:1fr; } .st-cr-unit { grid-template-columns:auto minmax(0,1fr); } .st-cr-unit .st-cr-tools { grid-column:2; flex-direction:row; } }
 .st-slider-track { position:absolute; inset:0; display:flex; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scrollbar-width:none; overscroll-behavior-x:contain; }
 .st-slider-track::-webkit-scrollbar { display:none; }
 .st-video.st-slider .st-slider-track img { position:static; flex:0 0 100%; width:100%; height:100%; object-fit:contain; scroll-snap-align:center; scroll-snap-stop:always; user-select:none; }

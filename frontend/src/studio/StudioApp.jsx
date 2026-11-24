@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Flame, Lightbulb, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon, BookOpenCheck, SquarePen } from 'lucide-react'
+import { Flame, Lightbulb, FolderHeart, FileText, Wand2, BookOpen, Scissors, MessageSquareText, Sparkles, Menu, X, CheckCircle2, LoaderCircle, TriangleAlert, ArrowLeft, Sun, Moon, BookOpenCheck, SquarePen, GalleryHorizontalEnd } from 'lucide-react'
 import hookLogo from './assets/hookai-avatar.webp'
 import { useAppState } from '../store/AppState'
 import { studio } from './api'
@@ -16,6 +16,8 @@ import StylePage from './pages/StylePage'
 import EditPage from './pages/EditPage'
 import PrintView from './pages/PrintView'
 import ManualPage from './pages/ManualPage'
+import CarouselsPage from './pages/CarouselsPage'
+import CarouselWizard from './pages/CarouselWizard'
 import { UpdatePopup, Tour } from './Guide'
 import KakaoIcon, { KAKAO_CHAT } from './KakaoIcon'
 import { popupHidden, popupClosedThisVisit, tourDone } from './guideData'
@@ -30,7 +32,7 @@ const MENU = [
 ]
 const TITLES = { manual: ['사용 설명서', '화면 사진의 번호를 따라 하나씩 해보세요'], reels: ['영감 찾기', '매일 쌓이는 터진 영상. 마음에 드는 걸 분석해 보세요'], reference: ['레퍼런스 분석', ''], references: ['내 레퍼런스', '분석한 영상이 여기 모여요'],
   ideas: ['주제 찾기', '훅ai와 대화하며 찍을 수 있을 만큼 구체적인 주제를 찾고 보관해요'], plans: ['내 기획안', '진행 중인 기획안을 이어서 만들어요'], new: ['내 기획안 만들기', '어떻게 시작할지 골라주세요'], plan: ['내 기획안', ''], formulas: ['내 공식', '저장한 후킹·전개·촬영·캡션 공식'],
-  library: ['공식 사전', '터진 영상이 쓰는 공식 모음'], edit: ['영상 편집', '훅ai 피드백 · 컷 편집 · 자막 · 완성 영상 · 영상 소스'], style: ['내 말투', '훅ai가 이 말투로 써드려요'], print: ['기획안 인쇄', ''] }
+  library: ['공식 사전', '터진 영상이 쓰는 공식 모음'], edit: ['영상 편집', '훅ai 피드백 · 컷 편집 · 자막 · 완성 영상 · 영상 소스'], style: ['내 말투', '훅ai가 이 말투로 써드려요'], print: ['기획안 인쇄', ''], carousels: ['캐러셀 만들기', '표지 제목부터 이미지까지 · 내부 전용'], carousel: ['캐러셀 만들기', ''] }
 
 function readRoute() {
   const q = new URLSearchParams(window.location.search)
@@ -154,7 +156,7 @@ export default function StudioApp() {
     else if (!tourDone()) setGuide('tour')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [features, isTrial])
-  const active = ['reference'].includes(route.page) ? 'reels' : ['plan', 'new', 'print'].includes(route.page) ? 'plans' : route.page
+  const active = ['reference'].includes(route.page) ? 'reels' : ['plan', 'new', 'print'].includes(route.page) ? 'plans' : route.page === 'carousel' ? 'carousels' : route.page
 
   if (features && !features.studio2) {
     return <main className="st" style={{ gridTemplateColumns: '1fr' }}><div className="st-content"><div className="st-empty"><strong>아직 공개되지 않은 화면이에요</strong><span>새 크리에이터 스튜디오는 준비 중이에요.</span><a className="st-btn st-btn-soft" href="/creatorstudio">크리에이터 스튜디오로 가기</a></div></div></main>
@@ -166,7 +168,7 @@ export default function StudioApp() {
       {menuOpen && <div className="st-backdrop" onClick={() => setMenuOpen(false)} />}
       <aside className={`st-side${menuOpen ? ' is-open' : ''}`}>
         <div className="st-brand"><img src={hookLogo} alt="" /><div><strong>HookAI</strong><span>크리에이터 스튜디오</span></div></div>
-        {MENU.map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} data-tour={id} className="st-nav" aria-current={active === id ? 'page' : undefined} onClick={() => { go(id); setMenuOpen(false) }}><Icon size={22} />{label}</button> })}
+        {[...MENU, ...(features?.carouselMaker ? [['carousels', '캐러셀 만들기', GalleryHorizontalEnd]] : [])].map(([id, label, icon]) => { const Icon = icon; return <button type="button" key={id} data-tour={id} className="st-nav" aria-current={active === id ? 'page' : undefined} onClick={() => { go(id); setMenuOpen(false) }}><Icon size={22} />{label}</button> })}
         <div className="st-side-foot">
           <button type="button" data-tour="manual" className="st-manual-btn" aria-current={route.page === 'manual' ? 'page' : undefined} onClick={() => { go('manual'); setMenuOpen(false) }}><BookOpenCheck size={26} /><span><strong>사용 설명서</strong><small>처음이세요? 여기부터 보세요</small></span></button>
           <a className="st-kakao-btn" href={KAKAO_CHAT} target="_blank" rel="noopener noreferrer"><KakaoIcon size={22} />1:1 문의</a>
@@ -194,11 +196,13 @@ export default function StudioApp() {
             : route.page === 'library' ? <LibraryPage />
             : route.page === 'edit' ? <EditPage key={route.params.job || route.params.tab || 'start'} jobId={route.params.job} tab={route.params.tab} />
             : route.page === 'style' ? <StylePage />
+            : route.page === 'carousels' && features.carouselMaker ? <CarouselsPage />
+            : route.page === 'carousel' && features.carouselMaker ? <CarouselWizard key={route.params.id} id={route.params.id} />
             : route.page === 'manual' ? <ManualPage onTour={() => { go('reels'); setTimeout(() => setGuide('tour'), 600) }} />
             : <ReelsPage />}
         </div>
       </div>
-      {route.page !== 'plan' && route.page !== 'new' && !(route.page === 'edit' && route.params.job) && <button type="button" data-tour="new" className="st-fab" aria-label="내 기획안 만들기" onClick={() => go('new')}><SquarePen size={24} /><span className="st-fab-label">내 기획안 만들기</span></button>}
+      {route.page !== 'plan' && route.page !== 'new' && route.page !== 'carousel' && !(route.page === 'edit' && route.params.job) && <button type="button" data-tour="new" className="st-fab" aria-label="내 기획안 만들기" onClick={() => go('new')}><SquarePen size={24} /><span className="st-fab-label">내 기획안 만들기</span></button>}
       {guide === 'popup' && <UpdatePopup onClose={() => setGuide(g => g === 'popup' ? null : g)} onTour={() => { if (route.page !== 'reels') go('reels'); setTimeout(() => setGuide('tour'), 500) }} />}
       {guide === 'tour' && <Tour onClose={() => setGuide(null)} />}
       <div className="st-toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`st-toast st-toast-${t.kind}`}>
