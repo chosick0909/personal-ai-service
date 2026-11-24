@@ -167,6 +167,21 @@ export function normalizeDesign(value, slideIds = []) {
     handle: clean(value?.handle, 40), profileImage: image(value?.profileImage), slides }
 }
 
+// A reference's colours as a starting palette: its first colour is the background it used most, the text is whichever
+// of its other colours (or black/white) reads best on that, and the accent is its most vivid remaining colour.
+export function paletteFrom(colors) {
+  const list = (Array.isArray(colors) ? colors : []).filter(c => /^#[0-9a-fA-F]{6}$/.test(c || '')).map(c => c.toUpperCase())
+  if (list.length < 2) return {}
+  const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+  const luminance = hex => { const [r, g, b] = rgb(hex).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); return 0.2126 * r + 0.7152 * g + 0.0722 * b }
+  const contrast = (a, b) => { const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05) }
+  const vivid = hex => { const [r, g, b] = rgb(hex); return Math.max(r, g, b) - Math.min(r, g, b) }
+  const background = list[0], rest = list.slice(1)
+  const text = [...rest, '#FFFFFF', '#111111'].filter(c => contrast(c, background) >= 4.5).sort((a, b) => vivid(a) - vivid(b))[0] || (luminance(background) > 0.5 ? '#111111' : '#FFFFFF')
+  const accent = rest.filter(c => c !== text).sort((a, b) => vivid(b) - vivid(a))[0]
+  return { background, text, ...(accent && vivid(accent) > 0.15 ? { accent } : {}) }
+}
+
 // ---------- generating a stage ----------
 // Before the first draft: what the brief is about (apart from how-to requests), its field and the web research.
 async function prepare(deps, row, providers) {
@@ -239,8 +254,10 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
     if (!row.slides?.items?.length) fail('STAGE_ORDER', '슬라이드를 먼저 나눠주세요.', 409)
     const mine = await query(deps.db.from('studio_styles').select('choices').eq('user_id', row.user_id).maybeSingle()).catch(() => null)
     const saved = mine?.choices?.carouselDesign || {}
-    // A new design starts from the student's own look (내 디자인) when they saved one.
-    return { value: normalizeDesign({ ...saved, ...(row.design || {}), template: row.design?.template || row.slides.template, slides: row.design?.slides }, row.slides.items.map(s => s.id)) }
+    // A new design starts from the student's own look (내 디자인) when they saved one; a design reference picked for
+    // this carousel lends its colours on top of that. Once the design exists, the student's choices stand.
+    const borrowed = row.design ? {} : paletteFrom(resolved.design?.excerpt?.colors)
+    return { value: normalizeDesign({ ...saved, ...(Object.keys(borrowed).length ? { colors: borrowed } : {}), ...(row.design || {}), template: row.design?.template || row.slides.template, slides: row.design?.slides }, row.slides.items.map(s => s.id)) }
   }
   if (stage === 'caption') {
     if (!row.slides?.items?.length) fail('STAGE_ORDER', '슬라이드를 먼저 나눠주세요.', 409)

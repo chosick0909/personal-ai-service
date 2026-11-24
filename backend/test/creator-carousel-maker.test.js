@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { carouselChat, applyCarouselProposal, chatStage, generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources, publicCarousel } from '../src/creator-tools/studio/carousel.js'
+import { carouselChat, applyCarouselProposal, chatStage, paletteFrom, generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources, publicCarousel } from '../src/creator-tools/studio/carousel.js'
 import { carouselMakerEnabled } from '../src/creator-tools/studio/access.js'
 import { IMAGE_TIERS, generateImage, monthlyAllowance, storeImage, designImages } from '../src/creator-tools/studio/carousel-images.js'
 import { normalizeSheet, sheetLines, sheetPrompt, checkSheet, makeSheet, draftSheet } from '../src/creator-tools/studio/carousel-sheet.js'
@@ -109,6 +109,10 @@ test('the student\'s edits: a cover of their own reaches the cover slide, slides
   assert.equal(nextCarouselStage('slides'), 'design')
   assert.equal(nextCarouselStage('done'), 'done')
   assert.equal(normalizeDesign({}, []).template, 'dark-accent')
+  // A design reference lends its colours: the first is the background, the text is what reads on it, the accent the most vivid left.
+  assert.deepEqual(paletteFrom(['#FFFFFF', '#000000', '#FF8A73', '#FFCC00']), { background: '#FFFFFF', text: '#000000', accent: '#FFCC00' })
+  assert.deepEqual(paletteFrom(['#111111', '#222222']), { background: '#111111', text: '#FFFFFF' }, 'a text colour that cannot be read is replaced; a grey is no accent')
+  assert.deepEqual(paletteFrom(['#FFFFFF', 'red']), {})
 })
 
 test('talking to 훅ai: a revision that misses the student\'s condition is rewritten once, and applying it keeps each slide\'s id', async () => {
