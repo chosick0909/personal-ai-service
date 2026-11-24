@@ -2,7 +2,7 @@ import { query } from './store.js'
 import { fail } from './domain.js'
 import { readPublicImage } from './network.js'
 import { SUCCESS_REEL_CATEGORIES } from './categories.js'
-import { postUrl, slidesKey } from './success-reels.js'
+import { postUrl, slidesKey, THUMBNAIL_BUCKET } from './success-reels.js'
 import { STORY_FORMATS } from './success-reel-analysis.js'
 
 // A carousel (several images swiped through) is analysed from its images: there is no video or speech, so the
@@ -89,6 +89,40 @@ export async function carouselSlides({ providers, redis, lookupPriority }, short
 const message = error => error?.exposeMessage ? error.message : '분석을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.'
 const SLIDE_BYTES = 4 * 1024 * 1024
 
+// Instagram's image links expire within hours and cannot be shown on another site, so the slides are kept in our own
+// storage for the student to swipe through next to the analysis. All of them or none: a gap would shift the numbers.
+export async function storeSlides(db, shortcode, images) {
+  const paths = await Promise.all(images.map(async (dataUrl, i) => {
+    const [, type, data] = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/) || []
+    if (!type) return null
+    const path = `slides/${shortcode}/${i + 1}.${type.split('/')[1].replace('jpeg', 'jpg')}`
+    const { error } = await db.storage.from(THUMBNAIL_BUCKET).upload(path, Buffer.from(data, 'base64'), { contentType: type, upsert: true })
+    return error ? null : path
+  }))
+  return paths.length && paths.every(Boolean) ? paths : null
+}
+// An analysed carousel whose slides were never kept (analysed before they were stored, or the upload failed) gets
+// them now. The analysis itself is left as it is.
+export async function keepCarouselSlides({ db, redis, makeProviders, lookupPriority, readImage = readPublicImage }, shortcode) {
+  const signal = AbortSignal.timeout(3 * 60000)
+  const reel = await query(db.from('creator_success_reels').select('analysis,analysis_status').eq('shortcode', shortcode).maybeSingle())
+  if (reel?.analysis?.kind !== 'carousel' || reel.analysis_status !== 'ready' || reel.analysis.slidePaths?.length) return false
+  const read = async fresh => {
+    const found = await carouselSlides({ providers: makeProviders(signal), redis, lookupPriority }, shortcode, { fresh })
+    return Promise.all(found.urls.map(url => readImage(url, signal, SLIDE_BYTES).catch(() => null)))
+  }
+  let images = await read(false)
+  if (images.some(image => !image)) images = await read(true)
+  // The post may have changed since it was analysed; slides that no longer match its slide-by-slide notes are not kept.
+  if (images.some(image => !image) || images.length !== reel.analysis.slideCount) return false
+  const slidePaths = await storeSlides(db, shortcode, images)
+  if (!slidePaths) return false
+  const current = await query(db.from('creator_success_reels').select('analysis').eq('shortcode', shortcode).single())
+  if (current.analysis?.kind !== 'carousel' || current.analysis.analyzedAt !== reel.analysis.analyzedAt) return false
+  await query(db.from('creator_success_reels').update({ analysis: { ...current.analysis, slidePaths } }).eq('shortcode', shortcode))
+  return true
+}
+
 export async function runCarouselAnalysis({ db, redis, makeProviders, lookupPriority, readImage = readPublicImage }, shortcode) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 10 * 60000)
@@ -111,8 +145,9 @@ export async function runCarouselAnalysis({ db, redis, makeProviders, lookupPrio
       { caption: reel.caption, slideCount: frames.length, metrics: { likes: reel.likes, comments: reel.comments } }, frames, carouselAnalysisSchema)
     const analysis = validateCarouselAnalysis(raw, frames.length)
     if (!analysis) fail('CAROUSEL_ANALYSIS_INVALID', '분석 결과를 정리하지 못했습니다. 다시 시도해주세요.', 422)
+    const slidePaths = await storeSlides(db, shortcode, found.images).catch(() => null)
     const patch = { analysis_status: 'ready', analysis_error: null, analysis_updated_at: new Date().toISOString(),
-      analysis: { kind: 'carousel', slideCount: frames.length, ...analysis, analyzedAt: new Date().toISOString() } }
+      analysis: { kind: 'carousel', slideCount: frames.length, ...analysis, ...(slidePaths ? { slidePaths } : {}), analyzedAt: new Date().toISOString() } }
     if (SUCCESS_REEL_CATEGORIES.includes(raw.category) && raw.category !== '기타' && raw.category !== reel.category) patch.category = raw.category
     if (['domestic', 'overseas'].includes(raw.region) && raw.region !== reel.region) patch.region = raw.region
     await query(db.from('creator_success_reels').update(patch).eq('shortcode', shortcode))

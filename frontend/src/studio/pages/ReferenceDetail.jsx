@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { ArrowLeft, Check, Copy, Heart, MessageCircle, Play, Sparkles, LoaderCircle, Save, Images } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Copy, Heart, MessageCircle, Play, Sparkles, LoaderCircle, Save, Images } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, compactCount, day } from '../api'
 import { InstagramIcon } from './ReelsPage'
@@ -145,6 +145,24 @@ export function CarouselAnalysisTabs({ reel, analysis, tab, setTab }) {
   </>
 }
 
+// A carousel's slides, swiped (or stepped with the arrows) like on Instagram. Until the slides are kept on our side
+// only the cover is shown.
+function SlideViewer({ slides, cover, count }) {
+  const track = useRef(null)
+  const [index, setIndex] = useState(0)
+  const images = slides?.length ? slides : cover ? [cover] : []
+  const show = to => { const el = track.current; if (el) el.scrollTo({ left: el.clientWidth * Math.max(0, Math.min(images.length - 1, to)), behavior: 'smooth' }) }
+  const onKey = e => { if (e.key === 'ArrowLeft') { e.preventDefault(); show(index - 1) } else if (e.key === 'ArrowRight') { e.preventDefault(); show(index + 1) } }
+  return <div className="st-video st-cover st-slider" role="group" aria-label="캐러셀 장 넘겨 보기" tabIndex={images.length > 1 ? 0 : undefined} onKeyDown={onKey}>
+    <div className="st-slider-track" ref={track} onScroll={e => setIndex(Math.round(e.currentTarget.scrollLeft / (e.currentTarget.clientWidth || 1)))}>
+      {images.map((src, i) => <img key={i} src={src} alt={images.length > 1 ? `${i + 1}장` : '캐러셀 표지'} loading={i > 1 ? 'lazy' : undefined} draggable={false} />)}
+    </div>
+    {index > 0 && <button type="button" className="st-slider-nav is-prev" aria-label="이전 장" onClick={() => show(index - 1)}><ChevronLeft size={22} /></button>}
+    {index < images.length - 1 && <button type="button" className="st-slider-nav is-next" aria-label="다음 장" onClick={() => show(index + 1)}><ChevronRight size={22} /></button>}
+    <span className="st-cover-count"><Images size={15} />{images.length > 1 ? `${index + 1} / ${images.length}` : count ? `${count}장` : '캐러셀'}</span>
+  </div>
+}
+
 // [ ] slots of a formula are highlighted so the student sees where their own topic goes.
 const marked = formula => String(formula || '').split(/(\[[^\]]+\])/).map((p, i) => /^\[/.test(p) ? <mark key={i}>{p}</mark> : p)
 
@@ -161,13 +179,17 @@ export default function ReferenceDetail({ shortcode }) {
   const [tab, setTab] = useState('script')
   const [carouselTab, setCarouselTab] = useState('overview')
   const running = Boolean(tracking[shortcode]) || reel?.analysisStatus === 'running'
+  // An analysed carousel whose slides are not kept yet: the server fetches them when the page opens, so ask again for a while.
+  const awaitingSlides = reel?.kind === 'carousel' && reel.analysisStatus === 'ready' && !reel.slides?.length
+  const slideTries = useRef(0)
+  useEffect(() => { slideTries.current = 0 }, [shortcode])
   useEffect(() => {
     let alive = true
     const load = () => studio.reel(shortcode).then(d => alive && setReel(d)).catch(e => alive && setError(e.message))
-    load()
-    const timer = setInterval(() => { if (running) load() }, 4000)
+    if (!awaitingSlides) load()
+    const timer = setInterval(() => { if (running || (awaitingSlides && slideTries.current++ < 8)) load() }, 4000)
     return () => { alive = false; clearInterval(timer) }
-  }, [shortcode, running])
+  }, [shortcode, running, awaitingSlides])
   if (error) return <div className="st-error" role="alert">{error}</div>
   if (!reel) return <p className="st-muted">불러오는 중…</p>
   const analysis = reel.analysisStatus === 'ready' ? reel.analysis : null
@@ -181,7 +203,7 @@ export default function ReferenceDetail({ shortcode }) {
     <div className="st-detail">
       <aside className="st-stack" style={{ gap: 12 }}>
         {reel.source === 'upload-text' ? <div className="st-card st-stack" style={{ gap: 8 }}><span className="st-pill st-pill-gray">내가 넣은 대본</span><strong style={{ fontSize: 18 }}>{reel.title}</strong><p className="st-muted st-small">영상 없이 대본만으로 분석했어요.</p></div>
-          : carousel ? <div className="st-video st-cover">{reel.thumbnailUrl && <img src={reel.thumbnailUrl} alt="캐러셀 표지" />}<span className="st-cover-count"><Images size={15} />{reel.slideCount ? `${reel.slideCount}장` : '캐러셀'}</span></div>
+          : carousel ? <SlideViewer key={shortcode} slides={reel.slides} cover={reel.thumbnailUrl} count={reel.slideCount} />
           : <Video shortcode={shortcode} poster={reel.thumbnailUrl} permalink={reel.permalink} />}
         {reel.permalink ? <div className="st-row" style={{ justifyContent: 'space-between' }}><a href={`https://www.instagram.com/${reel.username}/`} target="_blank" rel="noreferrer" style={{ fontWeight: 800, color: 'var(--st-text)' }}>@{reel.username}</a><a className="st-btn st-btn-sm" href={reel.permalink} target="_blank" rel="noreferrer"><InstagramIcon size={17} />{carousel ? '인스타그램에서 넘겨 보기' : '인스타그램에서 보기'}</a></div>
           : <div className="st-row" style={{ justifyContent: 'space-between' }}><strong>{reel.title || '내 레퍼런스'}</strong><span className="st-pill st-pill-gray">나만 보여요</span></div>}

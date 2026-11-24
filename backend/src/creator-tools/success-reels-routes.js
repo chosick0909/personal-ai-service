@@ -12,6 +12,7 @@ import { requestReelAnalysis, requestReelPlan, reelDetail, reelVideoUrl, reelAct
 import { keywordsForDay, keywordsForCatchUp, SUCCESS_REEL_KEYWORDS } from './success-reels-keywords.js'
 import { markCollectorSeen, lookupResult, lookupError, youtubeLookupResult } from './instagram-lookup.js'
 import { isYoutubeShortcode, youtubeVideoPath } from './youtube.js'
+import { keepCarouselSlides } from './success-carousel-analysis.js'
 import { isDemoUser } from './demo-access.js'
 import { studio2Enabled } from './studio/access.js'
 
@@ -153,7 +154,13 @@ export function registerSuccessReelRoutes(router) {
   }))
   router.get('/creator-tools/success-reels/:shortcode', asyncHandler(async (req, res) => {
     enabled(req)
-    res.set('Cache-Control', 'private, no-store').json(await reelDetail(database(), req.auth.userId, code(req.params.shortcode)))
+    const detail = await reelDetail(database(), req.auth.userId, code(req.params.shortcode))
+    // An analysed carousel with no slides kept yet gets them in the background (one try per ten minutes); the page
+    // shows the cover meanwhile and asks again shortly.
+    if (detail.kind === 'carousel' && detail.analysisStatus === 'ready' && !detail.slides.length
+      && await sharedRedis().set(`success-carousel-keep:${detail.shortcode}`, '1', 'EX', 600, 'NX').catch(() => null))
+      keepCarouselSlides(deps(), detail.shortcode).catch(error => console.error('[carousel-slides]', error?.code || 'FAILED'))
+    res.set('Cache-Control', 'private, no-store').json(detail)
   }))
   router.post('/creator-tools/success-reels/:shortcode/analysis', asyncHandler(async (req, res) => {
     enabled(req)

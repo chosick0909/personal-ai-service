@@ -443,7 +443,11 @@ export async function reelDetail(db, userId, shortcode) {
   ])
   const upload = String(reel.source || '').startsWith('upload') ? reel.source : null
   const carousel = isCarousel(reel.analysis)
-  return { shortcode, permalink: upload && upload !== 'upload-link' ? null : postUrl(shortcode, carousel), kind: carousel ? 'carousel' : 'reel', slideCount: carousel ? reel.analysis.slideCount || null : null, username: reel.username, views: reel.views, likes: reel.likes,
+  // A carousel's slides, kept in our storage when it was analysed, in order; empty until they are kept.
+  const slidePaths = carousel && reel.analysis_status === 'ready' && Array.isArray(reel.analysis.slidePaths) ? reel.analysis.slidePaths : []
+  const signed = slidePaths.length ? await query(db.storage.from('creator-reel-thumbnails').createSignedUrls(slidePaths, 3600)).catch(() => []) : []
+  const slides = signed.length === slidePaths.length && signed.every(item => item?.signedUrl) ? signed.map(item => item.signedUrl) : []
+  return { shortcode, slides, permalink: upload && upload !== 'upload-link' ? null : postUrl(shortcode, carousel), kind: carousel ? 'carousel' : 'reel', slideCount: carousel ? reel.analysis.slideCount || null : null, username: reel.username, views: reel.views, likes: reel.likes,
     source: reel.source, title: reel.title, sourceText: upload === 'upload-text' ? reel.source_text : null, mine: reel.owner_user_id === userId,
     comments: reel.comments, postedAt: reel.posted_at, caption: reel.caption, captionKo: reel.caption_ko, language: reel.language, region: reel.region,
     audio: reel.audio, category: reel.category, faceVisibility: reel.face_visibility, saved: Boolean(saved),

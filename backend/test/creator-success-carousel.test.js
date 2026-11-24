@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { carouselAnalysisSchema, validateCarouselAnalysis, carouselSlides, runCarouselAnalysis } from '../src/creator-tools/success-carousel-analysis.js'
-import { runReelAnalysis } from '../src/creator-tools/success-reel-analysis.js'
+import { carouselAnalysisSchema, validateCarouselAnalysis, carouselSlides, runCarouselAnalysis, keepCarouselSlides } from '../src/creator-tools/success-carousel-analysis.js'
+import { runReelAnalysis, reelDetail } from '../src/creator-tools/success-reel-analysis.js'
 import { lookupResult, MAX_SLIDES } from '../src/creator-tools/instagram-lookup.js'
 import { isCarousel, postUrl } from '../src/creator-tools/success-reels.js'
 
@@ -20,7 +20,9 @@ const answer = count => ({
 // One carousel row, a slide cache and the calls made, standing in for the database, Redis and the model.
 function setup({ slides = [CDN(1), CDN(2), CDN(3)], cached = true, lookups = [] } = {}) {
   const row = { shortcode: 'Card0001', caption: '', likes: 1200, comments: 30, category: null, region: null, analysis: { kind: 'carousel', slideCount: slides.length }, analysis_status: 'running' }
-  const db = { from: () => { let patch = null; const api = { select: () => api, eq: () => api, single: () => api, maybeSingle: () => api, update: p => { patch = p; return api },
+  const uploads = new Map(), broken = new Set()
+  const storage = { from: () => ({ upload: async (path, body, options) => { if (broken.has(path)) return { error: { message: 'upload failed' } }; uploads.set(path, { bytes: body.length, type: options.contentType }); return { error: null } } }) }
+  const db = { storage, from: () => { let patch = null; const api = { select: () => api, eq: () => api, single: () => api, maybeSingle: () => api, update: p => { patch = p; return api },
     then: resolve => { if (patch) Object.assign(row, patch); resolve({ data: patch ? null : { ...row, kind: row.analysis?.kind }, error: null }) } }; return api } }
   const store = new Map(cached ? [['success-carousel-slides:Card0001', JSON.stringify(slides)]] : [])
   const redis = { get: async key => store.get(key) ?? null, set: async (key, value) => { store.set(key, value) }, del: async key => { store.delete(key) } }
@@ -29,7 +31,7 @@ function setup({ slides = [CDN(1), CDN(2), CDN(3)], cached = true, lookups = [] 
     instagramReel: async url => { calls.push(['lookup', url]); return lookups.shift() || { slides, caption: '인스타 캡션' } },
     json: async (operation, _prompt, input, frames, schema) => { calls.push(['json', operation, input, frames.map(f => f.label), schema]); return answer(frames.length) },
   })
-  return { row, db, redis, store, calls, makeProviders }
+  return { row, db, redis, store, calls, makeProviders, uploads, broken }
 }
 
 test('the Mac mini may report a carousel\'s slide images: only Instagram image links, at most twenty', () => {
@@ -71,6 +73,39 @@ test('a carousel is analysed from every slide image in order, with the slide lin
   assert.equal(row.category, null)
 })
 
+test('the slides read for the analysis are kept in storage in order, all or none, so the student can swipe through them', async () => {
+  const kept = setup()
+  await runCarouselAnalysis({ db: kept.db, redis: kept.redis, makeProviders: kept.makeProviders, readImage: async (_url, _signal) => 'data:image/webp;base64,AAAA' }, 'Card0001')
+  assert.deepEqual(kept.row.analysis.slidePaths, ['slides/Card0001/1.webp', 'slides/Card0001/2.webp', 'slides/Card0001/3.webp'])
+  assert.deepEqual([...kept.uploads.values()].map(u => u.type), ['image/webp', 'image/webp', 'image/webp'])
+
+  const partial = setup()
+  partial.broken.add('slides/Card0001/2.jpg')
+  await runCarouselAnalysis({ db: partial.db, redis: partial.redis, makeProviders: partial.makeProviders, readImage: async () => 'data:image/jpeg;base64,AAAA' }, 'Card0001')
+  assert.equal(partial.row.analysis_status, 'ready', 'the analysis does not depend on the slides being kept')
+  assert.equal(partial.row.analysis.slidePaths, undefined)
+})
+
+test('an analysed carousel with no slides kept gets them later without being analysed again; a post that changed since is left alone', async () => {
+  const readImage = async () => 'data:image/jpeg;base64,AAAA'
+  const old = setup({ cached: false })
+  Object.assign(old.row, { analysis_status: 'ready', analysis: { kind: 'carousel', slideCount: 3, cover: { title: '표지' }, analyzedAt: '2026-11-24T06:00:00.000Z' } })
+  assert.equal(await keepCarouselSlides({ db: old.db, redis: old.redis, makeProviders: old.makeProviders, readImage }, 'Card0001'), true)
+  assert.deepEqual(old.calls.map(c => c[0]), ['lookup'], 'the post is read again, the model is not asked')
+  assert.deepEqual(old.row.analysis.slidePaths, ['slides/Card0001/1.jpg', 'slides/Card0001/2.jpg', 'slides/Card0001/3.jpg'])
+  assert.equal(old.row.analysis.cover.title, '표지')
+  assert.equal(await keepCarouselSlides({ db: old.db, redis: old.redis, makeProviders: old.makeProviders, readImage }, 'Card0001'), false, 'already kept')
+
+  const changed = setup({ cached: false })
+  Object.assign(changed.row, { analysis_status: 'ready', analysis: { kind: 'carousel', slideCount: 5, analyzedAt: '2026-11-24T06:00:00.000Z' } })
+  assert.equal(await keepCarouselSlides({ db: changed.db, redis: changed.redis, makeProviders: changed.makeProviders, readImage }, 'Card0001'), false)
+  assert.equal(changed.row.analysis.slidePaths, undefined)
+  assert.equal(changed.uploads.size, 0)
+
+  const running = setup()
+  assert.equal(await keepCarouselSlides({ db: running.db, redis: running.redis, makeProviders: running.makeProviders, readImage }, 'Card0001'), false, 'not analysed yet')
+})
+
 test('with no slide links kept, the Mac mini reads the post again; a slide image that will not load gets one fresh read, then the analysis fails rather than skip a slide', async () => {
   const first = setup({ cached: false })
   assert.deepEqual((await carouselSlides({ providers: first.makeProviders(), redis: first.redis }, 'Card0001')).urls, [CDN(1), CDN(2), CDN(3)])
@@ -100,4 +135,21 @@ test('an analysis request for a carousel row runs the carousel analysis, not the
   assert.match(row.analysis_error, /캐러셀 이미지/)
   assert.ok(isCarousel(row.analysis))
   assert.ok(!calls.some(c => c[0] === 'json'))
+})
+
+test('a carousel\'s detail lists its kept slides as viewable links in order; none while they are not kept or one cannot be opened', async () => {
+  const detail = (analysis, { status = 'ready', missing = null } = {}) => {
+    const row = { shortcode: 'Card0001', username: 'maker', visible: true, likes: 10, comments: 1, analysis, analysis_status: status, thumbnail_path: null }
+    const db = { storage: { from: () => ({ createSignedUrls: async paths => ({ data: paths.map(path => ({ path, signedUrl: path === missing ? null : `https://signed/${path}` })), error: null }) }) },
+      from: table => { const api = { select: () => api, eq: () => api, order: () => api, range: () => api, maybeSingle: () => api, single: () => api,
+        then: resolve => resolve({ data: table === 'creator_success_reels' ? row : table === 'creator_reel_plans' ? [] : null, error: null }) }; return api } }
+    return reelDetail(db, 'user-1', 'Card0001')
+  }
+  const kept = { kind: 'carousel', slideCount: 2, slidePaths: ['slides/Card0001/1.jpg', 'slides/Card0001/2.jpg'] }
+  const open = await detail(kept)
+  assert.equal(open.kind, 'carousel')
+  assert.deepEqual(open.slides, ['https://signed/slides/Card0001/1.jpg', 'https://signed/slides/Card0001/2.jpg'])
+  assert.deepEqual((await detail({ kind: 'carousel', slideCount: 2 })).slides, [])
+  assert.deepEqual((await detail(kept, { missing: 'slides/Card0001/2.jpg' })).slides, [], 'a gap would shift the slide numbers')
+  assert.deepEqual((await detail(kept, { status: 'running' })).slides, [])
 })
