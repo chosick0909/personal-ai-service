@@ -1,7 +1,7 @@
 import test from 'node:test'
 import { COVER_PRINCIPLE_NAMES } from '../src/creator-tools/studio/copy-principles.js'
 import { ungroundedQuotes } from '../src/creator-tools/studio/engine.js'
-import { sessionHistory, topicPatch } from '../src/creator-tools/studio/routes.js'
+import { linkUnread, sessionHistory, topicPatch } from '../src/creator-tools/studio/routes.js'
 import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
@@ -576,4 +576,14 @@ test('[취소] while a stage is being written returns the plan to the screen bef
   const skippedTo = { ...db.tables.studio_sessions.get('s1'), script: { options: [] }, filming: undefined, stage: 'caption', job_status: 'running', job_stage: 'caption' }
   db.tables.studio_sessions.set('s1', skippedTo)
   assert.equal((await cancelStage(deps, skippedTo)).stage, 'script', 'the skipped 촬영·편집 has nothing to show, so it goes back to the script')
+})
+
+test('a link whose earlier try brought nothing back is read again; one already read or still being read is not', () => {
+  const failed = { source: 'upload-link', analysis_status: 'failed', thumbnail_path: null, source_path: null }
+  assert.equal(linkUnread(failed), true, 'nothing is known about the post yet, not even reel or carousel')
+  assert.equal(linkUnread({ ...failed, thumbnail_path: 'covers/a.jpg' }), false, 'the post was read; only its analysis failed')
+  assert.equal(linkUnread({ ...failed, analysis_status: 'running' }), false, 'the first read is still under way')
+  assert.equal(linkUnread({ ...failed, source: 'collector' }), false, 'a collected reel is not a pasted link')
+  assert.equal(linkUnread({ source: 'upload-youtube', analysis_status: 'failed', source_path: null }, true), true)
+  assert.equal(linkUnread({ source: 'upload-youtube', analysis_status: 'ready', source_path: 'videos/a.mp4' }, true), false)
 })

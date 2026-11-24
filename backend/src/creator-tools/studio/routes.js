@@ -86,6 +86,11 @@ function normalizeSources(value) {
   return out
 }
 
+// A link whose earlier try brought nothing back is read again: the row still knows nothing about the post — not even
+// whether it is a reel or a carousel — so analysing it as it stands could only fail the same way.
+export const linkUnread = (row, youtube = false) => youtube ? !row.source_path
+  : row.source === 'upload-link' && row.analysis_status === 'failed' && !row.thumbnail_path
+
 export function registerStudioRoutes(router) {
   const enabled = req => { if (!studio2Enabled(req.auth.userId)) fail('FEATURE_DISABLED', '아직 공개되지 않은 기능입니다.', 404) }
   const owned = async (req, select = '*') => {
@@ -745,9 +750,8 @@ export function registerStudioRoutes(router) {
     const url = video ? youtubeUrl(video) : instagramPostUrl(raw)
     if (!url) fail('LINK_INVALID', '인스타그램 릴스·캐러셀이나 유튜브 영상 링크를 넣어주세요. 예) https://www.instagram.com/reel/XXXX/')
     const shortcode = video ? youtubeShortcode(video) : new URL(url).pathname.split('/')[2]
-    const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id,source_path').eq('shortcode', shortcode).maybeSingle())
-    // A YouTube link whose video never reached storage (the earlier try failed) is fetched again.
-    if (!existing || (video && !existing.source_path)) {
+    const existing = await query(db.from('creator_success_reels').select('shortcode,visible,owner_user_id,source,source_path,thumbnail_path,analysis_status').eq('shortcode', shortcode).maybeSingle())
+    if (!existing || linkUnread(existing, Boolean(video))) {
       const now = new Date().toISOString()
       await query(db.from('creator_success_reels').upsert({ shortcode, username: await uploadAccount(db, userId), views: 0, posted_at: now, caption: '', source: video ? 'upload-youtube' : 'upload-link',
         owner_user_id: userId, visible: false, analysis_status: 'running', analysis_error: null, analysis_updated_at: now }, { onConflict: 'shortcode' }))
