@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources, publicCarousel } from '../src/creator-tools/studio/carousel.js'
+import { carouselChat, applyCarouselProposal, chatStage, generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources, publicCarousel } from '../src/creator-tools/studio/carousel.js'
 import { carouselMakerEnabled } from '../src/creator-tools/studio/access.js'
 import { IMAGE_TIERS, generateImage, monthlyAllowance, storeImage, designImages } from '../src/creator-tools/studio/carousel-images.js'
 import { CAROUSEL_TEMPLATES, slideOverflows, slideLength, MAX_CAROUSEL_SLIDES } from '../../shared/carousel-templates.mjs'
@@ -108,6 +108,28 @@ test('the student\'s edits: a cover of their own reaches the cover slide, slides
   assert.equal(nextCarouselStage('slides'), 'design')
   assert.equal(nextCarouselStage('done'), 'done')
   assert.equal(normalizeDesign({}, []).template, 'dark-accent')
+})
+
+test('talking to 훅ai: a revision that misses the student\'s condition is rewritten once, and applying it keeps each slide\'s id', async () => {
+  const slides = { items: [{ id: 'aaa', role: 'cover', heading: '표지', text: '' }, { id: 'bbb', role: 'body', heading: '', text: '하나' }, { id: 'ccc', role: 'body', heading: '', text: '둘' }, { id: 'ddd', role: 'last', heading: '', text: '끝' }], template: 'note', weak: [] }
+  const reply = (input, n) => ({ reply: '둘째 장을 줄였어요.', chips: ['셋째 장에 숫자를 넣어줘', 'x'.repeat(200)],
+    proposal: { has: true, text: '', kicker: '', units: [], closing: '', hashtags: [], summary: '둘째 장을 짧게', last: { heading: '', text: '저장해 두세요' },
+      slides: [{ heading: '', text: '하나', image: '' }, { heading: '', text: n === 1 ? '여전히 긴 둘' : '**둘**', image: '' }, { heading: '', text: '새 장', image: '' }],
+      requests: [{ condition: '둘째 장을 한 단어로', evidence: n === 1 ? '여전히 긴 둘' : '둘', met: n !== 1 }] } })
+  const { deps, calls, carousel } = setup({ row: { stage: 'slides', slides }, answers: { 'studio-carousel-revise': reply } })
+  const out = await carouselChat(deps, carousel, [{ role: 'hookai', content: '나눴어요' }], '둘째 장을 한 단어로 줄여줘')
+  assert.equal(calls.length, 2)
+  assert.match(calls[1].prompt, /이 조건을 지키지 못했습니다: 둘째 장을 한 단어로/)
+  assert.equal(calls[0].input.userMessage, '둘째 장을 한 단어로 줄여줘')
+  assert.equal(calls[0].input.template.name, '흰 배경 노트')
+  assert.deepEqual(out.meta.chips, ['셋째 장에 숫자를 넣어줘'])
+  assert.equal(out.meta.proposal.stage, 'slides')
+  const applied = applyCarouselProposal(carousel, out.meta.proposal).slides.items
+  assert.deepEqual(applied.map(s => [s.id === 'aaa' || s.id === 'bbb' || s.id === 'ccc' || s.id === 'ddd', s.role, s.text]), [[true, 'cover', ''], [true, 'body', '하나'], [true, 'body', '**둘**'], [false, 'body', '새 장'], [true, 'last', '저장해 두세요']])
+  assert.throws(() => applyCarouselProposal({ ...carousel, caption: null }, { stage: 'caption', text: '캡션' }), { code: 'PROPOSAL_NOT_FOUND' })
+  assert.equal(chatStage({ stage: 'done' }, '해시태그 줄여줘'), 'caption')
+  assert.equal(chatStage({ stage: 'done' }, '표지를 더 세게'), 'cover')
+  assert.equal(chatStage({ stage: 'body' }, '표지를 더 세게'), 'body')
 })
 
 test('references: a carousel lends its slide order and its design; a reel lends its flow but not a design', async () => {

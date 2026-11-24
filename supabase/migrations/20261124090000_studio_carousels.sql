@@ -26,6 +26,21 @@ create index studio_carousels_user on public.studio_carousels(user_id, updated_a
 alter table public.studio_carousels enable row level security;
 grant all on public.studio_carousels to service_role;
 
+-- The conversation with 훅ai inside one carousel plan: what the student asked to change and the revision offered.
+create table public.studio_carousel_messages (
+  id uuid primary key default gen_random_uuid(),
+  carousel_id uuid not null references public.studio_carousels(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('user', 'hookai')),
+  stage text not null,
+  content text not null,
+  meta jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+create index studio_carousel_messages_carousel on public.studio_carousel_messages(carousel_id, created_at);
+alter table public.studio_carousel_messages enable row level security;
+grant all on public.studio_carousel_messages to service_role;
+
 -- 내 이미지 보관함: photos the student uploaded, AI images they made, stock photos they placed. One library for
 -- every carousel. sha256 keeps the same file from being stored twice; kept=false marks an AI image nobody chose yet
 -- (removed after seven days).

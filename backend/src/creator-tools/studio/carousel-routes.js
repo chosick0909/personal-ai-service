@@ -4,7 +4,7 @@ import { fail, uuid } from '../domain.js'
 import { database, query } from '../store.js'
 import { schedule, isScheduled } from '../success-reel-analysis.js'
 import { carouselMakerEnabled } from './access.js'
-import { CAROUSEL_STAGES, nextCarouselStage, generateCarouselStage, applyCarouselPatch, publicCarousel, resolveCarouselSources, normalizeCarouselSources } from './carousel.js'
+import { CAROUSEL_STAGES, CAROUSEL_OPENERS, nextCarouselStage, generateCarouselStage, applyCarouselPatch, applyCarouselProposal, carouselChat, publicCarousel, resolveCarouselSources, normalizeCarouselSources } from './carousel.js'
 import { IMAGE_TIERS, IMAGE_SHAPES, writeImagePrompt, generateImage, storeImage, listImages, designImages, removeImage, signImages, allowanceUsed, monthlyAllowance, sweepUnkept, LIBRARY_LIMIT } from './carousel-images.js'
 
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
@@ -44,9 +44,12 @@ export function registerCarouselRoutes(router, deps) {
     if (!row) fail('CAROUSEL_NOT_FOUND', '캐러셀을 찾을 수 없어요.', 404)
     return row
   }
+  const say = (row, role, stage, content, meta = {}) => query(database().from('studio_carousel_messages').insert({ carousel_id: row.id, user_id: row.user_id, role, stage, content, meta }).select('*').single())
+  const publicMessage = m => ({ id: m.id, role: m.role, stage: m.stage, content: m.content, meta: m.meta || {}, createdAt: m.created_at })
+  const history = id => query(database().from('studio_carousel_messages').select('*').eq('carousel_id', id).order('created_at', { ascending: true }).limit(200))
   const full = async (row, userId) => {
     const resolved = await resolveCarouselSources(database(), userId, row.sources).catch(() => ({}))
-    return { carousel: publicCarousel(row), images: await designImages(database(), userId, row.design).catch(() => ({})),
+    return { carousel: publicCarousel(row), messages: (await history(row.id).catch(() => [])).map(publicMessage), images: await designImages(database(), userId, row.design).catch(() => ({})),
       sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { id: s.id, label: s.label, kind: s.kind, permalink: s.permalink }])) }
   }
 
@@ -63,6 +66,7 @@ export function registerCarouselRoutes(router, deps) {
     await resolveCarouselSources(database(), req.auth.userId, sources)
     const style = await query(database().from('studio_styles').select('card').eq('user_id', req.auth.userId).maybeSingle())
     const row = await query(database().from('studio_carousels').insert({ user_id: req.auth.userId, brief, sources, style_snapshot: style?.card || null }).select('*').single())
+    await say(row, 'hookai', 'cover', CAROUSEL_OPENERS.cover).catch(() => {})
     res.status(201).json(await full(await startCarouselStage(deps(), row, 'cover'), req.auth.userId))
   }))
   router.get('/creator-tools/studio/carousels/:id', asyncHandler(async (req, res) => {
@@ -94,6 +98,8 @@ export function registerCarouselRoutes(router, deps) {
     const stage = CAROUSEL_STAGES.includes(req.body?.stage) ? req.body.stage : nextCarouselStage(row.stage)
     const again = req.body?.regenerate === true
     if (row.job_status === 'running') fail('STAGE_BUSY', '훅ai가 아직 쓰는 중이에요. 잠시만 기다려주세요.', 409)
+    // 훅ai greets a stage the first time it opens.
+    if (stage !== row.stage && CAROUSEL_OPENERS[stage] && (stage === 'done' || !row[stage])) await say(row, 'hookai', stage, CAROUSEL_OPENERS[stage]).catch(() => {})
     if (WRITTEN.includes(stage) && (again || !row[stage])) return res.json(await full(await startCarouselStage(deps(), row, stage, { note: text(req.body?.note, 600) }), req.auth.userId))
     const patch = { stage, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }
     if (stage === 'design') patch.design = (await generateCarouselStage(deps(), row, 'design')).value
@@ -105,6 +111,35 @@ export function registerCarouselRoutes(router, deps) {
     const row = await owned(req)
     if (row.job_status !== 'running') return res.json(await full(row, req.auth.userId))
     const updated = await query(database().from('studio_carousels').update({ job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', row.id).select('*').single())
+    res.json(await full(updated, req.auth.userId))
+  }))
+
+  // 훅ai answers in the background and the screen polls the plan, so a long revision never hits a request timeout.
+  router.post('/creator-tools/studio/carousels/:id/chat', asyncHandler(async (req, res) => {
+    enabled(req)
+    const row = await owned(req)
+    const content = text(req.body?.text, 4000)
+    if (!content) fail('MESSAGE_REQUIRED', '메시지를 적어주세요.')
+    const before = await history(row.id)
+    const mine = await say(row, 'user', row.stage, content)
+    void (async () => {
+      try {
+        const reply = await carouselChat(deps(), row, before, content)
+        await say(row, 'hookai', row.stage, reply.content, reply.meta)
+      } catch (error) {
+        console.error('[carousel-chat]', error?.code || 'FAILED')
+        await say(row, 'hookai', row.stage, '앗, 이번 답은 만들지 못했어요. 같은 말을 한 번만 다시 보내주세요.', { failed: true }).catch(() => {})
+      }
+    })()
+    res.status(202).json({ messages: [publicMessage(mine)], pending: true })
+  }))
+  // Apply a revision 훅ai offered in the conversation.
+  router.post('/creator-tools/studio/carousels/:id/apply', asyncHandler(async (req, res) => {
+    enabled(req)
+    const row = await owned(req)
+    const message = await query(database().from('studio_carousel_messages').select('*').eq('id', uuid(req.body?.messageId)).eq('carousel_id', row.id).maybeSingle())
+    const patch = applyCarouselProposal(row, message?.meta?.proposal)
+    const updated = await query(database().from('studio_carousels').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id).select('*').single())
     res.json(await full(updated, req.auth.userId))
   }))
 

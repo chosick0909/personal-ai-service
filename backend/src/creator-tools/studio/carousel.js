@@ -252,6 +252,71 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
   fail('STAGE_UNKNOWN', '알 수 없는 단계예요.')
 }
 
+// ---------- talking to 훅ai about the plan ----------
+// What 훅ai says when a stage opens, before anything is written.
+export const CAROUSEL_OPENERS = {
+  cover: '어떤 캐러셀인지 읽어 볼게요. 넘기지 않고는 못 배길 표지 제목부터 잡아요.',
+  body: '표지 정했으니, 표지 다음 장부터 마지막 장 앞까지 들어갈 내용을 3안으로 써 볼게요.',
+  slides: '이제 내용을 장으로 나눌게요. 어디서 끊을지, 어떤 틀이 맞을지 같이 봐요.',
+  design: '글은 다 됐어요. 틀을 고르면 모든 장이 한 번에 배치돼요. 색·글꼴·사진은 여기서 바꿔요.',
+  caption: '거의 다 왔어요. 캡션만 쓰면 끝이에요.',
+  done: '고생 많으셨어요! 👏 캐러셀이 완성됐어요. 이미지를 받아 가세요.',
+}
+const STAGE_NAMES = { cover: '표지 제목', body: '본문 기획', slides: '슬라이드 나누기', design: '디자인', caption: '캡션' }
+const chipList = (value, count) => (Array.isArray(value) ? value : []).map(v => clean(v, 1000)).filter(c => c && c.length <= 160).slice(0, count)
+// Field order is writing order: the revision first, then checked against what the student asked, then described.
+const reviseSchema = obj({
+  proposal: obj({ has: { type: 'boolean' }, text: str, kicker: str, units: arr(obj({ text: str })), closing: str, slides: arr(obj({ heading: str, text: str, image: str })), last: obj({ heading: str, text: str }), hashtags: arr(str),
+    requests: arr(obj({ condition: str, evidence: str, met: { type: 'boolean' } })), summary: str }),
+  reply: str, chips: arr(str) })
+const revisePrompt = stage => `지금은 '${STAGE_NAMES[stage]}' 단계입니다. 수강생의 요청이나 질문에 답하고, 현재 내용을 고쳐 달라는 요청이면 proposal에 고친 결과를 담습니다.
+쓰는 순서대로 채웁니다.
+- proposal.has: 고친 결과가 있으면 true. 없으면 false와 빈 값.
+- 단계별 proposal: 표지 제목 → text(큰 제목)와 kicker(제목 위 작은 한 줄, 없으면 빈 문자열). 본문 기획 → units(본문 전체를 읽는 순서대로, 한 덩어리에 한 가지)와 closing(마지막 장 문구). 슬라이드 나누기 → slides(표지와 마지막 장 사이의 장 전체를 순서대로: heading, text, image)와 last(마지막 장). 캡션 → text(캡션 본문)와 hashtags(# 없이). 디자인 → proposal 없이 reply에 조언만(색·글꼴·사진은 수강생이 화면에서 바꿉니다).
+- 슬라이드를 고칠 때는 template의 limits를 지키고, 한 장에서 가장 중요한 구절 한 군데만 **별표 두 개**로 감쌉니다. 요청하지 않은 장은 글자 하나 바꾸지 않고 그대로 다시 적습니다.
+- proposal.requests: 다 쓴 결과를 수강생의 요청과 하나씩 대조합니다. 이번 요청과, 대화에서 수강생이 앞서 정해 두어 아직 유효한 조건을 각각 condition으로 적고, 방금 쓴 결과에서 그 조건이 어떻게 드러나는지 evidence에 실제 글자 그대로 옮긴 뒤 met을 판정합니다. 개수·위치·순서·길이·뺄 것·넣을 것처럼 글자로 확인할 수 있는 조건은 세어서 확인합니다.
+- proposal.summary: 결과에서 실제로 바뀐 점 한 줄.
+- reply: 2~4문장. 결과에 실제로 반영된 것만 말합니다. met이 false인 조건이 있으면 무엇을 못 지켰고 왜인지 그대로 말합니다. 질문이면 그 답.
+- chips: 지금 결과를 읽는 사람이 더 끝까지 넘기게 만들 다음 수정 요청 0~3개. 이 캐러셀에서 가장 약한 곳(멈춰도 아쉽지 않은 장, 더 구체적일 수 있는 말, 흐릿한 약속)을 짚은 이 캐러셀만의 구체적인 요청으로 쓰고, 어느 캐러셀에나 붙는 일반 요청은 쓰지 않습니다.
+규칙: 수강생이 고친 부분은 유지하고 요청한 부분만 바꿉니다. 수강생이 건 조건은 결과 전체에서 지킵니다. 없는 사실을 넣지 않습니다.`
+
+function normalizeProposal(stage, p) {
+  const summary = clean(p.summary, 200)
+  if (stage === 'cover') { const text = clean(p.text, 60); return text ? { stage, summary, text, kicker: clean(p.kicker, 40) } : null }
+  if (stage === 'body') { const units = (Array.isArray(p.units) ? p.units : []).map(u => ({ text: block(u?.text, 400) })).filter(u => u.text).slice(0, 30); return units.length >= 2 ? { stage, summary, units, closing: block(p.closing, 200) } : null }
+  if (stage === 'slides') { const slides = (Array.isArray(p.slides) ? p.slides : []).map(s => ({ heading: clean(s?.heading, 80), text: block(s?.text, 600), image: clean(s?.image, 200) })).filter(s => s.heading || s.text).slice(0, MAX_CAROUSEL_SLIDES - 2)
+    return slides.length ? { stage, summary, slides, last: { heading: clean(p.last?.heading, 80), text: block(p.last?.text, 200) } } : null }
+  if (stage === 'caption') { const text = typeof p.text === 'string' ? p.text.normalize('NFC').trim().slice(0, 2200) : ''; return text ? { stage, summary, text, hashtags: list(p.hashtags, 40, 8).map(t => t.replace(/^#+/, '')) } : null }
+  return null
+}
+// On the finished plan the request decides which part is revised.
+export const chatStage = (row, text) => row.stage !== 'done' ? row.stage : /캡션|해시태그/.test(text) ? 'caption' : /표지|제목/.test(text) ? 'cover' : 'slides'
+export async function carouselChat(deps, row, messages, text) {
+  const resolved = await resolveCarouselSources(deps.db, row.user_id, row.sources).catch(() => ({}))
+  const providers = deps.makeProviders(AbortSignal.timeout(480000))
+  const stage = chatStage(row, text)
+  const template = row.slides?.template ? carouselTemplate(row.design?.template || row.slides.template) : null
+  const input = context(row, resolved, { fieldKnowledge: await fieldKnowledge(deps.db, row.topic?.category).catch(() => null),
+    ...(template ? { template: { name: template.name, limits: template.limits.body, lastLimit: template.limits.last.text } } : {}),
+    conversation: messages.slice(-12).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content })), userMessage: text })
+  let raw = await json(providers, 'studio-carousel-revise', revisePrompt(stage), input, reviseSchema)
+  // A revision that misses a condition the student set is rewritten once, with the misses named.
+  const misses = (raw.proposal?.has && Array.isArray(raw.proposal.requests) ? raw.proposal.requests : []).filter(r => r && r.met === false).map(r => clean(r.condition, 160)).filter(Boolean)
+  if (misses.length) raw = await json(providers, 'studio-carousel-revise', `${revisePrompt(stage)}\n방금 쓴 결과를 대조했더니 이 조건을 지키지 못했습니다: ${misses.join(' / ')}. 결과를 처음부터 다시 써서 모든 조건을 지키고, 다시 대조합니다.`, input, reviseSchema)
+  const proposal = raw.proposal?.has && row[stage] ? normalizeProposal(stage, raw.proposal) : null
+  return { content: clean(raw.reply, 800) || '네, 반영했어요.', meta: { chips: chipList(raw.chips, 3), proposal } }
+}
+// A revision the student accepted becomes the version in use.
+export function applyCarouselProposal(row, p) {
+  if (!p || !row[p.stage]) fail('PROPOSAL_NOT_FOUND', '적용할 제안을 찾을 수 없어요.', 404)
+  if (p.stage === 'cover') return applyCarouselPatch(row, { cover: { custom: p.text, customKicker: p.kicker } })
+  if (p.stage === 'body') return applyCarouselPatch(row, { body: { edited: { units: p.units, closing: p.closing } } })
+  if (p.stage === 'caption') return applyCarouselPatch(row, { caption: { edited: { text: p.text, hashtags: p.hashtags } } })
+  // Slides keep their ids where the position is the same, so the photos placed on them stay with them.
+  const now = row.slides.items, bodies = now.filter(s => s.role === 'body'), cover = now.find(s => s.role === 'cover'), last = now.findLast(s => s.role === 'last')
+  return applyCarouselPatch(row, { slides: { items: [cover, ...p.slides.map((s, i) => ({ ...s, id: bodies[i]?.id, role: 'body' })), { ...last, heading: p.last?.heading ?? last.heading, text: p.last?.text || last.text }] } })
+}
+
 // ---------- the student's own edits ----------
 export function applyCarouselPatch(row, body) {
   const patch = {}
