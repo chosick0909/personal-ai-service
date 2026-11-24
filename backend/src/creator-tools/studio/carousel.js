@@ -7,7 +7,7 @@ import { isCarousel } from '../success-reels.js'
 import { fieldKnowledge } from './knowledge.js'
 import { prepareTopic, readBrief, researchFresh } from './research.js'
 import { ungroundedQuotes } from './engine.js'
-import { CAROUSEL_TEMPLATES, CAROUSEL_TEMPLATE_IDS, carouselTemplate, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT, slideOverflows } from '../../../../shared/carousel-templates.mjs'
+import { CAROUSEL_TEMPLATES, CAROUSEL_TEMPLATE_IDS, carouselTemplate, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT, COVER_TITLE_LIMIT, slideOverflows, slideLength } from '../../../../shared/carousel-templates.mjs'
 
 // 캐러셀 만들기: 훅ai plans a carousel in the order a student thinks about it — the cover title, the whole body,
 // the split into slides — and the browser designs the slides from a template. Kept apart from the reel plans.
@@ -30,6 +30,8 @@ const CAROUSEL_SYSTEM = `${HOOKAI_SYSTEM}
 [이번 작업]
 이번에 만드는 것은 영상이 아니라 인스타그램 캐러셀(여러 장을 옆으로 넘기며 읽는 게시물)입니다. 위 원칙의 '영상·대본·시청자'는 '캐러셀·본문·읽는 사람'으로 읽습니다. 말로 하는 문장이 아니라 눈으로 읽는 글이므로, 한 장에 들어갈 만큼 짧고, 소리 없이 읽어도 뜻이 한 번에 들어와야 합니다.
 이번에는 질문하지 않습니다. 화자 본인만 아는 사실(본인의 사례·수치·경력·가격)이 꼭 필요한 자리는 지어내지 않고 [대괄호] 빈칸으로 남기고, 그 빈칸을 placeholders에 적습니다.
+수강생이 brief에 적은 자기 경험과 숫자는 화자 본인의 사실입니다. 단서를 달지 않고 그대로 말합니다. 글 안에서 스스로 말의 무게를 깎지 않습니다: 사실 여부를 한발 물리는 말, 개인차를 알리는 말, 의견일 뿐이라고 밝히는 말을 덧붙이지 않습니다. 말할 수 있는 것은 단정해서 말하고, 근거가 없어 단정할 수 없는 것(왜 그런지에 대한 추측, 확인되지 않은 원리)은 단서를 달아 넣는 대신 아예 쓰지 않습니다.
+why·templateWhy·reply처럼 수강생이 읽는 설명은 수강생의 말로 씁니다. 입력 자료의 이름(brief, units, slides 같은 작업 용어)을 꺼내지 않고, 읽는 사람에게 어떤 일이 일어나는지를 말합니다.
 revision이 있으면 수강생이 방금 만든 안(previous)을 보고 요청(request)한 것입니다. 요청한 점을 고치되, 요청하지 않은 부분의 방향은 유지합니다.`
 
 // ---------- references ----------
@@ -78,6 +80,7 @@ function context(row, resolved, extras = {}) {
     cover: chosenCover(row),
     body: chosenBody(row),
     slides: row.slides?.items?.map(s => ({ role: s.role, heading: s.heading, text: s.text })) || null,
+    caption: chosenCaption(row),
     voice: row.style_snapshot || null,
     ...extras,
   }
@@ -90,10 +93,10 @@ const coverSchema = obj({
   check: obj({ unprovidedFacts: arr(str) }), placeholders: arr(str),
 })
 const coverPrompt = `'표지 제목' 단계입니다. 캐러셀 첫 장에 크게 넣을 제목 3안을 훅ai가 직접 제안합니다. 레퍼런스는 이 단계에 쓰지 않습니다. 근거는 brief·topic에 적힌 주제와 사실, 그리고 research(훅ai가 출처와 함께 조사한 대상의 사실과 읽는 사람이 궁금해하는 점)입니다.
-1. plan을 먼저 채웁니다. terms: brief의 핵심 단어(소재, 하려는 일)를 원문 그대로 word에 적고 meaning에 그 단어의 사전적인 뜻을 풉니다. meaning은 단어를 바르게 읽기 위한 것이고, 제목에는 수강생이 쓴 원래 표현을 씁니다. purpose: terms의 뜻만으로 이 캐러셀이 '누가 무엇을 하려는 글인지' 한 문장. quotes: 이번 제목들이 기대는 brief·research의 구절을 한 글자도 바꾸지 않고 옮겨 적습니다. reader: 이 표지를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 끝까지 넘겨 본 사람이 얻는 것 한 가지(한 캐러셀에 약속 하나). promise는 수강생의 목적(소개·추천)을 그대로 쓰지 않고, research에서 이 대상이 읽는 사람에게 실제로 해 주는 일과 궁금해하는 점에서 찾습니다.
+1. plan을 먼저 채웁니다. terms: brief의 핵심 단어(소재, 하려는 일)를 원문 그대로 word에 적고 meaning에 그 단어의 사전적인 뜻을 풉니다. meaning은 단어를 바르게 읽기 위한 것이고, 제목에는 수강생이 쓴 원래 표현을 씁니다. purpose: terms의 뜻만으로 이 캐러셀이 '누가 무엇을 하려는 글인지' 한 문장. quotes: 이번 제목들이 기대는 brief·research의 구절을 한 글자도 바꾸지 않고 옮겨 적습니다. reader: 이 표지를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 끝까지 넘겨 본 사람이 얻는 것 한 가지를 그것만 짧게 적습니다(한 캐러셀에 약속 하나). promise는 수강생의 목적(소개·추천)을 그대로 쓰지 않고, research에서 이 대상이 읽는 사람에게 실제로 해 주는 일과 궁금해하는 점에서 찾습니다.
 2. 아래 표지 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
-3. 쓰는 기준. 표지는 피드와 프로필 격자에서 손톱만 하게 보이고, 누르는 게 아니라 옆으로 넘기게 만드는 것이 일입니다. text는 작게 봐도 한눈에 읽히는 한 구절(두 줄로 끊어 놓을 수 있는 길이)이고, kicker는 제목 위에 작게 놓는 한 줄입니다(${COVER_KICKER_LIMIT}자 이내). kicker는 제목이 누구에게 하는 말인지, 또는 제목을 읽고 생기는 물음을 먼저 꺼내는 일을 하며, 제목만으로 충분하면 빈 문자열로 둡니다(제목을 되풀이하지 않음). 제목은 판매자·제품 자랑이 아니라 읽는 사람이 얻는 것으로 쓰고, 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격 같은 사실은 brief나 research에 있을 때만 씁니다. 제목에 숫자를 걸면 본문이 실제로 그 개수를 다뤄야 합니다.
+3. 쓰는 기준. 표지는 피드와 프로필 격자에서 손톱만 하게 보이고, 누르는 게 아니라 옆으로 넘기게 만드는 것이 일입니다. text는 작게 봐도 한눈에 읽히는 한 구절이고(${COVER_TITLE_LIMIT}자 이내, 두 문장으로 나누지 않음), kicker는 제목 위에 작게 놓는 한 줄입니다(${COVER_KICKER_LIMIT}자 이내). kicker는 제목이 누구에게 하는 말인지, 또는 제목을 읽고 생기는 물음을 먼저 꺼내는 일을 하며, 제목만으로 충분하면 빈 문자열로 둡니다(제목을 되풀이하지 않음). 제목은 판매자·제품 자랑이 아니라 읽는 사람이 얻는 것으로 쓰고, 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격 같은 사실은 brief나 research에 있을 때만 씁니다. 제목에 숫자를 걸면 본문이 실제로 그 개수를 다뤄야 합니다.
 4. 다 쓰고 점검합니다. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황이 purpose와 같은 일을 말하는지, quotes의 구절이 brief·research에 그 단어, 그 뜻 그대로 있는지 대조합니다. 주어지지 않은 사실이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 표지를 본 사람이 왜 다음 장으로 넘기게 되는지 읽는 사람 입장에서 한 줄.`
 
@@ -212,7 +215,9 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
   }
   if (stage === 'cover') {
     const raw = await draft('studio-carousel-cover', coverPrompt, coverSchema, revision(note, row.cover?.options?.map(o => o.text)),
-      r => [...list(r.check?.unprovidedFacts, 80, 6), ...ungroundedQuotes(row, [...(r.plan?.quotes || []), ...(r.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`)])
+      r => [...list(r.check?.unprovidedFacts, 80, 6), ...ungroundedQuotes(row, [...(r.plan?.quotes || []), ...(r.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`),
+        // Letters are counted here: a cover that does not fit is no cover, however good the line is.
+        ...(Array.isArray(r.options) ? r.options : []).filter(o => slideLength(o?.text) > COVER_TITLE_LIMIT || slideLength(o?.kicker) > COVER_KICKER_LIMIT).map(o => `표지에 넣기엔 긴 제목(제목 ${COVER_TITLE_LIMIT}자, 윗줄 ${COVER_KICKER_LIMIT}자 이내): "${clean(o.text, 60)}"`)])
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => { const label = COVER_PRINCIPLE_NAMES.includes(o.label) ? o.label : ''; return { text: clean(o.text, 60), kicker: clean(o.kicker, 40), why: clean(o.why, 200), label, hint: coverHint(label) } }).filter(o => o.text).slice(0, 3)
     if (!options.length) fail('STAGE_EMPTY', '표지 제목을 만들지 못했어요. 다시 시도해주세요.', 422)
     const terms = (Array.isArray(raw.plan?.terms) ? raw.plan.terms : []).map(t => ({ word: clean(t?.word, 40), meaning: clean(t?.meaning, 120) })).filter(t => t.word && t.meaning).slice(0, 8)
@@ -236,6 +241,8 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
       ...revision(note, row.slides?.items?.filter(s => s.role === 'body').map(s => ({ heading: s.heading, text: s.text }))) }
     let raw = await json(providers, 'studio-carousel-slides', slidesPrompt, input(extras), slidesSchema)
     const template = keep || carouselTemplate(raw.template).id
+    // The reason is the first answer's: a second call is told the template is already chosen.
+    const templateWhy = clean(raw.templateWhy, 200)
     const build = r => normalizeSlides([{ role: 'cover', heading: cover.text, text: cover.kicker }, ...(Array.isArray(r.slides) ? r.slides : []).map(s => ({ ...s, role: 'body' })), { role: 'last', heading: r.last?.heading, text: r.last?.text || body.closing }])
     let items = build(raw)
     // Slides over the template's limits are sent back once: the count of letters is checked here, not left to the model.
@@ -248,7 +255,7 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
     if (items.filter(s => s.role === 'body').length < 1) fail('STAGE_EMPTY', '슬라이드를 나누지 못했어요. 다시 시도해주세요.', 422)
     const bodies = items.filter(s => s.role === 'body')
     const weak = (Array.isArray(raw.weak) ? raw.weak : []).map(w => ({ id: bodies[Math.round(Number(w?.slide)) - 1]?.id, why: clean(w?.why, 200) })).filter(w => w.id && w.why).slice(0, 8)
-    return { value: { items, template, templateWhy: clean(raw.templateWhy, 200), templateChosen: Boolean(keep), weak } }
+    return { value: { items, template, templateWhy, templateChosen: Boolean(keep), weak } }
   }
   if (stage === 'design') {
     if (!row.slides?.items?.length) fail('STAGE_ORDER', '슬라이드를 먼저 나눠주세요.', 409)

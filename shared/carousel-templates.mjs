@@ -27,6 +27,8 @@ export const carouselTemplate = id => CAROUSEL_TEMPLATES.find(t => t.id === id) 
 export const CAROUSEL_RATIOS = { '4:5': [1080, 1350], '3:4': [1080, 1440] }
 // The small line above the cover title stays on one line in every template up to this many letters.
 export const COVER_KICKER_LIMIT = 18
+// A cover title is written before a template is chosen: this many letters fit most templates' covers in two lines.
+export const COVER_TITLE_LIMIT = 24
 // Instagram allows twenty images in one post.
 export const MAX_CAROUSEL_SLIDES = 20
 // Text length as the student sees it: emphasis markers and line breaks are not letters.

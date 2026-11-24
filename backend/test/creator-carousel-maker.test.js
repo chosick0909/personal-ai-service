@@ -40,6 +40,11 @@ test('cover titles: three at most, each under a known principle, and a quote the
   assert.equal(out.value.plan.promise, '집에 있는 것으로 시작하는 법')
   assert.match(calls[0].prompt, /캐러셀/)
   assert.equal(calls[0].input.topic.title, TOPIC.title)
+  // A title too long for a cover is counted in code and sent back once.
+  const long = setup({ answers: { 'studio-carousel-cover': (_input, n) => n === 1 ? { ...coverAnswer, options: [{ ...coverAnswer.options[0], text: '릴스 40개 올려 보고 알았어요. 먼저 정할 건 장비가 아니라 주제' }] } : coverAnswer } })
+  await generateCarouselStage(long.deps, long.carousel, 'cover')
+  assert.equal(long.calls.length, 2)
+  assert.match(long.calls[1].prompt, /표지에 넣기엔 긴 제목/)
 })
 
 test('the body is written as units in reading order; a request to redo it travels with the version it replaces', async () => {
@@ -127,6 +132,7 @@ test('talking to 훅ai: a revision that misses the student\'s condition is rewri
   assert.match(calls[1].prompt, /이 조건을 지키지 못했습니다: 둘째 장을 한 단어로/)
   assert.equal(calls[0].input.userMessage, '둘째 장을 한 단어로 줄여줘')
   assert.equal(calls[0].input.template.name, '흰 배경 노트')
+  assert.equal(calls[0].input.caption, null, 'the caption in use travels with the plan once there is one')
   assert.deepEqual(out.meta.chips, ['셋째 장에 숫자를 넣어줘'])
   assert.equal(out.meta.proposal.stage, 'slides')
   const applied = applyCarouselProposal(carousel, out.meta.proposal).slides.items
