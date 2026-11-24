@@ -7,7 +7,7 @@ import { isCarousel } from '../success-reels.js'
 import { fieldKnowledge } from './knowledge.js'
 import { prepareTopic, readBrief, researchFresh } from './research.js'
 import { ungroundedQuotes } from './engine.js'
-import { CAROUSEL_TEMPLATES, CAROUSEL_TEMPLATE_IDS, carouselTemplate, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT, COVER_TITLE_LIMIT, slideOverflows, slideLength } from '../../../../shared/carousel-templates.mjs'
+import { CAROUSEL_TEMPLATES, CAROUSEL_TEMPLATE_IDS, carouselTemplate, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT, COVER_TITLE_LIMIT, slideOverflows, slideLength, longLines } from '../../../../shared/carousel-templates.mjs'
 
 // 캐러셀 만들기: 훅ai plans a carousel in the order a student thinks about it — the cover title, the whole body,
 // the split into slides — and the browser designs the slides from a template. Kept apart from the reel plans.
@@ -124,9 +124,9 @@ const slidesSchema = obj({
 const slidesPrompt = `'슬라이드 나누기' 단계입니다. 확정된 본문(body.units)을 장으로 나눕니다. 표지와 마지막 장은 따로 있으므로 slides에는 그 사이의 장만 순서대로 적습니다.
 - 내용은 본문 그대로입니다. 새 사실이나 새 주장을 더하지 않고, 덩어리의 순서를 바꾸지 않습니다. 한 장에 넣으려고 줄이는 것, 긴 덩어리를 두 장으로 나누는 것, 짧은 덩어리 둘을 한 장에 묶는 것만 합니다. 줄일 때는 수강생이 쓴 표현과 숫자를 남깁니다.
 - 틀: templates 중 이 내용에 가장 맞는 하나를 template에 고르고 이유를 templateWhy에 한 줄로 적습니다. 고르는 기준은 한 장에 들어갈 글의 양과 글의 성격입니다(한마디로 끊어 말하는 글인지, 두 가지를 맞세우는 글인지, 번호를 붙여 정리하는 글인지, 풀어 쓰는 글인지). sources.design이 있으면 그 틀(frame)과 글 양(textAmount)에 가장 가까운 것을 먼저 봅니다. currentTemplate이 있으면 수강생이 이미 고른 틀이므로 바꾸지 않습니다.
-- 글 양: 고른 틀의 limits를 지킵니다(heading·text는 글자 수, lines는 줄 수; heading 한도가 0인 틀은 heading을 빈 문자열로). 한도를 넘는 장은 두 장으로 나눕니다. 표지와 마지막 장을 더해 ${MAX_CAROUSEL_SLIDES}장을 넘지 않습니다.
+- 글 양: 고른 틀의 limits를 지킵니다(heading·text는 글자 수, lines는 줄 수, lineChars는 한 줄에 들어가는 글자 수; heading 한도가 0인 틀은 heading을 빈 문자열로). 한도를 넘는 장은 두 장으로 나눕니다. 표지와 마지막 장을 더해 ${MAX_CAROUSEL_SLIDES}장을 넘지 않습니다.
 - heading: 그 장을 한눈에 알려 주는 소제목입니다. 본문 첫 줄을 되풀이하지 않고, 번호를 매기는 글이면 번호가 heading의 일부입니다.
-- text: 그 장의 글입니다. 줄바꿈은 읽는 호흡대로 넣습니다. 그 장에서 읽는 사람이 꼭 가져가야 할 말 한 군데만 **이렇게** 별표 두 개로 감쌉니다(한 장에 한 군데, 문장 전체가 아니라 핵심 구절).
+- text: 그 장의 글입니다. 한 줄은 lineChars자를 넘기지 않고, 뜻이 한 덩어리로 끊기는 자리에서 줄을 바꿉니다(꾸미는 말과 꾸밈을 받는 말, 강조한 구절은 한 줄에 둡니다). 한 줄이 lineChars보다 길면 화면에서 뜻과 상관없는 자리에서 한 번 더 꺾입니다. 그 장에서 읽는 사람이 꼭 가져가야 할 말 한 군데만 **이렇게** 별표 두 개로 감쌉니다(한 장에 한 군데, 문장 전체가 아니라 핵심 구절).
 - 두 가지를 위아래로 맞세우는 틀을 골랐으면 text는 정확히 두 줄이고, 첫 줄과 둘째 줄이 서로 맞서는 짝이어야 합니다.
 - image: 그 장에 사진이나 그림이 들어가는 틀이면, 글의 내용을 받쳐 줄 장면을 한 줄로 적습니다(무엇이, 어디에, 어떤 분위기로). 글자·로고·실제 인물이나 브랜드의 이름은 넣지 않습니다. 사진이 필요 없는 틀이면 빈 문자열.
 - last: 마지막 장입니다. text는 body.closing을 틀의 한도에 맞춘 것이고, heading은 필요할 때만 씁니다.
@@ -247,10 +247,15 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
     let items = build(raw)
     // Slides over the template's limits are sent back once: the count of letters is checked here, not left to the model.
     const over = items.map((s, i) => slideOverflows(template, s) ? i + 1 : 0).filter(Boolean)
-    if (over.length) {
-      raw = await json(providers, 'studio-carousel-slides', `${slidesPrompt}\n방금 나눈 것을 세어 보니 전체(표지 포함)에서 ${over.join(', ')}번째 장이 고른 틀의 한도를 넘습니다. 넘는 장은 줄이거나 두 장으로 나눠 다시 적습니다.`, input({ ...extras, currentTemplate: template }), slidesSchema)
+    const wide = list => list.reduce((n, s) => n + longLines(template, s).length, 0)
+    const lines = items.flatMap(s => longLines(template, s))
+    if (over.length || lines.length) {
+      const found = [...(over.length ? [`전체(표지 포함)에서 ${over.join(', ')}번째 장이 고른 틀의 한도를 넘습니다. 넘는 장은 줄이거나 두 장으로 나눠 다시 적습니다.`] : []),
+        ...(lines.length ? [`한 줄에 들어가는 글자 수(lineChars)를 넘는 줄이 있습니다: ${lines.slice(0, 6).map(l => `"${l}"`).join(' / ')}. 이런 줄은 뜻이 끊기는 자리에서 두 줄로 나눠 적습니다(줄 수 한도를 넘으면 그 장을 두 장으로).`] : [])]
+      raw = await json(providers, 'studio-carousel-slides', `${slidesPrompt}\n방금 나눈 것을 세어 보니 ${found.join(' ')}`, input({ ...extras, currentTemplate: template }), slidesSchema)
       const again = build(raw)
-      if (again.filter(s => slideOverflows(template, s)).length <= over.length) items = again
+      // Kept only when it is no worse on either count.
+      if (again.filter(s => slideOverflows(template, s)).length <= over.length && wide(again) <= lines.length) items = again
     }
     if (items.filter(s => s.role === 'body').length < 1) fail('STAGE_EMPTY', '슬라이드를 나누지 못했어요. 다시 시도해주세요.', 422)
     const bodies = items.filter(s => s.role === 'body')
@@ -297,7 +302,7 @@ const revisePrompt = stage => `지금은 '${STAGE_NAMES[stage]}' 단계입니다
 쓰는 순서대로 채웁니다.
 - proposal.has: 고친 결과가 있으면 true. 없으면 false와 빈 값.
 - 단계별 proposal: 표지 제목 → text(큰 제목)와 kicker(제목 위 작은 한 줄, ${COVER_KICKER_LIMIT}자 이내, 없으면 빈 문자열). 본문 기획 → units(본문 전체를 읽는 순서대로, 한 덩어리에 한 가지)와 closing(마지막 장 문구). 슬라이드 나누기 → slides(표지와 마지막 장 사이의 장 전체를 순서대로: heading, text, image)와 last(마지막 장). 캡션 → text(캡션 본문)와 hashtags(# 없이). 디자인 → proposal 없이 reply에 조언만(색·글꼴·사진은 수강생이 화면에서 바꿉니다).
-- 슬라이드를 고칠 때는 template의 limits를 지키고, 한 장에서 가장 중요한 구절 한 군데만 **별표 두 개**로 감쌉니다. 요청하지 않은 장은 글자 하나 바꾸지 않고 그대로 다시 적습니다.
+- 슬라이드를 고칠 때는 template의 limits를 지키고(한 줄은 lineChars자 이내, 뜻이 끊기는 자리에서 줄바꿈), 한 장에서 가장 중요한 구절 한 군데만 **별표 두 개**로 감쌉니다. 요청하지 않은 장은 글자 하나 바꾸지 않고 그대로 다시 적습니다.
 - proposal.requests: 다 쓴 결과를 수강생의 요청과 하나씩 대조합니다. 이번 요청과, 대화에서 수강생이 앞서 정해 두어 아직 유효한 조건을 각각 condition으로 적고, 방금 쓴 결과에서 그 조건이 어떻게 드러나는지 evidence에 실제 글자 그대로 옮긴 뒤 met을 판정합니다. 개수·위치·순서·길이·뺄 것·넣을 것처럼 글자로 확인할 수 있는 조건은 세어서 확인합니다.
 - proposal.summary: 결과에서 실제로 바뀐 점 한 줄.
 - reply: 2~4문장. 결과에 실제로 반영된 것만 말합니다. met이 false인 조건이 있으면 무엇을 못 지켰고 왜인지 그대로 말합니다. 질문이면 그 답.

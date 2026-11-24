@@ -4,7 +4,7 @@ import { carouselChat, applyCarouselProposal, chatStage, paletteFrom, generateCa
 import { carouselMakerEnabled } from '../src/creator-tools/studio/access.js'
 import { IMAGE_TIERS, generateImage, monthlyAllowance, storeImage, designImages } from '../src/creator-tools/studio/carousel-images.js'
 import { normalizeSheet, sheetLines, sheetPrompt, checkSheet, makeSheet, draftSheet } from '../src/creator-tools/studio/carousel-sheet.js'
-import { CAROUSEL_TEMPLATES, slideOverflows, slideLength, MAX_CAROUSEL_SLIDES } from '../../shared/carousel-templates.mjs'
+import { CAROUSEL_TEMPLATES, slideOverflows, slideLength, longLines, MAX_CAROUSEL_SLIDES } from '../../shared/carousel-templates.mjs'
 
 const BRIEF = '퇴근 후 2시간으로 구움과자 주문 제작을 시작한 이야기. 집 오븐으로 시작했다.'
 const TOPIC = { title: '퇴근 후 구움과자 주문 제작', category: '부업', categoryChecked: true, brief: BRIEF, requests: [], research: { subject: '구움과자 주문 제작', facts: ['집 오븐으로 시작했다'], viewerQuestions: [], avoid: [], brief: BRIEF } }
@@ -71,6 +71,7 @@ test('slides: the cover and last slide frame the body, letters are counted in co
   const out = await generateCarouselStage(deps, carousel, 'slides')
   assert.equal(calls.length, 2)
   assert.match(calls[1].prompt, /2번째 장이 고른 틀의 한도/)
+  assert.match(calls[1].prompt, /한 줄에 들어가는 글자 수\(lineChars\)를 넘는 줄/)
   assert.equal(calls[1].input.currentTemplate, 'split')
   assert.deepEqual(out.value.items.map(s => [s.role, s.heading, s.text]), [['cover', '집 오븐으로 시작한 주문 제작', '퇴근 후 2시간'], ['body', '', '짧게\n아래 줄'], ['body', '', '위 줄\n**아래** 줄'], ['last', '', '저장해 두세요']])
   assert.equal(out.value.template, 'split')
@@ -94,6 +95,10 @@ test('slide text: unclosed emphasis markers are dropped, the cover comes first a
   assert.equal(slideLength('**굵게** 두 줄\n글'), 8, 'markers and line breaks are not letters')
   assert.equal(slideOverflows('split', { role: 'body', heading: '', text: '위\n가운데\n아래' }), true, 'three lines in a two-line template')
   assert.equal(slideOverflows('note', { role: 'body', heading: '소제목', text: '위\n가운데\n아래' }), false)
+  // A written line the slide would break again: counted against what fits on one line of that template.
+  assert.deepEqual(longLines('dark-accent', { role: 'body', text: '주제 고를 땐 세 가지만 물어보세요.\n짧은 줄' }), ['주제 고를 땐 세 가지만 물어보세요.'])
+  assert.deepEqual(longLines('blog', { role: 'body', text: '주제 고를 땐 세 가지만 물어보세요.' }), [])
+  assert.deepEqual(longLines('dark-accent', { role: 'cover', heading: '아주 긴 표지 제목이어도 줄바꿈은 그리는 쪽이 맡는다', text: '' }), [])
 })
 
 test('the student\'s edits: a cover of their own reaches the cover slide, slides keep their cover and last slide, a design keeps only this plan\'s slides', () => {

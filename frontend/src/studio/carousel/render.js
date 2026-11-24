@@ -177,21 +177,36 @@ function tokenize(text) {
   })
 }
 
-// Greedy wrap at spaces; a word longer than the whole line breaks by character.
+// Greedy wrap at spaces; a word longer than the whole line breaks by character. An emphasised span of several
+// words ("**세 가지만**") moves to the next line as a whole when it fits on one line but not in the room left.
 function wrapWords(words, maxWidth, measure, spaceWidth) {
+  const widths = words.map(word => word.segs.reduce((sum, seg) => sum + measure(seg.t, seg.em), 0))
+  // joined[i]: word i continues the emphasised span of word i - 1
+  const joined = words.map((word, i) => i > 0 && word.gapEm && word.segs[0].em && words[i - 1].segs[words[i - 1].segs.length - 1].em)
+  const spanWidth = start => {
+    let total = widths[start]
+    for (let i = start + 1; i < words.length && joined[i]; i += 1) total += spaceWidth + widths[i]
+    return total
+  }
   const lines = []
   let line = []
   let width = 0
   let broken = false
+  let splitSpans = 0
   const flush = () => { lines.push(line); line = []; width = 0 }
-  for (const word of words) {
-    const wordWidth = word.segs.reduce((sum, seg) => sum + measure(seg.t, seg.em), 0)
-    if (line.length && width + spaceWidth + wordWidth > maxWidth) flush()
+  words.forEach((word, index) => {
+    const wordWidth = widths[index]
+    const startsSpan = !joined[index] && joined[index + 1]
+    const need = startsSpan ? spanWidth(index) : wordWidth
+    if (line.length && width + spaceWidth + (need <= maxWidth ? need : wordWidth) > maxWidth) {
+      if (joined[index]) splitSpans += 1
+      flush()
+    }
     if (wordWidth <= maxWidth) {
       const space = line.length > 0
-      word.segs.forEach((seg, i) => line.push({ t: seg.t, em: seg.em, space: space && i === 0, gapEm: i === 0 && word.gapEm }))
+      word.segs.forEach((seg, i) => line.push({ t: seg.t, em: seg.em, space: space && i === 0, gapEm: i === 0 && word.gapEm, first: i === 0 }))
       width += (space ? spaceWidth : 0) + wordWidth
-      continue
+      return
     }
     broken = true
     for (const seg of word.segs) {
@@ -199,27 +214,43 @@ function wrapWords(words, maxWidth, measure, spaceWidth) {
       for (const ch of seg.t) {
         const charWidth = measure(ch, seg.em)
         if (line.length && width + charWidth > maxWidth) { flush(); piece = null }
-        if (!piece) { piece = { t: '', em: seg.em, space: false, gapEm: false }; line.push(piece) }
+        if (!piece) { piece = { t: '', em: seg.em, space: false, gapEm: false, first: line.length === 0 }; line.push(piece) }
         piece.t += ch
         width += charWidth
       }
     }
-  }
+  })
   if (line.length) lines.push(line)
-  return { lines, broken }
+  return { lines, broken, splitSpans }
 }
 
+const wordsIn = line => line.filter(piece => piece.first).length
+// A narrower wrap is acceptable when it needs no more lines and breaks no more emphasised spans than the greedy one.
+const noWorse = (attempt, greedy) => !attempt.broken && attempt.lines.length <= greedy.lines.length && attempt.splitSpans <= greedy.splitSpans
+
 // Same number of lines, but as even as they can be — no single word left alone on the last line.
-function balanceWords(words, maxWidth, measure, spaceWidth, count) {
+function balanceWords(words, maxWidth, measure, spaceWidth, greedy) {
   let low = maxWidth * 0.35
   let high = maxWidth
   let best = null
   for (let i = 0; i < 10; i += 1) {
     const middle = (low + high) / 2
     const attempt = wrapWords(words, middle, measure, spaceWidth)
-    if (!attempt.broken && attempt.lines.length <= count) { best = attempt; high = middle } else low = middle
+    if (noWorse(attempt, greedy)) { best = attempt; high = middle } else low = middle
   }
   return best
+}
+
+// Running text stays ragged, but its last line should not be one lonely word: narrow the measure just enough to
+// bring a second word down, if that costs no extra line.
+function fixOrphan(words, maxWidth, measure, spaceWidth, greedy) {
+  if (wordsIn(greedy.lines[greedy.lines.length - 1]) > 1) return null
+  for (let k = 0.97; k >= 0.7; k -= 0.03) {
+    const attempt = wrapWords(words, maxWidth * k, measure, spaceWidth)
+    if (!noWorse(attempt, greedy)) continue
+    if (wordsIn(attempt.lines[attempt.lines.length - 1]) > 1) return attempt
+  }
+  return null
 }
 
 function compose(ctx, paragraphs, o, size, balance) {
@@ -236,19 +267,27 @@ function compose(ctx, paragraphs, o, size, balance) {
   }
   const spaceWidth = measure(' ', false)
   const lineHeight = Math.round(size * o.lh)
+  const wrapped = paragraphs.map(words => {
+    if (!words.length) return null
+    const greedy = wrapWords(words, o.w, measure, spaceWidth)
+    if (!balance || greedy.lines.length < 2 || greedy.broken) return greedy
+    const even = balance === true || greedy.lines.length <= 3
+    return (even ? balanceWords(words, o.w, measure, spaceWidth, greedy) : fixOrphan(words, o.w, measure, spaceWidth, greedy)) || greedy
+  })
+  // Lines the writer broke by hand run tight; once one of them has to wrap, a little air keeps them apart.
+  const written = wrapped.filter(Boolean)
+  const gap = Math.max(o.paraGap || 0, written.length > 1 && written.some(paragraph => paragraph.lines.length > 1) ? o.wrapGap || 0 : 0)
   const rows = []
   let broken = false
-  for (const words of paragraphs) {
-    if (!words.length) { if (rows.length) rows.push({ gap: lineHeight * 0.55 }); continue }
-    if (rows.length && !rows[rows.length - 1].gap && o.paraGap) rows.push({ gap: lineHeight * o.paraGap })
-    let wrapped = wrapWords(words, o.w, measure, spaceWidth)
-    if (balance && wrapped.lines.length > 1 && !wrapped.broken && (balance === true || wrapped.lines.length <= 3)) wrapped = balanceWords(words, o.w, measure, spaceWidth, wrapped.lines.length) || wrapped
-    broken = broken || wrapped.broken
-    for (const line of wrapped.lines) rows.push(finishLine(line, measure, spaceWidth))
+  for (const paragraph of wrapped) {
+    if (!paragraph) { if (rows.length) rows.push({ gap: lineHeight * 0.55 }); continue }
+    if (rows.length && !rows[rows.length - 1].gap && gap) rows.push({ gap: lineHeight * gap })
+    broken = broken || paragraph.broken
+    for (const line of paragraph.lines) rows.push(finishLine(line, measure, spaceWidth))
   }
   while (rows.length && rows[rows.length - 1].gap) rows.pop()
   setSpacing(ctx, '0px')
-  return { rows, size, lineHeight, normal, strong, spacing, broken, measure, spaceWidth }
+  return { rows, size, lineHeight, normal, strong, spacing, broken, measure, spaceWidth, wraps: written.reduce((sum, paragraph) => sum + paragraph.lines.length - 1, 0), written: written.length }
 }
 
 function finishLine(line, measure, spaceWidth) {
@@ -266,25 +305,46 @@ function finishLine(line, measure, spaceWidth) {
 
 const heightOf = layout => layout.rows.reduce((sum, row) => sum + (row.gap ?? layout.lineHeight), 0)
 const linesOf = layout => layout.rows.filter(row => !row.gap).length
+// How far the text may shrink (as a share of the size that fits) to keep hand-made line breaks unwrapped.
+const KEEP_LINES_SHRINK = 0.82
 const EMPTY_TEXT = { height: 0, lines: 0, size: 0, width: 0, overflow: false, draw() {} }
 
 // Fits `text` into a box `o.w` wide and at most `o.h` tall / `o.maxLines` long: tries the largest size first and
 // steps down to the smallest; below that the text is cut with an ellipsis and `overflow` is reported.
-// `o.balance`: true evens out every paragraph, 'short' only those of two or three lines (running text stays ragged).
-function layoutText(ctx, text, o) {
+// `o.balance`: true evens out every paragraph; 'short' evens those of two or three lines and, in longer running
+// text, only rescues a lonely last word. `o.keepLines`: when the writer's own line breaks would all hold at a
+// slightly smaller size, that size is used instead of letting them wrap. `o.wrapGap`: see `compose`.
+function layoutText(ctx, text, options) {
   const paragraphs = tokenize(text)
   if (!paragraphs.some(words => words.length)) return EMPTY_TEXT
+  let o = options
   const scale = o.font.scale || 1
   const largest = Math.round(o.size[0] * scale)
   const smallest = Math.min(largest, Math.round(o.size[1] * scale))
   const maxHeight = o.h ?? Infinity
   const maxLines = o.maxLines ?? Infinity
   const fits = layout => !layout.broken && heightOf(layout) <= maxHeight + 0.5 && linesOf(layout) <= maxLines
-  let size = largest
-  let layout = compose(ctx, paragraphs, o, size, false)
-  while (!fits(layout) && size > smallest) {
-    size = Math.max(smallest, size - Math.max(1, Math.round(size * 0.03)))
+  let size
+  let layout
+  const shrinkToFit = () => {
+    size = largest
     layout = compose(ctx, paragraphs, o, size, false)
+    while (!fits(layout) && size > smallest) {
+      size = Math.max(smallest, size - Math.max(1, Math.round(size * 0.03)))
+      layout = compose(ctx, paragraphs, o, size, false)
+    }
+  }
+  shrinkToFit()
+  if (!fits(layout) && o.wrapGap) { // the air between wrapped lines is a nicety: it never costs the text its place
+    o = { ...options, wrapGap: 0 }
+    shrinkToFit()
+  }
+  if (o.keepLines && fits(layout) && layout.written > 1 && layout.wraps) {
+    const floor = Math.max(smallest, Math.round(size * KEEP_LINES_SHRINK))
+    for (let smaller = size - 1; smaller >= floor; smaller -= 1) {
+      const attempt = compose(ctx, paragraphs, o, smaller, false)
+      if (!attempt.wraps && fits(attempt)) { size = smaller; layout = attempt; break }
+    }
   }
   let overflow = false
   if (o.balance && fits(layout)) layout = compose(ctx, paragraphs, o, size, o.balance)
@@ -680,7 +740,7 @@ const darkAccent = {
     const bottom = H - M - 76
     const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [50, 40], lh: 1.3, ls: -0.02, w, maxLines: 2, color: css(e.accentInk), em: { style: 'color', color: css(c.text) } })
     const gap = head.height ? 40 : 0
-    const body = e.text(slide.text, { weight: 'bold', size: [88, 44], lh: 1.44, ls: -0.02, w, h: bottom - top - head.height - gap, color: css(c.text), em: darkBand(e), balance: 'short' })
+    const body = e.text(slide.text, { weight: 'bold', size: [88, 44], lh: 1.44, ls: -0.02, w, h: bottom - top - head.height - gap, color: css(c.text), em: darkBand(e), balance: 'short', keepLines: true, wrapGap: 0.3 })
     stack(blocks(textBlock(head), gap, textBlock(body)), M, top, bottom, 0.46)
     darkProgress(e)
   },
@@ -806,7 +866,7 @@ const note = {
     const rule = head.height ? { h: 4, draw: (x, y) => e.fill(css(c.text), x, y, 56, 4) } : null
     const fixed = heightOfBlocks(blocks(number, 20, textBlock(head), 40, rule)) + 44
     const room = bottom - top - fixed - photoGap
-    const body = e.text(slide.text, { size: [50, 33], lh: 1.64, w, h: room - (hasPhoto ? Math.round(H * 0.17) : 0), color: css(e.muted(0.14)), em: { ...noteMarker(e), weight: 'bold' } })
+    const body = e.text(slide.text, { size: [50, 33], lh: 1.64, w, h: room - (hasPhoto ? Math.round(H * 0.17) : 0), color: css(e.muted(0.14)), em: { ...noteMarker(e), weight: 'bold' }, balance: 'short', keepLines: true, wrapGap: 0.3 })
     const photoHeight = hasPhoto ? sharedPhotoHeight(room - body.height, H, 0.17, 0.34) : 0
     const photo = hasPhoto && { h: photoHeight, draw: (x, y) => e.photo('image', x, y, w, photoHeight, { radius: 28 }) }
     stack(blocks(number, 20, textBlock(head), 40, rule, 44, textBlock(body), photoGap, photo), M, top, bottom, hasPhoto ? 0.5 : 0.4)
@@ -865,7 +925,7 @@ const photoCenter = {
     const bottom = H - 190
     const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [40, 32], lh: 1.4, w, maxLines: 2, color: css(e.accentInk), balance: true, shadow: overPhoto })
     const gap = head.height ? 48 : 0
-    const body = e.text(slide.text, { size: [60, 38], lh: 1.74, w, h: bottom - top - head.height - gap, color: css(c.text, 0.9), em: { style: 'bold', weight: 'bold', color: css(c.text) }, balance: true, paraGap: 0.2, shadow: overPhoto })
+    const body = e.text(slide.text, { size: [60, 38], lh: 1.74, w, h: bottom - top - head.height - gap, color: css(c.text, 0.9), em: { style: 'bold', weight: 'bold', color: css(c.text) }, balance: true, keepLines: true, paraGap: 0.2, shadow: overPhoto })
     stack(blocks(textBlock(head, 'center'), gap, textBlock(body, 'center')), side, top, bottom, 0.5)
     const y = H - 100
     const width = e.line(`${e.index + 1} / ${e.total}`, { size: 26, color: css(c.text, 0.8), x: W / 2, y, align: 'center', ls: 0.04 })
@@ -959,7 +1019,7 @@ const blog = {
     const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [62, 46], lh: 1.34, ls: -0.025, w, maxLines: 3, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true })
     const gap = head.height ? 40 : 0
     const room = bottom - top - head.height - gap - photoGap
-    const body = e.text(slide.text, { size: [46, 31], lh: 1.74, w, h: room - (hasPhoto ? Math.round(H * 0.14) : 0), color: css(e.muted(0.12)), em: { style: 'color', color: css(e.accentInk), weight: 'bold' }, paraGap: 0.16 })
+    const body = e.text(slide.text, { size: [46, 31], lh: 1.74, w, h: room - (hasPhoto ? Math.round(H * 0.14) : 0), color: css(e.muted(0.12)), em: { style: 'color', color: css(e.accentInk), weight: 'bold' }, paraGap: 0.16, wrapGap: 0.3, balance: 'short', keepLines: true })
     const photoHeight = hasPhoto ? sharedPhotoHeight(room - body.height, H, 0.14, 0.38) : 0
     const photo = hasPhoto && { h: photoHeight, draw: (x, y) => e.photo('image', x, y, w, photoHeight, { radius: 24 }) }
     stack(blocks(textBlock(head), gap, photo, photoGap, textBlock(body)), M, top, bottom, 0)
@@ -1029,7 +1089,7 @@ const card = {
   body(e) {
     const { c, slide } = e
     const box = cardFrame(e)
-    const body = e.text(slide.text, { size: [64, 38], lh: 1.56, ls: -0.015, w: box.w, h: box.bottom - box.top, color: css(c.text), em: { ...cardAccent(e), weight: 'bold' }, paraGap: 0.25, balance: 'short' })
+    const body = e.text(slide.text, { size: [64, 38], lh: 1.56, ls: -0.015, w: box.w, h: box.bottom - box.top, color: css(c.text), em: { ...cardAccent(e), weight: 'bold' }, paraGap: 0.25, wrapGap: 0.3, balance: 'short', keepLines: true })
     stack(blocks(textBlock(body)), box.x, box.top, box.bottom, 0.5)
   },
   last(e) {
