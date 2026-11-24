@@ -165,7 +165,9 @@ export function createProviders({ db, redis, job, signal, beforeCall, referenceP
     catch (error) {
       if (!student || !['LOOKUP_BLOCKED', 'LOOKUP_OFFLINE', 'LOOKUP_TIMEOUT'].includes(error.code)) throw error
       signal?.throwIfAborted()
-      return brightData(url, checkpoint)
+      // The paid reader reads videos only: a post it finds no video in may be a carousel, which only the Mac mini can
+      // read. So that answer says nothing about the link, and the student hears the Mac mini's own "try again shortly".
+      return brightData(url, checkpoint).catch(fallback => { throw fallback?.code === 'LINK_UNAVAILABLE' ? error : fallback })
     }
     // A reel comes back with its video file, a carousel with its slide images.
     if (!result?.videoUrl && !result?.slides?.length) fail('LINK_UNAVAILABLE', '게시물을 가져올 수 없어요. 연령 제한·비공개 게시물은 분석할 수 없어요. 영상 파일(MP4)이나 대본을 직접 올려 주세요.', 422)

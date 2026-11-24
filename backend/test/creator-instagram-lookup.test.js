@@ -85,6 +85,12 @@ test('a student\'s link goes to the paid reader at once while the Mac mini is li
     assert.equal(media.views, 1200)
     agent.assertNoPendingInterceptors()
     await assert.rejects(providers.instagramReel('https://www.instagram.com/reel/AbCdE12345/', undefined, LOOKUP_PRIORITY.recommend), { code: 'LOOKUP_BLOCKED' })
+    // A carousel has no video for the paid reader to find: the student is told to try again, not that the post cannot be read.
+    pool.intercept({ method: 'POST', path: path => path.startsWith('/datasets/v3/trigger') }).reply(200, { snapshot_id: 'sd_carousel' })
+    pool.intercept({ method: 'GET', path: '/datasets/v3/progress/sd_carousel' }).reply(200, { status: 'ready' })
+    pool.intercept({ method: 'GET', path: '/datasets/v3/snapshot/sd_carousel?format=json' }).reply(200, [{ user_posted: 'maker' }])
+    await assert.rejects(providers.instagramReel('https://www.instagram.com/p/CaRoUsEl123/'), { code: 'LOOKUP_BLOCKED', statusCode: 503 })
+    agent.assertNoPendingInterceptors()
   } finally {
     setGlobalDispatcher(previous); await agent.close()
     if (savedKey === undefined) delete process.env.BRIGHT_DATA_API_KEY
