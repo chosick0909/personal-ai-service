@@ -30,6 +30,7 @@ import { youtubeVideoId, youtubeShortcode, youtubeUrl } from '../youtube.js'
 import { createDemoLink, refreshDemoUsers, startDemoRefresh } from '../demo-links.js'
 import { ideaReply } from './ideas.js'
 import { extractSupportingMaterials } from '../../lib/supporting-materials.js'
+import { registerCarouselRoutes } from './carousel-routes.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
@@ -92,6 +93,7 @@ export const linkUnread = (row, youtube = false) => youtube ? !row.source_path
   : row.source === 'upload-link' && row.analysis_status === 'failed' && !row.thumbnail_path
 
 export function registerStudioRoutes(router) {
+  registerCarouselRoutes(router, deps)
   const enabled = req => { if (!studio2Enabled(req.auth.userId)) fail('FEATURE_DISABLED', '아직 공개되지 않은 기능입니다.', 404) }
   const owned = async (req, select = '*') => {
     const row = await query(database().from('studio_sessions').select(select).eq('id', uuid(req.params.id)).eq('user_id', req.auth.userId).maybeSingle())

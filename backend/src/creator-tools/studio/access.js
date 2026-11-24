@@ -15,3 +15,12 @@ export function canRecommend(userId, env = process.env) {
   const listed = String(env.CREATOR_RECOMMENDER_IDS || '').split(',').map(id => id.trim()).filter(Boolean)
   return (listed.length ? listed : DEFAULT_PREVIEW_USER_IDS).includes(userId)
 }
+
+// 캐러셀 만들기 is used inside the team first (quality is tuned before students see it): 지영's account by default,
+// plus the accounts listed in CREATOR_CAROUSEL_MAKER_IDS. 'all' opens it to everyone who has the studio.
+export function carouselMakerEnabled(userId, env = process.env) {
+  const value = String(env.CREATOR_CAROUSEL_MAKER_IDS || '').trim()
+  if (value === 'all') return studio2Enabled(userId, env)
+  const listed = value.split(',').map(id => id.trim()).filter(Boolean)
+  return [...DEFAULT_PREVIEW_USER_IDS, ...listed].includes(userId)
+}

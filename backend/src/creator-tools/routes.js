@@ -15,7 +15,7 @@ import { catalogQualityEligible, instagramPostUrl } from './reference-quality.js
 import { referencePlayback } from './reference-playback.js'
 import { registerSuccessReelRoutes, successReelsEnabled } from './success-reels-routes.js'
 import { registerStudioRoutes } from './studio/routes.js'
-import { studio2Enabled } from './studio/access.js'
+import { studio2Enabled, carouselMakerEnabled } from './studio/access.js'
 import { planContextFor } from './studio/plan-context.js'
 
 // A direct, download-named link to the finished MP4 (older renders only have the ZIP, so a missing file gives null).
@@ -85,7 +85,7 @@ export function createCreatorRouter() {
   }
   router.get('/creator-tools/capabilities', asyncHandler(async (req, res) => {
     const features = { ...Object.fromEntries(KINDS.map((kind) => [kind, featureEnabled(kind, req.auth.userId)])),
-      'success-reels': successReelsEnabled(req.auth.userId), studio2: studio2Enabled(req.auth.userId) }
+      'success-reels': successReelsEnabled(req.auth.userId), studio2: studio2Enabled(req.auth.userId), carouselMaker: carouselMakerEnabled(req.auth.userId) }
     res.json({ features, categories: CREATOR_CATEGORIES, successReelCategories: SUCCESS_REEL_CATEGORIES, referenceCategories: REFERENCE_CATEGORIES, trendCategories: REFERENCE_CATEGORIES, limits: { maxVideoBytes: MAX_BYTES, maxVideoSeconds: 300 },
       readiness: {
         'reference-accounts': { ready: Boolean(process.env.BRIGHT_DATA_API_KEY && process.env.BRIGHT_DATA_SERP_ZONE && process.env.OPENAI_API_KEY && process.env.CREATOR_REDIS_URL), message: '공개 계정 검색·프로필 조회 서비스 미연결입니다. 공급자 연결 후 사용할 수 있습니다.' },
