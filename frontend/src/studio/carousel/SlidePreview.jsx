@@ -7,12 +7,14 @@ const REDRAW_DELAY = 90
 // One slide as a responsive canvas. It redraws (shortly after the last change) whenever its props change and tells
 // the parent through `onResult({ overflow })` when the text no longer fits — once per change of that answer.
 // `assets` is optional: pass what `useCarouselAssets` returned to share one load between many previews.
-export default function SlidePreview({ slide, index = 0, total = 1, design, onResult, className, assets }) {
+// `onDraw(result)` hears every drawing (with where each text block landed), for the free-editing overlay.
+export default function SlidePreview({ slide, index = 0, total = 1, design, onResult, onDraw, className, assets, immediate = false }) {
   const canvasRef = useRef(null)
   const resultRef = useRef(onResult)
+  const drawRef = useRef(onDraw)
   const reported = useRef(null)
   const drawn = useRef(false)
-  useEffect(() => { resultRef.current = onResult })
+  useEffect(() => { resultRef.current = onResult; drawRef.current = onDraw })
 
   useEffect(() => {
     let stale = false
@@ -22,13 +24,14 @@ export default function SlidePreview({ slide, index = 0, total = 1, design, onRe
       if (stale || !canvas) return
       const result = drawSlide(canvas, { slide, index, total, design, assets: ready })
       drawn.current = true
+      drawRef.current?.(result)
       if (reported.current !== result.overflow) {
         reported.current = result.overflow
         resultRef.current?.(result)
       }
-    }, drawn.current ? REDRAW_DELAY : 0)
+    }, drawn.current && !immediate ? REDRAW_DELAY : 0)
     return () => { stale = true; clearTimeout(timer) }
-  }, [slide, index, total, design, assets])
+  }, [slide, index, total, design, assets, immediate])
 
   const [width, height] = RATIOS[design?.ratio] || RATIOS['4:5']
   const background = design?.colors?.background || templateOf(design?.template).colors.background

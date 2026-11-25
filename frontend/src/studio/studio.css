@@ -345,6 +345,11 @@
 .st-cr-cell-n { position:absolute; left:8px; top:8px; padding:2px 8px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff; font-size:12px; font-weight:800; line-height:1.5; }
 .st-cr-side { position:sticky; top:84px; }
 .st-cr-crop { display:grid; gap:6px; font-size:13px; color:var(--st-muted); }
+.st-cr-movable { position:relative; touch-action:none; outline:none; border-radius:8px; }
+.st-cr-movable:focus-visible { box-shadow:0 0 0 3px var(--st-accent); }
+.st-cr-box { position:absolute; pointer-events:none; border-radius:4px; outline:2px dashed transparent; outline-offset:6px; transition:outline-color .15s; }
+.st-cr-movable:hover .st-cr-box { outline-color:color-mix(in srgb, var(--st-accent) 55%, transparent); }
+.st-cr-box.is-picked { outline:3px solid #fff; box-shadow:0 0 0 4px var(--st-accent); outline-offset:4px; }
 .st-cr-crop label { display:grid; grid-template-columns:40px 1fr; align-items:center; gap:8px; }
 .st-cr-strip { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(180px,220px); gap:12px; overflow-x:auto; padding-bottom:8px; }
 .st-cr-library { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; }

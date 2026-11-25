@@ -181,8 +181,17 @@ export function normalizeDesign(value, slideIds = []) {
   const image = v => { const id = /^[0-9a-f-]{36}$/.test(v?.id || '') ? v.id : null; if (!id) return null
     const n = (x, lo, hi, d) => Number.isFinite(Number(x)) ? Math.max(lo, Math.min(hi, Number(x))) : d
     return { id, x: n(v.x, 0, 1, 0.5), y: n(v.y, 0, 1, 0.5), zoom: n(v.zoom, 1, 4, 1) } }
+  // 자유 편집: where the student dragged a slide's title or text (a share of the slide's width/height) and how much
+  // larger or smaller they made it.
+  const n = (x, lo, hi, d) => Number.isFinite(Number(x)) ? Math.max(lo, Math.min(hi, Number(x))) : d
+  const moved = m => { const out = {}
+    for (const key of ['heading', 'text']) { const v = m?.[key]; if (!v) continue
+      const one = { x: n(v.x, -1, 1, 0), y: n(v.y, -1, 1, 0), scale: n(v.scale, 0.6, 1.6, 1) }
+      if (one.x || one.y || one.scale !== 1) out[key] = one }
+    return Object.keys(out).length ? out : null }
   const slides = {}
-  for (const id of slideIds) { const s = value?.slides?.[id]; if (s?.image || s?.image2) slides[id] = { image: image(s.image), image2: image(s.image2) } }
+  for (const id of slideIds) { const s = value?.slides?.[id], move = moved(s?.move)
+    if (s?.image || s?.image2 || move) slides[id] = { image: image(s.image), image2: image(s.image2), ...(move ? { move } : {}) } }
   return { template: carouselTemplate(value?.template).id, ratio: value?.ratio === '3:4' ? '3:4' : '4:5',
     colors: Object.fromEntries(['background', 'text', 'accent'].map(k => [k, colour(value?.colors?.[k])]).filter(([, v]) => v)),
     fonts: Object.fromEntries(['heading', 'body'].map(k => [k, clean(value?.fonts?.[k], 40)]).filter(([, v]) => v)),

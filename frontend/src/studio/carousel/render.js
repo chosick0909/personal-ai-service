@@ -572,12 +572,15 @@ function environment(canvas, { slide, index = 0, total = 1, design, assets }) {
       const key = value && value === e.slide.heading ? 'heading' : value && value === e.slide.text ? 'text' : null
       const move = key ? moves[key] : null
       const scale = move ? clamp(Number(move.scale) || 1, 0.6, 1.6) : 1
-      const sized = scale === 1 ? rest : { ...rest, size: rest.size.map(v => v * scale), ...(rest.h ? { h: rest.h * Math.max(1, scale) } : {}) }
-      const layout = layoutText(ctx, value, { ...sized, font, weight: font.weights[weight], em: emphasis })
-      if (layout.overflow) e.overflow = true
+      const base = { ...rest, font, weight: font.weights[weight], em: emphasis }
+      const layout = layoutText(ctx, value, base)
+      // The rest of the slide is laid out around the block as the template placed it, so moving or resizing one
+      // block never pushes the others; the resized block is drawn from the same corner.
+      const shown = scale === 1 ? layout : layoutText(ctx, value, { ...base, size: rest.size.map(v => v * scale), ...(rest.h ? { h: rest.h * Math.max(1, scale) } : {}) })
+      if (shown.overflow) e.overflow = true
       if (!key || !layout.height) return layout
       const dx = (Number(move?.x) || 0) * W, dy = (Number(move?.y) || 0) * H
-      return { ...layout, draw: (x, y, align) => { layout.draw(x + dx, y + dy, align); e.boxes[key] = { x: x + dx, y: y + dy, w: sized.w ?? layout.width, h: layout.height } } }
+      return { ...layout, draw: (x, y, align) => { shown.draw(x + dx, y + dy, align); e.boxes[key] = { x: x + dx, y: y + dy, w: rest.w ?? shown.width, h: shown.height } } }
     },
     // One short line (handle, counter). `y` is the vertical centre. Returns the drawn width.
     line(value, { slot = 'body', weight = 'bold', size, color, x, y, align = 'left', maxWidth = Infinity, ls = 0 }) {

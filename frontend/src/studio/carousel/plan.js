@@ -9,6 +9,6 @@ export const slidesText = items => items.map((s, i) => `[${i + 1}장${s.role ===
 // The plan keeps image ids; the drawing code wants links. `images` maps one to the other (signed links, an hour each).
 export function drawable(design, images) {
   const link = v => v?.id && images[v.id]?.url ? { src: images[v.id].url, x: v.x, y: v.y, zoom: v.zoom } : null
-  return { ...design, profileImage: link(design.profileImage)?.src || null, slides: Object.fromEntries(Object.entries(design.slides || {}).map(([id, s]) => [id, { image: link(s.image), image2: link(s.image2) }])) }
+  return { ...design, profileImage: link(design.profileImage)?.src || null, slides: Object.fromEntries(Object.entries(design.slides || {}).map(([id, s]) => [id, { image: link(s.image), image2: link(s.image2), move: s.move || null }])) }
 }
 export const aiSlideIds = (design, images) => Object.entries(design.slides || {}).filter(([, s]) => [s.image, s.image2].some(v => v?.id && images[v.id]?.ai)).map(([id]) => id)

@@ -35,3 +35,14 @@ test('the reel plan is read as the student has it now, and only from their own p
   assert.equal(await companionPlan(db(rows), { user_id: 'someone-else', sources: { plan: { id: PLAN_ID } } }), null)
   assert.equal(await companionPlan(db(rows), { user_id: 'u1', sources: {} }), null)
 })
+
+test('자유 편집: a slide keeps where its title and text were dragged, within the slide, and drops moves that change nothing', async () => {
+  const { normalizeDesign } = await import('../src/creator-tools/studio/carousel.js')
+  const design = normalizeDesign({ template: 'note', slides: {
+    s1: { move: { heading: { x: 0.12, y: -2, scale: 9 }, text: { x: 0, y: 0, scale: 1 }, other: { x: 1 } } },
+    s2: { move: { text: { x: 0, y: 0, scale: 1 } } },
+    s3: { image: { id: '3f2b8c1e-1d2a-4b5c-8d9e-0a1b2c3d4e5f' } } } }, ['s1', 's2', 's3'])
+  assert.deepEqual(design.slides.s1, { image: null, image2: null, move: { heading: { x: 0.12, y: -1, scale: 1.6 } } })
+  assert.equal(design.slides.s2, undefined)
+  assert.equal(design.slides.s3.move, undefined)
+})

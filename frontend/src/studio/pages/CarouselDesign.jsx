@@ -3,6 +3,7 @@ import { Check, Download, ImagePlus, LoaderCircle, Search, Sparkles, Trash2, Upl
 import { useStudio } from '../context'
 import { studio, generateImage, uploadImage } from '../api'
 import SlidePreview from '../carousel/SlidePreview'
+import MovableSlide from '../carousel/MovableSlide'
 import { TEMPLATES, FONTS, templateOf } from '../carousel/templates'
 import { downloadSlides, downloadSlide } from '../carousel/export'
 import { drawable, aiSlideIds } from '../carousel/plan'
@@ -14,7 +15,7 @@ const STYLES = [['photo', '실제 사진처럼'], ['illustration', '일러스트
 const ORIENTATIONS = [['vertical', '세로'], ['horizontal', '가로'], ['all', '전체']]
 function StockSearch({ ready, source, shape, start, onPick, onSaved }) {
   const { toast } = useStudio()
-  const [q, setQ] = useState(start.split(/[,.]/)[0].slice(0, 30))
+  const [q, setQ] = useState('')
   const [orientation, setOrientation] = useState(shape === 'half' ? 'horizontal' : 'vertical')
   const [result, setResult] = useState(null)
   const [busy, setBusy] = useState('')
@@ -35,6 +36,7 @@ function StockSearch({ ready, source, shape, start, onPick, onSaved }) {
       <input className="st-input" style={{ flex: 1, minWidth: 180 }} value={q} maxLength={100} onChange={e => setQ(e.target.value)} placeholder="예) 부엌, 노트북 책상, 가을 산책" aria-label="찾을 사진" />
       <button type="submit" className="st-btn st-btn-primary" disabled={!q.trim() || busy === 'search'}>{busy === 'search' ? <LoaderCircle size={18} className="st-spin" /> : <Search size={18} />}찾기</button>
     </form>
+    {start && <p className="st-muted st-small" style={{ margin: 0 }}>이 장에 어울리는 장면: {start}. 사진은 한두 단어로 찾을 때 잘 나와요.</p>}
     <div className="st-chips">{ORIENTATIONS.map(([id, name]) => <button type="button" key={id} className="st-chip st-chip-soft" aria-pressed={orientation === id} onClick={() => { setOrientation(id); if (result) search(1, id) }}>{name}</button>)}</div>
     {result && result.photos.length === 0 && <div className="st-empty"><strong>맞는 사진이 없어요</strong><span>더 짧고 흔한 단어로 찾아 보세요. 예) '홈카페' 대신 '커피'</span></div>}
     {result && result.photos.length > 0 && <div className="st-cr-library">{result.photos.map(photo => <div key={photo.id} className="st-cr-thumb">
@@ -119,7 +121,10 @@ export function DesignStage({ carousel, images, save }) {
   const current = slides.find(s => s.id === selected) || slides[0], index = slides.indexOf(current)
   const slots = template.images[current.role] || 0
   const set = patch => save({ design: { ...design, ...patch } })
-  const setImage = (key, value) => set({ slides: { ...design.slides, [current.id]: { image: design.slides?.[current.id]?.image || null, image2: design.slides?.[current.id]?.image2 || null, [key]: value } } })
+  const setEntry = patch => set({ slides: { ...design.slides, [current.id]: { image: null, image2: null, ...(design.slides?.[current.id] || {}), ...patch } } })
+  const setImage = (key, value) => setEntry({ [key]: value })
+  // A move fits the template it was made on: switching templates puts every slide's text back in place.
+  const unmoved = () => Object.fromEntries(Object.entries(design.slides || {}).map(([id, entry]) => { const rest = { ...entry }; delete rest.move; return [id, rest] }))
   const placed = key => design.slides?.[current.id]?.[key] || null
   const missing = template.imageRequired ? slides.filter(s => (template.images[s.role] || 0) > 0 && !design.slides?.[s.id]?.image).length : 0
   const download = async one => {
@@ -135,7 +140,7 @@ export function DesignStage({ carousel, images, save }) {
     <section className="st-card st-stack">
       <div className="st-card-head"><div><h3>틀</h3><p>틀을 바꾸면 모든 장이 한 번에 다시 배치돼요. 글은 그대로예요.</p></div>
         <div className="st-chips">{['4:5', '3:4'].map(r => <button type="button" key={r} className="st-chip st-chip-soft" aria-pressed={design.ratio === r} onClick={() => set({ ratio: r })}>{r}</button>)}</div></div>
-      <div className="st-chips">{TEMPLATES.map(t => <button type="button" key={t.id} className="st-chip st-chip-soft" aria-pressed={t.id === design.template} onClick={() => save({ design: { ...design, template: t.id }, slides: { template: t.id } })}>{t.name}</button>)}</div>
+      <div className="st-chips">{TEMPLATES.map(t => <button type="button" key={t.id} className="st-chip st-chip-soft" aria-pressed={t.id === design.template} onClick={() => save({ design: { ...design, template: t.id, slides: unmoved() }, slides: { template: t.id } })}>{t.name}</button>)}</div>
       <div className="st-cr-controls">
         {COLOR_NAMES.map(([key, name]) => <label key={key} className="st-cr-color">{name}<input type="color" value={design.colors?.[key] || template.colors[key]} onChange={e => set({ colors: { ...design.colors, [key]: e.target.value.toUpperCase() } })} /></label>)}
         {Object.keys(design.colors || {}).length > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => set({ colors: {} })}>색 되돌리기</button>}
@@ -151,7 +156,7 @@ export function DesignStage({ carousel, images, save }) {
         <span className="st-cr-cell-n">{i + 1}{slideOverflows(design.template, s) ? ' · 글 많음' : ''}</span></button>)}</div>
       <aside className="st-card st-stack st-cr-side">
         <strong>{index + 1}장</strong>
-        <SlidePreview slide={current} index={index} total={slides.length} design={view} />
+        <MovableSlide key={current.id} slide={current} index={index} total={slides.length} design={view} onSave={move => setEntry({ move })} />
         {slots === 0 ? <p className="st-muted st-small">이 틀은 이 장에 사진을 쓰지 않아요.</p>
           : [['image', slots > 1 ? '위 사진' : '사진'], ...(slots > 1 ? [['image2', '아래 사진']] : [])].map(([key, name]) => { const value = placed(key)
             return <div key={key} className="st-stack" style={{ gap: 8 }}>
