@@ -4,7 +4,7 @@ import { useStudio } from '../context'
 import { studio, generateImage, uploadImage } from '../api'
 import SlidePreview from '../carousel/SlidePreview'
 import MovableSlide from '../carousel/MovableSlide'
-import { TEMPLATES, FONTS, templateOf } from '../carousel/templates'
+import { TEMPLATES, FONTS, FONT_GROUPS, templateOf } from '../carousel/templates'
 import { downloadSlides, downloadSlide } from '../carousel/export'
 import { drawable, aiSlideIds } from '../carousel/plan'
 import { slideOverflows } from '../../../../shared/carousel-templates.mjs'
@@ -144,7 +144,7 @@ export function DesignStage({ carousel, images, save }) {
       <div className="st-cr-controls">
         {COLOR_NAMES.map(([key, name]) => <label key={key} className="st-cr-color">{name}<input type="color" value={design.colors?.[key] || template.colors[key]} onChange={e => set({ colors: { ...design.colors, [key]: e.target.value.toUpperCase() } })} /></label>)}
         {Object.keys(design.colors || {}).length > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => set({ colors: {} })}>색 되돌리기</button>}
-        {[['heading', '제목 글꼴'], ['body', '본문 글꼴']].map(([key, name]) => <label key={key} className="st-cr-font">{name}<select className="st-select" style={{ minHeight: 44, fontSize: 15 }} value={FONTS.some(f => f.key === design.fonts?.[key]) ? design.fonts[key] : template.fonts[key]} onChange={e => set({ fonts: { ...design.fonts, [key]: e.target.value } })}>{FONTS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}</select></label>)}
+        {[['heading', '제목 글꼴'], ['body', '본문 글꼴']].map(([key, name]) => <label key={key} className="st-cr-font">{name}<select className="st-select" style={{ minHeight: 44, fontSize: 15 }} value={FONTS.some(f => f.key === design.fonts?.[key]) ? design.fonts[key] : template.fonts[key]} onChange={e => set({ fonts: { ...design.fonts, [key]: e.target.value } })}>{FONT_GROUPS.map(g => <optgroup key={g} label={g}>{FONTS.filter(f => f.group === g).map(f => <option key={f.key} value={f.key}>{f.label}</option>)}</optgroup>)}</select></label>)}
         <label className="st-cr-font">내 아이디<input className="st-input" style={{ minHeight: 44, fontSize: 15 }} value={handle} maxLength={40} placeholder="@my.account" onChange={e => setHandle(e.target.value)} onBlur={() => handle !== (design.handle || '') && set({ handle })} /></label>
         <button type="button" className="st-btn st-btn-soft st-btn-sm" title="다음 캐러셀도 이 틀·색·글꼴·아이디로 시작해요" onClick={() => studio.saveCarouselDesign({ ...design, handle }).then(() => toast({ kind: 'ready', title: '내 디자인으로 저장했어요', body: '다음에 만드는 캐러셀은 이 모양으로 시작해요.', ttl: 5000 })).catch(e => toast({ kind: 'failed', title: '저장하지 못했어요', body: e.message }))}><Check size={16} />내 디자인으로 저장</button>
       </div>

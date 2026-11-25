@@ -88,6 +88,16 @@ function loadSheet(url) {
   return sheets.get(url)
 }
 
+// A family published one file per weight is registered here under one family name, so the weights work as usual.
+const addedFaces = new Set()
+function addFaces(font) {
+  if (addedFaces.has(font.key) || typeof FontFace === 'undefined') return
+  addedFaces.add(font.key)
+  for (const [weight, url] of Object.entries(font.faces)) {
+    try { document.fonts.add(new FontFace(font.family, `url(${url}) format("woff2")`, { weight: String(weight), display: 'swap' })) } catch { /* falls back to the next font */ }
+  }
+}
+
 const loadedGlyphs = new Map() // "family|weight" → Set of characters already asked for
 async function loadGlyphs(font, weight, characters) {
   const key = `${font.family}|${weight}`
@@ -116,7 +126,7 @@ async function loadFonts(slides, design) {
   const text = slides.map(s => `${s?.heading || ''}${s?.text || ''}`).join('') + (design?.handle || '') + FURNITURE
   const characters = [...new Set(text.replace(/[*\s]/g, ''))]
   const families = [...new Set([fonts.heading, fonts.body])]
-  await Promise.all(families.map(font => loadSheet(font.css)))
+  await Promise.all(families.map(font => font.faces ? addFaces(font) : loadSheet(font.css)))
   await Promise.all(families.flatMap(font => [...new Set(Object.values(font.weights))].map(weight => loadGlyphs(font, weight, characters))))
 }
 
