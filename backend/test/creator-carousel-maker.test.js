@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { carouselChat, applyCarouselProposal, chatStage, paletteFrom, generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources, publicCarousel } from '../src/creator-tools/studio/carousel.js'
 import { carouselMakerEnabled } from '../src/creator-tools/studio/access.js'
+import { setDemoUsers } from '../src/creator-tools/demo-access.js'
 import { IMAGE_TIERS, generateImage, monthlyAllowance, storeImage, designImages } from '../src/creator-tools/studio/carousel-images.js'
 import { normalizeSheet, sheetLines, sheetPrompt, checkSheet, makeSheet, draftSheet } from '../src/creator-tools/studio/carousel-sheet.js'
 import { CAROUSEL_TEMPLATES, slideOverflows, slideLength, longLines, MAX_CAROUSEL_SLIDES } from '../../shared/carousel-templates.mjs'
@@ -28,6 +29,12 @@ test('the carousel maker is open to the listed accounts only, until it is opened
   assert.equal(carouselMakerEnabled(other, { CREATOR_CAROUSEL_MAKER_IDS: ` ${other} ` }), true)
   assert.equal(carouselMakerEnabled(other, { CREATOR_CAROUSEL_MAKER_IDS: 'all' }), true)
   assert.equal(carouselMakerEnabled(other, { CREATOR_CAROUSEL_MAKER_IDS: 'all', CREATOR_STUDIO2_ENABLED: 'false' }), false)
+  // A client trial account (from a trial link that has not ended) may use it too; an ended link may not.
+  const trial = '00000000-0000-4000-8000-000000000002', ended = '00000000-0000-4000-8000-000000000003'
+  setDemoUsers([{ user_id: trial, expires_at: new Date(Date.now() + 86400000).toISOString() }, { user_id: ended, expires_at: new Date(Date.now() - 1000).toISOString() }])
+  assert.equal(carouselMakerEnabled(trial, {}), true)
+  assert.equal(carouselMakerEnabled(ended, {}), false)
+  setDemoUsers([])
 })
 
 test('cover titles: three at most, each under a known principle, and a quote the student never wrote sends the draft back once', async () => {
