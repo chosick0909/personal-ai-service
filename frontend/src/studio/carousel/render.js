@@ -445,16 +445,23 @@ function paintText(ctx, layout, o, x, y, align = 'left') {
     }
   }
   if (o.shadow) { ctx.shadowColor = o.shadow.color; ctx.shadowBlur = o.shadow.blur; ctx.shadowOffsetY = o.shadow.y || 0 }
-  let rowY = y
-  for (const row of layout.rows) {
-    if (row.gap) { rowY += row.gap; continue }
-    const left = x + (o.w - row.width) * k
-    for (const piece of row.pieces) {
-      ctx.font = piece.em ? layout.strong : layout.normal
-      ctx.fillStyle = piece.em ? (o.em?.color || o.color) : o.color
-      ctx.fillText(piece.t, left + piece.x, rowY + baselineIn)
+  // An outline (자막 style) is drawn under every glyph first, so neighbouring letters never cover each other's fill.
+  const passes = o.stroke ? ['stroke', 'fill'] : ['fill']
+  for (const pass of passes) {
+    if (pass === 'stroke') { ctx.strokeStyle = o.stroke.color; ctx.lineWidth = size * o.stroke.width * 2; ctx.lineJoin = 'round'; ctx.miterLimit = 2 }
+    if (pass === 'fill' && o.stroke) ctx.shadowColor = 'transparent'
+    let rowY = y
+    for (const row of layout.rows) {
+      if (row.gap) { rowY += row.gap; continue }
+      const left = x + (o.w - row.width) * k
+      for (const piece of row.pieces) {
+        ctx.font = piece.em ? layout.strong : layout.normal
+        if (pass === 'stroke') { ctx.strokeText(piece.t, left + piece.x, rowY + baselineIn); continue }
+        ctx.fillStyle = piece.em ? (o.em?.color || o.color) : o.color
+        ctx.fillText(piece.t, left + piece.x, rowY + baselineIn)
+      }
+      rowY += lineHeight
     }
-    rowY += lineHeight
   }
   ctx.restore()
 }
@@ -568,8 +575,12 @@ function environment(canvas, { slide, index = 0, total = 1, design, assets }) {
       return img ? { img, x: design.profileImage.x ?? 0.5, y: design.profileImage.y ?? 0.5, zoom: Math.max(1, Number(design.profileImage.zoom) || 1) } : null
     },
     // A block of wrapped text. `slot` picks the heading or body font, `weight` a role that font really has.
-    text(value, { slot = 'body', weight = 'regular', em, ...rest }) {
+    text(value, { slot = 'body', weight: role = 'regular', em: asked, ...rest }) {
       const font = fonts[slot]
+      // 굵기 섞기: a title-font block with marked words draws them heavy and the rest light, in one colour.
+      const mixed = design?.weightMix === true && slot === 'heading' && /\*\*[^*]+\*\*/.test(String(value || ''))
+      const weight = mixed ? 'regular' : role
+      const em = mixed ? { style: 'bold', weight: 'heavy' } : asked
       let emphasis = em
       if (em) {
         const strong = font.weights[em.weight] ?? font.weights[weight]
@@ -1353,7 +1364,55 @@ const listCard = {
   },
 }
 
-const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card, 'photo-dark': photoDark, 'grid-memo': gridMemo, 'list-card': listCard }
+/* ───────────────────────── 10. subtitle ───────────────────────── */
+// After a photo-diary account (hyenim_ai): every slide is one photo, and the words sit low and centred like a film
+// subtitle — white letters with a dark outline, so they read over any picture without a band or a shade.
+
+const SUBTITLE = { stroke: { color: 'rgba(0,0,0,0.88)', width: 0.1 }, shadow: { color: 'rgba(0,0,0,0.35)', blur: 10, y: 2 } }
+const subtitleEm = e => ({ style: 'color', color: css(e.c.accent) })
+
+function subtitlePhoto(e) {
+  const { W, H, c } = e
+  e.fill(css(c.bg))
+  e.photo('image', 0, 0, W, H, { markAt: 0.32 })
+}
+
+const subtitle = {
+  cover(e) {
+    const { W, H, M, c, slide } = e
+    subtitlePhoto(e)
+    e.line(e.handle, { weight: 'bold', size: 28, color: css(c.text, 0.92), x: W / 2, y: M, align: 'center', maxWidth: 600 })
+    const w = W - M * 2
+    const bottom = H - 120
+    const kick = kicker(e, { w, color: css(c.text, 0.95), align: 'center', ...SUBTITLE })
+    const gap = kick.height ? 18 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [76, 52], lh: 1.32, w, h: H * 0.42 - kick.height - gap, color: css(c.text), em: subtitleEm(e), balance: true, align: 'center', ...SUBTITLE })
+    stack(blocks(textBlock(kick, 'center'), gap, textBlock(head, 'center')), M, H * 0.5, bottom, 1)
+  },
+  body(e) {
+    const { W, H, M, c, slide } = e
+    subtitlePhoto(e)
+    const w = W - M * 2
+    const bottom = H - 110
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [48, 38], lh: 1.4, w, maxLines: 2, color: css(c.text), em: subtitleEm(e), balance: true, align: 'center', ...SUBTITLE })
+    const gap = head.height ? 20 : 0
+    const body = e.text(slide.text, { weight: 'bold', size: [46, 34], lh: 1.5, w, h: H * 0.4 - head.height - gap, color: css(c.text), em: subtitleEm(e), balance: 'short', keepLines: true, align: 'center', ...SUBTITLE })
+    stack(blocks(textBlock(head, 'center'), gap, textBlock(body, 'center')), M, H * 0.5, bottom, 1)
+  },
+  last(e) {
+    const { W, H, M, c, slide } = e
+    subtitlePhoto(e)
+    const w = W - M * 2
+    const bottom = H - 150
+    const head = e.text(slide.heading, { weight: 'bold', size: [40, 32], lh: 1.4, w, maxLines: 2, color: css(c.text, 0.95), align: 'center', ...SUBTITLE })
+    const gap = head.height ? 18 : 0
+    const cta = e.text(slide.text, { slot: 'heading', weight: 'bold', size: [56, 40], lh: 1.45, w, h: H * 0.45 - head.height - gap, color: css(c.text), em: subtitleEm(e), balance: true, align: 'center', ...SUBTITLE })
+    stack(blocks(textBlock(head, 'center'), gap, textBlock(cta, 'center')), M, H * 0.45, bottom, 1)
+    e.line(e.handle, { weight: 'bold', size: 30, color: css(c.text), x: W / 2, y: H - 80, align: 'center', maxWidth: 600 })
+  },
+}
+
+const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card, 'photo-dark': photoDark, 'grid-memo': gridMemo, 'list-card': listCard, subtitle }
 
 /* ───────────────────────── entry ───────────────────────── */
 

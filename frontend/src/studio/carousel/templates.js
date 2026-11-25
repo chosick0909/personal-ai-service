@@ -60,6 +60,7 @@ const LOOKS = {
   card: { colors: { background: '#FFFFFF', text: '#15171A', accent: '#4C6EF5' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'photo-dark': { colors: { background: '#1E1E1E', text: '#FFFFFF', accent: '#F9DD5B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'grid-memo': { colors: { background: '#F7F7F4', text: '#1A1A1A', accent: '#1A1A1A' }, fonts: { heading: 'noto-serif', body: 'gowun-batang' } },
+  subtitle: { colors: { background: '#2A2A2E', text: '#FFFFFF', accent: '#FFE45C' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'list-card': { colors: { background: '#000000', text: '#FFFFFF', accent: '#A3161C' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
 }
 

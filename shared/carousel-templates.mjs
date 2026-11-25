@@ -34,6 +34,10 @@ export const CAROUSEL_TEMPLATES = [
     heading: '그 장에서 소개하는 것의 이름',
     images: { cover: 1, body: 1, last: 0 }, imageRequired: false,
     limits: { cover: { heading: 24 }, body: { heading: 14, text: 120, lines: 6, lineChars: 24 }, last: { text: 40 } } },
+  { id: 'subtitle', name: '사진 + 자막', description: '사진 일기·감성 글처럼 장마다 사진 한 장에 영화 자막처럼 몇 줄을 얹는 글',
+    heading: '자막 위에 얹는 짧은 한마디(없으면 빈 문자열)',
+    images: { cover: 1, body: 1, last: 1 }, imageRequired: true,
+    limits: { cover: { heading: 30 }, body: { heading: 14, text: 80, lines: 4, lineChars: 19 }, last: { text: 50 } } },
 ]
 export const CAROUSEL_TEMPLATE_IDS = CAROUSEL_TEMPLATES.map(t => t.id)
 export const carouselTemplate = id => CAROUSEL_TEMPLATES.find(t => t.id === id) || CAROUSEL_TEMPLATES[0]

@@ -168,8 +168,8 @@ export function registerCarouselRoutes(router, deps) {
   // 내 디자인: the look a student keeps (template, colours, fonts, account name), so every new carousel starts as theirs.
   router.put('/creator-tools/studio/carousel-design', asyncHandler(async (req, res) => {
     enabled(req)
-    const { template, ratio, colors, fonts, handle } = normalizeDesign(req.body || {})
-    const saved = { template, ratio, colors, fonts, handle }
+    const { template, ratio, colors, fonts, handle, weightMix } = normalizeDesign(req.body || {})
+    const saved = { template, ratio, colors, fonts, handle, ...(weightMix ? { weightMix } : {}) }
     const row = await query(database().from('studio_styles').select('choices').eq('user_id', req.auth.userId).maybeSingle())
     if (row) await query(database().from('studio_styles').update({ choices: { ...(row.choices || {}), carouselDesign: saved } }).eq('user_id', req.auth.userId))
     else await query(database().from('studio_styles').insert({ user_id: req.auth.userId, choices: { carouselDesign: saved } }))

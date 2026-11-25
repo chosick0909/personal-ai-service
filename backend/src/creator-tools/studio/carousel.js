@@ -195,7 +195,9 @@ export function normalizeDesign(value, slideIds = []) {
   return { template: carouselTemplate(value?.template).id, ratio: value?.ratio === '3:4' ? '3:4' : '4:5',
     colors: Object.fromEntries(['background', 'text', 'accent'].map(k => [k, colour(value?.colors?.[k])]).filter(([, v]) => v)),
     fonts: Object.fromEntries(['heading', 'body'].map(k => [k, clean(value?.fonts?.[k], 40)]).filter(([, v]) => v)),
-    handle: clean(value?.handle, 40), profileImage: image(value?.profileImage), slides }
+    handle: clean(value?.handle, 40), profileImage: image(value?.profileImage), slides,
+    // 굵기 섞기: marked words in titles heavy, the rest light.
+    ...(value?.weightMix === true ? { weightMix: true } : {}) }
 }
 
 // A reference's colours as a starting palette: its first colour is the background it used most, the text is whichever
