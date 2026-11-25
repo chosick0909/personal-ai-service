@@ -4,10 +4,11 @@ import { fail, uuid } from '../domain.js'
 import { database, query } from '../store.js'
 import { schedule, isScheduled } from '../success-reel-analysis.js'
 import { carouselMakerEnabled } from './access.js'
-import { CAROUSEL_STAGES, CAROUSEL_OPENERS, nextCarouselStage, generateCarouselStage, applyCarouselPatch, applyCarouselProposal, carouselChat, publicCarousel, resolveCarouselSources, normalizeCarouselSources, normalizeDesign } from './carousel.js'
+import { CAROUSEL_STAGES, CAROUSEL_OPENERS, companionPlan, nextCarouselStage, generateCarouselStage, applyCarouselPatch, applyCarouselProposal, carouselChat, publicCarousel, resolveCarouselSources, normalizeCarouselSources, normalizeDesign } from './carousel.js'
 import { IMAGE_TIERS, IMAGE_SHAPES, writeImagePrompt, generateImage, storeImage, listImages, designImages, removeImage, signImages, allowanceUsed, monthlyAllowance, sweepUnkept, LIBRARY_LIMIT } from './carousel-images.js'
 
 import { draftSheet, makeSheet, SHEET_LIMITS } from './carousel-sheet.js'
+import { searchStock, fetchStockPhoto, stockReady, STOCK_SOURCE } from './carousel-stock.js'
 
 const text = (value, max) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : ''
 const message = error => error?.exposeMessage ? error.message : '훅ai가 잠시 멈췄어요. 다시 시도해주세요.'
@@ -52,7 +53,8 @@ export function registerCarouselRoutes(router, deps) {
   const full = async (row, userId) => {
     const resolved = await resolveCarouselSources(database(), userId, row.sources).catch(() => ({}))
     return { carousel: publicCarousel(row), messages: (await history(row.id).catch(() => [])).map(publicMessage), images: await designImages(database(), userId, row.design).catch(() => ({})),
-      sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { id: s.id, label: s.label, kind: s.kind, permalink: s.permalink }])) }
+      sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { id: s.id, label: s.label, kind: s.kind, permalink: s.permalink }])),
+      plan: await companionPlan(database(), row).then(p => p && { id: p.id, title: p.title }).catch(() => null) }
   }
 
   router.get('/creator-tools/studio/carousels', asyncHandler(async (req, res) => {
@@ -62,12 +64,16 @@ export function registerCarouselRoutes(router, deps) {
   }))
   router.post('/creator-tools/studio/carousels', asyncHandler(async (req, res) => {
     enabled(req)
-    const brief = text(req.body?.brief, 8000)
+    // 릴스·캐러셀 동시 제작: started from a reel plan, the carousel takes that plan's topic and research as they are
+    // (nothing is researched again) and reads the plan itself on every stage.
+    const plan = req.body?.fromPlan ? await query(database().from('studio_sessions').select('id,brief,topic').eq('id', uuid(req.body.fromPlan)).eq('user_id', req.auth.userId).maybeSingle()) : null
+    if (req.body?.fromPlan && !plan) fail('PLAN_NOT_FOUND', '기획안을 찾을 수 없어요.', 404)
+    const brief = text(req.body?.brief, 8000) || text(plan?.brief, 8000) || text(plan?.topic?.brief, 8000) || text(plan?.topic?.title, 8000)
     if (brief.length < 4) fail('BRIEF_REQUIRED', '어떤 캐러셀을 만들지 적어주세요.')
-    const sources = normalizeCarouselSources(req.body?.sources)
+    const sources = normalizeCarouselSources({ ...(req.body?.sources || {}), ...(plan ? { plan: { id: plan.id } } : {}) })
     await resolveCarouselSources(database(), req.auth.userId, sources)
     const style = await query(database().from('studio_styles').select('card').eq('user_id', req.auth.userId).maybeSingle())
-    const row = await query(database().from('studio_carousels').insert({ user_id: req.auth.userId, brief, sources, style_snapshot: style?.card || null }).select('*').single())
+    const row = await query(database().from('studio_carousels').insert({ user_id: req.auth.userId, brief, sources, style_snapshot: style?.card || null, ...(plan?.topic ? { topic: plan.topic } : {}) }).select('*').single())
     await say(row, 'hookai', 'cover', CAROUSEL_OPENERS.cover).catch(() => {})
     res.status(201).json(await full(await startCarouselStage(deps(), row, 'cover'), req.auth.userId))
   }))
@@ -175,7 +181,8 @@ export function registerCarouselRoutes(router, deps) {
     enabled(req)
     const images = await listImages(database(), req.auth.userId)
     res.set('Cache-Control', 'private, no-store').json({ images, limit: LIBRARY_LIMIT, ai: { used: await allowanceUsed(deps().redis, req.auth.userId), allowance: monthlyAllowance(), ready: Boolean(String(process.env.FAL_KEY || '').trim()),
-      tiers: Object.fromEntries(Object.entries(IMAGE_TIERS).map(([id, t]) => [id, { label: t.label, weight: t.weight }])) } })
+      tiers: Object.fromEntries(Object.entries(IMAGE_TIERS).map(([id, t]) => [id, { label: t.label, weight: t.weight }])) },
+      stock: { ready: stockReady(), source: STOCK_SOURCE } })
   }))
   // The browser shrinks a photo before sending it (long side 2,160px) and sends a small preview with it.
   router.post('/creator-tools/studio/images', (req, res, next) => uploadImage.fields([{ name: 'image', maxCount: 1 }, { name: 'thumb', maxCount: 1 }])(req, res, error => next(error ? fail('IMAGE_TOO_LARGE', '이미지는 8MB 이하로 올려주세요.') : undefined)), asyncHandler(async (req, res) => {
@@ -190,6 +197,17 @@ export function registerCarouselRoutes(router, deps) {
     enabled(req)
     await removeImage(database(), req.auth.userId, uuid(req.params.id))
     res.json({ ok: true })
+  }))
+  // 무료 사진 검색: results come from the stock site; a picked photo is copied into the student's library.
+  router.get('/creator-tools/studio/images/stock', asyncHandler(async (req, res) => {
+    enabled(req)
+    res.set('Cache-Control', 'private, no-store').json({ ...(await searchStock({ redis: deps().redis }, { q: req.query.q, orientation: req.query.orientation, page: req.query.page })), source: STOCK_SOURCE })
+  }))
+  router.post('/creator-tools/studio/images/stock', asyncHandler(async (req, res) => {
+    enabled(req)
+    const photo = await fetchStockPhoto({}, req.body?.id)
+    const row = await storeImage(database(), req.auth.userId, { ...photo, source: 'stock' })
+    res.status(row.duplicate ? 200 : 201).json({ image: (await signImages(database(), [row]))[0], duplicate: Boolean(row.duplicate) })
   }))
   // An AI image for one slide: 훅ai writes the request from the slide and the mood the student picked.
   router.post('/creator-tools/studio/images/generate', asyncHandler(async (req, res) => {

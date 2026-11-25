@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Download, ImagePlus, LoaderCircle, Sparkles, Trash2, Upload, X } from 'lucide-react'
+import { Check, Download, ImagePlus, LoaderCircle, Search, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, generateImage, uploadImage } from '../api'
 import SlidePreview from '../carousel/SlidePreview'
@@ -10,7 +10,42 @@ import { slideOverflows } from '../../../../shared/carousel-templates.mjs'
 
 const STYLES = [['photo', '실제 사진처럼'], ['illustration', '일러스트'], ['texture', '질감 배경']]
 
-// ---------- image picker: 내 보관함 · AI로 만들기 ----------
+// ---------- 무료 사진 검색: a picked photo is copied into 내 보관함, then placed ----------
+const ORIENTATIONS = [['vertical', '세로'], ['horizontal', '가로'], ['all', '전체']]
+function StockSearch({ ready, source, shape, start, onPick, onSaved }) {
+  const { toast } = useStudio()
+  const [q, setQ] = useState(start.split(/[,.]/)[0].slice(0, 30))
+  const [orientation, setOrientation] = useState(shape === 'half' ? 'horizontal' : 'vertical')
+  const [result, setResult] = useState(null)
+  const [busy, setBusy] = useState('')
+  const search = async (page = 1, o = orientation) => {
+    if (!q.trim()) return
+    setBusy('search')
+    try { const r = await studio.searchStock({ q: q.trim(), orientation: o, page }); setResult(prev => page > 1 && prev ? { ...r, photos: [...prev.photos, ...r.photos] } : r) }
+    catch (e) { toast({ kind: 'failed', title: '사진을 찾지 못했어요', body: e.message }) } finally { setBusy('') }
+  }
+  const pick = async photo => {
+    setBusy(photo.id)
+    try { const r = await studio.pickStock(photo.id); onSaved(); onPick(r.image) }
+    catch (e) { toast({ kind: 'failed', title: '사진을 가져오지 못했어요', body: e.message }) } finally { setBusy('') }
+  }
+  if (!ready) return <div className="st-note st-note-warn">무료 사진 검색이 아직 준비되지 않았어요. (서버에 사진 검색 키 설정이 필요해요)</div>
+  return <div className="st-stack">
+    <form className="st-row" onSubmit={e => { e.preventDefault(); search(1) }}>
+      <input className="st-input" style={{ flex: 1, minWidth: 180 }} value={q} maxLength={100} onChange={e => setQ(e.target.value)} placeholder="예) 부엌, 노트북 책상, 가을 산책" aria-label="찾을 사진" />
+      <button type="submit" className="st-btn st-btn-primary" disabled={!q.trim() || busy === 'search'}>{busy === 'search' ? <LoaderCircle size={18} className="st-spin" /> : <Search size={18} />}찾기</button>
+    </form>
+    <div className="st-chips">{ORIENTATIONS.map(([id, name]) => <button type="button" key={id} className="st-chip st-chip-soft" aria-pressed={orientation === id} onClick={() => { setOrientation(id); if (result) search(1, id) }}>{name}</button>)}</div>
+    {result && result.photos.length === 0 && <div className="st-empty"><strong>맞는 사진이 없어요</strong><span>더 짧고 흔한 단어로 찾아 보세요. 예) '홈카페' 대신 '커피'</span></div>}
+    {result && result.photos.length > 0 && <div className="st-cr-library">{result.photos.map(photo => <div key={photo.id} className="st-cr-thumb">
+      <button type="button" disabled={Boolean(busy)} onClick={() => pick(photo)} aria-label={`이 사진 쓰기: ${photo.tags}`}><img src={photo.thumbUrl} alt="" loading="lazy" /></button>
+      {busy === photo.id && <span className="st-pill"><LoaderCircle size={12} className="st-spin" /></span>}</div>)}</div>}
+    {result && result.photos.length < result.total && <button type="button" className="st-btn st-btn-ghost" disabled={Boolean(busy)} onClick={() => search(result.page + 1)}>더 보기</button>}
+    <p className="st-muted st-small">사진 제공: <a href={source?.url || 'https://pixabay.com/'} target="_blank" rel="noreferrer">{source?.name || 'Pixabay'}</a> · 상업적으로 써도 되는 무료 사진이에요. 고른 사진은 내 보관함에 저장돼요. 사람·상표가 크게 나온 사진은 광고에 쓰기 전에 한 번 더 확인하세요.</p>
+  </div>
+}
+
+// ---------- image picker: 내 보관함 · 무료 사진 검색 · AI로 만들기 ----------
 function ImagePicker({ slide, shape, topic, onPick, onClose }) {
   const { toast } = useStudio()
   const [tab, setTab] = useState('library')
@@ -40,7 +75,8 @@ function ImagePicker({ slide, shape, topic, onPick, onClose }) {
   return <div className="st-modal" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
     <div className="st-modal-box" style={{ width: 'min(880px, 100%)' }}>
       <div className="st-row" style={{ justifyContent: 'space-between' }}><h2>사진 넣기</h2><button type="button" className="st-icon-btn" aria-label="닫기" onClick={onClose}><X size={20} /></button></div>
-      <nav className="st-tabs" aria-label="사진 고르는 방법">{[['library', '내 보관함'], ['ai', 'AI로 만들기']].map(([id, name]) => <button type="button" key={id} className="st-tab" aria-pressed={tab === id} onClick={() => setTab(id)}>{name}</button>)}</nav>
+      <nav className="st-tabs" aria-label="사진 고르는 방법">{[['library', '내 보관함'], ['stock', '무료 사진 검색'], ['ai', 'AI로 만들기']].map(([id, name]) => <button type="button" key={id} className="st-tab" aria-pressed={tab === id} onClick={() => setTab(id)}>{name}</button>)}</nav>
+      {tab === 'stock' && <StockSearch ready={data ? data.stock?.ready !== false : true} source={data?.stock?.source} shape={shape} start={slide?.image || ''} onPick={onPick} onSaved={load} />}
       {tab === 'library' && <div className="st-stack">
         <div className="st-row" style={{ justifyContent: 'space-between' }}><span className="st-muted st-small">{data ? `${data.images.length} / ${data.limit}장` : '불러오는 중…'} · 내 사진을 올려 두면 어느 캐러셀에서든 꺼내 써요.</span>
           <button type="button" className="st-btn st-btn-soft" disabled={busy} onClick={() => file.current?.click()}>{busy ? <LoaderCircle size={18} className="st-spin" /> : <Upload size={18} />}사진 올리기</button>

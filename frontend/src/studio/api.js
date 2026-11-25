@@ -53,6 +53,8 @@ export const studio = {
   saveCarouselDesign: design => creatorRequest('/creator-tools/studio/carousel-design', { method: 'PUT', body: design }),
   images: () => creatorRequest('/creator-tools/studio/images'),
   removeImage: id => creatorRequest(`/creator-tools/studio/images/${id}`, { method: 'DELETE' }),
+  searchStock: ({ q, orientation, page = 1 }) => creatorRequest(`/creator-tools/studio/images/stock?${new URLSearchParams({ q, orientation, page: String(page) })}`),
+  pickStock: id => creatorRequest('/creator-tools/studio/images/stock', { method: 'POST', body: { id } }),
   // 영상 편집: the existing media pipeline (upload → analyze → edit manifest → render), used in one-pass studio mode.
   jobs: () => creatorRequest('/creator-tools/jobs'),
   job: id => creatorRequest(`/creator-tools/jobs/${id}`),
