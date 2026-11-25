@@ -1412,7 +1412,157 @@ const subtitle = {
   },
 }
 
-const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card, 'photo-dark': photoDark, 'grid-memo': gridMemo, 'list-card': listCard, subtitle }
+/* ───────────────────────── 11. local-spot ───────────────────────── */
+// A local-store introduction in the style of a regional travel channel (designed by Claude for a showroom post,
+// tokens in its design_ai_training folder): real photos throughout, near-black ground, one yellow point colour,
+// centred text. Slides alternate between a full photo with a dark fall at the foot and a photo above that fades into
+// a blurred, darkened copy of itself with the text below. Four-pointed sparkles in the point colour. Like the
+// channel, no page numbers and no account name on the slides.
+
+// The sparkle the channel uses: a four-pointed star with curved sides.
+function sparkle(e, cx, cy, size) {
+  const { ctx, c } = e
+  const s = size / 24
+  ctx.save()
+  ctx.translate(cx - size / 2, cy - size / 2)
+  ctx.scale(s, s)
+  ctx.beginPath()
+  ctx.moveTo(12, 0)
+  ctx.bezierCurveTo(12.8, 6.6, 16.6, 10.9, 24, 12)
+  ctx.bezierCurveTo(16.6, 13.1, 12.8, 17.4, 12, 24)
+  ctx.bezierCurveTo(11.2, 17.4, 7.4, 13.1, 0, 12)
+  ctx.bezierCurveTo(7.4, 10.9, 11.2, 6.6, 12, 0)
+  ctx.closePath()
+  ctx.fillStyle = css(c.accent)
+  ctx.fill()
+  ctx.restore()
+}
+
+// The dark fall at the foot of a full photo (the channel's shade: clear to 48%, near-black from 80%).
+function footShade(e, from = 0.48) {
+  const { ctx, W, H } = e
+  const g = ctx.createLinearGradient(0, 0, 0, H)
+  g.addColorStop(0, 'rgba(0,0,0,0)')
+  g.addColorStop(from, 'rgba(0,0,0,0)')
+  g.addColorStop(Math.min(0.95, from + 0.15), 'rgba(0,0,0,0.75)')
+  g.addColorStop(Math.min(0.97, from + 0.32), 'rgba(8,8,8,0.97)')
+  g.addColorStop(1, '#080808')
+  e.fill(g)
+}
+
+// The text ground of a split slide: the same photo, heavily blurred and darkened; plain dark where blur is missing.
+function blurredGround(e) {
+  const { ctx, W, H, c } = e
+  e.fill(css(c.bg))
+  const photo = e.pic('image')
+  if (!photo || !('filter' in ctx)) return
+  ctx.save()
+  ctx.filter = 'blur(28px) brightness(0.32) saturate(1.1)'
+  drawPhoto(ctx, photo, -80, -80, W + 160, H + 160)
+  ctx.restore()
+}
+
+// A photo across the top that turns transparent from 62% of its height down, so it melts into the ground below.
+function fadingTop(e, height) {
+  const { ctx, W } = e
+  const photo = e.pic('image')
+  if (!photo) { e.photo('image', 0, 0, W, height, { placeholder: true }); return }
+  const off = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, height) : Object.assign(document.createElement('canvas'), { width: W, height })
+  const o = off.getContext('2d')
+  drawPhoto(o, photo, 0, 0, W, height)
+  o.globalCompositeOperation = 'destination-in'
+  const g = o.createLinearGradient(0, 0, 0, height)
+  g.addColorStop(0.62, 'rgba(0,0,0,1)')
+  g.addColorStop(1, 'rgba(0,0,0,0)')
+  o.fillStyle = g
+  o.fillRect(0, 0, W, height)
+  ctx.drawImage(off, 0, 0)
+}
+
+// The second photo on the cover: white frame, a slight tilt and a soft shadow, pinned to the upper right.
+function pinnedPhoto(e) {
+  const { ctx, W } = e
+  const photo = e.pic('image2')
+  if (!photo) return
+  const w = 300, h = 380, border = 12
+  ctx.save()
+  ctx.translate(W - 70 - w / 2, 70 + h / 2)
+  ctx.rotate(4 * Math.PI / 180)
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'
+  ctx.shadowBlur = 40
+  ctx.shadowOffsetY = 18
+  roundedRect(ctx, -w / 2 - border, -h / 2 - border, w + border * 2, h + border * 2, 8)
+  ctx.fillStyle = '#FFFFFF'
+  ctx.fill()
+  ctx.shadowColor = 'transparent'
+  drawPhoto(ctx, photo, -w / 2, -h / 2, w, h)
+  ctx.restore()
+}
+
+const spotEm = e => ({ style: 'color', color: css(e.c.accent) })
+const spotBody = e => ({ size: [37, 31], lh: 1.62, ls: -0.016, color: css(e.c.text, 0.95), em: { style: 'bold', weight: 'bold', color: css(e.c.accent) }, balance: 'short', keepLines: true, align: 'center' })
+
+const localSpot = {
+  // The cover headline is the body font at its heaviest (very bold gothic, tight); slide titles use the title font.
+  cover(e) {
+    const { W, H, M, c, slide } = e
+    e.fill(css(c.bg))
+    e.photo('image', 0, 0, W, H, { placeholder: true })
+    footShade(e, 0.48)
+    pinnedPhoto(e)
+    const w = W - 120
+    const bottom = H - 120
+    const kick = kicker(e, { w, size: [42, 34], lh: 1.35, color: css(c.text), align: 'center' })
+    const gap = kick.height ? 34 : 0
+    const head = e.text(slide.heading, { slot: 'body', weight: 'heavy', size: [108, 70], lh: 1.2, ls: -0.028, w, h: H * 0.32, color: css(c.text), em: spotEm(e), balance: true, align: 'center' })
+    stack(blocks(textBlock(kick, 'center'), gap, textBlock(head, 'center')), 60, H * 0.45, bottom, 1)
+    sparkle(e, W - 148, H * 0.66, 56)
+    sparkle(e, 130, H - 120, 40)
+  },
+  body(e) {
+    const { W, H, c, slide, index } = e
+    const w = W - 120
+    const head = (h, color) => e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [74, 54], lh: 1.28, ls: -0.014, w, maxLines: 2, h, color, em: { style: 'color', color: css(c.text) }, balance: true, align: 'center' })
+    // The channel alternates full-photo slides with split ones so the swipe never feels the same twice.
+    if (index % 2 === 0) {
+      e.fill(css(c.bg))
+      e.photo('image', 0, 0, W, H, { placeholder: true })
+      footShade(e, 0.5)
+      const bottom = H - 110
+      const title = head(undefined, css(c.accent))
+      const gap = title.height ? 40 : 0
+      const body = e.text(slide.text, { ...spotBody(e), w, h: H * 0.3 })
+      stack(blocks(textBlock(title, 'center'), gap, textBlock(body, 'center')), 60, H * 0.5, bottom, 1)
+      return
+    }
+    blurredGround(e)
+    const photoH = Math.round(H * 0.45)
+    fadingTop(e, photoH)
+    const top = photoH + 50
+    const bottom = H - 90
+    const title = head(undefined, css(c.accent))
+    const gap = title.height ? 44 : 0
+    const body = e.text(slide.text, { ...spotBody(e), w, h: bottom - top - title.height - gap })
+    stack(blocks(textBlock(title, 'center'), gap, textBlock(body, 'center')), 60, top, bottom, 0.42)
+    sparkle(e, 112, photoH + 140, 46)
+    sparkle(e, W - 114, photoH + 360, 40)
+  },
+  last(e) {
+    const { W, H, c, slide } = e
+    blurredGround(e)
+    const photoH = Math.round(H * 0.53)
+    fadingTop(e, photoH)
+    const w = W - 120
+    const kick = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [46, 36], lh: 1.3, w, maxLines: 2, color: css(c.accent), align: 'center' })
+    const gap = kick.height ? 30 : 0
+    const title = e.text(slide.text, { slot: 'body', weight: 'heavy', size: [84, 56], lh: 1.2, ls: -0.03, w, h: H * 0.3, color: css(c.text), em: spotEm(e), balance: true, align: 'center' })
+    stack(blocks(textBlock(kick, 'center'), gap, textBlock(title, 'center')), 60, H * 0.42, H - 160, 0.5)
+    sparkle(e, 145, H * 0.47, 44)
+    sparkle(e, W - 130, H - 130, 40)
+  },
+}
+
+const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card, 'photo-dark': photoDark, 'grid-memo': gridMemo, 'list-card': listCard, subtitle, 'local-spot': localSpot }
 
 /* ───────────────────────── entry ───────────────────────── */
 

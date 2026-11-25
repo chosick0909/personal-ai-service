@@ -38,6 +38,11 @@ export const CAROUSEL_TEMPLATES = [
     heading: '자막 위에 얹는 짧은 한마디(없으면 빈 문자열)',
     images: { cover: 1, body: 1, last: 1 }, imageRequired: true,
     limits: { cover: { heading: 30 }, body: { heading: 14, text: 80, lines: 4, lineChars: 19 }, last: { text: 50 } } },
+  { id: 'local-spot', name: '로컬 매장 소개', description: '매장·공간·여행지 소개처럼 실제 사진을 장마다 크게 보여 주고 한 장에 한 가지씩 짚는 글',
+    heading: '그 장의 한 줄 제목(포인트 색으로 크게)',
+    images: { cover: 2, body: 1, last: 1 }, imageRequired: true,
+    slotNames: { cover: ['배경 사진', '붙이는 사진'] },
+    limits: { cover: { heading: 20 }, body: { heading: 22, text: 90, lines: 4, lineChars: 24 }, last: { text: 32 } } },
 ]
 export const CAROUSEL_TEMPLATE_IDS = CAROUSEL_TEMPLATES.map(t => t.id)
 export const carouselTemplate = id => CAROUSEL_TEMPLATES.find(t => t.id === id) || CAROUSEL_TEMPLATES[0]

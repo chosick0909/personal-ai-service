@@ -160,7 +160,7 @@ export function DesignStage({ carousel, images, save }) {
         <strong>{index + 1}장</strong>
         <MovableSlide key={current.id} slide={current} index={index} total={slides.length} design={view} onSave={move => setEntry({ move })} />
         {slots === 0 ? <p className="st-muted st-small">이 틀은 이 장에 사진을 쓰지 않아요.</p>
-          : [['image', slots > 1 ? '위 사진' : '사진'], ...(slots > 1 ? [['image2', '아래 사진']] : [])].map(([key, name]) => { const value = placed(key)
+          : ['image', 'image2'].slice(0, slots).map((key, i) => [key, (template.slotNames?.[current.role] || (slots > 1 ? ['위 사진', '아래 사진'] : ['사진']))[i]]).map(([key, name]) => { const value = placed(key)
             return <div key={key} className="st-stack" style={{ gap: 8 }}>
               <div className="st-row"><button type="button" className="st-btn st-btn-soft st-btn-sm" onClick={() => setPicker(key)}><ImagePlus size={16} />{value ? `${name} 바꾸기` : `${name} 넣기`}</button>{value && <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setImage(key, null)}>빼기</button>}</div>
               {value && <div className="st-cr-crop">{[['x', '좌우'], ['y', '상하'], ['zoom', '확대']].map(([axis, label]) => <label key={axis}>{label}<input type="range" min={axis === 'zoom' ? 1 : 0} max={axis === 'zoom' ? 3 : 1} step="0.02" defaultValue={value[axis]} onPointerUp={e => setImage(key, { ...value, [axis]: Number(e.target.value) })} onKeyUp={e => setImage(key, { ...value, [axis]: Number(e.target.value) })} /></label>)}</div>}
@@ -172,7 +172,7 @@ export function DesignStage({ carousel, images, save }) {
       <div><strong>이미지로 받기</strong><p className="st-muted st-small">모든 장을 PNG로 만들어 한 번에 받아요. 올릴 때는 번호 순서대로 올리면 돼요.</p></div>
       <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={downloading} onClick={() => download(false)}>{downloading ? <LoaderCircle size={20} className="st-spin" /> : <Download size={20} />}{downloading && progress ? `만드는 중 ${progress}` : `전체 받기 (${slides.length}장)`}</button>
     </section>
-    {picker && <ImagePicker slide={current} shape={slots > 1 ? 'half' : design.ratio} topic={carousel.topic?.title || ''} onClose={() => setPicker(null)}
+    {picker && <ImagePicker slide={current} shape={slots > 1 && !template.slotNames?.[current.role] ? 'half' : design.ratio} topic={carousel.topic?.title || ''} onClose={() => setPicker(null)}
       onPick={image => { setImage(picker, { id: image.id, x: 0.5, y: 0.5, zoom: 1 }); setPicker(null) }} />}
   </div>
 }

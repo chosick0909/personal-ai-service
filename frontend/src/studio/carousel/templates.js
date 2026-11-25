@@ -27,6 +27,8 @@ export const FONTS = [
     weights: { regular: 400, bold: 700, heavy: 800 }, scale: 1 },
   { key: 'gowun-dodum', label: '고운돋움', group: '고딕', family: 'Gowun Dodum', css: GOOGLE('Gowun+Dodum'),
     weights: { regular: 400, bold: 400, heavy: 400 }, scale: 1.02 },
+  { key: 'jua', label: '주아', group: '제목용', family: 'Jua', css: GOOGLE('Jua'),
+    weights: { regular: 400, bold: 400, heavy: 400 }, scale: 1.04 },
   { key: 'black-han-sans', label: '검은고딕', group: '제목용', family: 'Black Han Sans', css: GOOGLE('Black+Han+Sans'),
     weights: { regular: 400, bold: 400, heavy: 400 }, scale: 1.04 },
   { key: 'do-hyeon', label: '도현', group: '제목용', family: 'Do Hyeon', css: GOOGLE('Do+Hyeon'),
@@ -60,6 +62,7 @@ const LOOKS = {
   card: { colors: { background: '#FFFFFF', text: '#15171A', accent: '#4C6EF5' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'photo-dark': { colors: { background: '#1E1E1E', text: '#FFFFFF', accent: '#F9DD5B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'grid-memo': { colors: { background: '#F7F7F4', text: '#1A1A1A', accent: '#1A1A1A' }, fonts: { heading: 'noto-serif', body: 'gowun-batang' } },
+  'local-spot': { colors: { background: '#0D0D0D', text: '#FFFFFF', accent: '#FFE14A' }, fonts: { heading: 'jua', body: 'pretendard' } },
   subtitle: { colors: { background: '#2A2A2E', text: '#FFFFFF', accent: '#FFE45C' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'list-card': { colors: { background: '#000000', text: '#FFFFFF', accent: '#A3161C' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
 }
