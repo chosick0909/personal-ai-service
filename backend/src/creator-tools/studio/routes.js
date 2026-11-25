@@ -87,6 +87,19 @@ function normalizeSources(value) {
   return out
 }
 
+// A 훅ai revision the student accepts becomes the version in use; the screen shows it on top and folds the original
+// options away. A cover or caption the plan never had (the stage was skipped, then asked for in the chat) is made
+// from the revision. Null when the revision does not belong to where the plan is now.
+export function proposalPatch(row, p) {
+  if (!p || (p.stage !== row.stage && row.stage !== 'done')) return null
+  const now = row[p.stage], note = `훅ai 수정 전 · ${p.summary || ''}`
+  if (p.stage === 'script') return now ? { script: { ...now, edited: p.lines, history: remember(now, currentScript(now), note) } } : null
+  if (p.stage === 'caption') return { caption: { options: [], chosen: 0, ...(now || {}), edited: { text: p.text, hashtags: p.hashtags || [] }, history: remember(now, currentCaption(now), note) } }
+  if (p.stage === 'thumbnail') return { thumbnail: { options: [], chosen: 0, plan: null, ...(now || {}), custom: p.text, applied: { text: p.text, summary: p.summary || '' }, history: now ? remember(now, currentPick('thumbnail', now), pickNote(now)) : [] } }
+  if (p.stage === 'hook') return now ? { hook: { ...now, custom: p.text, applied: { text: p.text, onScreen: p.onScreen || '', summary: p.summary || '' }, history: remember(now, currentPick('hook', now), pickNote(now)) } } : null
+  return null
+}
+
 // A link whose earlier try brought nothing back is read again: the row still knows nothing about the post — not even
 // whether it is a reel or a carousel — so analysing it as it stands could only fail the same way.
 export const linkUnread = (row, youtube = false) => youtube ? !row.source_path
@@ -415,14 +428,9 @@ export function registerStudioRoutes(router) {
     enabled(req)
     const row = await owned(req)
     const msg = await query(database().from('studio_messages').select('*').eq('id', uuid(req.body?.messageId)).eq('session_id', row.id).maybeSingle())
-    const p = msg?.meta?.proposal
-    if (!p || (p.stage !== row.stage && row.stage !== 'done') || !row[p.stage]) fail('PROPOSAL_NOT_FOUND', '적용할 제안을 찾을 수 없어요.', 404)
-    const patch = { updated_at: new Date().toISOString() }
-    if (p.stage === 'script') patch.script = { ...row.script, edited: p.lines, history: remember(row.script, currentScript(row.script), `훅ai 수정 전 · ${p.summary || ''}`) }
-    else if (p.stage === 'caption') patch.caption = { ...row.caption, edited: { text: p.text, hashtags: p.hashtags }, history: remember(row.caption, currentCaption(row.caption), `훅ai 수정 전 · ${p.summary || ''}`) }
-    // Applying a chat revision makes it the version in use; the screen shows it on top and folds the original 3 options away.
-    else if (p.stage === 'thumbnail') patch.thumbnail = { ...row.thumbnail, custom: p.text, applied: { text: p.text, summary: p.summary || '' }, history: remember(row.thumbnail, currentPick('thumbnail', row.thumbnail), pickNote(row.thumbnail)) }
-    else if (p.stage === 'hook') patch.hook = { ...row.hook, custom: p.text, applied: { text: p.text, onScreen: p.onScreen || '', summary: p.summary || '' }, history: remember(row.hook, currentPick('hook', row.hook), pickNote(row.hook)) }
+    const change = proposalPatch(row, msg?.meta?.proposal)
+    if (!change) fail('PROPOSAL_NOT_FOUND', '적용할 제안을 찾을 수 없어요.', 404)
+    const patch = { ...change, updated_at: new Date().toISOString() }
     const updated = await query(database().from('studio_sessions').update(patch).eq('id', row.id).select('*').single())
     res.json({ session: publicSession(updated) })
   }))

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import { COVER_PRINCIPLE_NAMES } from '../src/creator-tools/studio/copy-principles.js'
 import { ungroundedQuotes } from '../src/creator-tools/studio/engine.js'
-import { linkUnread, sessionHistory, topicPatch } from '../src/creator-tools/studio/routes.js'
+import { linkUnread, proposalPatch, sessionHistory, topicPatch } from '../src/creator-tools/studio/routes.js'
 import { formulaFromReel } from '../src/creator-tools/studio/engine.js'
 import assert from 'node:assert/strict'
 import { studio2Enabled } from '../src/creator-tools/studio/access.js'
@@ -586,4 +586,23 @@ test('a link whose earlier try brought nothing back is read again; one already r
   assert.equal(linkUnread({ ...failed, source: 'collector' }), false, 'a collected reel is not a pasted link')
   assert.equal(linkUnread({ source: 'upload-youtube', analysis_status: 'failed', source_path: null }, true), true)
   assert.equal(linkUnread({ source: 'upload-youtube', analysis_status: 'ready', source_path: 'videos/a.mp4' }, true), false)
+})
+
+test('a revision from the chat is applied where the plan is; a caption or cover the plan never had is made from it', () => {
+  const caption = { stage: 'caption', summary: '처음부터 정리', text: '1분 4동작, 저장해 두세요', hashtags: ['스트레칭'] }
+  // The caption stage was skipped and the plan finished: the caption 훅ai wrote in the chat becomes the plan's caption.
+  const made = proposalPatch({ stage: 'done', caption: null, script: { options: [], chosen: 0 } }, caption)
+  assert.deepEqual(made, { caption: { options: [], chosen: 0, edited: { text: '1분 4동작, 저장해 두세요', hashtags: ['스트레칭'] }, history: [] } })
+  // An existing caption keeps its options, and the version it replaces goes to the saved versions.
+  const before = { options: [{ text: '처음 캡션', hashtags: [] }], chosen: 0, edited: null }
+  const revised = proposalPatch({ stage: 'caption', caption: before }, caption).caption
+  assert.equal(revised.options.length, 1)
+  assert.equal(revised.edited.text, '1분 4동작, 저장해 두세요')
+  assert.equal(revised.history[0].value.text, '처음 캡션')
+  const cover = proposalPatch({ stage: 'done', thumbnail: null }, { stage: 'thumbnail', text: '자기 전 1분', summary: '' }).thumbnail
+  assert.deepEqual([cover.custom, cover.applied.text, cover.options, cover.history], ['자기 전 1분', '자기 전 1분', [], []])
+  // A revision for another stage than the one the plan is at, or for a script the plan does not have, is not applied.
+  assert.equal(proposalPatch({ stage: 'script', script: { options: [] }, caption: null }, caption), null)
+  assert.equal(proposalPatch({ stage: 'done', script: null }, { stage: 'script', lines: [{ spoken: '하나' }] }), null)
+  assert.equal(proposalPatch({ stage: 'done' }, null), null)
 })

@@ -29,7 +29,8 @@ function ProposalPreview({ proposal, carousel, applied, onApply }) {
       return <div key={i} className={changed ? 'is-changed' : ''} style={{ whiteSpace: 'pre-wrap' }}>{changed && before && <s>{before}</s>}<span>{line}</span></div> })}
       {rows.now.length > rows.next.length && rows.now.slice(rows.next.length).map((line, i) => <div key={`d${i}`} className="is-changed"><s>{line}</s><span className="st-muted st-small">삭제</span></div>)}
       {proposal.hashtags?.length > 0 && <span className="st-muted st-small">{proposal.hashtags.map(t => `#${t}`).join(' ')}</span>}</div>
-    <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />이 수정 적용</button>}</div>
+    <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />이 수정 적용</button>}
+      <CopyButton text={[rows.next.join('\n\n'), (proposal.hashtags || []).map(t => `#${t}`).join(' ')].filter(Boolean).join('\n\n')} /></div>
   </div>
 }
 

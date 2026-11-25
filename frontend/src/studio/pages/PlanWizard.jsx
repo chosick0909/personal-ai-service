@@ -37,13 +37,18 @@ function ProposalPreview({ proposal, session, applied, onApply }) {
     : proposal.stage === 'caption' ? (session.caption?.edited || session.caption?.options?.[session.caption?.chosen ?? 0])?.text
     : proposal.stage === 'thumbnail' ? (session.thumbnail?.custom || session.thumbnail?.options?.[session.thumbnail?.chosen ?? 0]?.text)
     : (session.hook?.custom || session.hook?.options?.[session.hook?.chosen ?? 0]?.spoken)
+  // A part the plan does not have yet (its stage was skipped): the revision is shown all the same, and applying it adds the part.
+  const exists = Boolean(session[proposal.stage])
+  const copyText = proposal.lines ? proposal.lines.map(l => l.spoken).join('\n') : [proposal.text, (proposal.hashtags || []).map(t => `#${t}`).join(' ')].filter(Boolean).join('\n\n')
   return <div className="st-proposal">
-    <strong>{STAGE_NAME[proposal.stage]} 수정안 · {proposal.summary || '미리보기'}</strong>
-    {proposal.lines ? <div className="st-proposal-card st-diff">{proposal.lines.map((l, i) => { const before = current[i]?.spoken; const changed = before !== l.spoken
+    <strong>{STAGE_NAME[proposal.stage]} {exists ? '수정안' : '새로 쓴 안'} · {proposal.summary || '미리보기'}</strong>
+    {proposal.lines ? <div className="st-proposal-card st-diff">{proposal.lines.map((l, i) => { const before = current[i]?.spoken; const changed = exists && before !== l.spoken
       return <div key={i} className={changed ? 'is-changed' : ''}>{changed && before && <s>{before}</s>}<span>{l.spoken}</span></div> })}
       {current.length > proposal.lines.length && current.slice(proposal.lines.length).map((l, i) => <div key={`d${i}`} className="is-changed"><s>{l.spoken}</s><span className="st-muted st-small">삭제</span></div>)}</div>
-      : <div className="st-proposal-card st-diff"><div className="is-changed">{current && current !== proposal.text && <s>{current}</s>}<span>{proposal.text}</span></div>{proposal.hashtags?.length > 0 && <span className="st-muted st-small">{proposal.hashtags.map(t => `#${t}`).join(' ')}</span>}</div>}
-    <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />이 수정 적용</button>}<span className="st-muted st-small">적용 전 버전은 '저장 내역'에 남아요</span></div>
+      : <div className="st-proposal-card st-diff"><div className={exists ? 'is-changed' : ''} style={{ whiteSpace: 'pre-wrap' }}>{current && current !== proposal.text && <s>{current}</s>}<span>{proposal.text}</span></div>{proposal.hashtags?.length > 0 && <span className="st-muted st-small">{proposal.hashtags.map(t => `#${t}`).join(' ')}</span>}</div>}
+    {/* What 훅ai wrote can always be taken as it is, whether or not it goes into the plan. */}
+    <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />{exists ? '이 수정 적용' : '기획안에 넣기'}</button>}
+      <CopyButton text={copyText} />{exists && <span className="st-muted st-small">적용 전 버전은 '저장 내역'에 남아요</span>}</div>
   </div>
 }
 
@@ -85,7 +90,7 @@ function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onAp
         <div className={`st-msg st-msg-${m.role}`}>{m.content}</div>
         {m.role === 'hookai' && m.meta?.proposals?.length > 0 && session.stage === 'topic' && <div className="st-proposal"><strong>주제 후보예요. 마음에 드는 걸 눌러주세요.</strong>{m.meta.proposals.map((p, i) => <button type="button" key={i} className="st-proposal-card" onClick={() => onPickTopic(p)}><strong>{p.title}</strong><span className="st-muted">{p.promise}</span><span className="st-small" style={{ color: 'var(--st-accent-text)' }}>{p.why}</span></button>)}</div>}
         {m.role === 'hookai' && m.meta?.topic && session.stage === 'topic' && <div className="st-proposal"><strong>이 주제로 갈까요?</strong><div className="st-proposal-card"><strong>{m.meta.topic.title}</strong><span className="st-muted">{m.meta.topic.promise}</span></div><button type="button" className="st-btn st-btn-primary" onClick={() => onPickTopic(m.meta.topic)}><Check size={18} />이 주제로 할게요</button></div>}
-        {m.role === 'hookai' && m.meta?.proposal && (m.meta.proposal.stage === session.stage || session.stage === 'done') && session[m.meta.proposal.stage] && <ProposalPreview proposal={m.meta.proposal} session={session} applied={m.id === appliedId} onApply={() => onApply(m.id)} />}
+        {m.role === 'hookai' && m.meta?.proposal && (m.meta.proposal.stage === session.stage || session.stage === 'done') && <ProposalPreview proposal={m.meta.proposal} session={session} applied={m.id === appliedId} onApply={() => onApply(m.id)} />}
         {m.role === 'hookai' && m === last && m.meta?.chips?.length > 0 && !busy && <div className="st-msg-chips">{m.meta.chips.map(c => <button type="button" key={c} className="st-chip" onClick={() => send(c)}>{c}</button>)}</div>}
       </div>)}
       {pending && <div className="st-msg st-msg-user">{pending}</div>}
