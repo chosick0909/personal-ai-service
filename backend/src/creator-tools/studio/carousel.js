@@ -60,8 +60,27 @@ export async function resolveCarouselSources(db, userId, sources = {}) {
   }
   return resolved
 }
-export const normalizeCarouselSources = value => Object.fromEntries(CAROUSEL_SLOTS.map(slot => [slot, value?.[slot]?.id])
-  .filter(([, id]) => typeof id === 'string' && /^[A-Za-z0-9_-]{5,60}$/.test(id)).map(([slot, id]) => [slot, { id }]))
+const PLAN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const normalizeCarouselSources = value => ({ ...Object.fromEntries(CAROUSEL_SLOTS.map(slot => [slot, value?.[slot]?.id])
+  .filter(([, id]) => typeof id === 'string' && /^[A-Za-z0-9_-]{5,60}$/.test(id)).map(([slot, id]) => [slot, { id }])),
+  ...(typeof value?.plan?.id === 'string' && PLAN_ID.test(value.plan.id) ? { plan: { id: value.plan.id.toLowerCase() } } : {}) })
+
+// 릴스·캐러셀 동시 제작: a carousel started from a reel plan tells the same story. The reel plan as the student has it
+// now (cover copy, first line, script, caption) is read on every stage, so later edits to the reel carry over.
+const planLines = s => { const lines = s?.edited || s?.options?.[s?.chosen ?? 0]?.lines; return Array.isArray(lines) ? lines.map(l => clean(l?.spoken, 400)).filter(Boolean) : [] }
+const planPick = f => clean(f?.custom || f?.options?.[f?.chosen ?? 0]?.text || f?.options?.[f?.chosen ?? 0]?.spoken || '', 200)
+export async function companionPlan(db, row) {
+  const id = row.sources?.plan?.id
+  if (!id) return null
+  const plan = await query(db.from('studio_sessions').select('id,title,topic,thumbnail,hook,script,caption').eq('id', id).eq('user_id', row.user_id).maybeSingle()).catch(() => null)
+  if (!plan) return null
+  const script = planLines(plan.script), caption = plan.caption?.edited || plan.caption?.options?.[plan.caption?.chosen ?? 0]
+  const input = { note: '수강생이 같은 주제로 먼저 만든 릴스 기획안입니다. 이 캐러셀은 그 릴스와 같은 이야기를 합니다: 화자의 사실·숫자·경험과 핵심 주장은 여기서 가져옵니다. 대본은 귀로 듣는 말이므로 문장을 옮기지 않고, 눈으로 읽는 캐러셀에 맞게 새로 씁니다.',
+    title: clean(plan.title || plan.topic?.title, 120), thumbnail: planPick(plan.thumbnail), firstLine: planPick(plan.hook), script, caption: clean(caption?.text, 2200) }
+  return { id: plan.id, title: input.title, input, text: [input.thumbnail, input.firstLine, ...script, input.caption].filter(Boolean).join('\n') }
+}
+// The reel plan's words count as the student's own when a carousel quotes them.
+const withPlan = (row, plan) => plan ? { ...row, attachments: [...(row.attachments || []), { content: plan.text }] } : row
 
 // ---------- what a carousel plan holds, as the student has it now ----------
 export const chosenCover = row => { const c = row.cover; if (!c) return null; if (c.custom) return { text: c.custom, kicker: c.customKicker || '' }; const o = c.options?.[c.chosen ?? 0]; return o ? { text: o.text, kicker: o.kicker || '' } : null }
@@ -204,7 +223,9 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
   const providers = deps.makeProviders(AbortSignal.timeout(600000))
   if (stage === 'cover') row = await prepare(deps, row, providers)
   const resolved = await resolveCarouselSources(deps.db, row.user_id, row.sources)
-  const knowledge = { fieldKnowledge: await fieldKnowledge(deps.db, row.topic?.category).catch(() => null) }
+  const plan = await companionPlan(deps.db, row)
+  row = withPlan(row, plan)
+  const knowledge = { fieldKnowledge: await fieldKnowledge(deps.db, row.topic?.category).catch(() => null), ...(plan ? { reelPlan: plan.input } : {}) }
   const input = extras => context(row, resolved, { ...knowledge, ...extras })
   // One rewrite for what the model's own check and the code's check found.
   const draft = async (op, prompt, schema, extras, findings) => {
@@ -325,7 +346,8 @@ export async function carouselChat(deps, row, messages, text) {
   const providers = deps.makeProviders(AbortSignal.timeout(480000))
   const stage = chatStage(row, text)
   const template = row.slides?.template ? carouselTemplate(row.design?.template || row.slides.template) : null
-  const input = context(row, resolved, { fieldKnowledge: await fieldKnowledge(deps.db, row.topic?.category).catch(() => null),
+  const plan = await companionPlan(deps.db, row)
+  const input = context(row, resolved, { fieldKnowledge: await fieldKnowledge(deps.db, row.topic?.category).catch(() => null), ...(plan ? { reelPlan: plan.input } : {}),
     ...(template ? { template: { name: template.name, limits: template.limits.body, lastLimit: template.limits.last.text } } : {}),
     conversation: messages.slice(-12).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content })), userMessage: text })
   let raw = await json(providers, 'studio-carousel-revise', revisePrompt(stage), input, reviseSchema)

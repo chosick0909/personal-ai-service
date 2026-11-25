@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star, Play, Plus } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star, Play, Plus, GalleryHorizontalEnd } from 'lucide-react'
 import { useStudio } from '../context'
 import { studio, STAGES, SLOT_LABELS, readMaterials } from '../api'
 import { AttachButton, AttachChips } from '../Attachments'
@@ -362,13 +362,25 @@ function CaptionStage({ session, save }) {
   </div>
 }
 
+// 릴스·캐러셀 동시 제작 (내부 전용): the same plan, told again as a carousel.
+function CarouselFromPlan({ session }) {
+  const { go, toast } = useStudio()
+  const [busy, setBusy] = useState(false)
+  const start = async () => {
+    setBusy(true)
+    try { const r = await studio.createCarousel({ fromPlan: session.id }); go('carousel', { id: r.carousel.id }) }
+    catch (e) { toast({ kind: 'failed', title: '캐러셀을 시작하지 못했어요', body: e.message }); setBusy(false) }
+  }
+  return <button type="button" className="st-btn st-btn-big" disabled={busy} onClick={start}><GalleryHorizontalEnd size={20} />{busy ? '여는 중…' : '이 기획으로 캐러셀도 만들기'}</button>
+}
+
 function DoneStage({ session, onSaveFormula, save, version }) {
-  const { go } = useStudio()
+  const { go, features } = useStudio()
   const thumb = chosenOf(session.thumbnail), hook = session.opening
   const cap = session.caption?.edited || chosenOf(session.caption)
   return <div className="st-stack">
     <div className="st-note" style={{ fontSize: 17 }}>👏 기획안이 완성됐어요. 아래에서 한눈에 보고, 마음에 드는 공식은 저장해 두세요.</div>
-    <div className="st-row"><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('print', { session: session.id })}><Printer size={20} />PDF로 받기 · 인쇄</button><button type="button" className="st-btn st-btn-big" onClick={() => go('new')}><Sparkles size={20} />새 기획안</button></div>
+    <div className="st-row"><button type="button" className="st-btn st-btn-primary st-btn-big" onClick={() => go('print', { session: session.id })}><Printer size={20} />PDF로 받기 · 인쇄</button><button type="button" className="st-btn st-btn-big" onClick={() => go('new')}><Sparkles size={20} />새 기획안</button>{features?.carouselMaker && <CarouselFromPlan session={session} />}</div>
     {thumb && <section className="st-card st-stack"><div className="st-card-head"><h3>썸네일 카피</h3><div className="st-row"><CopyButton text={thumb?.text} /></div></div><strong style={{ fontSize: 22 }}>{thumb?.text}</strong></section>}
     <section className="st-card st-stack"><div className="st-card-head"><h3>첫 문장</h3><div className="st-row"><CopyButton text={hook?.spoken} /><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('hook')}><Save size={15} />이 공식 저장</button></div></div><strong style={{ fontSize: 18 }}>“{hook?.spoken}”</strong></section>
     <div className="st-row" style={{ justifyContent: 'flex-end', marginBottom: -8 }}><button type="button" className="st-btn st-btn-sm" onClick={() => onSaveFormula('structure')}><Save size={15} />전개 공식 저장</button></div>
