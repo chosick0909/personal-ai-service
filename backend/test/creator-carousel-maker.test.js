@@ -78,6 +78,11 @@ test('slides: the cover and last slide frame the body, letters are counted in co
   assert.deepEqual(out.value.weak.map(w => w.why), ['다음 장을 넘길 이유가 없음'])
   assert.equal(out.value.weak[0].id, out.value.items[2].id)
   assert.equal(calls[0].input.templates.length, CAROUSEL_TEMPLATES.length)
+  // Where a template's heading shows something else than a subheading (a name, a source), the model is told what.
+  const shown = Object.fromEntries(calls[0].input.templates.map(t => [t.id, t.headingShows]))
+  assert.equal(shown['list-card'], CAROUSEL_TEMPLATES.find(t => t.id === 'list-card').heading)
+  assert.equal(shown['grid-memo'], CAROUSEL_TEMPLATES.find(t => t.id === 'grid-memo').heading)
+  assert.equal(shown.split, undefined)
   // A template the student picked themselves is kept when the slides are split again.
   const kept = setup({ row: { cover, body, slides: { items: out.value.items, template: 'note', templateChosen: true } }, answers: { 'studio-carousel-slides': answer } })
   const again = await generateCarouselStage(kept.deps, kept.carousel, 'slides')
@@ -99,6 +104,13 @@ test('slide text: unclosed emphasis markers are dropped, the cover comes first a
   assert.deepEqual(longLines('dark-accent', { role: 'body', text: '주제 고를 땐 세 가지만 물어보세요.\n짧은 줄' }), ['주제 고를 땐 세 가지만 물어보세요.'])
   assert.deepEqual(longLines('blog', { role: 'body', text: '주제 고를 땐 세 가지만 물어보세요.' }), [])
   assert.deepEqual(longLines('dark-accent', { role: 'cover', heading: '아주 긴 표지 제목이어도 줄바꿈은 그리는 쪽이 맡는다', text: '' }), [])
+  // Every template has the limits the split and the checks read.
+  for (const t of CAROUSEL_TEMPLATES) {
+    for (const key of ['text', 'lines', 'lineChars', 'heading']) assert.equal(typeof t.limits.body[key], 'number', `${t.id} body.${key}`)
+    assert.equal(typeof t.limits.cover.heading, 'number', `${t.id} cover.heading`)
+    assert.equal(typeof t.limits.last.text, 'number', `${t.id} last.text`)
+  }
+  assert.equal(slideOverflows('grid-memo', { role: 'body', heading: '출처', text: '하나\n둘\n셋\n넷\n다섯\n여섯' }), true, 'six lines in a five-line template')
 })
 
 test('the student\'s edits: a cover of their own reaches the cover slide, slides keep their cover and last slide, a design keeps only this plan\'s slides', () => {

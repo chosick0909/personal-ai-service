@@ -142,9 +142,9 @@ const slidesSchema = obj({
 })
 const slidesPrompt = `'슬라이드 나누기' 단계입니다. 확정된 본문(body.units)을 장으로 나눕니다. 표지와 마지막 장은 따로 있으므로 slides에는 그 사이의 장만 순서대로 적습니다.
 - 내용은 본문 그대로입니다. 새 사실이나 새 주장을 더하지 않고, 덩어리의 순서를 바꾸지 않습니다. 한 장에 넣으려고 줄이는 것, 긴 덩어리를 두 장으로 나누는 것, 짧은 덩어리 둘을 한 장에 묶는 것만 합니다. 줄일 때는 수강생이 쓴 표현과 숫자를 남깁니다.
-- 틀: templates 중 이 내용에 가장 맞는 하나를 template에 고르고 이유를 templateWhy에 한 줄로 적습니다. 고르는 기준은 한 장에 들어갈 글의 양과 글의 성격입니다(한마디로 끊어 말하는 글인지, 두 가지를 맞세우는 글인지, 번호를 붙여 정리하는 글인지, 풀어 쓰는 글인지). sources.design이 있으면 그 틀(frame)과 글 양(textAmount)에 가장 가까운 것을 먼저 봅니다. currentTemplate이 있으면 수강생이 이미 고른 틀이므로 바꾸지 않습니다.
+- 틀: templates 중 이 내용에 가장 맞는 하나를 template에 고르고 이유를 templateWhy에 한 줄로 적습니다. 고르는 기준은 한 장에 들어갈 글의 양과 글의 성격입니다(한마디로 끊어 말하는 글인지, 두 가지를 맞세우는 글인지, 번호를 붙여 정리하는 글인지, 풀어 쓰는 글인지, 누군가의 말을 옮겨 적는 글인지, 여러 가지를 하나씩 소개하는 글인지). sources.design이 있으면 그 틀(frame)과 글 양(textAmount)에 가장 가까운 것을 먼저 봅니다. currentTemplate이 있으면 수강생이 이미 고른 틀이므로 바꾸지 않습니다.
 - 글 양: 고른 틀의 limits를 지킵니다(heading·text는 글자 수, lines는 줄 수, lineChars는 한 줄에 들어가는 글자 수; heading 한도가 0인 틀은 heading을 빈 문자열로). 한도를 넘는 장은 두 장으로 나눕니다. 표지와 마지막 장을 더해 ${MAX_CAROUSEL_SLIDES}장을 넘지 않습니다.
-- heading: 그 장을 한눈에 알려 주는 소제목입니다. 본문 첫 줄을 되풀이하지 않고, 번호를 매기는 글이면 번호가 heading의 일부입니다.
+- heading: 그 장을 한눈에 알려 주는 소제목입니다. 본문 첫 줄을 되풀이하지 않고, 번호를 매기는 글이면 번호가 heading의 일부입니다. 고른 틀에 headingShows가 있으면 그 틀은 heading 자리에 그것을 보여 주므로 heading에는 그것을 씁니다.
 - text: 그 장의 글입니다. 한 줄은 lineChars자를 넘기지 않고, 뜻이 한 덩어리로 끊기는 자리에서 줄을 바꿉니다(꾸미는 말과 꾸밈을 받는 말, 강조한 구절은 한 줄에 둡니다). 한 줄이 lineChars보다 길면 화면에서 뜻과 상관없는 자리에서 한 번 더 꺾입니다. 그 장에서 읽는 사람이 꼭 가져가야 할 말 한 군데만 **이렇게** 별표 두 개로 감쌉니다(한 장에 한 군데, 문장 전체가 아니라 핵심 구절).
 - 두 가지를 위아래로 맞세우는 틀을 골랐으면 text는 정확히 두 줄이고, 첫 줄과 둘째 줄이 서로 맞서는 짝이어야 합니다.
 - image: 그 장에 사진이나 그림이 들어가는 틀이면, 글의 내용을 받쳐 줄 장면을 한 줄로 적습니다(무엇이, 어디에, 어떤 분위기로). 글자·로고·실제 인물이나 브랜드의 이름은 넣지 않습니다. 사진이 필요 없는 틀이면 빈 문자열.
@@ -258,7 +258,7 @@ export async function generateCarouselStage(deps, row, stage, { note = '' } = {}
     const body = chosenBody(row), cover = chosenCover(row)
     if (!body || !cover) fail('STAGE_ORDER', '본문을 먼저 정해주세요.', 409)
     const keep = row.slides?.templateChosen ? row.slides.template : null
-    const extras = { templates: CAROUSEL_TEMPLATES.map(t => ({ id: t.id, name: t.name, suits: t.description, limits: t.limits.body, lastLimit: t.limits.last.text, photosPerSlide: t.images.body })), ...(keep ? { currentTemplate: keep } : {}),
+    const extras = { templates: CAROUSEL_TEMPLATES.map(t => ({ id: t.id, name: t.name, suits: t.description, ...(t.heading ? { headingShows: t.heading } : {}), limits: t.limits.body, lastLimit: t.limits.last.text, photosPerSlide: t.images.body })), ...(keep ? { currentTemplate: keep } : {}),
       ...revision(note, row.slides?.items?.filter(s => s.role === 'body').map(s => ({ heading: s.heading, text: s.text }))) }
     let raw = await json(providers, 'studio-carousel-slides', slidesPrompt, input(extras), slidesSchema)
     const template = keep || carouselTemplate(raw.template).id
@@ -348,7 +348,7 @@ export async function carouselChat(deps, row, messages, text) {
   const template = row.slides?.template ? carouselTemplate(row.design?.template || row.slides.template) : null
   const plan = await companionPlan(deps.db, row)
   const input = context(row, resolved, { fieldKnowledge: await fieldKnowledge(deps.db, row.topic?.category).catch(() => null), ...(plan ? { reelPlan: plan.input } : {}),
-    ...(template ? { template: { name: template.name, limits: template.limits.body, lastLimit: template.limits.last.text } } : {}),
+    ...(template ? { template: { name: template.name, ...(template.heading ? { headingShows: template.heading } : {}), limits: template.limits.body, lastLimit: template.limits.last.text } } : {}),
     conversation: messages.slice(-12).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content })), userMessage: text })
   let raw = await json(providers, 'studio-carousel-revise', revisePrompt(stage), input, reviseSchema)
   // A revision that misses a condition the student set is rewritten once, with the misses named.

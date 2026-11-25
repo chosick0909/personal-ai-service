@@ -3,6 +3,7 @@
 // limits: how much text still reads well (checked by drawing every template at its limit, with a photo where the
 // slide can carry one). lineChars: letters that fit on one line of a body slide at its usual size (measured on the
 // drawn slide), so a line written within it is not broken again. images: photo slots per slide by role.
+// heading: what a body slide's heading shows in that template, when it is not the usual small subheading.
 export const CAROUSEL_TEMPLATES = [
   { id: 'dark-accent', name: '검정 + 포인트 색', description: '주장·노하우처럼 한마디가 센 글',
     images: { cover: 1, body: 0, last: 0 }, imageRequired: false,
@@ -22,6 +23,17 @@ export const CAROUSEL_TEMPLATES = [
   { id: 'card', name: '짧은 글 카드형', description: '한마디, 이어 쓰는 짧은 글',
     images: { cover: 0, body: 0, last: 0 }, imageRequired: false,
     limits: { cover: { heading: 28 }, body: { heading: 0, text: 120, lines: 6, lineChars: 18 }, last: { text: 44 } } },
+  { id: 'photo-dark', name: '사진 + 어두운 본문', description: '사람 이야기·내 경험담처럼 사진 한 장에 몇 줄을 풀어 쓰는 글',
+    images: { cover: 1, body: 1, last: 0 }, imageRequired: false,
+    limits: { cover: { heading: 24 }, body: { heading: 18, text: 140, lines: 7, lineChars: 22 }, last: { text: 40 } } },
+  { id: 'grid-memo', name: '모눈종이 메모', description: '어록·기록처럼 한 장에 한마디를 손글씨로 옮겨 적는 글',
+    heading: '그 말을 한 사람이나 나온 곳(본문에 없으면 빈 문자열)',
+    images: { cover: 1, body: 1, last: 0 }, imageRequired: false,
+    limits: { cover: { heading: 22 }, body: { heading: 16, text: 70, lines: 5, lineChars: 14 }, last: { text: 36 } } },
+  { id: 'list-card', name: '목록 카드', description: '추천 목록·상품 소개처럼 장마다 하나씩 이름과 설명을 붙이는 글',
+    heading: '그 장에서 소개하는 것의 이름',
+    images: { cover: 0, body: 1, last: 0 }, imageRequired: false,
+    limits: { cover: { heading: 24 }, body: { heading: 16, text: 100, lines: 5, lineChars: 21 }, last: { text: 40 } } },
 ]
 export const CAROUSEL_TEMPLATE_IDS = CAROUSEL_TEMPLATES.map(t => t.id)
 export const carouselTemplate = id => CAROUSEL_TEMPLATES.find(t => t.id === id) || CAROUSEL_TEMPLATES[0]

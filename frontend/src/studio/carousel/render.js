@@ -1,5 +1,5 @@
 // Draws one carousel slide onto a canvas. Everything is plain Canvas 2D: text wrapping, auto-fit, emphasis and the
-// eighteen layouts (six templates × cover / body / last). `prepare` loads fonts and photos first so that
+// twenty-seven layouts (nine templates × cover / body / last). `prepare` loads fonts and photos first so that
 // `drawSlide` can stay synchronous.
 import { FONTS, RATIOS, fontOf, templateOf } from './templates'
 
@@ -535,12 +535,14 @@ function environment(canvas, { slide, index = 0, total = 1, design, assets }) {
   const c = { bg: colour('background'), text: colour('text'), accent: colour('accent') }
   const fonts = fontsOf(design)
   const entry = design?.slides?.[slide?.id] || {}
+  const moves = entry.move || {}
   const lookup = src => (src && assets?.images?.get(src)) || null
   const e = {
     ctx, W, H, M: 84, template, c, fonts, index, total,
     slide: { heading: String(slide?.heading || '').trim(), text: String(slide?.text || '').trim() },
     handle: String(design?.handle || '').trim(),
     overflow: false,
+    boxes: {}, // where the slide's title and text were drawn, for the free-editing overlay
     onAccent: onColor(c.accent),
     // The accent as a text colour: pulled towards the text colour when it would vanish into the background.
     accentInk: contrast(c.accent, c.bg) < 2.2 ? mix(c.accent, c.text, 0.55) : c.accent,
@@ -565,9 +567,17 @@ function environment(canvas, { slide, index = 0, total = 1, design, assets }) {
         // Bold-only emphasis needs a bolder weight to exist; otherwise the accent colour carries it.
         if (em.style === 'bold' && strong === font.weights[weight]) emphasis.color = css(e.accentInk)
       }
-      const layout = layoutText(ctx, value, { ...rest, font, weight: font.weights[weight], em: emphasis })
+      // 자유 편집: the slide's own title or text may have been dragged elsewhere and made larger or smaller. A larger
+      // size gets a taller box too, so it is not shrunk straight back to fit.
+      const key = value && value === e.slide.heading ? 'heading' : value && value === e.slide.text ? 'text' : null
+      const move = key ? moves[key] : null
+      const scale = move ? clamp(Number(move.scale) || 1, 0.6, 1.6) : 1
+      const sized = scale === 1 ? rest : { ...rest, size: rest.size.map(v => v * scale), ...(rest.h ? { h: rest.h * Math.max(1, scale) } : {}) }
+      const layout = layoutText(ctx, value, { ...sized, font, weight: font.weights[weight], em: emphasis })
       if (layout.overflow) e.overflow = true
-      return layout
+      if (!key || !layout.height) return layout
+      const dx = (Number(move?.x) || 0) * W, dy = (Number(move?.y) || 0) * H
+      return { ...layout, draw: (x, y, align) => { layout.draw(x + dx, y + dy, align); e.boxes[key] = { x: x + dx, y: y + dy, w: sized.w ?? layout.width, h: layout.height } } }
     },
     // One short line (handle, counter). `y` is the vertical centre. Returns the drawn width.
     line(value, { slot = 'body', weight = 'bold', size, color, x, y, align = 'left', maxWidth = Infinity, ls = 0 }) {
@@ -1105,7 +1115,280 @@ const card = {
   },
 }
 
-const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card }
+/* ───────────────────────── 7. photo-dark ───────────────────────── */
+
+// A photo running off the top edge that melts into the dark ground, so the text below reads as one page with it.
+function fadedPhoto(e, height, from = 0.62) {
+  const { ctx, W, c } = e
+  if (!e.photo('image', 0, 0, W, height)) return false
+  const shade = ctx.createLinearGradient(0, height * from, 0, height)
+  shade.addColorStop(0, css(c.bg, 0))
+  shade.addColorStop(1, css(c.bg, 1))
+  e.fill(shade, 0, height * from, W, height * (1 - from) + 1)
+  return true
+}
+
+function photoDarkFoot(e) {
+  const { W, H, M } = e
+  const y = H - 72
+  e.line(e.handle, { size: 26, color: css(e.muted(0.5)), x: M, y, maxWidth: 560 })
+  e.line(`${e.index + 1} / ${e.total}`, { size: 26, color: css(e.muted(0.5)), x: W - M, y, align: 'right' })
+}
+
+const photoDarkEm = e => ({ style: 'color', color: css(e.accentInk), weight: 'bold' })
+
+const photoDark = {
+  cover(e) {
+    const { W, H, M, c, slide } = e
+    e.fill(css(c.bg))
+    const photoHeight = Math.round(H * 0.66)
+    const hasPhoto = fadedPhoto(e, photoHeight, 0.4)
+    if (hasPhoto) e.fill(css(c.bg, 0.12), 0, 0, W, photoHeight)
+    e.line(e.handle, { size: 28, color: css(c.text, hasPhoto ? 0.88 : 0.55), x: W - M, y: M + 7, align: 'right', maxWidth: 560 })
+    if (!hasPhoto) e.fill(css(c.accent), M, M, 96, 12)
+    const w = W - M * 2
+    const top = hasPhoto ? Math.round(photoHeight * 0.5) : M + 140
+    const bottom = H - M - 40
+    const kick = kicker(e, { w, color: css(e.accentInk), shadow: hasPhoto ? overPhoto : undefined })
+    const gap = kick.height ? 28 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [128, 72], lh: 1.22, ls: -0.03, w, h: bottom - top - kick.height - gap, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true, shadow: hasPhoto ? overPhoto : undefined })
+    stack(blocks(textBlock(kick), gap, textBlock(head)), M, top, bottom, 1)
+  },
+  body(e) {
+    const { W, H, M, c, slide } = e
+    e.fill(css(c.bg))
+    const photoHeight = Math.round(H * 0.43)
+    const hasPhoto = fadedPhoto(e, photoHeight)
+    const w = W - M * 2
+    const top = hasPhoto ? photoHeight + 12 : M + 40
+    const bottom = H - 124
+    const mark = hasPhoto ? null : { h: 12, draw: (x, y) => e.fill(css(c.accent), x, y, 72, 12) }
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [64, 44], lh: 1.3, ls: -0.02, w, maxLines: 2, color: css(e.accentInk), balance: true })
+    const gap = head.height ? 36 : 0
+    const fixed = heightOfBlocks(blocks(mark, 44, textBlock(head))) + gap
+    const body = e.text(slide.text, { size: [56, 32], lh: 1.62, w, h: bottom - top - fixed, color: css(c.text, 0.92), em: photoDarkEm(e), balance: 'short', keepLines: true, wrapGap: 0.3 })
+    stack(blocks(mark, 44, textBlock(head), gap, textBlock(body)), M, top, bottom, hasPhoto ? 0.3 : 0.42)
+    photoDarkFoot(e)
+  },
+  last(e) {
+    const { W, H, M, c, slide } = e
+    e.fill(css(c.bg))
+    const w = W - M * 2
+    const top = M + 60
+    const bottom = H - 140
+    const pillHeight = e.handle ? 84 : 0
+    const pillGap = e.handle ? 64 : 0
+    const mark = { h: 12, draw: (x, y) => e.fill(css(c.accent), x, y, 72, 12) }
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [44, 36], lh: 1.36, w, maxLines: 2, color: css(e.accentInk) })
+    const gap = head.height ? 32 : 0
+    const cta = e.text(slide.text, { slot: 'heading', weight: 'heavy', size: [100, 56], lh: 1.28, ls: -0.03, w, h: bottom - top - 12 - 56 - head.height - gap - pillHeight - pillGap, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true })
+    const pill = e.handle && { h: pillHeight, draw: (x, y) => e.pill(e.handle, { x, y, h: pillHeight, padX: 40, stroke: css(c.accent), color: css(c.text), size: 36, maxWidth: w }) }
+    stack(blocks(mark, 56, textBlock(head), gap, textBlock(cta), pillGap, pill), M, top, bottom, 0.5)
+    photoDarkFoot(e)
+  },
+}
+
+/* ───────────────────────── 8. grid-memo ───────────────────────── */
+
+// Squared notebook paper: faint lines every few millimetres, a little stronger on a dark page so they still show.
+function gridPaper(e) {
+  const { ctx, W, H, c } = e
+  e.fill(css(c.bg))
+  const step = 54
+  ctx.save()
+  ctx.strokeStyle = css(mix(c.bg, c.text, luminance(c.bg) > 0.4 ? 0.085 : 0.16))
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  for (let x = Math.round((W % step) / 2); x <= W; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, H) }
+  for (let y = Math.round((H % step) / 2); y <= H; y += step) { ctx.moveTo(0, y); ctx.lineTo(W, y) }
+  ctx.stroke()
+  ctx.restore()
+}
+
+// A photo with a drawn border and a strip of tape over its top edge, as if stuck into the notebook.
+function tapedPhoto(e, x, y, w, h) {
+  const { ctx, c } = e
+  const border = 6
+  e.fill(css(c.text), x - border, y - border, w + border * 2, h + border * 2)
+  e.photo('image', x, y, w, h, { placeholder: true })
+  ctx.save()
+  ctx.translate(x + w / 2, y - border)
+  ctx.rotate(-0.045)
+  e.fill(css(c.accent, 0.72), -96, -24, 192, 48)
+  ctx.restore()
+}
+
+const memoMarker = e => ({ style: 'marker', bg: css(e.c.accent, luminance(e.c.accent) > 0.45 ? 0.85 : 0.3), weight: 'bold' })
+
+// The source of a quote as a dark label, like a name card clipped under it.
+function sourceLabel(e, value, w) {
+  if (!value) return null
+  const h = 84
+  return { h, draw: (x, y) => e.pill(value, { x, y, h, padX: 34, fill: css(e.c.text), color: css(e.c.bg), size: 50, slot: 'heading', weight: 'bold', maxWidth: w }) }
+}
+
+const gridMemo = {
+  cover(e) {
+    const { ctx, W, H, M, c, slide } = e
+    gridPaper(e)
+    const w = W - M * 2
+    const hasPhoto = Boolean(e.pic('image'))
+    e.line(e.handle, { slot: 'heading', weight: 'bold', size: 38, color: css(e.muted(0.4)), x: W - M, y: M + 10, align: 'right', maxWidth: 560 })
+    const photoHeight = hasPhoto ? Math.round(H * 0.38) : 0
+    if (hasPhoto) tapedPhoto(e, M + 24, M + 96, w - 48, photoHeight)
+    const top = hasPhoto ? M + 96 + photoHeight + 64 : M + 120
+    const bottom = H - M - 110
+    const kick = slide.text ? sourceLabel(e, slide.text.replace(/\*\*/g, ''), w) : null
+    const gap = kick ? 36 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [124, 72], lh: 1.3, ls: -0.01, w, h: bottom - top - (kick?.h || 0) - gap, color: css(c.text), em: memoMarker(e), balance: true })
+    stack(blocks(kick, gap, textBlock(head)), M, top, bottom, hasPhoto ? 0.3 : 0.5)
+    drawArrow(ctx, W - M, H - M - 30, 68, css(c.text), 5)
+  },
+  body(e) {
+    const { W, H, M, c, slide } = e
+    gridPaper(e)
+    e.line(`${e.index + 1} / ${e.total}`, { slot: 'heading', weight: 'bold', size: 38, color: css(e.muted(0.45)), x: M, y: M + 10 })
+    e.line(e.handle, { slot: 'heading', weight: 'bold', size: 38, color: css(e.muted(0.45)), x: W - M, y: M + 10, align: 'right', maxWidth: 520 })
+    const w = W - M * 2
+    const top = M + 100
+    const bottom = H - M - 20
+    const hasPhoto = Boolean(e.pic('image'))
+    const label = sourceLabel(e, slide.heading, w)
+    const labelGap = label ? 44 : 0
+    const photoGap = hasPhoto ? 72 : 0
+    const room = bottom - top - (label?.h || 0) - labelGap - photoGap
+    const quote = e.text(slide.text, { size: [70, 46], lh: 1.46, w, h: room - (hasPhoto ? Math.round(H * 0.17) : 0), color: css(c.text), em: memoMarker(e), balance: 'short', keepLines: true, wrapGap: 0.2 })
+    const photoHeight = hasPhoto ? sharedPhotoHeight(room - quote.height, H, 0.17, 0.4) : 0
+    const photo = hasPhoto && { h: photoHeight, draw: (x, y) => tapedPhoto(e, x + 24, y, w - 48, photoHeight) }
+    stack(blocks(photo, photoGap, textBlock(quote), labelGap, label), M, top, bottom, 0.5)
+  },
+  last(e) {
+    const { ctx, W, H, M, c, slide } = e
+    gridPaper(e)
+    const w = W - M * 2
+    const top = M + 80
+    const bottom = H - M - 20
+    const handleHeight = e.handle ? 84 : 0
+    const handleGap = e.handle ? 72 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [52, 42], lh: 1.36, w, maxLines: 2, color: css(e.muted(0.38)) })
+    const gap = head.height ? 32 : 0
+    const cta = e.text(slide.text, { slot: 'heading', weight: 'bold', size: [110, 64], lh: 1.32, w, h: bottom - top - head.height - gap - handleHeight - handleGap, color: css(c.text), em: memoMarker(e), balance: true })
+    const handle = e.handle && { h: handleHeight, draw: (x, y) => {
+      const width = e.pill(e.handle, { x, y, h: handleHeight, padX: 34, fill: css(c.text), color: css(c.bg), size: 50, slot: 'heading', weight: 'bold', maxWidth: w - 120 })
+      drawArrow(ctx, x + width + 100, y + handleHeight / 2, 64, css(c.text), 5)
+    } }
+    stack(blocks(textBlock(head), gap, textBlock(cta), handleGap, handle), M, top, bottom, 0.46)
+  },
+}
+
+/* ───────────────────────── 9. list-card ───────────────────────── */
+
+// The item's picture in a circle; without one, the circle carries the item's number.
+function listBadge(e, cx, cy, r) {
+  const { ctx, c } = e
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.clip()
+  const drawn = e.photo('image', cx - r, cy - r, r * 2, r * 2, { placeholder: false })
+  if (!drawn) e.fill(css(c.accent), cx - r, cy - r, r * 2, r * 2)
+  ctx.restore()
+  if (!drawn) e.line(pad2(Math.max(1, e.index)), { slot: 'heading', weight: 'heavy', size: r * 0.82, color: css(e.onAccent), x: cx, y: cy, align: 'center' })
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r + 7, 0, Math.PI * 2)
+  ctx.strokeStyle = css(c.accent)
+  ctx.lineWidth = 5
+  ctx.stroke()
+  ctx.restore()
+}
+
+// The item's place in the list (body slides only) and the account name.
+function listTopRow(e, numbered = true) {
+  const { W, M } = e
+  const y = M + 14
+  const items = Math.max(1, e.total - 2)
+  if (numbered) {
+    const width = e.line(pad2(clamp(e.index, 1, items)), { slot: 'heading', weight: 'heavy', size: 40, color: css(e.accentInk), x: M, y })
+    e.line(`/ ${pad2(items)}`, { size: 26, color: css(e.muted(0.55)), x: M + width + 14, y: y + 3 })
+  }
+  e.line(e.handle, { size: 26, color: css(e.muted(0.55)), x: W - M, y: y + 3, align: 'right', maxWidth: 520 })
+}
+
+const listCard = {
+  cover(e) {
+    const { ctx, W, H, M, c, slide } = e
+    e.fill(css(c.accent))
+    const ink = e.onAccent
+    e.line(e.handle, { size: 28, color: css(ink, 0.82), x: M, y: M + 14, maxWidth: 560 })
+    const w = W - M * 2
+    const bottom = H - M - 150
+    const kick = kicker(e, { w, color: css(ink, 0.86) })
+    const gap = kick.height ? 30 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [150, 84], lh: 1.16, ls: -0.04, w, h: bottom - (M + 110) - kick.height - gap, color: css(ink), em: { style: 'color', color: css(mix(ink, c.accent, 0.35)) }, balance: true })
+    stack(blocks(textBlock(kick), gap, textBlock(head)), M, M + 110, bottom, 1)
+    // A row of profile circles, as in a list of accounts.
+    const r = 40
+    const y = H - M - 40
+    for (let i = 0; i < 4; i += 1) {
+      const cx = M + r + i * r * 1.45
+      ctx.beginPath()
+      ctx.arc(cx, y, r, 0, Math.PI * 2)
+      ctx.fillStyle = css(mix(c.accent, ink, 0.18 + i * 0.12))
+      ctx.fill()
+      ctx.lineWidth = 6
+      ctx.strokeStyle = css(c.accent)
+      ctx.stroke()
+    }
+    drawArrow(ctx, W - M, y, 72, css(ink), 6)
+  },
+  body(e) {
+    const { W, H, M, c, slide } = e
+    e.fill(css(c.bg))
+    listTopRow(e)
+    const card = { x: 56, w: W - 112, pad: 60 }
+    const inner = card.w - card.pad * 2
+    const r = 112
+    const nameX = r * 2 + 52
+    const name = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [68, 46], lh: 1.24, ls: -0.02, w: inner - nameX, maxLines: 2, color: css(c.text), balance: true })
+    const headHeight = r * 2 + 14
+    const ruleGap = 48
+    const top = M + 84
+    const bottom = H - M - 10
+    const textRoom = bottom - top - card.pad * 2 - headHeight - ruleGap * 2
+    const body = e.text(slide.text, { size: [54, 32], lh: 1.6, w: inner, h: textRoom, color: css(c.text, 0.88), em: { style: 'color', color: css(e.accentInk), weight: 'bold' }, balance: 'short', keepLines: true, wrapGap: 0.3 })
+    const cardHeight = card.pad * 2 + headHeight + (body.height ? ruleGap * 2 + body.height : 0)
+    const y = top + Math.max(0, (bottom - top - cardHeight) * 0.42)
+    e.round(css(mix(c.bg, c.text, 0.075)), card.x, y, card.w, cardHeight, 44)
+    const x = card.x + card.pad
+    const cy = y + card.pad + r + 7
+    listBadge(e, x + r + 7, cy, r)
+    name.draw(x + nameX, cy - name.height / 2)
+    if (body.height) {
+      const ruleY = y + card.pad + headHeight + ruleGap
+      e.fill(css(e.muted(0.84)), x, ruleY - 1, inner, 2)
+      body.draw(x, ruleY + ruleGap - 1)
+    }
+  },
+  last(e) {
+    const { W, H, M, c, slide } = e
+    e.fill(css(c.bg))
+    listTopRow(e, false)
+    const w = W - M * 2
+    const top = M + 120
+    const bottom = H - M - 40
+    const pillHeight = e.handle ? 84 : 0
+    const pillGap = e.handle ? 60 : 0
+    const avatar = { h: 168, draw: (x, y) => e.avatar(W / 2, y + 84, 84) }
+    const head = e.text(slide.heading, { weight: 'bold', size: [40, 34], lh: 1.4, w, maxLines: 2, color: css(e.muted(0.4)), balance: true })
+    const gap = head.height ? 26 : 0
+    const cta = e.text(slide.text, { slot: 'heading', weight: 'heavy', size: [92, 54], lh: 1.28, ls: -0.03, w, h: bottom - top - 168 - 64 - head.height - gap - pillHeight - pillGap, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true })
+    const pill = e.handle && { h: pillHeight, draw: (x, y) => e.pill(e.handle, { x: W / 2, y, h: pillHeight, padX: 44, fill: css(c.accent), color: css(e.onAccent), size: 36, align: 'center', maxWidth: w }) }
+    stack(blocks(avatar, 64, textBlock(head, 'center'), gap, textBlock(cta, 'center'), pillGap, pill), M, top, bottom, 0.5)
+  },
+}
+
+const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card, 'photo-dark': photoDark, 'grid-memo': gridMemo, 'list-card': listCard }
 
 /* ───────────────────────── entry ───────────────────────── */
 
@@ -1117,5 +1400,5 @@ export function drawSlide(canvas, { slide, index = 0, total = 1, design, assets 
   e.ctx.save()
   layout[role](e)
   e.ctx.restore()
-  return { overflow: e.overflow }
+  return { overflow: e.overflow, boxes: e.boxes }
 }

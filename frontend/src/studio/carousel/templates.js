@@ -37,6 +37,9 @@ const LOOKS = {
   'photo-center': { colors: { background: '#17171A', text: '#FFFFFF', accent: '#F3DFB8' }, fonts: { heading: 'gowun-batang', body: 'gowun-batang' } },
   blog: { colors: { background: '#FFFFFF', text: '#212529', accent: '#12B886' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   card: { colors: { background: '#FFFFFF', text: '#15171A', accent: '#4C6EF5' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
+  'photo-dark': { colors: { background: '#0B0B0C', text: '#F5F5F2', accent: '#FFD43B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
+  'grid-memo': { colors: { background: '#FBFAF4', text: '#1E1E1E', accent: '#FFD43B' }, fonts: { heading: 'nanum-pen', body: 'nanum-pen' } },
+  'list-card': { colors: { background: '#131313', text: '#FFFFFF', accent: '#E5352B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
 }
 
 export const TEMPLATES = CAROUSEL_TEMPLATES.map(t => ({ ...t, ...(LOOKS[t.id] || LOOKS['dark-accent']) }))
