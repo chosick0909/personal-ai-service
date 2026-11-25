@@ -1,6 +1,6 @@
 // Carousel templates as data. What both the server and the browser must agree on (ids, names, photo slots, text
 // limits) lives in shared/carousel-templates.mjs; this file adds what only drawing needs: colours and fonts.
-import { CAROUSEL_RATIOS, CAROUSEL_TEMPLATES } from '../../../../shared/carousel-templates.mjs'
+import { CAROUSEL_RATIOS, CAROUSEL_TEMPLATES, DEFAULT_CAROUSEL_TEMPLATE } from '../../../../shared/carousel-templates.mjs'
 
 export const RATIOS = CAROUSEL_RATIOS
 
@@ -62,6 +62,8 @@ const LOOKS = {
   card: { colors: { background: '#FFFFFF', text: '#15171A', accent: '#4C6EF5' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'photo-dark': { colors: { background: '#1E1E1E', text: '#FFFFFF', accent: '#F9DD5B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'grid-memo': { colors: { background: '#F7F7F4', text: '#1A1A1A', accent: '#1A1A1A' }, fonts: { heading: 'noto-serif', body: 'gowun-batang' } },
+  'photo-label': { colors: { background: '#1A1A1A', text: '#FFFFFF', accent: '#FFFFFF' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
+  'photo-strip': { colors: { background: '#1A1A1A', text: '#FFFFFF', accent: '#FFFFFF' }, fonts: { heading: 'gowun-dodum', body: 'gowun-dodum' } },
   'local-spot': { colors: { background: '#0D0D0D', text: '#FFFFFF', accent: '#FFE14A' }, fonts: { heading: 'jua', body: 'pretendard' } },
   subtitle: { colors: { background: '#2A2A2E', text: '#FFFFFF', accent: '#FFE45C' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   'list-card': { colors: { background: '#000000', text: '#FFFFFF', accent: '#A3161C' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
@@ -69,4 +71,4 @@ const LOOKS = {
 
 export const TEMPLATES = CAROUSEL_TEMPLATES.map(t => ({ ...t, ...(LOOKS[t.id] || LOOKS['dark-accent']) }))
 
-export const templateOf = id => TEMPLATES.find(t => t.id === id) || TEMPLATES[0]
+export const templateOf = id => TEMPLATES.find(t => t.id === id) || TEMPLATES.find(t => t.id === DEFAULT_CAROUSEL_TEMPLATE)

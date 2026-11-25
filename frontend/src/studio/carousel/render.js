@@ -444,6 +444,27 @@ function paintText(ctx, layout, o, x, y, align = 'left') {
       rowY += lineHeight
     }
   }
+  // 글상자·글 띠: a box behind each written line, as wide as that line. `stagger` shifts every second line to the
+  // right, the way hand-placed caption boxes step down a photo.
+  const shiftOf = i => (o.strip?.stagger && i % 2 ? o.strip.stagger : 0)
+  if (o.strip) {
+    const strip = o.strip
+    const padX = size * strip.padX
+    const half = size * strip.height / 2
+    const line = strip.stroke ? strip.strokeWidth || 2 : 0
+    let rowY = y
+    let i = 0
+    for (const row of layout.rows) {
+      if (row.gap) { rowY += row.gap; continue }
+      const left = x + (o.w - row.width) * k + shiftOf(i)
+      const mid = rowY + baselineIn - (ascent - descent) / 2
+      ctx.fillStyle = strip.fill
+      ctx.fillRect(left - padX, mid - half, row.width + padX * 2, half * 2)
+      if (line) { ctx.lineWidth = line; ctx.strokeStyle = strip.stroke; ctx.strokeRect(left - padX + line / 2, mid - half + line / 2, row.width + padX * 2 - line, half * 2 - line) }
+      rowY += lineHeight
+      i += 1
+    }
+  }
   if (o.shadow) { ctx.shadowColor = o.shadow.color; ctx.shadowBlur = o.shadow.blur; ctx.shadowOffsetY = o.shadow.y || 0 }
   // An outline (자막 style) is drawn under every glyph first, so neighbouring letters never cover each other's fill.
   const passes = o.stroke ? ['stroke', 'fill'] : ['fill']
@@ -451,9 +472,11 @@ function paintText(ctx, layout, o, x, y, align = 'left') {
     if (pass === 'stroke') { ctx.strokeStyle = o.stroke.color; ctx.lineWidth = size * o.stroke.width * 2; ctx.lineJoin = 'round'; ctx.miterLimit = 2 }
     if (pass === 'fill' && o.stroke) ctx.shadowColor = 'transparent'
     let rowY = y
+    let i = 0
     for (const row of layout.rows) {
       if (row.gap) { rowY += row.gap; continue }
-      const left = x + (o.w - row.width) * k
+      const left = x + (o.w - row.width) * k + shiftOf(i)
+      i += 1
       for (const piece of row.pieces) {
         ctx.font = piece.em ? layout.strong : layout.normal
         if (pass === 'stroke') { ctx.strokeText(piece.t, left + piece.x, rowY + baselineIn); continue }
@@ -1562,7 +1585,100 @@ const localSpot = {
   },
 }
 
-const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card, 'photo-dark': photoDark, 'grid-memo': gridMemo, 'list-card': listCard, subtitle, 'local-spot': localSpot }
+/* ───────────────────────── 12. photo-label · 13. photo-strip ───────────────────────── */
+// Two current Instagram looks where the photo fills every slide and the words sit in boxes laid over it, one box per
+// line, sized to the line. photo-label (after a stationery brand's post): white boxes with a thin dark rule, every
+// second line stepped to the right, small gothic text. photo-strip (after a neighbourhood-walk post): borderless white
+// strips in a soft rounded font, tucked against the left or right edge. The point colour is the box colour, so a
+// student can turn the boxes yellow; the text in them takes whichever of black or white reads.
+
+function fullPhoto(e) {
+  const { W, H, c } = e
+  e.fill(css(c.bg))
+  e.photo('image', 0, 0, W, H, { placeholder: true, markAt: 0.4 })
+}
+
+// A soft fall at the foot so a white title stays legible on a bright photo.
+function softFoot(e, from = 0.5, strength = 0.5) {
+  const { ctx, W, H } = e
+  const g = ctx.createLinearGradient(0, H * from, 0, H)
+  g.addColorStop(0, 'rgba(0,0,0,0)')
+  g.addColorStop(1, `rgba(0,0,0,${strength})`)
+  e.fill(g, 0, H * from, W, H * (1 - from))
+}
+
+const boxText = (e, strip) => ({ color: css(e.onAccent), em: { style: 'bold', weight: 'heavy', color: css(e.onAccent) }, strip: { fill: css(e.c.accent), ...strip } })
+const LABEL = { stroke: css(INK), strokeWidth: 2.5, padX: 0.38, height: 1.62, stagger: 46 }
+const STRIP = { padX: 0.3, height: 1.42 }
+const titleShadow = { color: 'rgba(0,0,0,0.35)', blur: 18, y: 2 }
+
+function boxedSlide(e, { strip, size, lh, alignOf, placeOf }) {
+  const { W, H, M, slide, index } = e
+  fullPhoto(e)
+  const align = alignOf(index)
+  const w = W - M * 2 - 70
+  const x = align === 'right' ? W - M - w : M + 10
+  const style = boxText(e, strip)
+  const head = e.text(slide.heading, { weight: 'bold', size, lh, w, maxLines: 2, align, ...style, em: style.em })
+  const body = e.text(slide.text, { weight: 'regular', size, lh, w, h: H * 0.42, align, balance: 'short', keepLines: true, ...style })
+  const gap = head.height && body.height ? Math.round(size[0] * 0.5) : 0
+  const place = placeOf(index)
+  const list = blocks(textBlock(head, align), gap, textBlock(body, align))
+  if (place === 'top') stack(list, x, M + 40, H - M, 0)
+  else stack(list, x, H * 0.45, H - 110, 1)
+}
+
+const photoLabel = {
+  cover(e) {
+    const { W, H, M, c, slide } = e
+    fullPhoto(e)
+    softFoot(e, 0.45, 0.55)
+    e.line(e.handle, { weight: 'heavy', size: 30, color: css(c.text, 0.95), x: W / 2, y: M, align: 'center', maxWidth: 600 })
+    const w = W - M * 2
+    const kick = kicker(e, { weight: 'regular', size: [34, 28], lh: 1.62, w: w - 60, ...boxText(e, { ...LABEL, stagger: 0 }) })
+    const gap = kick.height ? 34 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [84, 58], lh: 1.3, ls: -0.03, w, h: H * 0.34, color: css(c.text), em: { style: 'color', color: css(c.text) }, balance: true, shadow: titleShadow })
+    stack(blocks(textBlock(kick), gap, textBlock(head)), M + 10, H * 0.45, H - 120, 1)
+  },
+  body: e => boxedSlide(e, { strip: LABEL, size: [36, 29], lh: 1.62, alignOf: () => 'left', placeOf: i => (i % 2 ? 'top' : 'bottom') }),
+  last(e) {
+    const { W, H, M, slide } = e
+    fullPhoto(e)
+    const w = W - M * 2
+    const style = boxText(e, { ...LABEL, stagger: 0 })
+    const head = e.text(slide.heading, { weight: 'regular', size: [34, 28], lh: 1.62, w, maxLines: 2, align: 'center', ...style })
+    const gap = head.height ? 26 : 0
+    const cta = e.text(slide.text, { weight: 'bold', size: [44, 34], lh: 1.62, w, h: H * 0.4, align: 'center', balance: true, ...style })
+    stack(blocks(textBlock(head, 'center'), gap, textBlock(cta, 'center')), M, H * 0.3, H * 0.8, 0.5)
+  },
+}
+
+const photoStrip = {
+  cover(e) {
+    const { W, H, M, c, slide } = e
+    fullPhoto(e)
+    softFoot(e, 0.5, 0.45)
+    e.line(e.handle, { size: 30, color: css(c.text, 0.95), x: W - M, y: M, align: 'right', maxWidth: 560 })
+    const w = W - M * 2
+    const kick = kicker(e, { weight: 'regular', size: [36, 30], lh: 1.5, w: w - 60, ...boxText(e, STRIP) })
+    const gap = kick.height ? 30 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [104, 66], lh: 1.24, ls: -0.02, w, h: H * 0.34, color: css(c.text), em: { style: 'color', color: css(c.text) }, balance: true, shadow: titleShadow })
+    stack(blocks(textBlock(kick), gap, textBlock(head)), M, H * 0.45, H - 120, 1)
+  },
+  body: e => boxedSlide(e, { strip: STRIP, size: [36, 29], lh: 1.5, alignOf: i => (i % 2 ? 'left' : 'right'), placeOf: i => (i % 2 ? 'top' : 'bottom') }),
+  last(e) {
+    const { W, H, M, slide } = e
+    fullPhoto(e)
+    const w = W - M * 2
+    const style = boxText(e, STRIP)
+    const head = e.text(slide.heading, { weight: 'regular', size: [36, 30], lh: 1.5, w, maxLines: 2, align: 'center', ...style })
+    const gap = head.height ? 24 : 0
+    const cta = e.text(slide.text, { weight: 'bold', size: [46, 36], lh: 1.5, w, h: H * 0.4, align: 'center', balance: true, ...style })
+    stack(blocks(textBlock(head, 'center'), gap, textBlock(cta, 'center')), M, H * 0.3, H * 0.8, 0.5)
+  },
+}
+
+const LAYOUTS = { 'dark-accent': darkAccent, split, note, 'photo-center': photoCenter, blog, card, 'photo-dark': photoDark, 'grid-memo': gridMemo, 'list-card': listCard, subtitle, 'local-spot': localSpot, 'photo-label': photoLabel, 'photo-strip': photoStrip }
 
 /* ───────────────────────── entry ───────────────────────── */
 
