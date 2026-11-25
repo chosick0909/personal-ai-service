@@ -110,7 +110,7 @@ test('slide text: unclosed emphasis markers are dropped, the cover comes first a
     assert.equal(typeof t.limits.cover.heading, 'number', `${t.id} cover.heading`)
     assert.equal(typeof t.limits.last.text, 'number', `${t.id} last.text`)
   }
-  assert.equal(slideOverflows('grid-memo', { role: 'body', heading: '출처', text: '하나\n둘\n셋\n넷\n다섯\n여섯' }), true, 'six lines in a five-line template')
+  assert.equal(slideOverflows('grid-memo', { role: 'body', heading: '출처', text: '하나\n둘\n셋\n넷\n다섯\n여섯\n일곱\n여덟\n아홉\n열' }), true, 'ten lines in a nine-line template')
 })
 
 test('the student\'s edits: a cover of their own reaches the cover slide, slides keep their cover and last slide, a design keeps only this plan\'s slides', () => {

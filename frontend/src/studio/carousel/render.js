@@ -1119,88 +1119,79 @@ const card = {
 }
 
 /* ───────────────────────── 7. photo-dark ───────────────────────── */
+// After an interview-story account (your._.dot): a photo filling the top of a charcoal page, a short yellow title,
+// a few lines of small white text, and the account's mark centred at the foot of every slide.
 
-// A photo running off the top edge that melts into the dark ground, so the text below reads as one page with it.
-function fadedPhoto(e, height, from = 0.62) {
-  const { ctx, W, c } = e
-  if (!e.photo('image', 0, 0, W, height)) return false
-  const shade = ctx.createLinearGradient(0, height * from, 0, height)
+// A full-bleed photo that darkens towards the bottom, so white text below or over it reads.
+function shadedPhoto(e, from = 0.42, strength = 0.92) {
+  const { ctx, W, H, c } = e
+  if (!e.photo('image', 0, 0, W, H)) return false
+  const shade = ctx.createLinearGradient(0, H * from, 0, H)
   shade.addColorStop(0, css(c.bg, 0))
-  shade.addColorStop(1, css(c.bg, 1))
-  e.fill(shade, 0, height * from, W, height * (1 - from) + 1)
+  shade.addColorStop(1, css(c.bg, strength))
+  e.fill(shade, 0, H * from, W, H * (1 - from))
   return true
 }
 
-function photoDarkFoot(e) {
-  const { W, H, M } = e
-  const y = H - 72
-  e.line(e.handle, { size: 26, color: css(e.muted(0.5)), x: M, y, maxWidth: 560 })
-  e.line(`${e.index + 1} / ${e.total}`, { size: 26, color: css(e.muted(0.5)), x: W - M, y, align: 'right' })
-}
-
-const photoDarkEm = e => ({ style: 'color', color: css(e.accentInk), weight: 'bold' })
+// The account's name as a small mark centred at the foot.
+const footMark = (e, color) => e.line(e.handle, { weight: 'heavy', size: 28, color, x: e.W / 2, y: e.H - 64, align: 'center', maxWidth: 560 })
 
 const photoDark = {
   cover(e) {
     const { W, H, M, c, slide } = e
     e.fill(css(c.bg))
-    const photoHeight = Math.round(H * 0.66)
-    const hasPhoto = fadedPhoto(e, photoHeight, 0.4)
-    if (hasPhoto) e.fill(css(c.bg, 0.12), 0, 0, W, photoHeight)
-    e.line(e.handle, { size: 28, color: css(c.text, hasPhoto ? 0.88 : 0.55), x: W - M, y: M + 7, align: 'right', maxWidth: 560 })
-    if (!hasPhoto) e.fill(css(c.accent), M, M, 96, 12)
+    const hasPhoto = shadedPhoto(e, 0.38, 0.96)
     const w = W - M * 2
-    const top = hasPhoto ? Math.round(photoHeight * 0.5) : M + 140
-    const bottom = H - M - 40
-    const kick = kicker(e, { w, color: css(e.accentInk), shadow: hasPhoto ? overPhoto : undefined })
-    const gap = kick.height ? 28 : 0
-    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [128, 72], lh: 1.22, ls: -0.03, w, h: bottom - top - kick.height - gap, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true, shadow: hasPhoto ? overPhoto : undefined })
-    stack(blocks(textBlock(kick), gap, textBlock(head)), M, top, bottom, 1)
+    const bottom = H - 150
+    const top = hasPhoto ? Math.round(H * 0.5) : M + 120
+    const kick = kicker(e, { w, color: css(c.text, 0.88), align: 'center', shadow: hasPhoto ? overPhoto : undefined })
+    const gap = kick.height ? 26 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [100, 62], lh: 1.24, ls: -0.03, w, h: bottom - top - kick.height - gap, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true, align: 'center', shadow: hasPhoto ? overPhoto : undefined })
+    stack(blocks(textBlock(kick, 'center'), gap, textBlock(head, 'center')), M, top, bottom, 1)
+    footMark(e, css(c.text, 0.9))
   },
   body(e) {
     const { W, H, M, c, slide } = e
     e.fill(css(c.bg))
-    const photoHeight = Math.round(H * 0.43)
-    const hasPhoto = fadedPhoto(e, photoHeight)
+    const photoHeight = Math.round(H * 0.42)
+    const hasPhoto = e.photo('image', 0, 0, W, photoHeight)
     const w = W - M * 2
-    const top = hasPhoto ? photoHeight + 12 : M + 40
-    const bottom = H - 124
-    const mark = hasPhoto ? null : { h: 12, draw: (x, y) => e.fill(css(c.accent), x, y, 72, 12) }
-    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [64, 44], lh: 1.3, ls: -0.02, w, maxLines: 2, color: css(e.accentInk), balance: true })
-    const gap = head.height ? 36 : 0
-    const fixed = heightOfBlocks(blocks(mark, 44, textBlock(head))) + gap
-    const body = e.text(slide.text, { size: [56, 32], lh: 1.62, w, h: bottom - top - fixed, color: css(c.text, 0.92), em: photoDarkEm(e), balance: 'short', keepLines: true, wrapGap: 0.3 })
-    stack(blocks(mark, 44, textBlock(head), gap, textBlock(body)), M, top, bottom, hasPhoto ? 0.3 : 0.42)
-    photoDarkFoot(e)
+    const top = hasPhoto ? photoHeight + 64 : M + 80
+    const bottom = H - 130
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [56, 42], lh: 1.3, ls: -0.02, w, maxLines: 2, color: css(e.accentInk), balance: true })
+    const gap = head.height ? 34 : 0
+    const body = e.text(slide.text, { size: [40, 30], lh: 1.66, w, h: bottom - top - head.height - gap, color: css(c.text, 0.86), em: { style: 'bold', weight: 'heavy' }, balance: 'short', keepLines: true, wrapGap: 0.4 })
+    stack(blocks(textBlock(head), gap, textBlock(body)), M, top, bottom, hasPhoto ? 0 : 0.4)
+    footMark(e, css(c.text, 0.85))
   },
   last(e) {
     const { W, H, M, c, slide } = e
     e.fill(css(c.bg))
+    const hasPhoto = e.photo('image', 0, 0, W, H)
+    if (hasPhoto) e.fill(css(c.bg, 0.62))
     const w = W - M * 2
-    const top = M + 60
-    const bottom = H - 140
-    const pillHeight = e.handle ? 84 : 0
-    const pillGap = e.handle ? 64 : 0
-    const mark = { h: 12, draw: (x, y) => e.fill(css(c.accent), x, y, 72, 12) }
-    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [44, 36], lh: 1.36, w, maxLines: 2, color: css(e.accentInk) })
-    const gap = head.height ? 32 : 0
-    const cta = e.text(slide.text, { slot: 'heading', weight: 'heavy', size: [100, 56], lh: 1.28, ls: -0.03, w, h: bottom - top - 12 - 56 - head.height - gap - pillHeight - pillGap, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true })
-    const pill = e.handle && { h: pillHeight, draw: (x, y) => e.pill(e.handle, { x, y, h: pillHeight, padX: 40, stroke: css(c.accent), color: css(c.text), size: 36, maxWidth: w }) }
-    stack(blocks(mark, 56, textBlock(head), gap, textBlock(cta), pillGap, pill), M, top, bottom, 0.5)
-    photoDarkFoot(e)
+    const top = M + 80
+    const bottom = H - 150
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [56, 42], lh: 1.3, w, maxLines: 2, color: css(e.accentInk), balance: true, align: 'center' })
+    const gap = head.height ? 40 : 0
+    const cta = e.text(slide.text, { size: [52, 36], lh: 1.6, w, h: bottom - top - head.height - gap, color: css(c.text, 0.92), em: { style: 'bold', weight: 'heavy' }, balance: true, align: 'center' })
+    stack(blocks(textBlock(head, 'center'), gap, textBlock(cta, 'center')), M, top, bottom, 0.5)
+    footMark(e, css(c.text, 0.9))
   },
 }
 
 /* ───────────────────────── 8. grid-memo ───────────────────────── */
+// After a quote-collection account (sanman._.jabji): squared notebook paper, the account's name small at the top
+// centre, one photo in a thin black frame tucked into an upper corner, the quote in small calm type with room between
+// paragraphs, and where it was said in small letters beside it. The cover is a full photo with a serif title.
 
-// Squared notebook paper: faint lines every few millimetres, a little stronger on a dark page so they still show.
 function gridPaper(e) {
   const { ctx, W, H, c } = e
   e.fill(css(c.bg))
-  const step = 54
+  const step = 40
   ctx.save()
-  ctx.strokeStyle = css(mix(c.bg, c.text, luminance(c.bg) > 0.4 ? 0.085 : 0.16))
-  ctx.lineWidth = 2
+  ctx.strokeStyle = css(mix(c.bg, c.text, luminance(c.bg) > 0.4 ? 0.09 : 0.16))
+  ctx.lineWidth = 1.5
   ctx.beginPath()
   for (let x = Math.round((W % step) / 2); x <= W; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, H) }
   for (let y = Math.round((H % step) / 2); y <= H; y += step) { ctx.moveTo(0, y); ctx.lineTo(W, y) }
@@ -1208,186 +1199,147 @@ function gridPaper(e) {
   ctx.restore()
 }
 
-// A photo with a drawn border and a strip of tape over its top edge, as if stuck into the notebook.
-function tapedPhoto(e, x, y, w, h) {
-  const { ctx, c } = e
-  const border = 6
-  e.fill(css(c.text), x - border, y - border, w + border * 2, h + border * 2)
+// A photo in a thin dark frame.
+function framedPhoto(e, x, y, w, h) {
+  const border = 4
+  e.fill(css(e.c.text), x - border, y - border, w + border * 2, h + border * 2)
   e.photo('image', x, y, w, h, { placeholder: true })
-  ctx.save()
-  ctx.translate(x + w / 2, y - border)
-  ctx.rotate(-0.045)
-  e.fill(css(c.accent, 0.72), -96, -24, 192, 48)
-  ctx.restore()
 }
 
-const memoMarker = e => ({ style: 'marker', bg: css(e.c.accent, luminance(e.c.accent) > 0.45 ? 0.85 : 0.3), weight: 'bold' })
-
-// The source of a quote as a dark label, like a name card clipped under it.
-function sourceLabel(e, value, w) {
-  if (!value) return null
-  const h = 84
-  return { h, draw: (x, y) => e.pill(value, { x, y, h, padX: 34, fill: css(e.c.text), color: css(e.c.bg), size: 50, slot: 'heading', weight: 'bold', maxWidth: w }) }
-}
+const memoTop = e => e.line(e.handle, { slot: 'heading', weight: 'heavy', size: 30, color: css(e.c.text, 0.88), x: e.W / 2, y: 58, align: 'center', maxWidth: 600 })
 
 const gridMemo = {
   cover(e) {
-    const { ctx, W, H, M, c, slide } = e
-    gridPaper(e)
-    const w = W - M * 2
+    const { W, H, M, c, slide } = e
     const hasPhoto = Boolean(e.pic('image'))
-    e.line(e.handle, { slot: 'heading', weight: 'bold', size: 38, color: css(e.muted(0.4)), x: W - M, y: M + 10, align: 'right', maxWidth: 560 })
-    const photoHeight = hasPhoto ? Math.round(H * 0.38) : 0
-    if (hasPhoto) tapedPhoto(e, M + 24, M + 96, w - 48, photoHeight)
-    const top = hasPhoto ? M + 96 + photoHeight + 64 : M + 120
-    const bottom = H - M - 110
-    const kick = slide.text ? sourceLabel(e, slide.text.replace(/\*\*/g, ''), w) : null
-    const gap = kick ? 36 : 0
-    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [124, 72], lh: 1.3, ls: -0.01, w, h: bottom - top - (kick?.h || 0) - gap, color: css(c.text), em: memoMarker(e), balance: true })
-    stack(blocks(kick, gap, textBlock(head)), M, top, bottom, hasPhoto ? 0.3 : 0.5)
-    drawArrow(ctx, W - M, H - M - 30, 68, css(c.text), 5)
+    if (hasPhoto) {
+      e.fill(css(c.text))
+      e.photo('image', 0, 0, W, H)
+      const shade = e.ctx.createLinearGradient(0, H * 0.4, 0, H)
+      shade.addColorStop(0, 'rgba(0,0,0,0)')
+      shade.addColorStop(1, 'rgba(0,0,0,0.78)')
+      e.fill(shade, 0, H * 0.4, W, H * 0.6)
+    } else gridPaper(e)
+    const ink = hasPhoto ? css(PAPER) : css(c.text)
+    e.line(e.handle, { slot: 'heading', weight: 'bold', size: 28, color: hasPhoto ? css(PAPER, 0.9) : css(c.text, 0.6), x: W - M, y: M, align: 'right', maxWidth: 560 })
+    const w = W - M * 2
+    const bottom = H - M - 40
+    const top = hasPhoto ? Math.round(H * 0.45) : M + 160
+    const kick = kicker(e, { slot: 'heading', weight: 'regular', size: [40, 32], w, color: hasPhoto ? css(PAPER, 0.88) : css(c.text, 0.7), shadow: hasPhoto ? overPhoto : undefined })
+    const gap = kick.height ? 22 : 0
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [108, 66], lh: 1.24, ls: -0.02, w, h: bottom - top - kick.height - gap, color: ink, balance: true, shadow: hasPhoto ? overPhoto : undefined })
+    stack(blocks(textBlock(kick), gap, textBlock(head)), M, top, bottom, hasPhoto ? 1 : 0.5)
   },
   body(e) {
     const { W, H, M, c, slide } = e
     gridPaper(e)
-    e.line(`${e.index + 1} / ${e.total}`, { slot: 'heading', weight: 'bold', size: 38, color: css(e.muted(0.45)), x: M, y: M + 10 })
-    e.line(e.handle, { slot: 'heading', weight: 'bold', size: 38, color: css(e.muted(0.45)), x: W - M, y: M + 10, align: 'right', maxWidth: 520 })
+    memoTop(e)
     const w = W - M * 2
-    const top = M + 100
-    const bottom = H - M - 20
     const hasPhoto = Boolean(e.pic('image'))
-    const label = sourceLabel(e, slide.heading, w)
-    const labelGap = label ? 44 : 0
-    const photoGap = hasPhoto ? 72 : 0
-    const room = bottom - top - (label?.h || 0) - labelGap - photoGap
-    const quote = e.text(slide.text, { size: [70, 46], lh: 1.46, w, h: room - (hasPhoto ? Math.round(H * 0.17) : 0), color: css(c.text), em: memoMarker(e), balance: 'short', keepLines: true, wrapGap: 0.2 })
-    const photoHeight = hasPhoto ? sharedPhotoHeight(room - quote.height, H, 0.17, 0.4) : 0
-    const photo = hasPhoto && { h: photoHeight, draw: (x, y) => tapedPhoto(e, x + 24, y, w - 48, photoHeight) }
-    stack(blocks(photo, photoGap, textBlock(quote), labelGap, label), M, top, bottom, 0.5)
+    // The photo sits in the upper right on odd slides and the upper left on even ones, as a notebook page would.
+    const photoW = Math.round(W * 0.42)
+    const photoH = Math.round(photoW * 0.78)
+    const photoX = e.index % 2 ? W - M - photoW : M
+    const photoY = 130
+    if (hasPhoto) framedPhoto(e, photoX, photoY, photoW, photoH)
+    const sourceSize = 30
+    let top = hasPhoto ? photoY + photoH + 90 : 170
+    if (hasPhoto && slide.heading) {
+      e.line(slide.heading.replace(/\*\*/g, ''), { size: sourceSize, weight: 'regular', color: css(c.text, 0.75), x: W - M, y: photoY + photoH + 44, align: 'right', maxWidth: w })
+      top += 10
+    }
+    const bottom = H - M - (hasPhoto || !slide.heading ? 0 : 60)
+    const quote = e.text(slide.text, { size: [44, 32], lh: 1.78, w, h: bottom - top, color: css(c.text, 0.92), em: { style: 'bold', weight: 'bold' }, balance: 'short', keepLines: true, wrapGap: 0.55 })
+    const source = !hasPhoto && slide.heading ? { h: 60, draw: (x, y) => e.line(slide.heading.replace(/\*\*/g, ''), { size: sourceSize, weight: 'regular', color: css(c.text, 0.75), x: W - M, y: y + 34, align: 'right', maxWidth: w }) } : null
+    stack(blocks(textBlock(quote), source), M, top, bottom, hasPhoto ? 0 : 0.35)
   },
   last(e) {
-    const { ctx, W, H, M, c, slide } = e
-    gridPaper(e)
+    const { W, H, M, c, slide } = e
+    const hasPhoto = Boolean(e.pic('image'))
+    if (hasPhoto) { e.photo('image', 0, 0, W, H); e.fill('rgba(0,0,0,0.5)') } else gridPaper(e)
+    const ink = hasPhoto ? PAPER : c.text
     const w = W - M * 2
     const top = M + 80
-    const bottom = H - M - 20
-    const handleHeight = e.handle ? 84 : 0
-    const handleGap = e.handle ? 72 : 0
-    const head = e.text(slide.heading, { slot: 'heading', weight: 'bold', size: [52, 42], lh: 1.36, w, maxLines: 2, color: css(e.muted(0.38)) })
-    const gap = head.height ? 32 : 0
-    const cta = e.text(slide.text, { slot: 'heading', weight: 'bold', size: [110, 64], lh: 1.32, w, h: bottom - top - head.height - gap - handleHeight - handleGap, color: css(c.text), em: memoMarker(e), balance: true })
-    const handle = e.handle && { h: handleHeight, draw: (x, y) => {
-      const width = e.pill(e.handle, { x, y, h: handleHeight, padX: 34, fill: css(c.text), color: css(c.bg), size: 50, slot: 'heading', weight: 'bold', maxWidth: w - 120 })
-      drawArrow(ctx, x + width + 100, y + handleHeight / 2, 64, css(c.text), 5)
-    } }
-    stack(blocks(textBlock(head), gap, textBlock(cta), handleGap, handle), M, top, bottom, 0.46)
+    const bottom = H - 170
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'regular', size: [40, 32], lh: 1.5, w, maxLines: 2, color: css(ink, 0.8), align: 'center' })
+    const gap = head.height ? 28 : 0
+    const cta = e.text(slide.text, { slot: 'heading', weight: 'heavy', size: [76, 50], lh: 1.4, w, h: bottom - top - head.height - gap, color: css(ink), balance: true, align: 'center', shadow: hasPhoto ? overPhoto : undefined })
+    stack(blocks(textBlock(head, 'center'), gap, textBlock(cta, 'center')), M, top, bottom, 0.5)
+    e.line(e.handle, { slot: 'heading', weight: 'heavy', size: 32, color: css(ink, 0.9), x: W / 2, y: H - 100, align: 'center', maxWidth: 600 })
   },
 }
 
 /* ───────────────────────── 9. list-card ───────────────────────── */
+// After an account-curation post (shhseoulmag): a red cover with a cropped photo strip and a big white title; then
+// one item per black slide — the series line small at the top centre, a large round picture with the item's name
+// beside it, a few lines about it below, a small dot at the foot. The last slide turns white with a follow button.
 
-// The item's picture in a circle; without one, the circle carries the item's number.
-function listBadge(e, cx, cy, r) {
+function listAvatar(e, cx, cy, r) {
   const { ctx, c } = e
   ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r + 12, 0, Math.PI * 2)
+  ctx.strokeStyle = css(c.accent)
+  ctx.lineWidth = 6
+  ctx.stroke()
   ctx.beginPath()
   ctx.arc(cx, cy, r, 0, Math.PI * 2)
   ctx.clip()
   const drawn = e.photo('image', cx - r, cy - r, r * 2, r * 2, { placeholder: false })
-  if (!drawn) e.fill(css(c.accent), cx - r, cy - r, r * 2, r * 2)
+  if (!drawn) e.fill(css(PAPER), cx - r, cy - r, r * 2, r * 2)
   ctx.restore()
-  if (!drawn) e.line(pad2(Math.max(1, e.index)), { slot: 'heading', weight: 'heavy', size: r * 0.82, color: css(e.onAccent), x: cx, y: cy, align: 'center' })
-  ctx.save()
-  ctx.beginPath()
-  ctx.arc(cx, cy, r + 7, 0, Math.PI * 2)
-  ctx.strokeStyle = css(c.accent)
-  ctx.lineWidth = 5
-  ctx.stroke()
-  ctx.restore()
-}
-
-// The item's place in the list (body slides only) and the account name.
-function listTopRow(e, numbered = true) {
-  const { W, M } = e
-  const y = M + 14
-  const items = Math.max(1, e.total - 2)
-  if (numbered) {
-    const width = e.line(pad2(clamp(e.index, 1, items)), { slot: 'heading', weight: 'heavy', size: 40, color: css(e.accentInk), x: M, y })
-    e.line(`/ ${pad2(items)}`, { size: 26, color: css(e.muted(0.55)), x: M + width + 14, y: y + 3 })
-  }
-  e.line(e.handle, { size: 26, color: css(e.muted(0.55)), x: W - M, y: y + 3, align: 'right', maxWidth: 520 })
+  if (!drawn) e.line(String(Math.max(1, e.index)), { slot: 'heading', weight: 'heavy', size: r * 0.9, color: css(INK), x: cx, y: cy, align: 'center' })
 }
 
 const listCard = {
   cover(e) {
-    const { ctx, W, H, M, c, slide } = e
+    const { W, H, M, c, slide } = e
     e.fill(css(c.accent))
     const ink = e.onAccent
-    e.line(e.handle, { size: 28, color: css(ink, 0.82), x: M, y: M + 14, maxWidth: 560 })
+    e.line(e.handle, { size: 28, weight: 'bold', color: css(ink, 0.9), x: M, y: M, maxWidth: 560 })
+    const hasPhoto = Boolean(e.pic('image'))
+    const stripY = Math.round(H * 0.16)
+    const stripH = Math.round(H * 0.28)
+    if (hasPhoto) e.photo('image', M + 60, stripY, W - (M + 60) * 2, stripH)
     const w = W - M * 2
-    const bottom = H - M - 150
-    const kick = kicker(e, { w, color: css(ink, 0.86) })
-    const gap = kick.height ? 30 : 0
-    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [150, 84], lh: 1.16, ls: -0.04, w, h: bottom - (M + 110) - kick.height - gap, color: css(ink), em: { style: 'color', color: css(mix(ink, c.accent, 0.35)) }, balance: true })
-    stack(blocks(textBlock(kick), gap, textBlock(head)), M, M + 110, bottom, 1)
-    // A row of profile circles, as in a list of accounts.
-    const r = 40
-    const y = H - M - 40
-    for (let i = 0; i < 4; i += 1) {
-      const cx = M + r + i * r * 1.45
-      ctx.beginPath()
-      ctx.arc(cx, y, r, 0, Math.PI * 2)
-      ctx.fillStyle = css(mix(c.accent, ink, 0.18 + i * 0.12))
-      ctx.fill()
-      ctx.lineWidth = 6
-      ctx.strokeStyle = css(c.accent)
-      ctx.stroke()
-    }
-    drawArrow(ctx, W - M, y, 72, css(ink), 6)
+    const top = hasPhoto ? stripY + stripH + 80 : M + 200
+    const bottom = H - M - 60
+    const head = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [120, 72], lh: 1.18, ls: -0.04, w, h: bottom - top - 90, color: css(ink), balance: true })
+    const gap = 30
+    const kick = kicker(e, { w, color: css(ink, 0.82), weight: 'regular' })
+    stack(blocks(textBlock(head), gap, textBlock(kick)), M, top, bottom, 0)
   },
   body(e) {
     const { W, H, M, c, slide } = e
     e.fill(css(c.bg))
-    listTopRow(e)
-    const card = { x: 56, w: W - 112, pad: 60 }
-    const inner = card.w - card.pad * 2
-    const r = 112
-    const nameX = r * 2 + 52
-    const name = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [68, 46], lh: 1.24, ls: -0.02, w: inner - nameX, maxLines: 2, color: css(c.text), balance: true })
-    const headHeight = r * 2 + 14
-    const ruleGap = 48
-    const top = M + 84
-    const bottom = H - M - 10
-    const textRoom = bottom - top - card.pad * 2 - headHeight - ruleGap * 2
-    const body = e.text(slide.text, { size: [54, 32], lh: 1.6, w: inner, h: textRoom, color: css(c.text, 0.88), em: { style: 'color', color: css(e.accentInk), weight: 'bold' }, balance: 'short', keepLines: true, wrapGap: 0.3 })
-    const cardHeight = card.pad * 2 + headHeight + (body.height ? ruleGap * 2 + body.height : 0)
-    const y = top + Math.max(0, (bottom - top - cardHeight) * 0.42)
-    e.round(css(mix(c.bg, c.text, 0.075)), card.x, y, card.w, cardHeight, 44)
-    const x = card.x + card.pad
-    const cy = y + card.pad + r + 7
-    listBadge(e, x + r + 7, cy, r)
-    name.draw(x + nameX, cy - name.height / 2)
-    if (body.height) {
-      const ruleY = y + card.pad + headHeight + ruleGap
-      e.fill(css(e.muted(0.84)), x, ruleY - 1, inner, 2)
-      body.draw(x, ruleY + ruleGap - 1)
-    }
+    e.line(e.handle, { size: 28, weight: 'bold', color: css(c.text, 0.9), x: W / 2, y: 62, align: 'center', maxWidth: 700 })
+    const r = 118
+    const cx = M + r + 12
+    const cy = Math.round(H * 0.2) + r
+    listAvatar(e, cx, cy, r)
+    const nameX = cx + r + 64
+    const name = e.text(slide.heading, { slot: 'heading', weight: 'heavy', size: [58, 42], lh: 1.24, ls: -0.02, w: W - M - nameX, maxLines: 2, color: css(c.text), balance: true })
+    name.draw(nameX, cy - name.height / 2)
+    const top = cy + r + 110
+    const bottom = H - 150
+    const body = e.text(slide.text, { size: [40, 30], lh: 1.7, w: W - M * 2, h: bottom - top, color: css(c.text, 0.88), em: { style: 'bold', weight: 'heavy' }, balance: 'short', keepLines: true, wrapGap: 0.45 })
+    body.draw(M, top)
+    e.round(css(c.text), W / 2 - 8, H - 76, 16, 16, 8)
   },
   last(e) {
     const { W, H, M, c, slide } = e
-    e.fill(css(c.bg))
-    listTopRow(e, false)
+    e.fill(css(c.text))
+    const ink = c.bg
     const w = W - M * 2
-    const top = M + 120
-    const bottom = H - M - 40
-    const pillHeight = e.handle ? 84 : 0
-    const pillGap = e.handle ? 60 : 0
-    const avatar = { h: 168, draw: (x, y) => e.avatar(W / 2, y + 84, 84) }
-    const head = e.text(slide.heading, { weight: 'bold', size: [40, 34], lh: 1.4, w, maxLines: 2, color: css(e.muted(0.4)), balance: true })
+    const top = M + 80
+    const bottom = H - M - 80
+    const buttonH = e.handle ? 84 : 0
+    const buttonGap = e.handle ? 70 : 0
+    const head = e.text(slide.heading, { weight: 'bold', size: [36, 30], lh: 1.4, w, maxLines: 2, color: css(ink, 0.75), align: 'center' })
     const gap = head.height ? 26 : 0
-    const cta = e.text(slide.text, { slot: 'heading', weight: 'heavy', size: [92, 54], lh: 1.28, ls: -0.03, w, h: bottom - top - 168 - 64 - head.height - gap - pillHeight - pillGap, color: css(c.text), em: { style: 'color', color: css(e.accentInk) }, balance: true })
-    const pill = e.handle && { h: pillHeight, draw: (x, y) => e.pill(e.handle, { x: W / 2, y, h: pillHeight, padX: 44, fill: css(c.accent), color: css(e.onAccent), size: 36, align: 'center', maxWidth: w }) }
-    stack(blocks(avatar, 64, textBlock(head, 'center'), gap, textBlock(cta, 'center'), pillGap, pill), M, top, bottom, 0.5)
+    const cta = e.text(slide.text, { slot: 'heading', weight: 'heavy', size: [88, 54], lh: 1.26, ls: -0.03, w, h: bottom - top - head.height - gap - buttonH - buttonGap, color: css(ink), balance: true, align: 'center' })
+    const button = e.handle && { h: buttonH, draw: (x, y) => e.pill(e.handle, { x: W / 2, y, h: buttonH, padX: 48, fill: css(mix(c.text, ink, 0.6)), color: css(c.text), size: 34, align: 'center', maxWidth: w }) }
+    stack(blocks(textBlock(head, 'center'), gap, textBlock(cta, 'center'), buttonGap, button), M, top, bottom, 0.5)
   },
 }
 

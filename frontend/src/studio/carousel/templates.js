@@ -22,8 +22,6 @@ export const FONTS = [
     weights: { regular: 400, bold: 700, heavy: 700 }, scale: 1.02 },
   { key: 'black-han-sans', label: '검은고딕', family: 'Black Han Sans', css: GOOGLE('Black+Han+Sans'),
     weights: { regular: 400, bold: 400, heavy: 400 }, scale: 1.04 },
-  { key: 'nanum-pen', label: '나눔손글씨 펜', family: 'Nanum Pen Script', css: GOOGLE('Nanum+Pen+Script'),
-    weights: { regular: 400, bold: 400, heavy: 400 }, scale: 1.32 },
   { key: 'gaegu', label: '개구', family: 'Gaegu', css: GOOGLE('Gaegu:wght@400;700'),
     weights: { regular: 400, bold: 700, heavy: 700 }, scale: 1.16 },
 ]
@@ -37,9 +35,9 @@ const LOOKS = {
   'photo-center': { colors: { background: '#17171A', text: '#FFFFFF', accent: '#F3DFB8' }, fonts: { heading: 'gowun-batang', body: 'gowun-batang' } },
   blog: { colors: { background: '#FFFFFF', text: '#212529', accent: '#12B886' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
   card: { colors: { background: '#FFFFFF', text: '#15171A', accent: '#4C6EF5' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
-  'photo-dark': { colors: { background: '#0B0B0C', text: '#F5F5F2', accent: '#FFD43B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
-  'grid-memo': { colors: { background: '#FBFAF4', text: '#1E1E1E', accent: '#FFD43B' }, fonts: { heading: 'nanum-pen', body: 'nanum-pen' } },
-  'list-card': { colors: { background: '#131313', text: '#FFFFFF', accent: '#E5352B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
+  'photo-dark': { colors: { background: '#1E1E1E', text: '#FFFFFF', accent: '#F9DD5B' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
+  'grid-memo': { colors: { background: '#F7F7F4', text: '#1A1A1A', accent: '#1A1A1A' }, fonts: { heading: 'noto-serif', body: 'gowun-batang' } },
+  'list-card': { colors: { background: '#000000', text: '#FFFFFF', accent: '#A3161C' }, fonts: { heading: 'pretendard', body: 'pretendard' } },
 }
 
 export const TEMPLATES = CAROUSEL_TEMPLATES.map(t => ({ ...t, ...(LOOKS[t.id] || LOOKS['dark-accent']) }))
