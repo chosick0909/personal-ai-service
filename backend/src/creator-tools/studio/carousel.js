@@ -5,13 +5,13 @@ import { COVER_PRINCIPLES, COVER_PRINCIPLE_NAMES, coverHint } from './copy-princ
 import { canOpenReel } from '../success-reel-analysis.js'
 import { isCarousel } from '../success-reels.js'
 import { fieldKnowledge } from './knowledge.js'
-import { prepareTopic, readBrief, researchFresh } from './research.js'
-import { ungroundedQuotes } from './engine.js'
+import { ungroundedQuotes, registerFormat, ASK_RULE, NO_QUESTIONS, parseAsks } from './engine.js'
 import { CAROUSEL_TEMPLATES, CAROUSEL_TEMPLATE_IDS, carouselTemplate, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT, COVER_TITLE_LIMIT, slideOverflows, slideLength, longLines } from '../../../../shared/carousel-templates.mjs'
 
-// 캐러셀 만들기: 훅ai plans a carousel in the order a student thinks about it — the cover title, the whole body,
-// the split into slides — and the browser designs the slides from a template. Kept apart from the reel plans.
-export const CAROUSEL_STAGES = ['cover', 'body', 'slides', 'design', 'caption', 'done']
+// 캐러셀 만들기: a plan (studio_sessions) whose format is 'carousel'. It shares the reel plan's topic conversation,
+// questions, research and stage jobs (engine.js) and brings what differs: the stages after the topic — the cover title,
+// the whole body, the split into slides, the design the browser draws from a template — and their prompts.
+export const CAROUSEL_STAGES = ['topic', 'cover', 'body', 'slides', 'design', 'caption', 'done']
 export const CAROUSEL_SLOTS = ['structure', 'design', 'caption']
 export const nextCarouselStage = stage => CAROUSEL_STAGES[Math.min(CAROUSEL_STAGES.length - 1, CAROUSEL_STAGES.indexOf(stage) + 1)]
 
@@ -29,8 +29,8 @@ const CAROUSEL_SYSTEM = `${HOOKAI_SYSTEM}
 
 [이번 작업]
 이번에 만드는 것은 영상이 아니라 인스타그램 캐러셀(여러 장을 옆으로 넘기며 읽는 게시물)입니다. 위 원칙의 '영상·대본·시청자'는 '캐러셀·본문·읽는 사람'으로 읽습니다. 말로 하는 문장이 아니라 눈으로 읽는 글이므로, 한 장에 들어갈 만큼 짧고, 소리 없이 읽어도 뜻이 한 번에 들어와야 합니다.
-이번에는 질문하지 않습니다. 화자 본인만 아는 사실(본인의 사례·수치·경력·가격)이 꼭 필요한 자리는 지어내지 않고 [대괄호] 빈칸으로 남기고, 그 빈칸을 placeholders에 적습니다.
-수강생이 brief에 적은 자기 경험과 숫자는 화자 본인의 사실입니다. 단서를 달지 않고 그대로 말합니다. 글 안에서 스스로 말의 무게를 깎지 않습니다: 사실 여부를 한발 물리는 말, 개인차를 알리는 말, 의견일 뿐이라고 밝히는 말을 덧붙이지 않습니다. 말할 수 있는 것은 단정해서 말하고, 근거가 없어 단정할 수 없는 것(왜 그런지에 대한 추측, 확인되지 않은 원리)은 단서를 달아 넣는 대신 아예 쓰지 않습니다.
+화자 본인만 아는 사실(본인의 사례·수치·경력·가격)이 꼭 필요한데 주어지지 않았고 물을 수도 없는 자리는 지어내지 않고 [대괄호] 빈칸으로 남기고, 그 빈칸을 placeholders에 적습니다.
+수강생이 brief에 적거나, 훅ai의 질문에 답하거나(answers·topic.facts), 자료로 올린(attachments) 자기 경험과 숫자는 화자 본인의 사실입니다. 단서를 달지 않고 그대로 말합니다. 글 안에서 스스로 말의 무게를 깎지 않습니다: 사실 여부를 한발 물리는 말, 개인차를 알리는 말, 의견일 뿐이라고 밝히는 말을 덧붙이지 않습니다. 말할 수 있는 것은 단정해서 말하고, 근거가 없어 단정할 수 없는 것(왜 그런지에 대한 추측, 확인되지 않은 원리)은 단서를 달아 넣는 대신 아예 쓰지 않습니다.
 why·templateWhy·reply처럼 수강생이 읽는 설명은 수강생의 말로 씁니다. 입력 자료의 이름(brief, units, slides 같은 작업 용어)을 꺼내지 않고, 읽는 사람에게 어떤 일이 일어나는지를 말합니다.
 revision이 있으면 수강생이 방금 만든 안(previous)을 보고 요청(request)한 것입니다. 요청한 점을 고치되, 요청하지 않은 부분의 방향은 유지합니다.`
 
@@ -91,8 +91,11 @@ function context(row, resolved, extras = {}) {
   const research = row.topic?.research
   return {
     brief: row.brief,
+    attachments: (row.attachments || []).filter(a => a?.name).map(a => ({ name: a.name, content: String(a.content || '').slice(0, 3000) })),
     ...(row.topic?.requests?.length ? { requests: { note: '수강생이 적은 만들기 요청. 모든 단계에서 지킵니다(주제가 아님).', items: row.topic.requests } } : {}),
-    topic: row.topic ? { title: row.topic.title, category: row.topic.category } : null,
+    topic: row.topic ? { title: row.topic.title, category: row.topic.category, ...(row.topic.angle ? { angle: row.topic.angle } : {}), ...(row.topic.promise ? { promise: row.topic.promise } : {}), ...(row.topic.audience ? { audience: row.topic.audience } : {}), ...(row.topic.facts?.length ? { facts: row.topic.facts } : {}) } : null,
+    // What the student answered while finding the topic with 훅ai: their own facts, like brief.
+    ...(row.topic?.answers?.length ? { answers: row.topic.answers } : {}),
     research: research && !research.failed ? { subject: research.subject, facts: research.facts, reviews: research.reviews || [], unconfirmed: research.unconfirmed || [], viewerQuestions: research.viewerQuestions, avoid: research.avoid } : null,
     sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { from: s.label, ...s.excerpt }])),
     coverReading: row.cover?.plan?.terms?.length ? { terms: row.cover.plan.terms, purpose: row.cover.plan.purpose, promise: row.cover.plan.promise } : null,
@@ -106,27 +109,30 @@ function context(row, resolved, extras = {}) {
 }
 
 // ---------- stage prompts ----------
+const questions = arr(obj({ key: str, question: str, chips: arr(str) }))
 const coverSchema = obj({
+  questions,
   plan: obj({ terms: arr(obj({ word: str, meaning: str })), purpose: str, quotes: arr(str), reader: str, promise: str }),
   options: arr(obj({ label: { type: 'string', enum: COVER_PRINCIPLE_NAMES }, kicker: str, text: str, why: str })),
   check: obj({ unprovidedFacts: arr(str) }), placeholders: arr(str),
 })
 const coverPrompt = `'표지 제목' 단계입니다. 캐러셀 첫 장에 크게 넣을 제목 3안을 훅ai가 직접 제안합니다. 레퍼런스는 이 단계에 쓰지 않습니다. 근거는 brief·topic에 적힌 주제와 사실, 그리고 research(훅ai가 출처와 함께 조사한 대상의 사실과 읽는 사람이 궁금해하는 점)입니다.
-1. plan을 먼저 채웁니다. terms: brief의 핵심 단어(소재, 하려는 일)를 원문 그대로 word에 적고 meaning에 그 단어의 사전적인 뜻을 풉니다. meaning은 단어를 바르게 읽기 위한 것이고, 제목에는 수강생이 쓴 원래 표현을 씁니다. purpose: terms의 뜻만으로 이 캐러셀이 '누가 무엇을 하려는 글인지' 한 문장. quotes: 이번 제목들이 기대는 brief·research의 구절을 한 글자도 바꾸지 않고 옮겨 적습니다. reader: 이 표지를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 끝까지 넘겨 본 사람이 얻는 것 한 가지를 그것만 짧게 적습니다(한 캐러셀에 약속 하나). promise는 수강생의 목적(소개·추천)을 그대로 쓰지 않고, research에서 이 대상이 읽는 사람에게 실제로 해 주는 일과 궁금해하는 점에서 찾습니다.
+1. plan을 먼저 채웁니다. terms: brief의 핵심 단어(소재, 하려는 일)를 원문 그대로 word에 적고 meaning에 그 단어의 사전적인 뜻을 풉니다. meaning은 단어를 바르게 읽기 위한 것이고, 제목에는 수강생이 쓴 원래 표현을 씁니다. purpose: terms의 뜻만으로 이 캐러셀이 '누가 무엇을 하려는 글인지' 한 문장. quotes: 이번 제목들이 기대는 brief·answers·research의 구절을 한 글자도 바꾸지 않고 옮겨 적습니다. reader: 이 표지를 보고 멈춰야 할 사람과 그 사람이 지금 처한 상황 한 줄. promise: 끝까지 넘겨 본 사람이 얻는 것 한 가지를 그것만 짧게 적습니다(한 캐러셀에 약속 하나). promise는 수강생의 목적(소개·추천)을 그대로 쓰지 않고, research에서 이 대상이 읽는 사람에게 실제로 해 주는 일과 궁금해하는 점에서 찾습니다.
 2. 아래 표지 카피 원칙 중 이 주제·이 사람에게 가장 잘 맞는 서로 다른 3개를 골라 한 안에 하나씩 적용합니다. label에는 고른 원칙 이름을 씁니다. 세 안 모두 같은 promise를 다른 방식으로 겨눕니다.
 ${COVER_PRINCIPLES.map(p => `- ${p.name}: ${p.how}`).join('\n')}
 3. 쓰는 기준. 표지는 피드와 프로필 격자에서 손톱만 하게 보이고, 누르는 게 아니라 옆으로 넘기게 만드는 것이 일입니다. text는 작게 봐도 한눈에 읽히는 한 구절이고(${COVER_TITLE_LIMIT}자 이내, 두 문장으로 나누지 않음), kicker는 제목 위에 작게 놓는 한 줄입니다(${COVER_KICKER_LIMIT}자 이내). kicker는 제목이 누구에게 하는 말인지, 또는 제목을 읽고 생기는 물음을 먼저 꺼내는 일을 하며, 제목만으로 충분하면 빈 문자열로 둡니다(제목을 되풀이하지 않음). 제목은 판매자·제품 자랑이 아니라 읽는 사람이 얻는 것으로 쓰고, 단어를 쉼표로 늘어놓지 않고 말이 되게 잇습니다. 무엇이·얼마나·어떻게가 빠진 막연한 결과 표현이나 어디에나 붙는 유행어로 때우지 않고, 이 주제에서만 나올 수 있는 구체적인 말을 씁니다. 숫자·기간·가격 같은 사실은 brief나 research에 있을 때만 씁니다. 제목에 숫자를 걸면 본문이 실제로 그 개수를 다뤄야 합니다.
-4. 다 쓰고 점검합니다. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황이 purpose와 같은 일을 말하는지, quotes의 구절이 brief·research에 그 단어, 그 뜻 그대로 있는지 대조합니다. 주어지지 않은 사실이 들어갔으면 check.unprovidedFacts에 적습니다.
+4. 다 쓰고 점검합니다. 같은 분야의 다른 계정이 그대로 가져다 써도 말이 되는 일반론이면 이 주제의 구체적인 사실·장면으로 다시 씁니다. 각 제목이 말하는 상황이 purpose와 같은 일을 말하는지, quotes의 구절이 brief·answers·research에 그 단어, 그 뜻 그대로 있는지 대조합니다. 주어지지 않은 사실이 들어갔으면 check.unprovidedFacts에 적습니다.
 why는 이 표지를 본 사람이 왜 다음 장으로 넘기게 되는지 읽는 사람 입장에서 한 줄.`
 
 const bodySchema = obj({
+  questions,
   options: arr(obj({ label: str, why: str, units: arr(obj({ text: str })), closing: str })),
   check: obj({ unprovidedFacts: arr(str), referenceTraces: arr(str), swipeRisks: arr(str) }), placeholders: arr(str),
 })
 const bodyPrompt = `'본문 기획' 단계입니다. 표지(cover) 다음 장부터 마지막 장 앞까지 들어갈 내용 전체를 3안으로 씁니다. 아직 장으로 나누지 않고, 내용의 덩어리(units)를 읽는 순서대로 적습니다. 한 덩어리는 한 가지만 말하고, 나중에 한 장이 되거나 옆 덩어리와 한 장에 묶입니다.
 - 약속: 표지 제목이 건 약속 하나를 끝까지 따라갑니다. 첫 덩어리는 인사·자기소개 없이 그 약속을 받아 곧바로 이야기를 엽니다. 약속을 받치지 않는 내용은 넣지 않습니다. 표지에 건 숫자가 있으면 본문이 그 개수를 그대로 다룹니다.
 - 넘김: 읽는 사람은 장마다 그만 볼지 정합니다. 각 덩어리는 그것만 읽어도 얻는 것이 있어야 하고, 동시에 다음을 넘겨야 할 이유(아직 안 나온 답, 번호가 알려 주는 남은 개수, 뒤집힐 것이라는 낌새, 끝나지 않은 문장)를 남깁니다. 아무것도 주지 않고 다음 장을 예고만 하는 덩어리는 쓰지 않습니다.
-- 구체: 숫자·장면·예시·순서처럼 저장해 두고 다시 볼 만한 것으로 채웁니다. 같은 분야의 누가 써도 되는 일반론은 이 주제의 사실로 다시 씁니다. 사실은 brief와 research에 있는 것만 씁니다.
+- 구체: 숫자·장면·예시·순서처럼 저장해 두고 다시 볼 만한 것으로 채웁니다. 같은 분야의 누가 써도 되는 일반론은 이 주제의 사실로 다시 씁니다. 사실은 brief·answers·research에 있는 것만 씁니다.
 - 글: 한 덩어리는 짧은 줄 1~4개입니다(줄바꿈으로 구분). 한 줄은 한 호흡에 읽히는 길이로 끊습니다. 설명하는 글이 아니라 말을 거는 글로 쓰되, voice가 있으면 그 말투를 따릅니다.
 - 덩어리 수: 주제가 필요로 하는 만큼. 표지와 마지막 장을 더해 ${MAX_CAROUSEL_SLIDES}장을 넘지 않게 합니다.
 - closing: 마지막 장에 넣을 한두 줄입니다. 이 캐러셀을 저장하거나 공유하거나 댓글을 남길 실제 이유를 주는 말로 씁니다. 본문과 상관없이 어디에나 붙는 인사·부탁으로 끝내지 않습니다.
@@ -154,7 +160,7 @@ const slidesPrompt = `'슬라이드 나누기' 단계입니다. 확정된 본문
 const captionSchema = obj({ options: arr(obj({ text: str, hashtags: arr(str), why: str })), placeholders: arr(str) })
 const captionPrompt = `'캡션' 단계입니다. 확정된 슬라이드(slides)가 이 캐러셀의 실제 내용입니다. 인스타그램 캡션 3안을 씁니다.
 - 첫 줄은 피드에서 '더 보기' 앞에 보이는 유일한 줄입니다. 표지가 건 약속을 되풀이하지 않고, 표지를 본 사람이 넘겨 보게 만드는 다른 한마디로 씁니다.
-- 본문은 슬라이드의 핵심을 2~4줄로 받치거나, 슬라이드에 다 담지 못한 한 가지(이유·배경·주의할 점)를 더합니다. 슬라이드의 글을 그대로 옮겨 적지 않습니다. 사실은 brief와 research에 있는 것만 씁니다.
+- 본문은 슬라이드의 핵심을 2~4줄로 받치거나, 슬라이드에 다 담지 못한 한 가지(이유·배경·주의할 점)를 더합니다. 슬라이드의 글을 그대로 옮겨 적지 않습니다. 사실은 brief·answers·research에 있는 것만 씁니다.
 - 마무리는 저장·댓글·공유를 부르는 실제 이유 한 줄입니다.
 - hashtags는 # 없이 이 캐러셀의 소재로 5~8개.
 - sources.caption이 있으면 그 첫 줄 장치·본문 구조·마무리 방식을 따르고, 원문(original)에 이모지가 쓰였으면 같은 느낌으로 넣습니다(없으면 넣지 않음).
@@ -216,49 +222,43 @@ export function paletteFrom(colors) {
 }
 
 // ---------- generating a stage ----------
-// Before the first draft: what the brief is about (apart from how-to requests), its field and the web research.
-async function prepare(deps, row, providers) {
-  let topic = row.topic
-  if (!topic?.title || topic.brief !== row.brief) {
-    const reading = await readBrief(providers, { brief: row.brief, previousTopic: topic?.title || '', previousBrief: topic?.brief || '' }).catch(() => null)
-    const title = reading?.subject || String(row.brief || '').split('\n')[0].slice(0, 60)
-    topic = reading?.sameSubject && topic?.title ? { ...topic, brief: row.brief, requests: [...new Set([...(topic.requests || []), ...(reading.requests || [])])].slice(0, 8) }
-      : { title, category: '기타', requests: reading?.requests || [], brief: row.brief }
-  }
-  if (!researchFresh({ brief: row.brief, topic }) || !topic.categoryChecked) topic = (await prepareTopic(deps, { brief: row.brief, topic }, providers)).topic
-  if (topic !== row.topic) await query(deps.db.from('studio_carousels').update({ topic, title: row.title || topic.title }).eq('id', row.id))
-  return { ...row, topic, title: row.title || topic.title }
-}
-
-export async function generateCarouselStage(deps, row, stage, { note = '' } = {}) {
+// The cover and the body are where facts go in, so they are the stages that may ask first (once per plan, as in a
+// reel plan); the split into slides and the caption only reshape what is already written.
+export async function generateCarouselStage(deps, row, stage, { note = '', asking = false } = {}) {
   const providers = deps.makeProviders(AbortSignal.timeout(600000))
-  if (stage === 'cover') row = await prepare(deps, row, providers)
   const resolved = await resolveCarouselSources(deps.db, row.user_id, row.sources)
   const plan = await companionPlan(deps.db, row)
   row = withPlan(row, plan)
   const knowledge = { fieldKnowledge: await fieldKnowledge(deps.db, row.topic?.category).catch(() => null), ...(plan ? { reelPlan: plan.input } : {}) }
   const input = extras => context(row, resolved, { ...knowledge, ...extras })
   // One rewrite for what the model's own check and the code's check found.
-  const draft = async (op, prompt, schema, extras, findings) => {
-    let raw = await json(providers, op, prompt, input(extras), schema)
+  // Questions come back instead of a draft when 훅ai may still ask; otherwise it drafts with what it has.
+  const draft = async (op, stagePrompt, schema, extras, findings) => {
+    const prompt = `${stagePrompt}\n${NO_QUESTIONS}`
+    let raw = await json(providers, op, asking ? `${ASK_RULE}\n${stagePrompt}` : prompt, input(extras), schema)
+    const asks = parseAsks(raw)
+    if (asks.length && asking) return { asks }
+    if (asks.length) raw = await json(providers, op, prompt, input(extras), schema)
     const found = findings(raw)
     if (found.length) raw = await json(providers, op, `${prompt}\n방금 쓴 초안을 점검했더니 다음이 걸렸습니다: ${found.join(' / ')}. 이 단계의 기준을 처음부터 다시 적용해서, 이것들이 없는 안으로 새로 씁니다.`, input(extras), schema)
     return raw
   }
   if (stage === 'cover') {
-    const raw = await draft('studio-carousel-cover', coverPrompt, coverSchema, revision(note, row.cover?.options?.map(o => o.text)),
+    const { asks, ...raw } = await draft('studio-carousel-cover', coverPrompt, coverSchema, revision(note, row.cover?.options?.map(o => o.text)),
       r => [...list(r.check?.unprovidedFacts, 80, 6), ...ungroundedQuotes(row, [...(r.plan?.quotes || []), ...(r.plan?.terms || []).map(t => t?.word)]).map(q => `원문에 없는 구절을 원문처럼 인용함: "${q}"`),
         // Letters are counted here: a cover that does not fit is no cover, however good the line is.
         ...(Array.isArray(r.options) ? r.options : []).filter(o => slideLength(o?.text) > COVER_TITLE_LIMIT || slideLength(o?.kicker) > COVER_KICKER_LIMIT).map(o => `표지에 넣기엔 긴 제목(제목 ${COVER_TITLE_LIMIT}자, 윗줄 ${COVER_KICKER_LIMIT}자 이내): "${clean(o.text, 60)}"`)])
+    if (asks) return { questions: asks, placeholders: [] }
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => { const label = COVER_PRINCIPLE_NAMES.includes(o.label) ? o.label : ''; return { text: clean(o.text, 60), kicker: clean(o.kicker, 40), why: clean(o.why, 200), label, hint: coverHint(label) } }).filter(o => o.text).slice(0, 3)
     if (!options.length) fail('STAGE_EMPTY', '표지 제목을 만들지 못했어요. 다시 시도해주세요.', 422)
     const terms = (Array.isArray(raw.plan?.terms) ? raw.plan.terms : []).map(t => ({ word: clean(t?.word, 40), meaning: clean(t?.meaning, 120) })).filter(t => t.word && t.meaning).slice(0, 8)
-    return { topic: row.topic, title: row.title, value: { options, chosen: 0, custom: null, customKicker: null, plan: { terms, purpose: clean(raw.plan?.purpose, 200), reader: clean(raw.plan?.reader, 200), promise: clean(raw.plan?.promise, 200) } }, placeholders: list(raw.placeholders, 120, 12) }
+    return { value: { options, chosen: 0, custom: null, customKicker: null, plan: { terms, purpose: clean(raw.plan?.purpose, 200), reader: clean(raw.plan?.reader, 200), promise: clean(raw.plan?.promise, 200) } }, placeholders: list(raw.placeholders, 120, 12) }
   }
   if (stage === 'body') {
     if (!chosenCover(row)) fail('STAGE_ORDER', '표지 제목을 먼저 정해주세요.', 409)
-    const raw = await draft('studio-carousel-body', bodyPrompt, bodySchema, revision(note, chosenBody(row)),
+    const { asks, ...raw } = await draft('studio-carousel-body', bodyPrompt, bodySchema, revision(note, chosenBody(row)),
       r => [...list(r.check?.unprovidedFacts, 80, 6), ...list(r.check?.referenceTraces, 80, 6), ...list(r.check?.swipeRisks, 120, 6).map(risk => `멈춰도 아쉽지 않은 덩어리: ${risk}`)])
+    if (asks) return { questions: asks, placeholders: [] }
     const options = (Array.isArray(raw.options) ? raw.options : []).map(o => ({ label: clean(o.label, 40), why: clean(o.why, 200), closing: block(o.closing, 200),
       units: (Array.isArray(o.units) ? o.units : []).map(u => ({ text: block(u?.text, 400) })).filter(u => u.text).slice(0, 30) })).filter(o => o.units.length >= 2).slice(0, 3)
       .map((o, i) => resolved.structure && i === 0 ? { ...o, label: '레퍼런스 구성 그대로', reference: true } : o)
@@ -368,6 +368,7 @@ export async function carouselChat(deps, row, messages, text) {
   const proposal = raw.proposal?.has && row[stage] ? normalizeProposal(stage, raw.proposal) : null
   return { content: clean(raw.reply, 800) || '네, 반영했어요.', meta: { chips: chipList(raw.chips, 3), proposal } }
 }
+
 // A revision the student accepted becomes the version in use.
 export function applyCarouselProposal(row, p) {
   if (!p || !row[p.stage]) fail('PROPOSAL_NOT_FOUND', '적용할 제안을 찾을 수 없어요.', 404)
@@ -423,6 +424,15 @@ export function applyCarouselPatch(row, body) {
   return patch
 }
 
-export const publicCarousel = row => ({ id: row.id, stage: row.stage, title: row.title || row.topic?.title || null, brief: row.brief, sources: row.sources, topic: row.topic ? { title: row.topic.title, category: row.topic.category, requests: row.topic.requests || [], research: row.topic.research && !row.topic.research.failed ? { subject: row.topic.research.subject, sources: row.topic.research.sources || [] } : null } : null,
-  cover: row.cover, body: row.body, slides: row.slides, design: row.design, caption: row.caption,
-  job: { stage: row.job_stage, status: row.job_status, error: row.job_error, startedAt: row.job_started_at }, createdAt: row.created_at, updatedAt: row.updated_at })
+// ---------- the carousel as a plan format ----------
+const defaultDesign = async (deps, row) => ({ design: (await generateCarouselStage(deps, row, 'design')).value })
+registerFormat('carousel', {
+  what: '캐러셀', order: CAROUSEL_STAGES, system: CAROUSEL_SYSTEM, media: 'carousel', openers: CAROUSEL_OPENERS,
+  hello: { content: '어떤 캐러셀을 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요. 막막하면 "주제 제안해줘"를 눌러보세요.', meta: { chips: ['주제 제안해줘', '내 경험을 이야기하고 싶어요', '알아두면 좋은 정보를 정리하고 싶어요'] } },
+  resolveSources: resolveCarouselSources, context,
+  generate: generateCarouselStage, revise: carouselChat,
+  // 디자인 is drawn by the browser from a template: nothing is written, the starting look is worked out at once.
+  instant: { design: defaultDesign },
+  // A topic the student changed leaves these written for the old one; the cover is written again on the spot.
+  later: ['body', 'slides', 'design', 'caption'], first: 'cover',
+})

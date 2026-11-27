@@ -17,7 +17,6 @@ import EditPage from './pages/EditPage'
 import PrintView from './pages/PrintView'
 import ManualPage from './pages/ManualPage'
 import CarouselsPage from './pages/CarouselsPage'
-import CarouselWizard from './pages/CarouselWizard'
 import { UpdatePopup, Tour } from './Guide'
 import KakaoIcon, { KAKAO_CHAT } from './KakaoIcon'
 import { popupHidden, popupClosedThisVisit, tourDone } from './guideData'
@@ -197,7 +196,7 @@ export default function StudioApp() {
             : route.page === 'edit' ? <EditPage key={route.params.job || route.params.tab || 'start'} jobId={route.params.job} tab={route.params.tab} />
             : route.page === 'style' ? <StylePage />
             : route.page === 'carousels' && features.carouselMaker ? <CarouselsPage />
-            : route.page === 'carousel' && features.carouselMaker ? <CarouselWizard key={route.params.id} id={route.params.id} />
+            : route.page === 'carousel' && features.carouselMaker ? <PlanWizard key={route.params.id} sessionId={route.params.id} />
             : route.page === 'manual' ? <ManualPage onTour={() => { go('reels'); setTimeout(() => setGuide('tour'), 600) }} />
             : <ReelsPage />}
         </div>

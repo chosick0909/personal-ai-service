@@ -9,7 +9,7 @@ export default function PlansPage() {
   const { go, toast } = useStudio()
   const [items, setItems] = useState(null)
   const [error, setError] = useState('')
-  useEffect(() => { studio.sessions().then(d => setItems(d.sessions)).catch(e => setError(e.message)) }, [])
+  useEffect(() => { studio.sessions().then(d => setItems(d.sessions.filter(s => s.format !== 'carousel'))).catch(e => setError(e.message)) }, [])
   const remove = async s => {
     if (!window.confirm('이 기획안을 지울까요? 되돌릴 수 없어요.')) return
     setItems(list => list.filter(i => i.id !== s.id))

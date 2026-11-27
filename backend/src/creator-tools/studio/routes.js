@@ -11,11 +11,11 @@ import { fail, stableHash, uuid } from '../domain.js'
 import { database, query, ownedMedia } from '../store.js'
 import { redisConnection } from '../queue.js'
 import { createProviders } from '../providers.js'
-import { studio2Enabled, canRecommend } from './access.js'
-import { STAGE_OPENERS, STAGE_ORDER, nextStage, HOOKAI_SYSTEM } from './persona.js'
+import { studio2Enabled, canRecommend, carouselMakerEnabled } from './access.js'
+import { STAGE_OPENERS, HOOKAI_SYSTEM } from './persona.js'
 import { planContextFor } from './plan-context.js'
 import { readBrief } from './research.js'
-import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf, cancelStage, MAX_SCRIPT_LINES } from './engine.js'
+import { SLOTS, resolveSources, openerMessage, chat, startStage, formulaFromSession, formulaFromReel, buildStyleCard, answerAsk, resumeStageJob, openingOf, cancelStage, MAX_SCRIPT_LINES, formatOf, stageOrder, nextStageOf } from './engine.js'
 import { THUMBNAIL_BUCKET, classifyReelCategories, isCarousel, reelsOnly, postUrl, slidesKey } from '../success-reels.js'
 import { BUCKET } from '../store.js'
 import { instagramPostUrl } from '../reference-quality.js'
@@ -31,6 +31,8 @@ import { createDemoLink, refreshDemoUsers, startDemoRefresh } from '../demo-link
 import { ideaReply } from './ideas.js'
 import { extractSupportingMaterials } from '../../lib/supporting-materials.js'
 import { registerCarouselRoutes } from './carousel-routes.js'
+import { normalizeCarouselSources, applyCarouselPatch, applyCarouselProposal, companionPlan } from './carousel.js'
+import { designImages } from './carousel-images.js'
 
 let redis
 const sharedRedis = () => { if (!redis) { redis = new Redis({ ...redisConnection(), maxRetriesPerRequest: 1 }); redis.on('error', () => {}) } return redis }
@@ -67,14 +69,16 @@ export function topicPatch(row, topic, { keep = false } = {}) {
   const changed = !keep && (!row.topic || row.topic.title !== topic.title || (row.topic.brief || '') !== topic.brief)
   const patch = { topic, title: !row.title || (changed && row.title === row.topic?.title) ? topic.title : row.title }
   if (!changed) return patch
-  for (const stage of LATER_STAGES) if (row[stage]) patch[stage] = null
-  if (LATER_STAGES.includes(row.ask?.stage)) patch.ask = null
+  const later = formatOf(row)?.later || LATER_STAGES
+  for (const stage of later) if (row[stage]) patch[stage] = null
+  if (later.includes(row.ask?.stage)) patch.ask = null
   return patch
 }
 
 // opening: the first line in use (the script's hook lines), for the finished plan and its print view.
-const publicSession = row => ({ id: row.id, mode: row.mode, stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
-  topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, opening: openingOf(row), script: row.script, filming: row.filming, caption: row.caption, memo: row.memo, placeholders: row.placeholders, ask: row.ask,
+const publicSession = row => ({ id: row.id, mode: row.mode, format: row.format || 'reel', stage: row.stage, title: row.title, sources: row.sources, brief: row.brief, attachments: row.attachments,
+  topic: row.topic, thumbnail: row.thumbnail, hook: row.hook, opening: openingOf(row), script: row.script, filming: row.filming, caption: row.caption,
+  ...(row.format === 'carousel' ? { cover: row.cover, body: row.body, slides: row.slides, design: row.design } : {}), memo: row.memo, placeholders: row.placeholders, ask: row.ask,
   job: { status: row.job_status, stage: row.job_stage, error: row.job_error, startedAt: row.job_started_at }, createdAt: row.created_at, updatedAt: row.updated_at })
 const publicMessage = row => ({ id: row.id, role: row.role, stage: row.stage, content: row.content, meta: row.meta, createdAt: row.created_at })
 
@@ -115,25 +119,43 @@ export function registerStudioRoutes(router) {
   }
   const addMessage = (sessionId, userId, role, stage, content, meta = {}) =>
     query(database().from('studio_messages').insert({ session_id: sessionId, user_id: userId, role, stage, content, meta }).select('*').single())
+  const openers = row => formatOf(row)?.openers || STAGE_OPENERS
+  // A carousel's screen also needs the pictures placed on its slides and the reel plan it was started from.
+  const extras = async row => row.format !== 'carousel' ? {} : { images: await designImages(database(), row.user_id, row.design).catch(() => ({})),
+    plan: await companionPlan(database(), row).then(p => p && { id: p.id, title: p.title }).catch(() => null) }
 
   // ----- sessions (내 기획안) -----
   router.get('/creator-tools/studio/sessions', asyncHandler(async (req, res) => {
     enabled(req)
-    const rows = await query(database().from('studio_sessions').select('id,mode,stage,title,topic,sources,job_status,created_at,updated_at').eq('user_id', req.auth.userId).order('updated_at', { ascending: false }).limit(100))
-    res.set('Cache-Control', 'private, no-store').json({ sessions: rows.map(r => ({ id: r.id, mode: r.mode, stage: r.stage, title: r.title || r.topic?.title || null, sources: r.sources, jobStatus: r.job_status, createdAt: r.created_at, updatedAt: r.updated_at })) })
+    const rows = await query(database().from('studio_sessions').select('id,mode,format,stage,title,topic,sources,job_status,created_at,updated_at').eq('user_id', req.auth.userId).order('updated_at', { ascending: false }).limit(100))
+    res.set('Cache-Control', 'private, no-store').json({ sessions: rows.map(r => ({ id: r.id, mode: r.mode, format: r.format || 'reel', stage: r.stage, title: r.title || r.topic?.title || null, sources: r.sources, jobStatus: r.job_status, createdAt: r.created_at, updatedAt: r.updated_at })) })
   }))
   router.post('/creator-tools/studio/sessions', asyncHandler(async (req, res) => {
     enabled(req)
-    const mode = ['single', 'mix', 'topic'].includes(req.body?.mode) ? req.body.mode : 'topic'
-    let sources = normalizeSources(req.body?.sources)
+    const carousel = req.body?.format === 'carousel'
+    if (carousel && !carouselMakerEnabled(req.auth.userId)) fail('FEATURE_DISABLED', '아직 공개되지 않은 기능입니다.', 404)
+    const mode = !carousel && ['single', 'mix', 'topic'].includes(req.body?.mode) ? req.body.mode : 'topic'
+    // 릴스·캐러셀 동시 제작: a carousel started from a reel plan takes that plan's topic and research as they are
+    // (nothing is asked or researched again) and reads the plan itself on every stage.
+    const plan = carousel && req.body?.fromPlan ? await query(database().from('studio_sessions').select('id,brief,topic').eq('id', uuid(req.body.fromPlan)).eq('user_id', req.auth.userId).maybeSingle()) : null
+    if (carousel && req.body?.fromPlan && !plan) fail('PLAN_NOT_FOUND', '기획안을 찾을 수 없어요.', 404)
+    let sources = carousel ? normalizeCarouselSources({ ...(req.body?.sources || {}), ...(plan ? { plan: { id: plan.id } } : {}) }) : normalizeSources(req.body?.sources)
     if (mode === 'single') { const one = sources.hook || sources.structure || sources.filming || sources.caption; if (!one) fail('SOURCE_REQUIRED', '레퍼런스를 골라주세요.'); sources = Object.fromEntries(SLOTS.map(s => [s, one])) }
     if (mode === 'mix' && !Object.keys(sources).length) fail('SOURCE_REQUIRED', '조합할 레퍼런스를 하나 이상 골라주세요.')
-    await resolveSources(database(), req.auth.userId, sources)
+    const format = carousel ? 'carousel' : 'reel'
+    await (formatOf({ format })?.resolveSources || resolveSources)(database(), req.auth.userId, sources)
     const style = await query(database().from('studio_styles').select('card').eq('user_id', req.auth.userId).maybeSingle())
-    const row = await query(database().from('studio_sessions').insert({ user_id: req.auth.userId, mode, sources, brief: text(req.body?.brief, 8000), style_snapshot: style?.card || null }).select('*').single())
+    const brief = text(req.body?.brief, 8000) || text(plan?.brief, 8000) || text(plan?.topic?.brief, 8000)
+    const from = plan?.topic?.title ? { topic: plan.topic, title: plan.topic.title } : {}
+    const row = await query(database().from('studio_sessions').insert({ user_id: req.auth.userId, mode, sources, brief, style_snapshot: style?.card || null, ...(carousel ? { format } : {}), ...from }).select('*').single())
+    if (from.topic) {
+      await addMessage(row.id, req.auth.userId, 'hookai', 'cover', openers(row).cover).catch(() => {})
+      const session = await startStage(deps(), row, 'cover', { force: true })
+      return res.status(201).json({ session: publicSession(session), messages: [] })
+    }
     // The plan opens at once; 훅ai's first message is written in the background and appears in the chat when ready.
     void (async () => {
-      const opener = await openerMessage(deps(), row).catch(() => ({ content: '어떤 릴스를 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요.', meta: { chips: ['주제 제안해줘'] } }))
+      const opener = await openerMessage(deps(), row).catch(() => formatOf(row)?.hello || ({ content: '어떤 릴스를 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요.', meta: { chips: ['주제 제안해줘'] } }))
       await addMessage(row.id, req.auth.userId, 'hookai', 'topic', opener.content, opener.meta).catch(() => {})
     })()
     res.status(201).json({ session: publicSession(row), messages: [] })
@@ -142,11 +164,11 @@ export function registerStudioRoutes(router) {
     enabled(req)
     // A plan left at the former first-line stage (or cut off while writing it) continues at the script, which now writes its first line.
     const found = await owned(req)
-    const row = found.stage === 'hook' || found.job_stage === 'hook' ? await startStage(deps(), found, 'script') : await resumeStageJob(deps(), found)
+    const row = !formatOf(found) && (found.stage === 'hook' || found.job_stage === 'hook') ? await startStage(deps(), found, 'script') : await resumeStageJob(deps(), found)
     const messages = await query(database().from('studio_messages').select('*').eq('session_id', row.id).order('created_at', { ascending: true }).limit(200))
-    const resolved = await resolveSources(database(), req.auth.userId, row.sources).catch(() => ({}))
+    const resolved = await (formatOf(row)?.resolveSources || resolveSources)(database(), req.auth.userId, row.sources).catch(() => ({}))
     res.set('Cache-Control', 'private, no-store').json({ session: publicSession(row), messages: messages.map(publicMessage),
-      sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { kind: s.kind, id: s.id, label: s.label, permalink: s.permalink || null }])) })
+      sources: Object.fromEntries(Object.entries(resolved).map(([slot, s]) => [slot, { kind: s.kind, id: s.id, label: s.label, permalink: s.permalink || null }])), ...(await extras(row)) })
   }))
   router.delete('/creator-tools/studio/sessions/:id', asyncHandler(async (req, res) => {
     enabled(req)
@@ -163,7 +185,9 @@ export function registerStudioRoutes(router) {
     if (typeof body.memo === 'string') patch.memo = text(body.memo, 4000)
     if (typeof body.title === 'string') patch.title = text(body.title, 80)
     if (Array.isArray(body.attachments)) patch.attachments = body.attachments.slice(0, 5).map(a => ({ name: text(a?.name, 120), content: text(a?.content, 6000) })).filter(a => a.name)
-    for (const field of ['thumbnail', 'hook', 'script', 'caption']) {
+    // A carousel's own parts (cover, body, slides, design, caption) follow the carousel's rules.
+    if (formatOf(row)) Object.assign(patch, applyCarouselPatch(row, body))
+    for (const field of formatOf(row) ? [] : ['thumbnail', 'hook', 'script', 'caption']) {
       const change = body[field]
       if (!change || !row[field]) continue
       const next = { ...row[field] }
@@ -198,7 +222,7 @@ export function registerStudioRoutes(router) {
     }
     if (Array.isArray(body.placeholders)) patch.placeholders = body.placeholders.map(p => text(p, 120)).filter(Boolean).slice(0, 20)
     const updated = await query(database().from('studio_sessions').update(patch).eq('id', row.id).select('*').single())
-    res.json({ session: publicSession(updated) })
+    res.json({ session: publicSession(updated), ...(body.design ? await extras(updated) : {}) })
   }))
   // Confirm the topic (from a proposal, a 훅ai-ready topic, or typed by the student) and open the thumbnail stage.
   router.post('/creator-tools/studio/sessions/:id/topic', asyncHandler(async (req, res) => {
@@ -219,25 +243,27 @@ export function registerStudioRoutes(router) {
       ...(row.topic?.research ? { research: row.topic.research } : {}) }
     if (topic.title.length < 2) fail('TOPIC_REQUIRED', '주제를 한 줄로 적어주세요.')
     const patch = topicPatch(row, topic, { keep })
+    // The stage right after the topic is written at once: the cover copy of a reel, the cover title of a carousel.
+    const first = formatOf(row)?.first || 'thumbnail'
     await query(database().from('studio_sessions').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id))
     await query(database().from('studio_topics').insert({ user_id: req.auth.userId, session_id: row.id, topic: topic.title, category: topic.category }))
     if (keep) {
       const added = (reading.requests || []).map(r => `'${r}'`).join(', ')
-      await addMessage(row.id, req.auth.userId, 'hookai', 'topic', `같은 영상이라 주제와 지금까지 만든 내용은 그대로 두었어요.${added ? ` 적어 주신 요청(${added})은 이제부터 만드는 단계와 '다시'를 누를 때 반영돼요.` : ''}`)
-    } else await addMessage(row.id, req.auth.userId, 'hookai', 'thumbnail', STAGE_OPENERS.thumbnail)
-    const session = await startStage(deps(), { ...row, ...patch }, 'thumbnail', { force: !keep })
+      await addMessage(row.id, req.auth.userId, 'hookai', 'topic', `같은 ${formatOf(row) ? formatOf(row).what : '영상'}이라 주제와 지금까지 만든 내용은 그대로 두었어요.${added ? ` 적어 주신 요청(${added})은 이제부터 만드는 단계와 '다시'를 누를 때 반영돼요.` : ''}`)
+    } else await addMessage(row.id, req.auth.userId, 'hookai', first, openers(row)[first])
+    const session = await startStage(deps(), { ...row, ...patch }, first, { force: !keep })
     res.json({ session: publicSession(session) })
   }))
   // Move to a stage (generating it on first visit) or regenerate the current one.
   router.post('/creator-tools/studio/sessions/:id/stage', asyncHandler(async (req, res) => {
     enabled(req)
     const row = await owned(req)
-    const stage = STAGE_ORDER.includes(req.body?.stage) ? req.body.stage : nextStage(row.stage)
+    const stage = stageOrder(row).includes(req.body?.stage) ? req.body.stage : nextStageOf(row)
     if (stage === 'topic') { await query(database().from('studio_sessions').update({ stage, updated_at: new Date().toISOString() }).eq('id', row.id)); return res.json({ session: publicSession({ ...row, stage }) }) }
-    if (stage === 'done') { await query(database().from('studio_sessions').update({ stage, updated_at: new Date().toISOString() }).eq('id', row.id)); await addMessage(row.id, req.auth.userId, 'hookai', 'done', STAGE_OPENERS.done); return res.json({ session: publicSession({ ...row, stage }) }) }
+    if (stage === 'done') { await query(database().from('studio_sessions').update({ stage, updated_at: new Date().toISOString() }).eq('id', row.id)); await addMessage(row.id, req.auth.userId, 'hookai', 'done', openers(row).done); return res.json({ session: publicSession({ ...row, stage }) }) }
     const force = req.body?.regenerate === true
     if (row.ask && row.ask.stage !== stage) await query(database().from('studio_sessions').update({ ask: null }).eq('id', row.id))
-    if (!row[stage] && STAGE_OPENERS[stage] && row.stage !== stage) await addMessage(row.id, req.auth.userId, 'hookai', stage, STAGE_OPENERS[stage])
+    if (!row[stage] && openers(row)[stage] && row.stage !== stage) await addMessage(row.id, req.auth.userId, 'hookai', stage, openers(row)[stage])
     const session = await startStage(deps(), row, stage, { force })
     res.json({ session: publicSession(session) })
   }))
@@ -428,7 +454,7 @@ export function registerStudioRoutes(router) {
     enabled(req)
     const row = await owned(req)
     const msg = await query(database().from('studio_messages').select('*').eq('id', uuid(req.body?.messageId)).eq('session_id', row.id).maybeSingle())
-    const change = proposalPatch(row, msg?.meta?.proposal)
+    const change = formatOf(row) ? applyCarouselProposal(row, msg?.meta?.proposal) : proposalPatch(row, msg?.meta?.proposal)
     if (!change) fail('PROPOSAL_NOT_FOUND', '적용할 제안을 찾을 수 없어요.', 404)
     const patch = { ...change, updated_at: new Date().toISOString() }
     const updated = await query(database().from('studio_sessions').update(patch).eq('id', row.id).select('*').single())

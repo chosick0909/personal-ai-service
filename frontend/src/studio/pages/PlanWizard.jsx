@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star, Play, Plus, GalleryHorizontalEnd } from 'lucide-react'
 import { useStudio } from '../context'
-import { studio, STAGES, SLOT_LABELS, readMaterials } from '../api'
+import { studio, stagesFor, SLOT_LABELS, readMaterials } from '../api'
+import { CoverStage, BodyStage, SlidesStage, CaptionStage as CarouselCaptionStage } from './CarouselStages'
+import { DesignStage } from './CarouselDesign'
+import { CarouselProposal, CarouselDone } from './CarouselDone'
 import { AttachButton, AttachChips } from '../Attachments'
 import HookLoader from '../HookLoader'
 import { CopyButton } from './ReferenceDetail'
@@ -11,9 +14,11 @@ import ChatWaitLine from '../ChatWait'
 import VoiceButton from '../VoiceButton'
 import { estimateLineSeconds } from '../../lib/scriptText'
 
-const ORDER = STAGES.map(([id]) => id)
 // Stages a student may skip: the script is the plan itself (filming and caption are written from it), and the topic feeds every stage.
 const SKIPPABLE = new Set(['thumbnail', 'filming', 'caption'])
+// A carousel's stages each build on the one before, so none is skipped.
+const NO_SKIP = new Set()
+const CAROUSEL_SLOTS = { structure: '구성', design: '디자인', caption: '캡션' }
 // Wide screens dock the chat to the right edge (open by default, folds away); narrow screens use a bottom sheet.
 const wide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1101px)').matches
 const GEN_STAGES = ['재료 모으는 중', '훅ai가 쓰는 중', '정리하는 중']
@@ -90,7 +95,9 @@ function ChatPanel({ session, messages, pending, busy, onSend, onPickTopic, onAp
         <div className={`st-msg st-msg-${m.role}`}>{m.content}</div>
         {m.role === 'hookai' && m.meta?.proposals?.length > 0 && session.stage === 'topic' && <div className="st-proposal"><strong>주제 후보예요. 마음에 드는 걸 눌러주세요.</strong>{m.meta.proposals.map((p, i) => <button type="button" key={i} className="st-proposal-card" onClick={() => onPickTopic(p)}><strong>{p.title}</strong><span className="st-muted">{p.promise}</span><span className="st-small" style={{ color: 'var(--st-accent-text)' }}>{p.why}</span></button>)}</div>}
         {m.role === 'hookai' && m.meta?.topic && session.stage === 'topic' && <div className="st-proposal"><strong>이 주제로 갈까요?</strong><div className="st-proposal-card"><strong>{m.meta.topic.title}</strong><span className="st-muted">{m.meta.topic.promise}</span></div><button type="button" className="st-btn st-btn-primary" onClick={() => onPickTopic(m.meta.topic)}><Check size={18} />이 주제로 할게요</button></div>}
-        {m.role === 'hookai' && m.meta?.proposal && (m.meta.proposal.stage === session.stage || session.stage === 'done') && <ProposalPreview proposal={m.meta.proposal} session={session} applied={m.id === appliedId} onApply={() => onApply(m.id)} />}
+        {m.role === 'hookai' && m.meta?.proposal && (m.meta.proposal.stage === session.stage || session.stage === 'done') && (session.format === 'carousel'
+          ? session[m.meta.proposal.stage] && <CarouselProposal proposal={m.meta.proposal} carousel={session} applied={m.id === appliedId} onApply={() => onApply(m.id)} />
+          : <ProposalPreview proposal={m.meta.proposal} session={session} applied={m.id === appliedId} onApply={() => onApply(m.id)} />)}
         {m.role === 'hookai' && m === last && m.meta?.chips?.length > 0 && !busy && <div className="st-msg-chips">{m.meta.chips.map(c => <button type="button" key={c} className="st-chip" onClick={() => send(c)}>{c}</button>)}</div>}
       </div>)}
       {pending && <div className="st-msg st-msg-user">{pending}</div>}
@@ -146,8 +153,8 @@ function TopicStage({ session, save, onSuggest, onBrief, onPickSaved }) {
   const spoken = t => setBrief(b => { const v = `${b}${b ? '\n' : ''}${t}`; debounced(v); onBrief?.(v); return v })
   return <div className="st-stack">
     <section className="st-card st-stack">
-      <div><h3>이번 영상에 담고 싶은 내용</h3><p className="st-muted">제품, 경험, 하고 싶은 말을 편하게 적어주세요. 길어도 괜찮아요. 적은 사실만 기획안에 들어가요.</p></div>
-      <textarea className="st-textarea" value={brief} onChange={e => { setBrief(e.target.value); onBrief?.(e.target.value); debounced(e.target.value) }} placeholder={'예) 30대 지성 피부인 제가 3주 동안 써본 선크림 3개를 솔직하게 비교하고 싶어요. 제일 좋았던 건 백탁이 없고 오후에도 번들거리지 않던 제품이에요.'} aria-label="이번 영상에 담고 싶은 내용" />
+      <div><h3>이번 {session.format === 'carousel' ? '캐러셀' : '영상'}에 담고 싶은 내용</h3><p className="st-muted">제품, 경험, 하고 싶은 말을 편하게 적어주세요. 길어도 괜찮아요. 적은 사실만 기획안에 들어가요.</p></div>
+      <textarea className="st-textarea" value={brief} onChange={e => { setBrief(e.target.value); onBrief?.(e.target.value); debounced(e.target.value) }} placeholder={'예) 30대 지성 피부인 제가 3주 동안 써본 선크림 3개를 솔직하게 비교하고 싶어요. 제일 좋았던 건 백탁이 없고 오후에도 번들거리지 않던 제품이에요.'} aria-label="담고 싶은 내용" />
       <div className="st-row">
         <VoiceButton onText={spoken} onError={body => toast({ kind: 'failed', title: '말로 입력하지 못했어요', body })} />
         <label className="st-btn" style={{ cursor: 'pointer' }}><Paperclip size={18} />{uploading ? '읽는 중…' : '자료 첨부'}<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.docx" style={{ display: 'none' }} disabled={uploading} onChange={e => upload([...e.target.files])} /></label>
@@ -368,7 +375,7 @@ function CarouselFromPlan({ session }) {
   const [busy, setBusy] = useState(false)
   const start = async () => {
     setBusy(true)
-    try { const r = await studio.createCarousel({ fromPlan: session.id }); go('carousel', { id: r.carousel.id }) }
+    try { const r = await studio.createSession({ format: 'carousel', fromPlan: session.id }); go('carousel', { id: r.session.id }) }
     catch (e) { toast({ kind: 'failed', title: '캐러셀을 시작하지 못했어요', body: e.message }); setBusy(false) }
   }
   return <button type="button" className="st-btn st-btn-big" disabled={busy} onClick={start}><GalleryHorizontalEnd size={20} />{busy ? '여는 중…' : '이 기획으로 캐러셀도 만들기'}</button>
@@ -417,9 +424,12 @@ export default function PlanWizard({ sessionId }) {
   const [appliedId, setAppliedId] = useState(null)
   const [pending, setPending] = useState(null)
   const session = data?.session
+  const carousel = session?.format === 'carousel'
+  const STAGES = stagesFor(session?.format), ORDER = STAGES.map(([id]) => id), skippable = carousel ? NO_SKIP : SKIPPABLE
   // The student's other plans, to switch to one (or start a new one) without going back to 내 기획안.
   const [others, setOthers] = useState([])
   useEffect(() => { studio.sessions().then(d => setOthers((d.sessions || []).filter(s => s.id !== sessionId))).catch(() => {}) }, [sessionId])
+  const sameKind = others.filter(s => (s.format === 'carousel') === carousel)
   const load = useCallback(() => studio.session(sessionId).then(setData).catch(e => setError(e.message)), [sessionId])
   useEffect(() => { load() }, [load])
   const running = session?.job?.status === 'running'
@@ -428,7 +438,7 @@ export default function PlanWizard({ sessionId }) {
   const awaitingOpener = Boolean(data && data.messages.length === 0)
   useEffect(() => { if (!awaitingOpener) return undefined; const t = setInterval(load, 2000); return () => clearInterval(t) }, [awaitingOpener, load])
 
-  const save = useCallback(async patch => { try { const r = await studio.patchSession(sessionId, patch); setData(d => ({ ...d, session: r.session })) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }, [sessionId, toast])
+  const save = useCallback(async patch => { try { const r = await studio.patchSession(sessionId, patch); setData(d => ({ ...d, session: r.session, ...(r.images ? { images: r.images } : {}) })) } catch (e) { toast({ kind: 'failed', title: '저장 실패', body: e.message }) } }, [sessionId, toast])
   // The student's message shows at once, above 훅ai's typing dots, until the saved conversation comes back.
   // 훅ai writes its answer in the background; the conversation is checked every 2 s until the answer to this message is in.
   const send = async (typed, { openChat = true, attachments = [] } = {}) => {
@@ -469,7 +479,7 @@ export default function PlanWizard({ sessionId }) {
   if (!session) return <p className="st-muted">불러오는 중…</p>
   const idx = ORDER.indexOf(session.stage)
   // A stage passed without being made; pressing it in the stepper makes it now.
-  const skipped = id => SKIPPABLE.has(id) && !session[id]
+  const skipped = id => skippable.has(id) && !session[id]
   const hasTopic = Boolean(session.topic?.title)
   // No separate topic box: the first sentence of what the student wrote becomes the topic when they move on.
   const briefTopic = () => briefLive.split(/[.!?\n]/).map(t => t.trim()).find(Boolean)?.slice(0, 60) || ''
@@ -480,18 +490,20 @@ export default function PlanWizard({ sessionId }) {
   const failed = session.job?.status === 'failed'
   const generating = running && session.job?.stage === session.stage
   const elapsed = session.job?.startedAt ? (Date.now() - Date.parse(session.job.startedAt)) / 1000 : 0
-  const nextLabel = { topic: '썸네일 카피 만들기', thumbnail: '첫 문장·대본 만들기', script: '촬영·편집 기획', filming: '캡션 만들기', caption: '완성하기' }[session.stage]
+  const nextLabel = (carousel ? { topic: '표지 제목 만들기', cover: '본문 기획하기', body: '슬라이드로 나누기', slides: '디자인하기', design: '캡션 만들기', caption: '완성하기' }
+    : { topic: '썸네일 카피 만들기', thumbnail: '첫 문장·대본 만들기', script: '촬영·편집 기획', filming: '캡션 만들기', caption: '완성하기' })[session.stage]
+  const key = `${version}-${session.stage}`
   return <div className="st-wizard">
     <div className="st-wizard-main">
       <div className="st-row" style={{ justifyContent: 'space-between' }}>
         <div className="st-row" style={{ gap: 4, flexWrap: 'nowrap', minWidth: 0 }}>
-          <button type="button" className="st-btn st-btn-ghost" onClick={() => go('plans')}><ArrowLeft size={20} />내 기획안</button>
+          <button type="button" className="st-btn st-btn-ghost" onClick={() => go(carousel ? 'carousels' : 'plans')}><ArrowLeft size={20} />{carousel ? '캐러셀 만들기' : '내 기획안'}</button>
           {/* Each plan opens in its own window, so several plans can be made at once while this one keeps going. */}
           <details className="st-plan-switch">
-            <summary className="st-btn st-btn-ghost st-btn-sm">다른 기획안<ChevronDown size={16} /></summary>
+            <summary className="st-btn st-btn-ghost st-btn-sm">{carousel ? '다른 캐러셀' : '다른 기획안'}<ChevronDown size={16} /></summary>
             <div className="st-plan-switch-menu" role="menu">
-              <a role="menuitem" href="/studio?p=new" target="_blank" rel="noreferrer"><Plus size={15} />새 기획안 만들기 (새 창)</a>
-              {others.map(s => <a role="menuitem" key={s.id} href={`/studio?p=plan&session=${s.id}`} target="_blank" rel="noreferrer">{s.title || '제목 없는 기획안'}{s.jobStatus === 'running' ? <em> · 만드는 중</em> : null}</a>)}
+              <a role="menuitem" href={carousel ? '/studio?p=carousels' : '/studio?p=new'} target="_blank" rel="noreferrer"><Plus size={15} />{carousel ? '새 캐러셀 만들기 (새 창)' : '새 기획안 만들기 (새 창)'}</a>
+              {sameKind.map(s => <a role="menuitem" key={s.id} href={carousel ? `/studio?p=carousel&id=${s.id}` : `/studio?p=plan&session=${s.id}`} target="_blank" rel="noreferrer">{s.title || (carousel ? '제목 없는 캐러셀' : '제목 없는 기획안')}{s.jobStatus === 'running' ? <em> · 만드는 중</em> : null}</a>)}
             </div>
           </details>
         </div>
@@ -499,7 +511,11 @@ export default function PlanWizard({ sessionId }) {
         <button type="button" className="st-btn st-btn-ghost st-chat-toggle" onClick={() => setChatOpen(o => !o)}><MessageSquareText size={18} />훅ai</button>
       </div>
       <nav className="st-stepper" aria-label="기획 단계">{STAGES.map(([id, label], i) => <span key={id} style={{ display: 'contents' }}>{i > 0 && <span className="st-step-gap" />}<button type="button" className={`st-step${i < idx && !skipped(id) ? ' is-done' : ''}`} aria-current={id === session.stage ? 'step' : undefined} disabled={i > idx} title={i < idx && skipped(id) ? '건너뛴 단계예요. 누르면 지금 만들어요.' : undefined} onClick={() => i < idx && toStage(id)}><i>{i < idx && !skipped(id) ? <Check size={15} /> : i + 1}</i>{label}{i < idx && skipped(id) ? <small className="st-muted"> 건너뜀</small> : null}</button></span>)}</nav>
-      {Object.keys(session.sources || {}).length > 0 && data.sources && <div className="st-chips">{Object.entries(data.sources).map(([slot, s]) => s.kind === 'reel'
+      {(Object.keys(data.sources || {}).length > 0 || data.plan) && <div className="st-chips">
+        {data.plan && <a className="st-pill st-pill-link" style={{ fontSize: 14 }} href={`/studio?p=plan&session=${data.plan.id}`} target="_blank" rel="noreferrer" title="이 릴스 기획안과 같은 이야기로 만들어요. 기획안을 고치면 다음 단계부터 반영돼요.">릴스 기획안 · {data.plan.title || '제목 없음'}</a>}
+        {Object.entries(data.sources || {}).map(([slot, s]) => carousel
+        ? <a key={slot} className="st-pill st-pill-gray st-pill-link" style={{ fontSize: 14 }} href={s.permalink || `/studio?p=reference&ref=${encodeURIComponent(s.id)}`} target="_blank" rel="noreferrer">{CAROUSEL_SLOTS[slot]} · {s.label}</a>
+        : s.kind === 'reel'
         // A reference video opens in a new tab (Instagram, or its 레퍼런스 분석 page for an uploaded video), so the plan being written stays as it is.
         ? <a key={slot} className="st-pill st-pill-gray st-pill-link" style={{ fontSize: 14 }} href={s.permalink || `/studio?p=reference&ref=${encodeURIComponent(s.id)}`} target="_blank" rel="noreferrer" title="레퍼런스 영상 보기"><Play size={13} />{SLOT_LABELS[slot]} · {s.label}</a>
         : <span key={slot} className="st-pill st-pill-gray" style={{ fontSize: 14 }}>{SLOT_LABELS[slot]} · {s.label}</span>)}</div>}
@@ -507,24 +523,30 @@ export default function PlanWizard({ sessionId }) {
         : generating ? <div className="st-stack"><HookLoader title={`훅ai가 ${STAGES.find(([id]) => id === session.stage)?.[1]} 만드는 중`} stages={GEN_STAGES} stageIndex={elapsed < 5 ? 0 : elapsed < 60 ? 1 : 2} startedAt={session.job.startedAt} />
             <div className="st-row" style={{ justifyContent: 'center', gap: 8 }}>
               <button type="button" className="st-btn st-btn-ghost" onClick={cancel}><X size={18} />취소하고 돌아가기</button>
-              {SKIPPABLE.has(session.stage) && <button type="button" className="st-btn st-btn-ghost" onClick={skipRunning}>이 단계 건너뛰기<ArrowRight size={18} /></button>}
+              {skippable.has(session.stage) && <button type="button" className="st-btn st-btn-ghost" onClick={skipRunning}>이 단계 건너뛰기<ArrowRight size={18} /></button>}
             </div></div>
         : failed ? <div className="st-card st-stack"><div className="st-error">{session.job.error}</div><button type="button" className="st-btn st-btn-primary" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시 만들기</button></div>
         : session.stage === 'topic' ? <TopicStage session={session} save={save} onSuggest={brief => send(brief ? `주제 제안해줘. 내용: ${brief.slice(0, 1500)}` : '주제 제안해줘')} onBrief={setBriefLive}
             onPickSaved={t => pickTopic({ title: t.title, angle: t.angle, promise: t.promise, category: t.category || '기타', facts: [] })} />
         : !stageReady ? (failed ? null : <HookLoader title="준비 중" stages={GEN_STAGES} stageIndex={0} />)
+        : carousel ? (session.stage === 'cover' ? <CoverStage key={key} carousel={session} save={save} />
+          : session.stage === 'body' ? <BodyStage key={`${key}-${session.body.chosen}-${session.body.edited ? 'e' : 'o'}`} carousel={session} save={save} />
+          : session.stage === 'slides' ? <SlidesStage key={`${key}-${session.slides.template}`} carousel={session} save={save} onRedo={() => toStage('slides', true)} />
+          : session.stage === 'design' ? <DesignStage key={key} carousel={session} images={data.images || {}} save={save} />
+          : session.stage === 'caption' ? <CarouselCaptionStage key={`${key}-${session.caption.chosen}-${session.caption.edited ? 'e' : 'o'}`} carousel={session} save={save} />
+          : <CarouselDone carousel={session} images={data.images || {}} />)
         : session.stage === 'thumbnail' ? <ThumbnailStage key={`${version}-${session.thumbnail.applied?.text || ''}`} session={session} save={save} restore={restorePick} />
         : session.stage === 'script' ? <ScriptStage key={`${version}-${session.script.chosen}-${session.script.edited ? 'e' : 'o'}-${session.script.history?.length || 0}`} session={session} save={save} onQuick={send} />
         : session.stage === 'filming' ? <FilmingStage session={session} save={save} />
         : session.stage === 'caption' ? <CaptionStage key={`${version}-${session.caption.chosen}-${session.caption.edited ? 'e' : 'o'}-${session.caption.history?.length || 0}`} session={session} save={save} />
         : <DoneStage session={session} onSaveFormula={saveFormula} save={save} version={version} />}
-      {session.placeholders?.length > 0 && session.stage !== 'done' && session.stage !== 'topic' && <div className="st-note st-note-warn st-small">촬영 전에 채울 빈칸: {session.placeholders.join(', ')}</div>}
+      {session.placeholders?.length > 0 && session.stage !== 'done' && session.stage !== 'topic' && <div className="st-note st-note-warn st-small">{carousel ? '올리기' : '촬영'} 전에 채울 빈칸: {session.placeholders.join(', ')}</div>}
       {session.stage !== 'done' && !generating && <div className="st-wizard-foot">
         {idx > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx - 1])}><ArrowLeft size={20} />이전</button>}
-        {session.stage !== 'topic' && stageReady && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시</button>}
-        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic && !briefTopic()} onClick={() => hasTopic && !topicStale ? toStage('thumbnail') : startFromBrief()}>{hasTopic && !topicStale ? `${nextLabel}` : briefTopic() ? '이 내용으로 바로 시작' : '담고 싶은 내용을 적어주세요'}<ArrowRight size={20} /></button>
+        {session.stage !== 'topic' && session.stage !== 'design' && stageReady && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시</button>}
+        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic && !briefTopic()} onClick={() => hasTopic && !topicStale ? toStage(ORDER[1]) : startFromBrief()}>{hasTopic && !topicStale ? `${nextLabel}` : briefTopic() ? '이 내용으로 바로 시작' : '담고 싶은 내용을 적어주세요'}<ArrowRight size={20} /></button>
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
-        {SKIPPABLE.has(ORDER[idx + 1]) && (session.stage === 'topic' ? hasTopic && !topicStale : stageReady) && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx + 2])}>{STAGES.find(([id]) => id === ORDER[idx + 1])?.[1]} 건너뛰기</button>}
+        {skippable.has(ORDER[idx + 1]) && (session.stage === 'topic' ? hasTopic && !topicStale : stageReady) && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx + 2])}>{STAGES.find(([id]) => id === ORDER[idx + 1])?.[1]} 건너뛰기</button>}
       </div>}
     </div>
     <ChatPanel session={session} messages={data.messages} pending={pending} busy={chatBusy || awaitingOpener} onSend={send} onPickTopic={pickTopic} onApply={apply} appliedId={appliedId} open={chatOpen} setOpen={setChatOpen} />

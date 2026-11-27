@@ -25,7 +25,7 @@ function StartForm({ onStarted }) {
   const [progress, setProgress] = useState(null)
   const [busy, setBusy] = useState(false)
   const uploadRef = useRef(null)
-  useEffect(() => { studio.sessions().then(d => setPlans((d.sessions || []).filter(s => ['script', 'filming', 'caption', 'done'].includes(s.stage)))).catch(() => {}) }, [])
+  useEffect(() => { studio.sessions().then(d => setPlans((d.sessions || []).filter(s => s.format !== 'carousel' && ['script', 'filming', 'caption', 'done'].includes(s.stage)))).catch(() => {}) }, [])
   useEffect(() => () => { void uploadRef.current?.abort() }, [])
   const pickPlan = async id => {
     setPlanId(id)

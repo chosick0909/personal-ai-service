@@ -40,16 +40,7 @@ export const studio = {
   updateIdea: (id, body) => creatorRequest(`/creator-tools/studio/ideas/saved/${id}`, { method: 'PATCH', body }),
   removeIdea: id => creatorRequest(`/creator-tools/studio/ideas/saved/${id}`, { method: 'DELETE' }),
   planFromIdea: id => creatorRequest(`/creator-tools/studio/ideas/saved/${id}/plan`, { method: 'POST' }),
-  // 캐러셀 만들기 (내부 전용): plans, the conversation with 훅ai, and the image library.
-  carousels: () => creatorRequest('/creator-tools/studio/carousels'),
-  createCarousel: body => creatorRequest('/creator-tools/studio/carousels', { method: 'POST', body }),
-  carousel: id => creatorRequest(`/creator-tools/studio/carousels/${id}`),
-  patchCarousel: (id, body) => creatorRequest(`/creator-tools/studio/carousels/${id}`, { method: 'PATCH', body }),
-  removeCarousel: id => creatorRequest(`/creator-tools/studio/carousels/${id}`, { method: 'DELETE' }),
-  carouselStage: (id, stage, regenerate = false) => creatorRequest(`/creator-tools/studio/carousels/${id}/stage`, { method: 'POST', body: { stage, regenerate } }),
-  cancelCarouselStage: id => creatorRequest(`/creator-tools/studio/carousels/${id}/cancel`, { method: 'POST', body: {} }),
-  carouselChat: (id, text) => creatorRequest(`/creator-tools/studio/carousels/${id}/chat`, { method: 'POST', body: { text } }),
-  applyCarousel: (id, messageId) => creatorRequest(`/creator-tools/studio/carousels/${id}/apply`, { method: 'POST', body: { messageId } }),
+  // 캐러셀 만들기 (내부 전용): a carousel is a plan (session) whose format is 'carousel'; these are the look a student keeps and the image library.
   saveCarouselDesign: design => creatorRequest('/creator-tools/studio/carousel-design', { method: 'PUT', body: design }),
   images: () => creatorRequest('/creator-tools/studio/images'),
   removeImage: id => creatorRequest(`/creator-tools/studio/images/${id}`, { method: 'DELETE' }),
@@ -94,8 +85,8 @@ async function slowRequest(path, options, fallback) {
   if (!response.ok) throw createApiError(response, payload, fallback)
   return payload
 }
-export const draftSheet = id => slowRequest(`/creator-tools/studio/carousels/${id}/sheet/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }, '정리할 글을 만들지 못했어요.')
-export const makeSheet = (id, sheet) => slowRequest(`/creator-tools/studio/carousels/${id}/sheet`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sheet }) }, '총정리 이미지를 만들지 못했어요.')
+export const draftSheet = id => slowRequest(`/creator-tools/studio/sessions/${id}/sheet/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }, '정리할 글을 만들지 못했어요.')
+export const makeSheet = (id, sheet) => slowRequest(`/creator-tools/studio/sessions/${id}/sheet`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sheet }) }, '총정리 이미지를 만들지 못했어요.')
 export const generateImage = body => slowRequest('/creator-tools/studio/images/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, '이미지를 만들지 못했어요.')
 // A photo is shrunk in the browser before it is sent (long side 2,160px, plus a small preview): phone originals are
 // several megabytes each, and a slide is only 1,080px wide.
@@ -111,4 +102,6 @@ export async function uploadImage(file) {
   form.append('image', full.blob, 'image.jpg'); form.append('thumb', thumb.blob, 'thumb.jpg'); form.append('width', String(full.width)); form.append('height', String(full.height))
   return slowRequest('/creator-tools/studio/images', { method: 'POST', body: form }, '이미지를 올리지 못했어요.')
 }
-export const CAROUSEL_STAGES = [['cover', '표지 제목'], ['body', '본문 기획'], ['slides', '슬라이드 나누기'], ['design', '디자인'], ['caption', '캡션'], ['done', '완성']]
+export const CAROUSEL_STAGES = [['topic', '주제'], ['cover', '표지 제목'], ['body', '본문 기획'], ['slides', '슬라이드 나누기'], ['design', '디자인'], ['caption', '캡션'], ['done', '완성']]
+// A plan's stages by what is being made: a reel unless the plan says carousel.
+export const stagesFor = format => format === 'carousel' ? CAROUSEL_STAGES : STAGES

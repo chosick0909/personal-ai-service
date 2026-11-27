@@ -21,6 +21,19 @@ const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC')
 const list = (value, max, count) => Array.isArray(value) ? value.map(v => clean(v, max)).filter(Boolean).slice(0, count) : []
 // A suggested answer is sent as the student's own message when pressed, so it is kept whole or left out, never cut mid-sentence.
 const chipList = (value, count) => (Array.isArray(value) ? value : []).map(v => clean(v, 1000)).filter(c => c && c.length <= 160).slice(0, count)
+// ---------- formats ----------
+// A plan is a reel unless its row says otherwise. Another format (a carousel) shares the topic conversation, the
+// questions before a draft, the research and the stage jobs, and brings its own stages, prompts and revisions:
+// { what, order, system, hello, media, resolveSources, context, generate, revise, instant }.
+const formats = {}
+export const registerFormat = (name, format) => { formats[name] = format }
+export const formatOf = session => formats[session?.format] || null
+export const stageOrder = session => formatOf(session)?.order || STAGE_ORDER
+export const nextStageOf = session => { const f = formatOf(session); if (!f) return nextStage(session.stage)
+  return f.order[Math.min(f.order.length - 1, f.order.indexOf(session.stage) + 1)] }
+const sourcesOf = (deps, session) => (formatOf(session)?.resolveSources || resolveSources)(deps.db, session.user_id, session.sources)
+const contextOf = (session, resolved, extras) => (formatOf(session)?.context || sessionContext)(session, resolved, extras)
+
 export const SLOTS = ['hook', 'structure', 'filming', 'caption']
 const SLOT_LABELS = { hook: '첫 문장(후킹)', structure: '전개', filming: '촬영/편집', caption: '캡션' }
 const PARTS = ['hook', 'body', 'cta']
@@ -114,44 +127,57 @@ function sessionContext(session, resolved, extras = {}) {
 // What 훅ai has learned about the plan's field from its daily study; null until the field is known and studied.
 const knowledgeFor = async (db, session) => ({ fieldKnowledge: await fieldKnowledge(db, session.topic?.category) })
 
-const providersJson = (providers, op, instructions, input, schema, shared = null) => providers.json(op, `${HOOKAI_SYSTEM}\n\n${instructions}`, input, [], schema, shared)
+const providersJson = (providers, op, instructions, input, schema, shared = null, system = HOOKAI_SYSTEM) => providers.json(op, `${system}\n\n${instructions}`, input, [], schema, shared)
 
 // ---------- topic chat ----------
-const topicSchema = obj({
+export const topicSchema = obj({
   reply: str, chips: arr(str),
   proposals: arr(obj({ title: str, angle: str, promise: str, why: str, category: str })),
   topic: obj({ ready: bool, title: str, angle: str, promise: str, facts: arr(str), audience: str, category: str }),
 })
 // Suggested answers steer what students type, and what they type decides how good the plan can be.
 export const CHIP_RULE = '추천 답변(chips)은 수강생이 누르기만 해도 기획안이 강해지는 답이어야 합니다. 누르면 그대로 수강생의 메시지로 보내지므로, 각 답은 그 자체로 끝나는 완결된 한 문장(40자 안팎)으로 씁니다. 서로 다른 방향의 답을 수강생 입장의 짧은 말로 씁니다. 각 답은 research(조사한 사실·구매자 후기·시청자 궁금증)와 fieldKnowledge(이 분야에서 터지는 주제·시청자 말투)에서 시청자를 붙잡을 재료가 되는 구체적인 내용으로 쓰고, 어떤 주제에나 붙는 막연한 답은 쓰지 않습니다. 수강생 본인의 경험·사실을 묻는 질문이면 수강생이 사실대로 고를 수 있도록 실제로 흔한 서로 다른 상황을 제시합니다(맞는 것이 없으면 수강생이 직접 적습니다).'
-const topicPrompt = `지금은 '주제 정하기' 단계입니다. 수강생과 대화하며 이번 릴스의 주제를 확정합니다.
+// Reels and carousels find their topic the same way; only what is being made differs.
+export const topicPromptFor = what => `지금은 '주제 정하기' 단계입니다. 수강생과 대화하며 이번 ${what}의 주제를 확정합니다.
 - reply: 수강생에게 할 말(2~4문장). 질문은 한 번에 하나만.
 - chips: reply의 질문에 바로 누를 수 있는 추천 답변 2~4개. ${CHIP_RULE} 항상 "그냥 알아서 해주세요"를 마지막에 넣습니다. 질문이 없으면 [].
 - proposals: 주제 후보 3개(수강생이 주제를 못 정했거나 "제안해줘"를 원할 때). 각 후보는 title(주제 한 줄), angle(차별 관점), promise(시청자가 얻는 것), why(지금 이 분야에서 먹히는 이유; trending이 있으면 그 근거), category(분야). 후보를 낼 상황이 아니면 [].
 - topic: 주제를 확정할 수 있을 만큼 정보가 모이면 ready=true와 함께 채웁니다. title, angle, promise, facts(수강생이 실제로 준 사실만, 없으면 []), audience(누구에게), category(분야). 아직이면 ready=false와 빈 값.
 규칙: brief가 있으면 그 소재가 곧 주제이고, 질문과 제안은 그 소재 안에서만 합니다. 레퍼런스(sources)가 있으면 첫 질문은 그 형식을 수강생의 소재에 살리는 데 필요한 재료(형식이 요구하는 비교 대상, 경험, 기준 등)를 묻습니다. 질문은 한 번에 하나씩, 전체 대화에서 최대 3개. directive가 있으면 그 지시를 최우선으로 따릅니다. 수강생이 답한 사실은 facts에 그대로 담습니다. 수강생이 "알아서"라고 하면 더 묻지 말고 proposals 또는 topic으로 넘어갑니다. facts에 없는 사실을 title·promise에 넣지 않습니다. 분야(category)는 다음 중 하나: ${SUCCESS_REEL_CATEGORIES.join(', ')}.`
+const topicPrompt = topicPromptFor('릴스')
 
-export async function trendingFor(db, category) {
-  let request = reelsOnly(db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready'))
+// What is doing well in the field right now: reels for a reel plan, carousels for a carousel.
+export async function trendingFor(db, category, { media = 'reel' } = {}) {
+  const base = db.from('creator_success_reels').select('username,views,category,analysis').eq('visible', true).eq('analysis_status', 'ready')
+  let request = media === 'carousel' ? base.eq('analysis->>kind', 'carousel') : reelsOnly(base)
   if (category && SUCCESS_REEL_CATEGORIES.includes(category)) request = request.eq('category', category)
   const rows = await query(request.order('analysis_requests', { ascending: false }).order('views', { ascending: false }).limit(6))
+  if (media === 'carousel') return rows.map(r => ({ account: `@${r.username}`, category: r.category, views: r.views, topic: r.analysis?.overview?.topic, angle: r.analysis?.overview?.uniqueAngle, cover: r.analysis?.cover?.title, coverFormula: r.analysis?.cover?.formula, format: r.analysis?.structure?.category }))
   return rows.map(r => ({ account: `@${r.username}`, category: r.category, views: r.views, topic: r.analysis?.overview?.topic, hookType: r.analysis?.hook?.category, hookFormula: r.analysis?.hook?.formula, format: r.analysis?.structure?.category }))
 }
 
 export async function openerMessage(deps, session) {
   // With something written already, 훅ai looks it up first, so its first question and suggested answers use the research.
   if (String(session.brief || '').trim().length >= 4 && !researchFresh(session)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)), { research: true, category: false })
-  const resolved = await resolveSources(deps.db, session.user_id, session.sources)
+  const f = formatOf(session)
+  const resolved = await sourcesOf(deps, session)
   if (!Object.keys(resolved).length && !session.topic?.research) {
-    return { content: '어떤 릴스를 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요. 막막하면 "주제 제안해줘"를 눌러보세요.',
+    return f?.hello || { content: '어떤 릴스를 만들어볼까요? 담고 싶은 내용을 편하게 적어주세요. 막막하면 "주제 제안해줘"를 눌러보세요.',
       meta: { chips: ['주제 제안해줘', '내 경험을 이야기하고 싶어요', '제품을 소개하고 싶어요'] } }
   }
   const providers = deps.makeProviders(new AbortController().signal)
-  const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), event: '세션 시작. 레퍼런스 포맷을 한 문장으로 짚고 첫 질문을 하세요.' }, topicSchema)
+  const raw = await providersJson(providers, 'studio-topic', f ? topicPromptFor(f.what) : topicPrompt, { ...contextOf(session, resolved, await knowledgeFor(deps.db, session)),
+    event: '세션 시작. 레퍼런스 포맷을 한 문장으로 짚고 첫 질문을 하세요.' }, topicSchema, null, f?.system)
   return normalizeTopicReply(raw)
 }
 
-function normalizeTopicReply(raw) {
+export const wantsTopicIdeas = text => /제안|추천|알아서|모르겠/.test(text)
+// Students lose patience after a few questions: settle the topic once they ask to, or after three answers.
+export const topicDirective = (answered, text) => answered >= 3 || /충분|정해|확정|그만|알아서|그냥 해|바로 해|넘어가/.test(text)
+  ? '지금까지 모인 정보로 더 묻지 말고 topic.ready=true로 주제를 확정하세요. 빠진 사실은 facts에 넣지 말고(뒤 단계에서 묻습니다) title·promise는 아는 사실만으로 씁니다. chips는 [].'
+  : '질문은 한 번에 하나. 이미 답을 받은 내용은 다시 묻지 않습니다.'
+
+export function normalizeTopicReply(raw) {
   const topic = raw.topic?.ready && clean(raw.topic.title, 120) ? { title: clean(raw.topic.title, 120), angle: clean(raw.topic.angle, 200), promise: clean(raw.topic.promise, 200),
     facts: list(raw.topic.facts, 200, 12), audience: clean(raw.topic.audience, 120), category: SUCCESS_REEL_CATEGORIES.includes(raw.topic.category) ? raw.topic.category : '기타' } : null
   return { content: clean(raw.reply, 600) || '좋아요, 이어서 볼게요.', meta: { chips: chipList(raw.chips, 4),
@@ -160,21 +186,19 @@ function normalizeTopicReply(raw) {
 }
 
 export async function chat(deps, session, messages, text) {
-  const resolved = await resolveSources(deps.db, session.user_id, session.sources)
+  const f = formatOf(session)
+  const resolved = await sourcesOf(deps, session)
   const providers = deps.makeProviders(AbortSignal.timeout(480000))
   const recent = messages.slice(-12).map(m => ({ who: m.role === 'user' ? '수강생' : '훅ai', text: m.content }))
   if (session.stage === 'topic') {
     if (String(session.brief || '').trim().length >= 4 && !researchFresh(session)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)), { research: true, category: false })
     const style = await query(deps.db.from('studio_topics').select('topic,category').eq('user_id', session.user_id).order('created_at', { ascending: false }).limit(8))
-    const wantsIdeas = /제안|추천|알아서|모르겠/.test(text)
-    const trending = wantsIdeas || !Object.keys(resolved).length ? await trendingFor(deps.db, session.topic?.category) : []
-    // Students lose patience after a few questions: settle the topic once they ask to, or after three answers.
-    const answered = messages.filter(m => m.role === 'user').length
-    const mustDecide = answered >= 3 || /충분|정해|확정|그만|알아서|그냥 해|바로 해|넘어가/.test(text)
-    const directive = mustDecide ? '지금까지 모인 정보로 더 묻지 말고 topic.ready=true로 주제를 확정하세요. 빠진 사실은 facts에 넣지 말고(뒤 단계에서 묻습니다) title·promise는 아는 사실만으로 씁니다. chips는 [].' : '질문은 한 번에 하나. 이미 답을 받은 내용은 다시 묻지 않습니다.'
-    const raw = await providersJson(providers, 'studio-topic', topicPrompt, { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), recentTopics: style.map(t => t.topic), trending, conversation: recent, userMessage: text, directive }, topicSchema)
+    const trending = wantsTopicIdeas(text) || !Object.keys(resolved).length ? await trendingFor(deps.db, session.topic?.category, { media: f?.media || 'reel' }) : []
+    const directive = topicDirective(messages.filter(m => m.role === 'user').length, text)
+    const raw = await providersJson(providers, 'studio-topic', f ? topicPromptFor(f.what) : topicPrompt, { ...contextOf(session, resolved, await knowledgeFor(deps.db, session)), recentTopics: style.map(t => t.topic), trending, conversation: recent, userMessage: text, directive }, topicSchema, null, f?.system)
     return normalizeTopicReply(raw)
   }
+  if (f) return f.revise(deps, session, messages, text)
   // On the finished plan the student says what to change; the request decides which part is revised.
   const stage = session.stage === 'done' ? (/캡션|해시태그/.test(text) ? 'caption' : /썸네일|커버|제목/.test(text) ? 'thumbnail' : 'script') : session.stage
   const input = { ...sessionContext(session, resolved, await knowledgeFor(deps.db, session)), conversation: recent, userMessage: text }
@@ -242,9 +266,9 @@ const SWIPE_CHECK = '다 쓴 뒤 시청자 입장에서 한 줄씩 다시 봅니
 // Students keep reshaping the script in chat after the topic and cover were picked, so the script can end up telling
 // another story than the topic. Stages after the script follow what the video will actually say.
 const SCRIPT_IS_FINAL = `대본(script)은 수강생이 마지막으로 다듬어 확정한 영상의 실제 내용입니다. 주제(topic)·brief·썸네일·첫 문장이 대본과 다른 소재나 다른 이야기를 하고 있으면, 대본을 고치는 동안 방향이 바뀐 것이니 대본을 따르고, 대본에 없는 앞 단계의 소재·약속은 가져오지 않습니다.`
-const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. ${CHIP_RULE} questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 단계 규칙이 빈칸을 허락한 경우에만 채웁니다.`
+export const ASK_RULE = `질문 규칙: 없으면 이 영상이 성립하지 않는 사실(영상이 바로 그것에 대한 대상의 이름, 영상의 중심이 되는 경험이나 수치)이 topic.facts, brief, attachments, answers 어디에도 없을 때만 questions에 담아 먼저 묻습니다. 질문은 최대 2개, 한 번에 답할 수 있게 구체적으로. key는 짧은 식별자. chips는 바로 누를 수 있는 답 2~3개이며 그중 하나는 반드시 "알아서 해주세요"입니다. ${CHIP_RULE} questions가 있으면 다른 항목은 전부 빈 값([] 또는 "")으로 둡니다. 그 밖의 세부(표현, 장면, 말투, 길이 등)는 묻지 말고 훅ai가 정합니다. "모름/없음/알아서/훅ai 재량"으로 답한 사실은 다시 묻지 않고, 그 사실 없이도 성립하게 씁니다. placeholders는 단계 규칙이 빈칸을 허락한 경우에만 채웁니다.`
 // After one round of questions (or once the student says "알아서"), 훅ai drafts with what it has: a quick draft the student can revise beats another question.
-const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
+export const NO_QUESTIONS = `이번에는 질문하지 않습니다(questions는 빈 배열). 이미 한 번 물었거나 수강생이 훅ai에게 맡겼습니다. 주어진 사실만으로 반드시 완성된 안을 냅니다.`
 
 // Version A, written on its own from the reference reel's script: its flow kept segment by segment, its sentences
 // written anew in the student's own speech (a sentence-for-sentence transplant read as someone else's words).
@@ -381,9 +405,13 @@ export function uncoveredSentences(sentences, raw) {
 
 // One round of questions per plan: afterwards (or once the student delegated) every stage drafts without asking.
 export const mayAsk = session => !(session.topic?.askedStages?.length > 0) && !session.topic?.delegated
+// The questions a draft came back with instead of a draft.
+export const parseAsks = value => (Array.isArray(value?.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...chipList(q.chips, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
 export async function generateStage(deps, session, stage) {
   // The first draft of a plan waits for its field and web research; later stages reuse what is saved.
   if (stage !== 'topic' && session.topic?.title && (!researchFresh(session) || !session.topic.categoryChecked)) session = await prepareTopic(deps, session, deps.makeProviders(AbortSignal.timeout(180000)))
+  const format = formatOf(session)
+  if (format) return format.generate(deps, session, stage, { asking: mayAsk(session) })
   const resolved = stage === 'thumbnail' ? {} : await resolveSources(deps.db, session.user_id, session.sources)
   // A script from a reference reel takes several calls (A, its checks and rewrites, alongside B and C).
   const providers = deps.makeProviders(AbortSignal.timeout(600000))
@@ -393,7 +421,6 @@ export async function generateStage(deps, session, stage) {
   const shared = stage === 'script' ? { provenFormulas: await provenFormulas(deps.db), storyTemplates: storyTemplates() } : null
   const context = stage === 'thumbnail' ? { ...sessionContext(session, resolved, knowledge), successCovers: await successCovers(deps.db, session.topic?.category), coverLessons: await coverKnowledge(deps.db) } : sessionContext(session, resolved, knowledge)
   const asking = mayAsk(session)
-  const parseAsks = value => (Array.isArray(value.questions) ? value.questions : []).map(q => ({ key: clean(q.key, 40) || 'info', question: clean(q.question, 300), chips: [...new Set([...chipList(q.chips, 3), '알아서 해주세요'])] })).filter(q => q.question).slice(0, 2)
   // One draft: questions first when 훅ai may still ask, then one rewrite for whatever the checks found (gaps: checks done in code).
   const draft = async (prompt, schema, extra = {}, { ask = asking, gaps = () => [], rounds = 1, fix = '', best = false } = {}) => {
     const input = { ...context, ...extra }
@@ -537,9 +564,10 @@ export async function cancelStage(deps, session) {
   // Going back skips over stages the student skipped (nothing to show there) to the last one that was made.
   let stage = session.job_stage
   if (!session[stage]) {
-    let at = STAGE_ORDER.indexOf(stage) - 1
-    while (at > 0 && !session[STAGE_ORDER[at]]) at -= 1
-    stage = STAGE_ORDER[Math.max(0, at)]
+    const order = stageOrder(session)
+    let at = order.indexOf(stage) - 1
+    while (at > 0 && !session[order[at]]) at -= 1
+    stage = order[Math.max(0, at)]
   }
   const patch = { stage, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }
   const done = await query(deps.db.from('studio_sessions').update(patch).eq('id', session.id).eq('job_status', 'running').select('*'))
@@ -560,7 +588,7 @@ export function runStageJob(deps, sessionId, stage) {
         if (parked?.length) await query(db.from('studio_messages').insert({ session_id: sessionId, user_id: session.user_id, role: 'hookai', stage, content: asks[0].question, meta: { chips: asks[0].chips, ask: asks[0].key } }))
         return
       }
-      const merged = [...new Set([...(session.placeholders || []), ...placeholders])].slice(0, 20)
+      const merged = [...new Set([...(session.placeholders || []), ...(placeholders || [])])].slice(0, 20)
       await query(stillRunning(db.from('studio_sessions').update({ [stage]: value, placeholders: merged, ask: null, job_status: 'idle', job_stage: null, job_error: null, updated_at: new Date().toISOString() }).eq('id', sessionId), stage))
     } catch (error) {
       await query(stillRunning(db.from('studio_sessions').update({ job_status: 'failed', job_error: message(error), updated_at: new Date().toISOString() }).eq('id', sessionId), stage)).catch(() => {})
@@ -569,11 +597,18 @@ export function runStageJob(deps, sessionId, stage) {
 }
 
 export async function startStage(deps, session, stage, { force = false } = {}) {
-  if (!STAGE_ORDER.includes(stage) || stage === 'topic' || stage === 'done') fail('STAGE_UNKNOWN', '알 수 없는 단계예요.')
+  if (!stageOrder(session).includes(stage) || stage === 'topic' || stage === 'done') fail('STAGE_UNKNOWN', '알 수 없는 단계예요.')
   if (!session.topic?.title) fail('TOPIC_REQUIRED', '먼저 주제를 정해주세요.', 409)
   const patch = { stage, updated_at: new Date().toISOString() }
   const stale = cutOff(deps, session)
   if (session.job_status === 'running' && !stale) return { ...session, ...patch }
+  // A stage 훅ai does not write (a carousel's design): what it holds is worked out on the spot, nothing waits.
+  const instant = formatOf(session)?.instant?.[stage]
+  if (instant) {
+    Object.assign(patch, await instant(deps, session), stale ? { job_status: 'idle', job_stage: null } : {})
+    await query(deps.db.from('studio_sessions').update(patch).eq('id', session.id))
+    return { ...session, ...patch }
+  }
   if (force || !session[stage]) Object.assign(patch, { job_status: 'running', job_stage: stage, job_error: null, job_started_at: new Date().toISOString() })
   else if (stale) Object.assign(patch, { job_status: 'idle', job_stage: null })
   await query(deps.db.from('studio_sessions').update(patch).eq('id', session.id))

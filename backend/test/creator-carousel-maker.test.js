@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { carouselChat, applyCarouselProposal, chatStage, paletteFrom, generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources, publicCarousel } from '../src/creator-tools/studio/carousel.js'
+import { carouselChat, applyCarouselProposal, chatStage, paletteFrom, generateCarouselStage, applyCarouselPatch, normalizeSlides, normalizeDesign, chosenCover, chosenBody, nextCarouselStage, normalizeCarouselSources, resolveCarouselSources } from '../src/creator-tools/studio/carousel.js'
 import { carouselMakerEnabled } from '../src/creator-tools/studio/access.js'
 import { setDemoUsers } from '../src/creator-tools/demo-access.js'
 import { IMAGE_TIERS, generateImage, monthlyAllowance, storeImage, designImages } from '../src/creator-tools/studio/carousel-images.js'
@@ -14,8 +14,8 @@ function setup({ row = {}, answers = {}, reels = {} } = {}) {
   const carousel = { id: 'c1', user_id: 'u1', stage: 'cover', brief: BRIEF, sources: {}, topic: TOPIC, cover: null, body: null, slides: null, design: null, caption: null, style_snapshot: null, ...row }
   const calls = []
   const db = { from: table => { let patch = null; const api = { select: () => api, eq: () => api, in: () => api, order: () => api, limit: () => api, single: () => api, maybeSingle: () => api, update: p => { patch = p; return api },
-    then: resolve => { if (table === 'studio_carousels' && patch) Object.assign(carousel, patch)
-      resolve({ data: table === 'studio_carousels' ? carousel : table === 'creator_success_reels' ? reels.row || null : null, error: null }) } }; return api } }
+    then: resolve => { if (table === 'studio_sessions' && patch) Object.assign(carousel, patch)
+      resolve({ data: table === 'studio_sessions' ? carousel : table === 'creator_success_reels' ? reels.row || null : null, error: null }) } }; return api } }
   const makeProviders = () => ({ json: async (operation, prompt, input) => { calls.push({ operation, prompt, input }); const answer = answers[operation]; return typeof answer === 'function' ? answer(input, calls.filter(c => c.operation === operation).length) : answer } })
   return { carousel, db, calls, deps: { db, makeProviders } }
 }
@@ -183,7 +183,6 @@ test('references: a carousel lends its slide order and its design; a reel lends 
   const fromReel = await resolveCarouselSources(other.db, 'u1', { structure: { id: 'Reel0001' } })
   assert.deepEqual(fromReel.structure.excerpt.steps, [{ role: 'hook', purpose: '멈추게 함' }], 'the reel\'s own sentences are not sent')
   await assert.rejects(resolveCarouselSources(other.db, 'u1', { design: { id: 'Reel0001' } }), { code: 'SOURCE_NOT_CAROUSEL' })
-  assert.equal(publicCarousel({ id: 'c1', stage: 'cover', topic: TOPIC, job_status: 'idle' }).topic.research.subject, '구움과자 주문 제작')
 })
 
 test('an AI image counts against the month only once it is in hand; the request never asks the model to draw letters', async () => {
