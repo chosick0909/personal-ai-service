@@ -4,6 +4,7 @@ import { useStudio } from '../context'
 import { studio, generateImage, uploadImage } from '../api'
 import SlidePreview from '../carousel/SlidePreview'
 import MovableSlide from '../carousel/MovableSlide'
+import TemplateGallery from '../carousel/TemplateGallery'
 import { TEMPLATES, FONTS, FONT_GROUPS, templateOf } from '../carousel/templates'
 import { downloadSlides, downloadSlide } from '../carousel/export'
 import { drawable, aiSlideIds } from '../carousel/plan'
@@ -138,9 +139,9 @@ export function DesignStage({ carousel, images, save }) {
   }
   return <div className="st-stack">
     <section className="st-card st-stack">
-      <div className="st-card-head"><div><h3>틀</h3><p>틀을 바꾸면 모든 장이 한 번에 다시 배치돼요. 글은 그대로예요.</p></div>
+      <div className="st-card-head"><div><h3>디자인 틀</h3><p>다른 디자인을 누르면 모든 장이 한 번에 다시 배치돼요. 글은 그대로예요.</p></div>
         <div className="st-chips">{['4:5', '3:4'].map(r => <button type="button" key={r} className="st-chip st-chip-soft" aria-pressed={design.ratio === r} onClick={() => set({ ratio: r })}>{r}</button>)}</div></div>
-      <div className="st-chips">{TEMPLATES.map(t => <button type="button" key={t.id} className="st-chip st-chip-soft" aria-pressed={t.id === design.template} onClick={() => save({ design: { ...design, template: t.id, slides: unmoved() }, slides: { template: t.id } })}>{t.name}</button>)}</div>
+      <TemplateGallery compact slides={slides} value={design.template} recommended={carousel.slides.recommended} view={view} onPick={id => save({ design: { ...design, template: id, slides: unmoved() }, slides: { template: id } })} />
       <div className="st-cr-controls">
         {COLOR_NAMES.map(([key, name]) => <label key={key} className="st-cr-color">{name}<input type="color" value={design.colors?.[key] || template.colors[key]} onChange={e => set({ colors: { ...design.colors, [key]: e.target.value.toUpperCase() } })} /></label>)}
         {Object.keys(design.colors || {}).length > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => set({ colors: {} })}>색 되돌리기</button>}

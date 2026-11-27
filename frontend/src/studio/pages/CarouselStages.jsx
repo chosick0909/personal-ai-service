@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Check, Copy, Merge, Plus, Scissors, Trash2, Triangl
 import { useStudio } from '../context'
 import { chosenBody, chosenCaption, slidesText } from '../carousel/plan'
 import SlidePreview from '../carousel/SlidePreview'
+import TemplateGallery from '../carousel/TemplateGallery'
 import { CAROUSEL_TEMPLATES, carouselTemplate, slideOverflows, slideLength, MAX_CAROUSEL_SLIDES, COVER_KICKER_LIMIT } from '../../../../shared/carousel-templates.mjs'
 
 const OPTION_NAME = ['1안', '2안', '3안']
@@ -83,6 +84,8 @@ function halves(slide) {
 }
 export function SlidesStage({ carousel, save, onRedo }) {
   const s = carousel.slides, template = carouselTemplate(s.template), limit = template.limits.body
+  // 훅ai's pick stays marked in the gallery after the student chooses another design.
+  const recommended = s.recommended || (!s.templateChosen ? s.template : null)
   const [items, setItems] = useState(s.items)
   const [dirty, setDirty] = useState(false)
   const edit = (id, patch) => { setItems(list => list.map(x => x.id === id ? { ...x, ...patch } : x)); setDirty(true) }
@@ -93,11 +96,10 @@ export function SlidesStage({ carousel, save, onRedo }) {
   return <div className="st-stack">
     {s.stale && <div className="st-note st-note-warn st-row" style={{ justifyContent: 'space-between' }}><span>본문을 고친 뒤 아직 다시 나누지 않았어요. 아래는 고치기 전 본문으로 나눈 장이에요.</span><button type="button" className="st-btn st-btn-sm" onClick={onRedo}>고친 본문으로 다시 나누기</button></div>}
     <section className="st-card st-stack">
-      <div className="st-card-head"><div><h3>어떤 틀로 만들까요?</h3><p>틀에 따라 한 장에 들어가는 글의 양이 달라요. 디자인 단계에서 다시 바꿀 수 있어요.</p></div></div>
-      <div className="st-cr-templates">{CAROUSEL_TEMPLATES.map(t => <button type="button" key={t.id} className="st-option" aria-pressed={t.id === s.template} onClick={() => save({ slides: { items, template: t.id } })}>
-        <div className="st-option-top"><strong style={{ fontSize: 16, marginRight: 'auto' }}>{t.name}</strong><span className="st-option-check"><Check size={16} /></span></div><span className="st-why">{t.description}</span>
-        <span className="st-muted st-small">한 장에 {t.limits.body.lines}줄 · {t.limits.body.text}자까지{t.imageRequired ? ' · 사진 필요' : ''}</span></button>)}</div>
-      {s.templateWhy && !s.templateChosen && <p className="st-muted st-small">훅ai가 고른 이유: {s.templateWhy}</p>}
+      <div className="st-card-head"><div><h3>디자인 틀 고르기</h3><p>내 글을 넣어 본 모습이에요. 마음에 드는 디자인을 눌러 주세요. 사진 자리는 예시 사진이고, 디자인 단계에서 다시 바꿀 수 있어요.</p></div></div>
+      <TemplateGallery slides={items} value={s.template} recommended={recommended} onPick={id => save({ slides: { items, template: id } })} />
+      <p className="st-muted st-small">지금 고른 <strong>{template.name}</strong>: 한 장에 {limit.lines}줄 · {limit.text}자까지 들어가요.{template.imageRequired ? ' 장마다 사진을 넣는 디자인이에요.' : ''}
+        {s.templateWhy && recommended === s.template ? ` 훅ai가 추천한 이유: ${s.templateWhy}` : ''}</p>
     </section>
     <section className="st-card st-stack">
       <div className="st-card-head"><div><h3>장별 글 · 모두 {items.length}장</h3><p>나누는 곳과 순서를 바꿀 수 있어요. 강조할 말은 <code>**이렇게**</code> 별표 두 개로 감싸요.</p></div><CopyButton text={slidesText(items)} label="장별 글 복사" /></div>

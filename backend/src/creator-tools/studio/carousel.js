@@ -292,7 +292,8 @@ export async function generateCarouselStage(deps, row, stage, { note = '', askin
     if (items.filter(s => s.role === 'body').length < 1) fail('STAGE_EMPTY', '슬라이드를 나누지 못했어요. 다시 시도해주세요.', 422)
     const bodies = items.filter(s => s.role === 'body')
     const weak = (Array.isArray(raw.weak) ? raw.weak : []).map(w => ({ id: bodies[Math.round(Number(w?.slide)) - 1]?.id, why: clean(w?.why, 200) })).filter(w => w.id && w.why).slice(0, 8)
-    return { value: { items, template, templateWhy, templateChosen: Boolean(keep), weak } }
+    // What 훅ai picked stays marked after the student chooses another design.
+    return { value: { items, template, templateWhy, templateChosen: Boolean(keep), recommended: keep ? row.slides?.recommended || null : template, weak } }
   }
   if (stage === 'design') {
     if (!row.slides?.items?.length) fail('STAGE_ORDER', '슬라이드를 먼저 나눠주세요.', 409)

@@ -328,6 +328,22 @@
 .st-cr-tools .st-icon-btn { width:36px; height:36px; }
 .st-cr-unit .st-cr-tools { flex-direction:column; }
 .st-cr-templates { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+/* 디자인 틀 고르기: each template as a picture of the student's own slides. */
+.st-tpl-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; }
+.st-tpl-grid.is-row { grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:124px; overflow-x:auto; padding:2px 2px 8px; }
+.st-tpl { display:grid; gap:8px; align-content:start; padding:8px; border:2px solid var(--st-line); border-radius:14px; background:var(--st-panel); color:inherit; font:inherit; text-align:left; cursor:pointer; transition:border-color .15s, box-shadow .15s, transform .15s; }
+.st-tpl:hover { border-color:var(--st-accent); transform:translateY(-2px); box-shadow:0 6px 18px rgba(20,16,40,.10); }
+.st-tpl[aria-pressed=true] { border-color:var(--st-accent); box-shadow:0 0 0 2px var(--st-accent); }
+.st-tpl-shots { position:relative; display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:6px; line-height:0; }
+.st-tpl-shots canvas { display:block; width:100%; height:auto; border-radius:8px; background:var(--st-bg); }
+.st-tpl-check { position:absolute; right:6px; top:6px; display:grid; place-items:center; width:24px; height:24px; border-radius:50%; background:var(--st-accent); color:#fff; }
+.st-tpl-badge { position:absolute; left:6px; top:6px; display:inline-flex; align-items:center; gap:3px; padding:3px 8px; border-radius:999px; background:var(--st-accent); color:#fff; font-size:11px; font-weight:800; line-height:1.4; }
+.st-tpl-name { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; padding:0 2px 2px; }
+.st-tpl-name strong { min-width:0; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.st-tpl-name .st-small { display:inline-flex; align-items:center; gap:4px; flex:none; }
+.st-tpl-grid.is-row .st-tpl { padding:6px; gap:6px; }
+.st-tpl-grid.is-row .st-tpl-name strong { font-size:13px; }
+.st-tpl-grid.is-row .st-tpl-badge { font-size:10px; padding:2px 6px; }
 .st-cr-slides { margin:0; padding:0; list-style:none; display:grid; gap:14px; }
 .st-cr-slides > li { display:grid; gap:8px; padding:16px; border:1px solid var(--st-line); border-radius:14px; background:var(--st-bg); }
 .st-cr-slides > li.is-over { border-color:var(--st-danger); }
