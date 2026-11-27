@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, Check, Paperclip, RotateCcw, Send, Sparkles, Printer, Save, X, MessageSquareText, ChevronUp, PanelRightClose, GripVertical, ChevronDown, History, Star, Play, Plus, GalleryHorizontalEnd } from 'lucide-react'
 import { useStudio } from '../context'
+import { toTop } from '../scroll'
 import { studio, stagesFor, SLOT_LABELS, readMaterials } from '../api'
 import { CoverStage, BodyStage, SlidesStage, CaptionStage as CarouselCaptionStage } from './CarouselStages'
 import { DesignStage } from './CarouselDesign'
@@ -463,7 +464,7 @@ export default function PlanWizard({ sessionId }) {
     } catch (e) { toast({ kind: 'failed', title: '훅ai가 답하지 못했어요', body: e.message }); return false } finally { setChatBusy(false); setPending(null) }
   }
   const pickTopic = async topic => { if (!wide()) setChatOpen(false); try { const r = await studio.setTopic(sessionId, topic); setData(d => ({ ...d, session: r.session })); load() } catch (e) { toast({ kind: 'failed', title: '주제를 정하지 못했어요', body: e.message }) } }
-  const toStage = async (stage, regenerate = false) => { if (!wide()) setChatOpen(false); try { const r = await studio.stage(sessionId, stage, regenerate); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load(); window.scrollTo(0, 0) } catch (e) { toast({ kind: 'failed', title: '이동하지 못했어요', body: e.message }) } }
+  const toStage = async (stage, regenerate = false) => { if (!wide()) setChatOpen(false); try { const r = await studio.stage(sessionId, stage, regenerate); setData(d => ({ ...d, session: r.session })); setVersion(v => v + 1); load(); toTop() } catch (e) { toast({ kind: 'failed', title: '이동하지 못했어요', body: e.message }) } }
   // Skipping the stage being written: stop it, then move on to the stage after it.
   const skipRunning = async () => { const stage = session.stage; try { await studio.cancelStage(sessionId) } catch { /* moving on anyway */ } toStage(ORDER[ORDER.indexOf(stage) + 1]) }
   // A press by mistake: stop waiting and go back to the screen before it (the plan keeps what it had).

@@ -12,15 +12,24 @@ const STAGE_NAME = Object.fromEntries(CAROUSEL_STAGES)
 
 // A 훅ai revision is previewed against the version in use: changed parts show old → new, then 이 수정 적용.
 export function CarouselProposal({ proposal, carousel, applied, onApply }) {
+  const slideText = s => [plain(s?.heading), plain(s?.text)].filter(Boolean).join('\n')
   const rows = proposal.stage === 'body' ? { now: (chosenBody(carousel)?.units || []).map(u => u.text), next: proposal.units.map(u => u.text) }
-    : proposal.stage === 'slides' ? { now: carousel.slides.items.filter(s => s.role === 'body').map(s => [plain(s.heading), plain(s.text)].filter(Boolean).join('\n')), next: proposal.slides.map(s => [plain(s.heading), plain(s.text)].filter(Boolean).join('\n')) }
+    : proposal.stage === 'slides' ? { now: carousel.slides.items.filter(s => s.role === 'body').map(slideText), next: proposal.slides.map(slideText) }
       : proposal.stage === 'cover' ? { now: [[chosenCover(carousel)?.kicker, chosenCover(carousel)?.text].filter(Boolean).join(' · ')], next: [[proposal.kicker, proposal.text].filter(Boolean).join(' · ')] }
         : { now: [chosenCaption(carousel)?.text || ''], next: [proposal.text] }
+  // The same number of parts: each is compared with the one in its place. A part added or taken out shifts the rest,
+  // so then a part counts as unchanged when it is still there, and the ones taken out are listed after.
+  const paired = rows.now.length === rows.next.length
+  const gone = paired ? [] : rows.now.filter(line => !rows.next.includes(line))
+  // The last slide's words change with the body and the slides, and are shown with them.
+  const last = proposal.stage === 'body' ? { now: chosenBody(carousel)?.closing || '', next: proposal.closing || '' }
+    : proposal.stage === 'slides' ? { now: slideText(carousel.slides.items.findLast(s => s.role === 'last')), next: slideText(proposal.last) } : null
   return <div className="st-proposal">
     <strong>{STAGE_NAME[proposal.stage]} 수정안 · {proposal.summary || '미리보기'}</strong>
-    <div className="st-proposal-card st-diff">{rows.next.map((line, i) => { const before = rows.now[i], changed = before !== line
+    <div className="st-proposal-card st-diff">{rows.next.map((line, i) => { const before = paired ? rows.now[i] : null, changed = paired ? before !== line : !rows.now.includes(line)
       return <div key={i} className={changed ? 'is-changed' : ''} style={{ whiteSpace: 'pre-wrap' }}>{changed && before && <s>{before}</s>}<span>{line}</span></div> })}
-      {rows.now.length > rows.next.length && rows.now.slice(rows.next.length).map((line, i) => <div key={`d${i}`} className="is-changed"><s>{line}</s><span className="st-muted st-small">삭제</span></div>)}
+      {gone.map((line, i) => <div key={`d${i}`} className="is-changed" style={{ whiteSpace: 'pre-wrap' }}><s>{line}</s><span className="st-muted st-small">삭제</span></div>)}
+      {last?.next && <div className={last.next !== last.now ? 'is-changed' : ''} style={{ whiteSpace: 'pre-wrap' }}><span className="st-muted st-small">마지막 장</span>{last.next !== last.now && last.now && <s>{last.now}</s>}<span>{last.next}</span></div>}
       {proposal.hashtags?.length > 0 && <span className="st-muted st-small">{proposal.hashtags.map(t => `#${t}`).join(' ')}</span>}</div>
     <div className="st-row">{applied ? <span className="st-pill st-pill-green"><Check size={14} /> 적용됨</span> : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={onApply}><Check size={16} />이 수정 적용</button>}
       <CopyButton text={[rows.next.join('\n\n'), (proposal.hashtags || []).map(t => `#${t}`).join(' ')].filter(Boolean).join('\n\n')} /></div>

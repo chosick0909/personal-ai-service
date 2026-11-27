@@ -10,6 +10,7 @@ import PlansPage from './pages/PlansPage'
 import IdeasPage from './pages/IdeasPage'
 import PlanStart from './pages/PlanStart'
 import PlanWizard from './pages/PlanWizard'
+import { toTop } from './scroll'
 import FormulasPage from './pages/FormulasPage'
 import LibraryPage from './pages/LibraryPage'
 import StylePage from './pages/StylePage'
@@ -87,7 +88,7 @@ export default function StudioApp() {
     window.history[replace ? 'replaceState' : 'pushState'](replace ? window.history.state : { from: routeRef.current?.page }, '', `/studio?${q}`)
     setRoute({ page, params })
     setMenuOpen(false)
-    window.scrollTo(0, 0)
+    toTop()
   }, [])
   const toast = useCallback((item) => {
     const id = item.id || `${Date.now()}-${Math.random()}`
