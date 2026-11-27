@@ -127,7 +127,9 @@ export function DesignStage({ carousel, images, save }) {
   // A move fits the template it was made on: switching templates puts every slide's text back in place.
   const unmoved = () => Object.fromEntries(Object.entries(design.slides || {}).map(([id, entry]) => { const rest = { ...entry }; delete rest.move; return [id, rest] }))
   const placed = key => design.slides?.[current.id]?.[key] || null
-  const missing = template.imageRequired ? slides.filter(s => (template.images[s.role] || 0) > 0 && !design.slides?.[s.id]?.image).length : 0
+  // Slides still without a photo: a must for a design that needs one, a suggestion for one built around photos.
+  const unpictured = template.imageRequired || template.photoFirst ? slides.filter(s => (template.images[s.role] || 0) > 0 && !design.slides?.[s.id]?.image) : []
+  const missing = template.imageRequired ? unpictured.length : 0
   const download = async one => {
     setDownloading(true)
     try {
@@ -153,6 +155,8 @@ export function DesignStage({ carousel, images, save }) {
     </section>
     {design.weightMix && !slides.some(s => /\*\*[^*]+\*\*/.test(`${s.heading || ''}${s.role === 'last' ? s.text || '' : ''}`)) && <div className="st-note st-small">제목 굵기 섞기는 제목에서 굵게 할 말을 <code>**이렇게**</code> 감싼 장에만 보여요. [슬라이드 나누기] 단계에서 감싸 주세요.</div>}
     {missing > 0 && <div className="st-note st-note-warn st-small">이 틀은 사진이 있어야 완성돼요. 사진이 빠진 장이 {missing}장 있어요. 장을 눌러 사진을 넣어 주세요.</div>}
+    {!missing && unpictured.length > 0 && <div className="st-note st-small">이 디자인은 장마다 사진이 들어가야 꽉 차 보여요. 사진이 없는 장: {unpictured.map(s => slides.indexOf(s) + 1).join(', ')}장. 장을 누르고 [사진 넣기]를 눌러 주세요.{' '}
+      <button type="button" className="st-btn st-btn-sm" style={{ marginLeft: 6 }} onClick={() => setSelected(unpictured[0].id)}>사진 없는 첫 장 고르기</button></div>}
     <div className="st-cr-design">
       <div className="st-cr-grid">{slides.map((s, i) => <button type="button" key={s.id} className="st-cr-cell" aria-pressed={s.id === current.id} onClick={() => setSelected(s.id)}>
         <SlidePreview slide={s} index={i} total={slides.length} design={view} />

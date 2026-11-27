@@ -491,8 +491,21 @@ export default function PlanWizard({ sessionId }) {
   const failed = session.job?.status === 'failed'
   const generating = running && session.job?.stage === session.stage
   const elapsed = session.job?.startedAt ? (Date.now() - Date.parse(session.job.startedAt)) / 1000 : 0
-  const nextLabel = (carousel ? { topic: '표지 제목 만들기', cover: '본문 기획하기', body: '슬라이드로 나누기', slides: '디자인하기', design: '캡션 만들기', caption: '완성하기' }
-    : { topic: '썸네일 카피 만들기', thumbnail: '첫 문장·대본 만들기', script: '촬영·편집 기획', filming: '캡션 만들기', caption: '완성하기' })[session.stage]
+  const nextLabelOf = stage => (carousel ? { topic: '표지 제목 만들기', cover: '본문 기획하기', body: '슬라이드로 나누기', slides: '디자인하기', design: '캡션 만들기', caption: '완성하기' }
+    : { topic: '썸네일 카피 만들기', thumbnail: '첫 문장·대본 만들기', script: '촬영·편집 기획', filming: '캡션 만들기', caption: '완성하기' })[stage]
+  const nextLabel = nextLabelOf(session.stage)
+  // The big button at the topic stage follows what the student did: a topic already set, a topic 훅ai just offered
+  // in the chat, what they wrote in the box, or a conversation still going (which 훅ai is then asked to settle).
+  const lastHookai = data.messages.findLast(m => m.role === 'hookai')
+  const offered = session.stage === 'topic' && lastHookai?.stage === 'topic' ? lastHookai.meta?.topic || null : null
+  const candidates = session.stage === 'topic' && lastHookai?.stage === 'topic' && lastHookai.meta?.proposals?.length > 0
+  const talked = data.messages.some(m => m.role === 'user' && m.stage === 'topic')
+  const topicStep = hasTopic && !topicStale ? { label: nextLabelOf(session.stage), run: () => toStage(ORDER[1]) }
+    : offered ? { label: '훅ai가 정리한 주제로 시작', run: () => pickTopic(offered), disabled: chatBusy }
+      : briefTopic() ? { label: '이 내용으로 바로 시작', run: startFromBrief }
+        : candidates ? { label: '채팅에서 주제 후보 고르기', run: () => setChatOpen(true) }
+          : talked ? { label: '지금까지 말한 내용으로 주제 정하기', run: () => send('지금까지 말한 내용으로 주제를 정해줘'), disabled: chatBusy }
+            : { label: '담고 싶은 내용을 적거나 훅ai와 이야기해 주세요', disabled: true }
   const key = `${version}-${session.stage}`
   return <div className="st-wizard">
     <div className="st-wizard-main">
@@ -545,7 +558,7 @@ export default function PlanWizard({ sessionId }) {
       {session.stage !== 'done' && !generating && <div className="st-wizard-foot">
         {idx > 0 && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx - 1])}><ArrowLeft size={20} />이전</button>}
         {session.stage !== 'topic' && session.stage !== 'design' && stageReady && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(session.stage, true)}><RotateCcw size={18} />다시</button>}
-        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!hasTopic && !briefTopic()} onClick={() => hasTopic && !topicStale ? toStage(ORDER[1]) : startFromBrief()}>{hasTopic && !topicStale ? `${nextLabel}` : briefTopic() ? '이 내용으로 바로 시작' : '담고 싶은 내용을 적어주세요'}<ArrowRight size={20} /></button>
+        {session.stage === 'topic' ? <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={topicStep.disabled} onClick={topicStep.run}>{topicStep.label}<ArrowRight size={20} /></button>
           : <button type="button" className="st-btn st-btn-primary st-btn-big" disabled={!stageReady} onClick={() => toStage(ORDER[idx + 1])}>{nextLabel}<ArrowRight size={20} /></button>}
         {skippable.has(ORDER[idx + 1]) && (session.stage === 'topic' ? hasTopic && !topicStale : stageReady) && <button type="button" className="st-btn st-btn-ghost st-btn-big" onClick={() => toStage(ORDER[idx + 2])}>{STAGES.find(([id]) => id === ORDER[idx + 1])?.[1]} 건너뛰기</button>}
       </div>}

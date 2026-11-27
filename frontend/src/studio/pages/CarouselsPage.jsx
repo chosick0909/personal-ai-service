@@ -38,7 +38,7 @@ export default function CarouselsPage() {
   if (error) return <div className="st-error">{error}</div>
   const label = stage => CAROUSEL_STAGES.find(([id]) => id === stage)?.[1] || stage
   return <div className="st-stack" style={{ maxWidth: 920 }}>
-    <div className="st-note st-small">내부에서 먼저 써 보는 화면이에요. 수강생에게는 아직 보이지 않아요.</div>
+    <div className="st-note st-small">먼저 써 보는 기능이에요. 수강생 전체에게는 아직 오픈하지 않았어요.</div>
     <section className="st-card st-stack">
       <div className="st-field"><label htmlFor="cr-brief">어떤 캐러셀을 만들까요?<small>다룰 내용, 내 경험, 꼭 넣을 숫자나 사실을 편하게 적어주세요. 아직 못 정했으면 비워 두고 훅ai와 주제부터 정해도 돼요.</small></label>
         <textarea id="cr-brief" className="st-textarea" value={brief} onChange={e => setBrief(e.target.value)} placeholder="예) 퇴근 후 2시간으로 구움과자 주문 제작을 시작한 과정. 집 오븐으로 시작했고…" /></div>
